@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -25,12 +26,11 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 5;
-// Format 5 adds optional per-note MIDI channels and retained non-note clip
-// events. Format 4 has identical ownership and is promoted losslessly with
-// default channels / empty event lists. Format 3 additionally defaults plug-in
-// chains. Older revisions changed identifiers and ownership and require the
-// explicit migrator.
+inline constexpr int kCurrentFormatVersion = 6;
+// Format 6 adds exact MIDI 2.0 note fields and lossless raw UMP event storage.
+// Format 5 adds optional per-note MIDI channels and retained non-note events;
+// format 4 defaults plug-in chains. These versions are promoted losslessly
+// with empty/default MIDI 2.0 data. Older revisions require the migrator.
 inline constexpr int kMinimumReadableFormatVersion = 3;
 
 // The single on-disk project data file (holds the full WProject schema, i.e.
@@ -513,6 +513,14 @@ struct MidiNote {
     int8_t tuningOffsetCents = 0; // -100 to +100 cents detune
     bool muted = false;
     uint8_t channel = 0;          // 0-15 source/output MIDI channel
+    struct Midi2Data {
+        uint8_t group = 0; // UMP Group; MIDI 1.0 notes use group 0.
+        uint16_t velocity = 0;
+        uint16_t releaseVelocity = 0;
+        uint8_t attributeType = 0;
+        uint16_t attributeData = 0;
+    };
+    std::optional<Midi2Data> midi2; // Exact MIDI 2.0 note fields; absent for MIDI 1.0 notes.
 };
 
 // Non-note MIDI data retained when importing Standard MIDI Files. The status
@@ -522,6 +530,15 @@ struct MidiClipEvent {
     double beat = 0.0;
     uint8_t status = 0;
     std::vector<uint8_t> data;
+};
+
+// One UMP packet preserved in the region's musical event stream. Word order
+// is host-order as stored in JSON; file codecs convert to/from big-endian.
+// Keeping unknown/future packet types opaque enables lossless round-tripping.
+struct MidiUmpEvent {
+    double beat = 0.0;
+    std::array<uint32_t, 4> words{};
+    uint8_t wordCount = 0; // 1, 2, 3, or 4 words according to UMP Message Type.
 };
 
 // A MIDI region containing notes placed on a track. Ids are UUIDv7.
@@ -538,6 +555,7 @@ struct MidiRegion {
     std::string color = "#3b82f6";
     std::vector<MidiNote> notes;  // Note container, sorted by startBeats
     std::vector<MidiClipEvent> events; // Non-note MIDI events, sorted by beat
+    std::vector<MidiUmpEvent> umpEvents; // MIDI 2.0 / opaque UMP events, stable order for ties.
     std::vector<AutomationLane> automationLanes;
 };
 

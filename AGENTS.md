@@ -537,7 +537,7 @@ parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `5`. A `.rsnraset` is normally a directory package containing
+format version is `6`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -566,10 +566,14 @@ Key ownership rules:
 There is deliberately no general in-engine migration ladder during this
 pre-release phase. `ProjectLoader` rejects formats older than the explicitly
 declared readable floor and directs the operator to `pnpm migrate <project>`.
-Format v3 and v4 are additive compatibility exceptions: v3 gains empty plug-in
-chains and v4 gains default MIDI channels/empty retained-event vectors. Both
-are parsed losslessly and promoted in memory; the package is rewritten at v5
-only on its next normal save. Newer unknown formats are always rejected. When persisted semantics change, bump the format, update
+Format v3, v4, and v5 are additive compatibility exceptions: v3 gains empty
+plug-in chains, v4 gains default MIDI channels/empty retained-event vectors,
+and v5 gains empty UMP-event vectors while MIDI 1.0 notes remain unchanged.
+They are parsed losslessly and promoted in memory; the package is rewritten at
+v6 only on its next normal save. MIDI 2.0 note attributes and raw UMP packets
+are optional region data; preserving them in the project does not itself imply
+that a given MIDI file, device, or plug-in path can consume MIDI 2.0.
+Newer unknown formats are always rejected. When persisted semantics change, bump the format, update
 serialization/parsing/defaults/fixtures and the external migrator, and add an
 explicit compatibility rule only when the old shape is provably unambiguous.
 

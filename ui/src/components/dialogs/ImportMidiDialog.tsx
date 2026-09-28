@@ -25,6 +25,7 @@ export function ImportMidiDialog({
   const [parsed, setParsed] = useState<Array<{ file: File; midi: ImportedMidiFile }> | null>(null);
   const [failure, setFailure] = useState("");
   const [choice, setChoice] = useState<MidiTempoChoice>("keep-beats");
+  const [sequenceIndex, setSequenceIndex] = useState(0);
   const [trackId, setTrackId] = useState(target?.trackId ?? "");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -37,6 +38,7 @@ export function ImportMidiDialog({
     setParsed(null);
     setFailure("");
     setProgress("");
+    setSequenceIndex(0);
     setTrackId(target?.trackId ?? midiTracks.find((track) => track.id === state.activeTrackId)?.id ?? midiTracks[0]?.id ?? "");
     let cancelled = false;
     void (async () => {
@@ -49,7 +51,9 @@ export function ImportMidiDialog({
           if (file.size > 32 * 1024 * 1024) throw new Error(`${file.name}: MIDI file exceeds 32 MiB`);
           return { file, midi: parseStandardMidiFile(new Uint8Array(await file.arrayBuffer())) };
         }));
-        if (batch.some(({ midi }) => !midi.tracks.some((track) => track.notes.length || track.events?.length)))
+        if (batch.length > 1 && batch.some(({ midi }) => midi.format === 2))
+          throw new Error("SMF Format 2 contains independent sequences with separate tempo maps. Import one Format 2 file at a time and choose a sequence explicitly.");
+        if (batch.some(({ midi }) => !midi.tracks.some((track) => track.notes.length || track.events?.length || track.umpEvents?.length)))
           throw new Error("Every imported MIDI file must contain at least one note or MIDI event track");
         if (!cancelled) setParsed(batch);
       } catch (cause) {
@@ -59,8 +63,14 @@ export function ImportMidiDialog({
     return () => { cancelled = true; };
   }, [open, files, target?.trackId, midiTracks, state.activeTrackId]);
 
-  const hasTempoMismatch = Boolean(song && parsed?.some(({ midi }) =>
-    midiTempoDiffersFromSong(midi.tempoEvents, song)));
+  const format2File = parsed?.length === 1 && parsed[0].midi.format === 2 ? parsed[0] : undefined;
+  const selectedSequence = format2File?.midi.tracks[Math.min(sequenceIndex, format2File.midi.tracks.length - 1)];
+  const selectedTempoEvents = selectedSequence?.tempoEvents ?? format2File?.midi.tempoEvents;
+  const selectedMeterEvents = selectedSequence?.meterEvents ?? format2File?.midi.meterEvents;
+  const hasTempoMismatch = Boolean(song && parsed?.some(({ midi }) => {
+    const tempos = midi.format === 2 && selectedSequence ? selectedSequence.tempoEvents ?? [] : midi.tempoEvents;
+    return midiTempoDiffersFromSong(tempos, song);
+  }));
   const canUseImportedTempo = Boolean(parsed && parsed.length === 1);
 
   const doImport = async () => {
@@ -78,15 +88,17 @@ export function ImportMidiDialog({
     try {
       if (choice === "use-midi-tempo" && parsed.length === 1) {
         const sourceSong = parsed[0].midi;
-        const bpm = sourceSong.bpm ?? 120;
+        const sourceTempoEvents = sourceSong.format === 2 ? selectedTempoEvents ?? [] : sourceSong.tempoEvents;
+        const sourceMeterEvents = sourceSong.format === 2 ? selectedMeterEvents ?? [] : sourceSong.meterEvents;
+        const bpm = sourceTempoEvents.filter((point) => point.beat <= 0).at(-1)?.bpm ?? sourceSong.bpm ?? 120;
         const tempoByBeat = new Map<number, { beat: number; bpm: number }>();
         tempoByBeat.set(0, { beat: 0, bpm: 120 });
-        for (const point of sourceSong.tempoEvents) {
+        for (const point of sourceTempoEvents) {
           if (point.beat >= 0) tempoByBeat.set(point.beat, point);
         }
         const tempoPoints = [...tempoByBeat.values()].sort((a, b) => a.beat - b.beat).map((point) => ({
           ...point,
-          timeSeconds: midiSecondsAtBeat(sourceSong.tempoEvents, point.beat),
+          timeSeconds: midiSecondsAtBeat(sourceTempoEvents, point.beat),
           curve: 0,
         }));
         const meterByBeat = new Map<number, { beat: number; numerator: number; denominator: number }>();
@@ -95,7 +107,7 @@ export function ImportMidiDialog({
           numerator: sourceSong.numerator ?? 4,
           denominator: sourceSong.denominator ?? 4,
         });
-        for (const point of sourceSong.meterEvents) {
+        for (const point of sourceMeterEvents) {
           if (point.beat >= 0) meterByBeat.set(point.beat, point);
         }
         let bar = 1;
@@ -123,11 +135,13 @@ export function ImportMidiDialog({
       for (let index = 0; index < parsed.length; index++) {
         const { file, midi } = parsed[index];
         setProgress(`Importing ${index + 1} of ${parsed.length}: ${file.name}`);
-        const sourceTracks = midi.tracks.filter((track) => track.notes.length > 0 || track.events?.length);
-        const sourceEnd = Math.max(1, ...midi.tracks.map((track) => track.durationBeats));
-        const originalDurationSeconds = midiSecondsAtBeat(midi.tempoEvents, sourceEnd);
+        const sourceTempoEvents = midi.format === 2 && selectedSequence ? selectedSequence.tempoEvents ?? [] : midi.tempoEvents;
+        const selectedTracks = midi.format === 2 && selectedSequence ? [selectedSequence] : midi.tracks;
+        const sourceTracks = selectedTracks.filter((track) => track.notes.length > 0 || track.events?.length || track.umpEvents?.length);
+        const sourceEnd = Math.max(1, ...sourceTracks.map((track) => track.durationBeats));
+        const originalDurationSeconds = midiSecondsAtBeat(sourceTempoEvents, sourceEnd);
         const convertedTracks = choice === "fit-project-tempo"
-          ? adaptMidiTracksToSongTempo(sourceTracks, midi.tempoEvents, song)
+          ? adaptMidiTracksToSongTempo(sourceTracks, sourceTempoEvents, song)
           : sourceTracks;
         const fileDurationBeats = choice === "fit-project-tempo"
           ? Math.max(1, ...convertedTracks.map((track) => track.durationBeats))
@@ -138,16 +152,18 @@ export function ImportMidiDialog({
           id: id++,
         })));
         const events = convertedTracks.flatMap((track) => track.events ?? []);
+        const umpEvents = convertedTracks.flatMap((track) => track.umpEvents ?? []);
         await builder.midiRegionAdd({
           songIndex: target?.songIndex ?? state.songIndex,
           trackId,
-          name: file.name.replace(/\.(mid|midi)$/i, ""),
+          name: `${file.name.replace(/\.(mid|midi|midi2)$/i, "")}${midi.format === 2 && selectedSequence ? ` - ${selectedSequence.name}` : ""}`,
           startBeats: cursor,
           durationBeats: fileDurationBeats,
           loop: false,
           loopLengthBeats: fileDurationBeats,
           notes,
           events,
+          umpEvents,
         });
         if (choice === "fit-project-tempo" || choice === "use-midi-tempo") {
           const startSeconds = songSecondsAtBeat(activeTempoSong, cursor);
@@ -176,8 +192,16 @@ export function ImportMidiDialog({
             <Modal.Header><Modal.Heading>Import MIDI</Modal.Heading></Modal.Header>
             <Modal.Body className="space-y-4">
               <p className="text-xs text-foreground/65">
-                {files.length} file{files.length === 1 ? "" : "s"}. Each file becomes its own region; files are placed sequentially from the chosen start. MIDI tracks inside each file are combined into the selected destination track.
+                {format2File
+                  ? "SMF Format 2 stores independent sequences and tempo maps, not parallel tracks. Choose one sequence to import into the selected song; import other sequences separately."
+                  : `${files.length} file${files.length === 1 ? "" : "s"}. Each file becomes its own region; files are placed sequentially from the chosen start. MIDI tracks inside each file are combined into the selected destination track.`}
               </p>
+              {format2File && <label className="grid gap-1 text-xs">
+                Independent sequence
+                <select className="rounded-lg border border-default/25 bg-surface px-3 py-2 text-foreground" value={Math.min(sequenceIndex, format2File.midi.tracks.length - 1)} onChange={(event) => setSequenceIndex(Number(event.target.value))}>
+                  {format2File.midi.tracks.map((track, index) => <option key={index} value={index}>{index + 1}. {track.name} · {track.tempoEvents?.find((point) => point.beat <= 0)?.bpm?.toFixed(1) ?? 120} BPM</option>)}
+                </select>
+              </label>}
               {parsed && <ul className="max-h-24 space-y-1 overflow-auto rounded-lg border border-default/20 p-2 text-xs">
                 {parsed.map(({ file, midi }) => <li key={`${file.name}:${file.size}:${file.lastModified}`} className="flex justify-between gap-3">
                   <span className="truncate">{file.name}</span>

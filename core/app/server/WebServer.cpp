@@ -1717,6 +1717,15 @@ std::string WebServer::buildStateJson(const char* view) const {
                     wN.tuningOffsetCents = n.tuningOffsetCents;
                     wN.muted = n.muted;
                     wN.channel = n.channel;
+                    if (n.midi2) {
+                        WMidiNoteTelemetry::WMidi2Data midi2;
+                        midi2.group = n.midi2->group;
+                        midi2.velocity = n.midi2->velocity;
+                        midi2.releaseVelocity = n.midi2->releaseVelocity;
+                        midi2.attributeType = n.midi2->attributeType;
+                        midi2.attributeData = n.midi2->attributeData;
+                        wN.midi2 = midi2;
+                    }
                     wMr.notes.push_back(std::move(wN));
                 }
                 wMr.events.reserve(mr.events.size());
@@ -1728,6 +1737,14 @@ std::string WebServer::buildStateJson(const char* view) const {
                     for (int byte : event.data)
                         wEvent.data.push_back(static_cast<uint8_t>(std::clamp(byte, 0, 255)));
                     wMr.events.push_back(std::move(wEvent));
+                }
+                wMr.umpEvents.reserve(mr.umpEvents.size());
+                for (const auto& event : mr.umpEvents) {
+                    WMidiUmpEventTelemetry wEvent;
+                    wEvent.beat = finiteOrZero(event.beat);
+                    wEvent.words = event.words;
+                    wEvent.wordCount = event.wordCount;
+                    wMr.umpEvents.push_back(std::move(wEvent));
                 }
                 wSong.midiRegions.push_back(std::move(wMr));
             }

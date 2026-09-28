@@ -66,6 +66,16 @@ std::vector<MidiNote> parseMidiNotes(const glz::generic& doc) {
         getBool(noteVal, "muted", n.muted);
         int channel = 0;
         if (getInt(noteVal, "channel", channel)) n.channel = static_cast<uint8_t>(std::clamp(channel, 0, 15));
+        if (noteVal.contains("midi2") && noteVal["midi2"].is_object()) {
+            MidiNote::Midi2Data midi2;
+            int value = 0;
+            if (getInt(noteVal["midi2"], "group", value)) midi2.group = static_cast<uint8_t>(std::clamp(value, 0, 15));
+            if (getInt(noteVal["midi2"], "velocity", value)) midi2.velocity = static_cast<uint16_t>(std::clamp(value, 0, 65535));
+            if (getInt(noteVal["midi2"], "releaseVelocity", value)) midi2.releaseVelocity = static_cast<uint16_t>(std::clamp(value, 0, 65535));
+            if (getInt(noteVal["midi2"], "attributeType", value)) midi2.attributeType = static_cast<uint8_t>(std::clamp(value, 0, 255));
+            if (getInt(noteVal["midi2"], "attributeData", value)) midi2.attributeData = static_cast<uint16_t>(std::clamp(value, 0, 65535));
+            n.midi2 = midi2;
+        }
         notes.push_back(n);
     }
     std::stable_sort(notes.begin(), notes.end(), [](const MidiNote& a, const MidiNote& b) {
@@ -99,6 +109,45 @@ std::vector<MidiClipEvent> parseMidiClipEvents(const glz::generic& doc) {
             totalPayloadBytes += event.data.size();
         }
         events.push_back(std::move(event));
+    }
+    std::stable_sort(events.begin(), events.end(), [](const auto& a, const auto& b) { return a.beat < b.beat; });
+    return events;
+}
+
+std::vector<MidiUmpEvent> parseMidiUmpEvents(const glz::generic& doc) {
+    std::vector<MidiUmpEvent> events;
+    if (!doc.contains("umpEvents") || !doc["umpEvents"].is_array()) return events;
+    const auto& values = doc["umpEvents"].get_array();
+    if (values.size() > 200'000) return events;
+    events.reserve(values.size());
+    size_t totalWords = 0;
+    for (const auto& value : values) {
+        if (!value.is_object()) continue;
+        MidiUmpEvent event;
+        int wordCount = 0;
+        if (!getDouble(value, "beat", event.beat) || !getInt(value, "wordCount", wordCount)
+            || !std::isfinite(event.beat) || wordCount < 1 || wordCount > 4
+            || !value.contains("words") || !value["words"].is_array()) continue;
+        const auto& words = value["words"].get_array();
+        // The project/wire DTO uses a fixed four-word packet array; only the
+        // leading `wordCount` entries are meaningful for shorter UMP types.
+        if (words.size() < static_cast<size_t>(wordCount) || words.size() > 4
+            || totalWords + static_cast<size_t>(wordCount) > 800'000) continue;
+        bool valid = true;
+        for (size_t i = 0; i < words.size(); ++i) {
+            if (!words[i].is_number()) { valid = false; break; }
+            const double raw = words[i].get_number();
+            if (!std::isfinite(raw) || raw < 0.0 || raw > 4294967295.0 || std::floor(raw) != raw) {
+                valid = false;
+                break;
+            }
+            event.words[i] = static_cast<uint32_t>(raw);
+        }
+        if (!valid) continue;
+        event.beat = std::max(0.0, event.beat);
+        event.wordCount = static_cast<uint8_t>(wordCount);
+        events.push_back(event);
+        totalWords += static_cast<size_t>(wordCount);
     }
     std::stable_sort(events.begin(), events.end(), [](const auto& a, const auto& b) { return a.beat < b.beat; });
     return events;
@@ -919,6 +968,8 @@ void MainComponent::builderMidiRegionAdd(const std::string& json) {
         reg.notes = parseMidiNotes(doc);
     if (doc.contains("events") && doc["events"].is_array())
         reg.events = parseMidiClipEvents(doc);
+    if (doc.contains("umpEvents") && doc["umpEvents"].is_array())
+        reg.umpEvents = parseMidiUmpEvents(doc);
     if (doc.contains("automationLanes") && doc["automationLanes"].is_array()) {
         reg.automationLanes = parseAutomationLanes(doc);
         for (auto& lane : reg.automationLanes) {
@@ -1003,6 +1054,8 @@ void MainComponent::builderMidiRegionUpdate(const std::string& json) {
         regPtr->notes = parseMidiNotes(doc);
     if (doc.contains("events") && doc["events"].is_array())
         regPtr->events = parseMidiClipEvents(doc);
+    if (doc.contains("umpEvents") && doc["umpEvents"].is_array())
+        regPtr->umpEvents = parseMidiUmpEvents(doc);
     if (doc.contains("automationLanes") && doc["automationLanes"].is_array())
         regPtr->automationLanes = parseAutomationLanes(doc);
 

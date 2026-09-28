@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  analyzeMidi1ExportLoss,
   adaptMidiTracksToSongTempo,
   midiSecondsAtBeat,
   parseStandardMidiFile,
@@ -53,6 +54,142 @@ describe("Standard MIDI File", () => {
     });
   });
 
+  it("round-trips MIDI 2.0 note precision and group in an SMF2 Clip", () => {
+    const midi2Region: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [{
+        ...region.notes[0],
+        startBeats: 0.25,
+        durationBeats: 0.75,
+        channel: 4,
+        velocity: 0.5,
+        midi2: { group: 3, velocity: 0x9234, releaseVelocity: 0x4567,
+          attributeType: 1, attributeData: 0xbeef },
+      }],
+    };
+    const song: SongRow = {
+      name: "MIDI 2", bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: 2,
+      click: false, clickBusId: "", clickSends: [], tracks: [{
+        id: "t1", name: "Expressive", busId: "", file: "", gainDb: 0,
+        pan: 0, mute: false, solo: false, sendsCount: 0,
+      }], regions: [], midiRegions: [midi2Region], events: [],
+    };
+    const bytes = writeSongsMidiFile([song], {
+      songIndices: [0], fromProjectStart: true, expandLoops: true, format: "midi2",
+    });
+    expect(new TextDecoder().decode(bytes.subarray(0, 8))).toBe("SMF2CLIP");
+    const parsed = parseStandardMidiFile(bytes);
+    expect(parsed.tracks).toHaveLength(1);
+    expect(parsed.tracks[0].notes[0]).toMatchObject({
+      pitch: 60, channel: 4, startBeats: 0.25, durationBeats: 0.75,
+      midi2: { group: 3, velocity: 0x9234, releaseVelocity: 0x4567,
+        attributeType: 1, attributeData: 0xbeef },
+    });
+    expect(parsed.tempoEvents[0].bpm).toBeCloseTo(120, 3);
+    expect(parsed.meterEvents[0]).toMatchObject({ numerator: 4, denominator: 4 });
+  });
+
+  it("uses the MIDI Association bit-scaling rule for ordinary 7-bit velocity in .midi2", () => {
+    const source = { ...region, startBeats: 0, notes: [{ ...region.notes[0], velocity: 70 / 127 }] };
+    const song: SongRow = {
+      name: "MIDI 1", bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: 2,
+      click: false, clickBusId: "", clickSends: [], tracks: [{
+        id: "t1", name: "Legacy", busId: "", file: "", gainDb: 0,
+        pan: 0, mute: false, solo: false, sendsCount: 0,
+      }], regions: [], midiRegions: [source], events: [],
+    };
+    const parsed = parseStandardMidiFile(writeSongsMidiFile([song], {
+      songIndices: [0], fromProjectStart: true, expandLoops: true, format: "midi2",
+    }));
+    expect(parsed.tracks[0].notes[0].midi2?.velocity).toBe(0x8c30);
+  });
+
+  it("exports the effective tempo and meter at a nonzero MIDI 2.0 clip origin", () => {
+    const song: SongRow = {
+      name: "Tempo map", bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: 7,
+      click: false, clickBusId: "", clickSends: [], tracks: [{
+        id: "t1", name: "Piano", busId: "", file: "", gainDb: 0,
+        pan: 0, mute: false, solo: false, sendsCount: 0,
+      }], regions: [], midiRegions: [{ ...region, startBeats: 8 }], events: [],
+      tempoPoints: [
+        { beat: 0, bpm: 120, timeSeconds: 0, curve: 0 },
+        { beat: 4, bpm: 90, timeSeconds: 2, curve: 0 },
+        { beat: 10, bpm: 100, timeSeconds: 6, curve: 0 },
+      ],
+      signaturePoints: [
+        { beat: 0, numerator: 4, denominator: 4, bar: 1 },
+        { beat: 6, numerator: 3, denominator: 4, bar: 2 },
+        { beat: 9, numerator: 5, denominator: 4, bar: 3 },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeSongsMidiFile([song], {
+      songIndices: [0], fromProjectStart: false, expandLoops: true, format: "midi2",
+    }));
+    expect(parsed.tempoEvents).toHaveLength(2);
+    expect(parsed.tempoEvents[0].beat).toBe(0);
+    expect(parsed.tempoEvents[0].bpm).toBeCloseTo(90, 4);
+    expect(parsed.tempoEvents[1].beat).toBe(2);
+    expect(parsed.tempoEvents[1].bpm).toBeCloseTo(100, 4);
+    expect(parsed.meterEvents).toEqual([
+      { beat: 0, numerator: 3, denominator: 4 },
+      { beat: 1, numerator: 5, denominator: 4 },
+    ]);
+  });
+
+  it("round-trips opaque four-word UMP events without interpreting their payload", () => {
+    const opaque = [0x50031234, 0x89abcdef, 0x10293847, 0xdeadbeef];
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      umpEvents: [{ beat: 1.25, words: opaque, wordCount: 4 }],
+    };
+    const song: SongRow = {
+      name: "Opaque UMP", bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: 2,
+      click: false, clickBusId: "", clickSends: [], tracks: [{
+        id: "t1", name: "UMP", busId: "", file: "", gainDb: 0,
+        pan: 0, mute: false, solo: false, sendsCount: 0,
+      }], regions: [], midiRegions: [source], events: [],
+    };
+    const parsed = parseStandardMidiFile(writeSongsMidiFile([song], {
+      songIndices: [0], fromProjectStart: true, expandLoops: true, format: "midi2",
+    }));
+    expect(parsed.tracks[0].umpEvents).toContainEqual({ beat: 1.25, words: opaque, wordCount: 4 });
+  });
+
+  it("down-converts representable MIDI 2.0 channel controls in a standard .mid export", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      umpEvents: [{ beat: 1, words: [0x40b20700, 0x80000000], wordCount: 2 }],
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile([{ name: "Controls", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: true,
+    }));
+    expect(parsed.tracks[1].events).toContainEqual({ beat: 1, status: 0xb2, data: [7, 64] });
+  });
+
+  it("reports MIDI 2.0 note and opaque UMP losses before legacy export", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      notes: [{ ...region.notes[0], midi2: {
+        group: 2, velocity: 0x9234, releaseVelocity: 0x4567,
+        attributeType: 1, attributeData: 0xbeef,
+      } }],
+      umpEvents: [{ beat: 1, words: [0x50000000, 0, 0, 0], wordCount: 4 }],
+    };
+    expect(analyzeMidi1ExportLoss([{ name: "Expressive", regions: [source] }])).toEqual({
+      midi2Notes: 1,
+      noteAttributes: 1,
+      groups: 1,
+      quantizedVelocities: 1,
+      unsupportedUmpEvents: 1,
+    });
+  });
+
   it("preserves source MIDI channels and non-note channel/meta events", () => {
     const source: MidiRegionRow = {
       ...region,
@@ -86,6 +223,31 @@ describe("Standard MIDI File", () => {
     expect(parsed.tracks[0].notes[0].startBeats).toBe(0);
     expect(parsed.tracks[0].notes[0].durationBeats).toBeCloseTo(1, 5);
     expect(parsed.tracks[0].durationBeats).toBeCloseTo(1, 5);
+  });
+
+  it("keeps SMF Format 2 sequences and their independent tempo maps separate", () => {
+    const makeTrack = (name: string, micros: number) => {
+      const body = [
+        0, 0xff, 0x03, 1, name.charCodeAt(0),
+        0, 0xff, 0x51, 3, (micros >>> 16) & 0xff, (micros >>> 8) & 0xff, micros & 0xff,
+        0, 0x90, 60, 100,
+        0x83, 0x60, 0x80, 60, 0,
+        0, 0xff, 0x2f, 0,
+      ];
+      return [0x4d,0x54,0x72,0x6b, (body.length >>> 24) & 0xff, (body.length >>> 16) & 0xff,
+        (body.length >>> 8) & 0xff, body.length & 0xff, ...body];
+    };
+    const first = makeTrack("A", 500_000);
+    const second = makeTrack("B", 250_000);
+    const bytes = Uint8Array.from([
+      0x4d,0x54,0x68,0x64, 0,0,0,6, 0,2, 0,2, 1,0xe0,
+      ...first, ...second,
+    ]);
+    const parsed = parseStandardMidiFile(bytes);
+    expect(parsed.format).toBe(2);
+    expect(parsed.tempoEvents).toEqual([]);
+    expect(parsed.tracks.map((track) => track.tempoEvents?.[0].bpm)).toEqual([120, 240]);
+    expect(parsed.tracks.map((track) => track.notes[0].durationBeats)).toEqual([1, 1]);
   });
 
   it("can export from the first region rather than project zero", () => {

@@ -88,7 +88,7 @@ TEST_CASE("ProjectLoader parses click, main, sends, tracks, songs, events, and m
     REQUIRE(loader.open(path, error));
 
     const Project& proj = loader.project();
-    CHECK(proj.format.version == 5);
+    CHECK(proj.format.version == 6);
     CHECK(proj.name == "Full Parse Test");
     CHECK(proj.sampleRate == 48000.0);
 
@@ -317,6 +317,17 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     loader.project().songs[0].bpm = 99.5;
     loader.project().tracks[0].gainDb = -6.0;
     loader.project().main.output.target = "audio::out:5,audio::out:6";
+    MidiRegion midiRegion;
+    midiRegion.id = "019fd93b-3662-7f5b-8162-45f5ecad98fa";
+    midiRegion.trackId = "audio::track:1";
+    midiRegion.name = "UMP round trip";
+    MidiNote midi2Note;
+    midi2Note.id = 42;
+    midi2Note.pitch = 64;
+    midi2Note.midi2 = MidiNote::Midi2Data{3, 49152, 1234, 1, 0xBEEF};
+    midiRegion.notes.push_back(midi2Note);
+    midiRegion.umpEvents.push_back(MidiUmpEvent{2.25, {0x40903C00u, 0xFFFF0000u, 0u, 0u}, 2});
+    loader.project().songs[0].midiRegions.push_back(midiRegion);
     PluginSlot slot;
     slot.id = "019fd93b-3662-7f5b-8162-45f5ecad9811";
     slot.plugin.identifier = "VST3-test-effect";
@@ -358,6 +369,20 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(*p.songs[0].events[2].httpUrl == "http://example.local/cue");
     REQUIRE(p.midi.mappings.size() == 2);
     CHECK(p.midi.mappings[0].action == "play");
+    REQUIRE(p.songs[0].midiRegions.size() == 1);
+    const auto& restoredMidiRegion = p.songs[0].midiRegions[0];
+    REQUIRE(restoredMidiRegion.notes.size() == 1);
+    REQUIRE(restoredMidiRegion.notes[0].midi2.has_value());
+    CHECK(restoredMidiRegion.notes[0].midi2->velocity == 49152);
+    CHECK(restoredMidiRegion.notes[0].midi2->group == 3);
+    CHECK(restoredMidiRegion.notes[0].midi2->releaseVelocity == 1234);
+    CHECK(restoredMidiRegion.notes[0].midi2->attributeType == 1);
+    CHECK(restoredMidiRegion.notes[0].midi2->attributeData == 0xBEEF);
+    REQUIRE(restoredMidiRegion.umpEvents.size() == 1);
+    CHECK(restoredMidiRegion.umpEvents[0].beat == doctest::Approx(2.25));
+    CHECK(restoredMidiRegion.umpEvents[0].wordCount == 2);
+    CHECK(restoredMidiRegion.umpEvents[0].words[0] == 0x40903C00u);
+    CHECK(restoredMidiRegion.umpEvents[0].words[1] == 0xFFFF0000u);
 
     std::remove(outPath.c_str());
 }

@@ -829,6 +829,21 @@ export function EditorScreen({
                 : 0;
 
             const handleNotesChange = (updatedNotes: MidiNoteRow[]) => {
+              // Keep the lossless MIDI 2.0 shadow values in sync with the
+              // editable normalized fields. Otherwise Piano Roll velocity
+              // edits would play correctly via MIDI 1.0 but export the stale
+              // imported 16-bit value as MIDI 2.0.
+              const previousNotes = new Map(activeRegion.notes.map((note) => [note.id, note]));
+              const notesToSave = updatedNotes.map((note) => {
+                const previous = previousNotes.get(note.id);
+                if (!note.midi2 || !previous) return note;
+                const midi2 = { ...note.midi2 };
+                if (note.velocity !== previous.velocity)
+                  midi2.velocity = Math.max(0, Math.min(0xffff, Math.round(note.velocity * 0xffff)));
+                if (note.releaseVelocity !== previous.releaseVelocity)
+                  midi2.releaseVelocity = Math.max(0, Math.min(0xffff, Math.round(note.releaseVelocity * 0xffff)));
+                return { ...note, midi2 };
+              });
               const exists = midiRegions.some((r) => r.id === activeRegion.id);
               if (!exists) {
                 // The placeholder id is UI-only; Core assigns the durable
@@ -845,13 +860,13 @@ export function EditorScreen({
                   loopLengthBeats: activeRegion.loopLengthBeats,
                   muted: Boolean(activeRegion.muted),
                   color: activeRegion.color,
-                  notes: updatedNotes,
+                  notes: notesToSave,
                 });
               } else {
                 void builder.midiRegionUpdate({
                   songIndex: state.songIndex,
                   regionId: activeRegion.id,
-                  notes: updatedNotes,
+                  notes: notesToSave,
                 });
               }
             };

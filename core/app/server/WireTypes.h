@@ -2,6 +2,7 @@
 
 #include "glaze/glaze.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -399,12 +400,26 @@ struct WMidiNoteTelemetry {
     int tuningOffsetCents = 0;
     bool muted = false;
     int channel = 0;
+    struct WMidi2Data {
+        int group = 0;
+        uint16_t velocity = 0;
+        uint16_t releaseVelocity = 0;
+        int attributeType = 0;
+        uint16_t attributeData = 0;
+    };
+    std::optional<WMidi2Data> midi2;
 };
 
 struct WMidiClipEventTelemetry {
     double beat = 0.0;
     int status = 0;
     std::vector<int> data;
+};
+
+struct WMidiUmpEventTelemetry {
+    double beat = 0.0;
+    std::array<uint32_t, 4> words{};
+    int wordCount = 0;
 };
 
 struct WMidiRegionTelemetry {
@@ -420,6 +435,7 @@ struct WMidiRegionTelemetry {
     std::string color = "#3b82f6";
     std::vector<WMidiNoteTelemetry> notes;
     std::vector<WMidiClipEventTelemetry> events;
+    std::vector<WMidiUmpEventTelemetry> umpEvents;
 };
 
 struct WTempoPointTelemetry {

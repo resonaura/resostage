@@ -940,7 +940,7 @@ export default function App() {
       <input
         ref={midiImportInput}
         type="file"
-        accept=".mid,.midi,audio/midi"
+        accept=".mid,.midi,.midi2,audio/midi"
         multiple
         className="hidden"
         aria-label="Import MIDI file"

@@ -1160,8 +1160,8 @@ export function Timeline({
     if (readOnly || effectiveViewMode !== "audio") return;
     const droppedFiles = Array.from(e.dataTransfer.files ?? []);
     const dropped = droppedFiles[0] ?? null;
-    const allMidi = droppedFiles.length > 0 && droppedFiles.every((file) => /\.(mid|midi)$/i.test(file.name));
-    const isMidi = Boolean(dropped && /\.(mid|midi)$/i.test(dropped.name));
+    const allMidi = droppedFiles.length > 0 && droppedFiles.every((file) => /\.(mid|midi|midi2)$/i.test(file.name));
+    const isMidi = Boolean(dropped && /\.(mid|midi|midi2)$/i.test(dropped.name));
     const file = isMidi ? dropped : audioFileDropEvent(e);
     if (!file) {
       clearAudioDrop();
@@ -1197,7 +1197,7 @@ export function Timeline({
       }));
       return;
     }
-    if (droppedFiles.some((candidate) => /\.(mid|midi)$/i.test(candidate.name))) {
+    if (droppedFiles.some((candidate) => /\.(mid|midi|midi2)$/i.test(candidate.name))) {
       showToast("Drop MIDI files together, or audio files together; mixed batches are not supported");
       return;
     }

@@ -2042,6 +2042,15 @@ void MainComponent::publishWebState() {
                 nr.tuningOffsetCents = n.tuningOffsetCents;
                 nr.muted = n.muted;
                 nr.channel = n.channel;
+                if (n.midi2) {
+                    WebUiState::SongRow::MidiRegionRow::Note::Midi2Data midi2;
+                    midi2.group = n.midi2->group;
+                    midi2.velocity = n.midi2->velocity;
+                    midi2.releaseVelocity = n.midi2->releaseVelocity;
+                    midi2.attributeType = n.midi2->attributeType;
+                    midi2.attributeData = n.midi2->attributeData;
+                    nr.midi2 = midi2;
+                }
                 mrr.notes.push_back(std::move(nr));
             }
             mrr.events.reserve(mr.events.size());
@@ -2052,6 +2061,14 @@ void MainComponent::publishWebState() {
                 rowEvent.data.reserve(event.data.size());
                 for (uint8_t byte : event.data) rowEvent.data.push_back(byte);
                 mrr.events.push_back(std::move(rowEvent));
+            }
+            mrr.umpEvents.reserve(mr.umpEvents.size());
+            for (const auto& event : mr.umpEvents) {
+                WebUiState::SongRow::MidiRegionRow::UmpEvent rowEvent;
+                rowEvent.beat = event.beat;
+                rowEvent.words = event.words;
+                rowEvent.wordCount = event.wordCount;
+                mrr.umpEvents.push_back(std::move(rowEvent));
             }
             row.midiRegions.push_back(std::move(mrr));
         }

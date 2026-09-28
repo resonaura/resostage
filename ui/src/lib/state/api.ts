@@ -742,6 +742,7 @@ export const builder = {
     color?: string;
     notes?: import("./types").MidiNoteRow[];
     events?: import("./types").MidiClipEventRow[];
+    umpEvents?: import("./types").MidiUmpEventRow[];
     automationLanes?: import("./types").AutomationLaneRow[];
     gestureId?: string;
   }) => post("/api/v1/builder/midi-region/add", patch),
@@ -765,6 +766,7 @@ export const builder = {
     color?: string;
     notes?: import("./types").MidiNoteRow[];
     events?: import("./types").MidiClipEventRow[];
+    umpEvents?: import("./types").MidiUmpEventRow[];
     automationLanes?: import("./types").AutomationLaneRow[];
     gestureId?: string;
   }) => post("/api/v1/builder/midi-region/update", patch),

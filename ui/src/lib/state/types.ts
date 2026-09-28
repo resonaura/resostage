@@ -280,6 +280,13 @@ export interface MidiNoteRow {
   tuningOffsetCents?: number;
   muted?: boolean;
   channel?: number;
+  midi2?: {
+    group: number;
+    velocity: number;
+    releaseVelocity: number;
+    attributeType: number;
+    attributeData: number;
+  };
 }
 
 /** Non-note MIDI events retained with an imported clip (status + data bytes). */
@@ -287,6 +294,13 @@ export interface MidiClipEventRow {
   beat: number;
   status: number;
   data: number[];
+}
+
+/** Exact UMP packet words and musical position for lossless MIDI 2.0 round-trip. */
+export interface MidiUmpEventRow {
+  beat: number;
+  words: number[];
+  wordCount: number;
 }
 
 export type AutomationDomain = "strip" | "plugin" | "midiCC" | "lighting";
@@ -343,6 +357,7 @@ export interface MidiRegionRow {
   color?: string;
   notes: MidiNoteRow[];
   events?: MidiClipEventRow[];
+  umpEvents?: MidiUmpEventRow[];
   automationLanes?: AutomationLaneRow[];
 }
 

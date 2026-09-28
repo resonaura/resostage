@@ -1,4 +1,5 @@
 import type { MidiNoteRow, MidiRegionRow, SongRow } from "../state/types";
+import { isMidiClipFile, parseMidiClipFile, writeMidiClipFile } from "./midiClipFile";
 
 const PPQN = 480;
 const MAX_BYTES = 32 * 1024 * 1024;
@@ -9,10 +10,15 @@ export interface ImportedMidiTrack {
   name: string;
   notes: MidiNoteRow[];
   events?: Array<{ beat: number; status: number; data: number[] }>;
+  umpEvents?: Array<{ beat: number; words: number[]; wordCount: number }>;
+  /** Format 2 stores an independent tempo and meter map per sequence. */
+  tempoEvents?: Array<{ beat: number; bpm: number }>;
+  meterEvents?: Array<{ beat: number; numerator: number; denominator: number }>;
   durationBeats: number;
 }
 
 export interface ImportedMidiFile {
+  format: 0 | 1 | 2 | "midi2-clip";
   tracks: ImportedMidiTrack[];
   bpm?: number;
   numerator?: number;
@@ -55,6 +61,7 @@ class Reader {
 /** Parse SMF 0/1 on PPQN or SMPTE clocks, retaining paired notes and MIDI events. */
 export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   if (bytes.length > MAX_BYTES) throw new Error("MIDI file exceeds 32 MiB limit");
+  if (isMidiClipFile(bytes)) return parseMidiClipFile(bytes);
   const reader = new Reader(bytes);
   if (reader.fourCC() !== "MThd") throw new Error("Not a Standard MIDI File");
   const headerLength = reader.uint32();
@@ -63,8 +70,8 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   const count = reader.uint16();
   const division = reader.uint16();
   reader.take(headerLength - 6);
-  if (format > 1 || count < 1 || count > MAX_TRACKS || (format === 0 && count !== 1))
-    throw new Error("Only MIDI format 0/1 with up to 256 tracks is supported");
+  if (format > 2 || count < 1 || count > MAX_TRACKS || (format === 0 && count !== 1))
+    throw new Error("Only MIDI format 0/1/2 with up to 256 tracks is supported");
   const smpte = (division & 0x8000) !== 0;
   let ticksPerSecond = 0;
   if (smpte) {
@@ -79,7 +86,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   }
   const musicalPosition = (tick: number) => smpte ? tick / ticksPerSecond : tick / division;
 
-  const result: ImportedMidiFile = { tracks: [], tempoEvents: [], meterEvents: [] };
+  const result: ImportedMidiFile = { format: format as 0 | 1 | 2, tracks: [], tempoEvents: [], meterEvents: [] };
   let nextId = 1;
   let totalEventCount = 0;
   for (let trackIndex = 0; trackIndex < count; trackIndex++) {
@@ -92,6 +99,8 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
     let name = `MIDI Track ${trackIndex + 1}`;
     const notes: MidiNoteRow[] = [];
     const events: ImportedMidiTrack["events"] = [];
+    const trackTempoEvents: NonNullable<ImportedMidiTrack["tempoEvents"]> = [];
+    const trackMeterEvents: NonNullable<ImportedMidiTrack["meterEvents"]> = [];
     const held = new Map<number, Array<{ tick: number; velocity: number }>>();
     while (reader.offset < trackEnd) {
       if (++totalEventCount > MAX_EVENTS) throw new Error("MIDI file has too many events");
@@ -110,8 +119,12 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           const micros = (data[0] << 16) | (data[1] << 8) | data[2];
           if (micros > 0) {
             const bpm = 60_000_000 / micros;
-            result.bpm ??= bpm;
-            result.tempoEvents.push({ beat: musicalPosition(tick), bpm });
+            const tempo = { beat: musicalPosition(tick), bpm };
+            trackTempoEvents.push(tempo);
+            if (format !== 2) {
+              result.bpm ??= bpm;
+              result.tempoEvents.push(tempo);
+            }
           }
         }
         if (kind === 0x58 && data.length >= 2) {
@@ -119,7 +132,9 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           const denominator = 2 ** data[1];
           result.numerator ??= numerator;
           result.denominator ??= denominator;
-          result.meterEvents.push({ beat: musicalPosition(tick), numerator, denominator });
+          const meter = { beat: musicalPosition(tick), numerator, denominator };
+          trackMeterEvents.push(meter);
+          if (format !== 2) result.meterEvents.push(meter);
         }
         if (kind === 0x2f) {
           reader.offset = trackEnd;
@@ -190,16 +205,17 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
       });
     }
     notes.sort((a, b) => a.startBeats - b.startBeats || a.pitch - b.pitch);
-    result.tracks.push({ name, notes, events, durationBeats: musicalPosition(tick) });
+    result.tracks.push({ name, notes, events, tempoEvents: trackTempoEvents, meterEvents: trackMeterEvents,
+      durationBeats: musicalPosition(tick) });
     reader.offset = trackEnd;
   }
   result.tempoEvents.sort((a, b) => a.beat - b.beat);
   result.meterEvents.sort((a, b) => a.beat - b.beat);
   if (smpte) {
     // SMPTE files encode absolute time, not musical ticks. Convert each event
-    // through the file's tempo map so the imported clip remains on its clock.
-    const secondsToBeat = (seconds: number) => {
-      const points = [...result.tempoEvents].sort((a, b) => a.beat - b.beat);
+    // through the relevant tempo map so the imported sequence remains on its clock.
+    const secondsToBeat = (tempoEvents: ReadonlyArray<{ beat: number; bpm: number }>, seconds: number) => {
+      const points = [...tempoEvents].sort((a, b) => a.beat - b.beat);
       const effective: Array<{ beat: number; bpm: number }> = [{ beat: 0, bpm: 120 }];
       for (const point of points) {
         const previous = effective.at(-1)!;
@@ -218,22 +234,36 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
     };
     const tempoSeconds = [...result.tempoEvents];
     const meterSeconds = [...result.meterEvents];
-    result.tempoEvents = tempoSeconds.map((event) => ({ ...event, beat: secondsToBeat(event.beat) }));
-    result.meterEvents = meterSeconds.map((event) => ({ ...event, beat: secondsToBeat(event.beat) }));
+    if (format !== 2) {
+      result.tempoEvents = tempoSeconds.map((event) => ({ ...event, beat: secondsToBeat(tempoSeconds, event.beat) }));
+      result.meterEvents = meterSeconds.map((event) => ({ ...event, beat: secondsToBeat(tempoSeconds, event.beat) }));
+    }
     for (const track of result.tracks) {
+      const localTempoSeconds = format === 2 ? [...(track.tempoEvents ?? [])] : tempoSeconds;
+      if (format === 2) {
+        track.tempoEvents = localTempoSeconds.map((event) => ({ ...event, beat: secondsToBeat(localTempoSeconds, event.beat) }));
+        track.meterEvents = (track.meterEvents ?? []).map((event) => ({ ...event, beat: secondsToBeat(localTempoSeconds, event.beat) }));
+      }
+      const convertTime = (seconds: number) => secondsToBeat(localTempoSeconds, seconds);
       for (const note of track.notes) {
         const startSeconds = note.startBeats;
         const endSeconds = startSeconds + note.durationBeats;
-        note.startBeats = secondsToBeat(startSeconds);
-        note.durationBeats = Math.max(0.03125, secondsToBeat(endSeconds) - note.startBeats);
+        note.startBeats = convertTime(startSeconds);
+        note.durationBeats = Math.max(0.03125, convertTime(endSeconds) - note.startBeats);
       }
-      for (const event of track.events ?? []) event.beat = secondsToBeat(event.beat);
-      track.durationBeats = secondsToBeat(track.durationBeats);
+      for (const event of track.events ?? []) event.beat = convertTime(event.beat);
+      track.durationBeats = convertTime(track.durationBeats);
     }
   }
-  result.bpm = result.tempoEvents.filter((event) => event.beat <= 0).at(-1)?.bpm ?? 120;
-  result.numerator = result.meterEvents.filter((event) => event.beat <= 0).at(-1)?.numerator ?? 4;
-  result.denominator = result.meterEvents.filter((event) => event.beat <= 0).at(-1)?.denominator ?? 4;
+  for (const track of result.tracks) {
+    track.tempoEvents?.sort((a, b) => a.beat - b.beat);
+    track.meterEvents?.sort((a, b) => a.beat - b.beat);
+  }
+  const defaultTempos = format === 2 ? result.tracks[0]?.tempoEvents ?? [] : result.tempoEvents;
+  const defaultMeters = format === 2 ? result.tracks[0]?.meterEvents ?? [] : result.meterEvents;
+  result.bpm = defaultTempos.filter((event) => event.beat <= 0).at(-1)?.bpm ?? 120;
+  result.numerator = defaultMeters.filter((event) => event.beat <= 0).at(-1)?.numerator ?? 4;
+  result.denominator = defaultMeters.filter((event) => event.beat <= 0).at(-1)?.denominator ?? 4;
   return result;
 }
 
@@ -256,6 +286,49 @@ export interface MidiExportTrack {
   regions: MidiRegionRow[];
 }
 
+export interface Midi1LossReport {
+  midi2Notes: number;
+  noteAttributes: number;
+  groups: number;
+  quantizedVelocities: number;
+  unsupportedUmpEvents: number;
+}
+
+function scaleMidi1VelocityToMidi2(value: number): number {
+  if (value <= 64) return value << 9;
+  const repeated = value & 0x3f;
+  return ((value << 9) | (repeated << 3) | (repeated >>> 3)) & 0xffff;
+}
+
+/** Inspect selected content before lossy export to Standard MIDI File 1.0. */
+export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossReport {
+  const report: Midi1LossReport = {
+    midi2Notes: 0, noteAttributes: 0, groups: 0, quantizedVelocities: 0, unsupportedUmpEvents: 0,
+  };
+  for (const track of tracks) for (const region of track.regions) {
+    if (region.muted) continue;
+    for (const note of region.notes) {
+      if (note.muted || !note.midi2) continue;
+      report.midi2Notes++;
+      if (note.midi2.attributeType !== 0 || note.midi2.attributeData !== 0) report.noteAttributes++;
+      if (note.midi2.group !== 0) report.groups++;
+      const on = note.midi2.velocity;
+      const off = note.midi2.releaseVelocity;
+      if (scaleMidi1VelocityToMidi2(on >>> 9) !== on || scaleMidi1VelocityToMidi2(off >>> 9) !== off)
+        report.quantizedVelocities++;
+    }
+    for (const event of region.umpEvents ?? []) {
+      const first = event.words[0] >>> 0;
+      const type = first >>> 28;
+      const status = (first >>> 20) & 0xf;
+      const representable = (type === 2 && [0xa, 0xb, 0xd, 0xe].includes(status))
+        || (type === 4 && [0xa, 0xb, 0xd, 0xe].includes(status) && event.wordCount === 2);
+      if (!representable) report.unsupportedUmpEvents++;
+    }
+  }
+  return report;
+}
+
 export interface MidiExportOptions {
   bpm: number;
   numerator: number;
@@ -265,6 +338,37 @@ export interface MidiExportOptions {
   expandLoops: boolean;
   tempoEvents?: Array<{ beat: number; bpm: number }>;
   meterEvents?: Array<{ beat: number; numerator: number; denominator: number }>;
+}
+
+function umpEventToMidi1(words: number[], wordCount: number): { status: number; data: number[] } | null {
+  if (wordCount < 1 || wordCount > words.length) return null;
+  const first = words[0] >>> 0;
+  const type = first >>> 28;
+  if (type !== 2 && type !== 4) return null;
+  const status = (first >>> 20) & 0xf;
+  const channel = (first >>> 16) & 0xf;
+  const statusByte = (status << 4) | channel;
+  const data1 = (first >>> 8) & 0x7f;
+  const data2 = first & 0x7f;
+  if (type === 2) {
+    if (status === 0xa) return { status: statusByte, data: [data1, data2] };
+    if (status === 0xb) return { status: statusByte, data: [data1, data2] };
+    if (status === 0xd) return { status: statusByte, data: [data1] };
+    if (status === 0xe) return { status: statusByte, data: [data1, data2] };
+    return null;
+  }
+  if (wordCount !== 2) return null;
+  const value32 = words[1] >>> 0;
+  const scale32To7 = (value: number) => value >>> 25;
+  const scale32To14 = (value: number) => value >>> 18;
+  if (status === 0xa) return { status: statusByte, data: [data1, scale32To7(value32)] };
+  if (status === 0xb) return { status: statusByte, data: [data1, scale32To7(value32)] };
+  if (status === 0xd) return { status: statusByte, data: [scale32To7(value32)] };
+  if (status === 0xe) {
+    const value14 = scale32To14(value32);
+    return { status: statusByte, data: [value14 & 0x7f, (value14 >>> 7) & 0x7f] };
+  }
+  return null;
 }
 
 /** Write a type-1 SMF, one note track per DAW track plus a tempo map. */
@@ -324,10 +428,12 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           const start = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
           const end = Math.max(start + 1, Math.round((region.startBeats + Math.min(region.durationBeats, relative + note.durationBeats) - origin) * PPQN));
           const pitch = Math.max(0, Math.min(127, Math.round(note.pitch)));
-          const velocity = Math.max(1, Math.min(127, Math.round(note.velocity * 127)));
+          const midi1Velocity = note.midi2 ? note.midi2.velocity >>> 9 : Math.round(note.velocity * 127);
+          const velocity = Math.max(1, Math.min(127, midi1Velocity));
           const channel = Math.max(0, Math.min(15, Math.round(note.channel ?? 0)));
           events.push({ tick: start, order: 1, bytes: [0x90 | channel, pitch, velocity] });
-          events.push({ tick: end, order: 0, bytes: [0x80 | channel, pitch, Math.max(0, Math.min(127, Math.round(note.releaseVelocity * 127)))] });
+          const midi1ReleaseVelocity = note.midi2 ? note.midi2.releaseVelocity >>> 9 : Math.round(note.releaseVelocity * 127);
+          events.push({ tick: end, order: 0, bytes: [0x80 | channel, pitch, Math.max(0, Math.min(127, midi1ReleaseVelocity))] });
           totalEvents += 2;
           if (events.length > MAX_EVENTS || totalEvents > 400_000)
             throw new Error("MIDI export exceeds event limit");
@@ -352,6 +458,22 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
             bytes = [event.status, ...event.data];
           }
           events.push({ tick, order: 1, bytes });
+          totalEvents++;
+          if (events.length > MAX_EVENTS || totalEvents > 400_000)
+            throw new Error("MIDI export exceeds event limit");
+        }
+      }
+      for (const event of region.umpEvents ?? []) {
+        const repeats = options.expandLoops && region.loop && loopLength > 0
+          ? Math.min(100_000, Math.ceil((region.durationBeats + region.clipOffsetBeats) / loopLength))
+          : 1;
+        for (let repeat = 0; repeat < repeats; repeat++) {
+          const relative = event.beat + repeat * loopLength - region.clipOffsetBeats;
+          if (relative < 0 || relative >= region.durationBeats) continue;
+          const tick = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
+          const converted = umpEventToMidi1(event.words, event.wordCount);
+          if (!converted) continue;
+          events.push({ tick, order: 1, bytes: [converted.status, ...converted.data] });
           totalEvents++;
           if (events.length > MAX_EVENTS || totalEvents > 400_000)
             throw new Error("MIDI export exceeds event limit");
@@ -472,7 +594,11 @@ export function adaptMidiTracksToSongTempo(
       ...event,
       beat: songBeatAtElapsedSeconds(song, midiSecondsAtBeat(tempoEvents, event.beat)),
     }));
-    return { ...track, notes, events, durationBeats: songBeatAtElapsedSeconds(song, sourceEndSeconds) };
+    const umpEvents = track.umpEvents?.map((event) => ({
+      ...event,
+      beat: songBeatAtElapsedSeconds(song, midiSecondsAtBeat(tempoEvents, event.beat)),
+    }));
+    return { ...track, notes, events, umpEvents, durationBeats: songBeatAtElapsedSeconds(song, sourceEndSeconds) };
   });
 }
 
@@ -500,6 +626,7 @@ export interface MidiSongExportOptions {
   trackNames?: Set<string>;
   fromProjectStart: boolean;
   expandLoops: boolean;
+  format?: "midi1" | "midi2";
 }
 
 /** Concatenate chosen songs and encode their complete tempo/meter map. */
@@ -553,9 +680,13 @@ export function writeSongsMidiFile(songs: SongRow[], options: MidiSongExportOpti
   }
   if (!tracks.size) throw new Error("No MIDI regions in the selected songs/tracks");
   const first = songs[options.songIndices[0]];
-  return writeStandardMidiFile([...tracks.values()], {
+  const exportTracks = [...tracks.values()];
+  const exportOptions: MidiExportOptions = {
     bpm: first.bpm, numerator: first.tsNum, denominator: first.tsDen,
     fromProjectStart: options.fromProjectStart, expandLoops: options.expandLoops,
     tempoEvents, meterEvents,
-  });
+  };
+  return options.format === "midi2"
+    ? writeMidiClipFile(exportTracks, exportOptions)
+    : writeStandardMidiFile(exportTracks, exportOptions);
 }

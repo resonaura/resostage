@@ -519,9 +519,9 @@ bool ProjectLoader::reparseProject(std::string& error) {
         if (!parseProjectJson(json, out, err))
             return false;
         // v3 -> v4 defaults plug-in vectors; v4 -> v5 defaults optional MIDI
-        // channels/events. Both changes are additive. Promote the private
-        // in-memory snapshot so the next normal save writes v5, without
-        // rewriting the package merely because it was opened.
+        // channels/events; v5 -> v6 defaults MIDI 2.0 UMP storage. These are
+        // additive. Promote the private in-memory snapshot so the next normal
+        // save writes v6, without rewriting the package merely because it was opened.
         out.format.version = kCurrentFormatVersion;
         return true;
     };

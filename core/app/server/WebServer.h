@@ -2,12 +2,14 @@
 
 #include <readerwriterqueue.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -587,6 +589,14 @@ struct WebUiState {
                 int tuningOffsetCents = 0;
                 bool muted = false;
                 int channel = 0;
+                struct Midi2Data {
+                    uint16_t group = 0;
+                    uint16_t velocity = 0;
+                    uint16_t releaseVelocity = 0;
+                    int attributeType = 0;
+                    uint16_t attributeData = 0;
+                };
+                std::optional<Midi2Data> midi2;
             };
             std::vector<Note> notes;
             struct MidiEvent {
@@ -595,6 +605,12 @@ struct WebUiState {
                 std::vector<int> data;
             };
             std::vector<MidiEvent> events;
+            struct UmpEvent {
+                double beat = 0.0;
+                std::array<uint32_t, 4> words{};
+                int wordCount = 0;
+            };
+            std::vector<UmpEvent> umpEvents;
         };
         std::vector<MidiRegionRow> midiRegions;
 

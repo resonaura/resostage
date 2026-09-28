@@ -3,6 +3,7 @@
 #include "glaze/glaze.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -460,12 +461,26 @@ struct WMidiNote {
     int tuningOffsetCents = 0;
     bool muted = false;
     int channel = 0;
+    struct WMidi2Data {
+        int group = 0;
+        uint16_t velocity = 0;
+        uint16_t releaseVelocity = 0;
+        int attributeType = 0;
+        uint16_t attributeData = 0;
+    };
+    std::optional<WMidi2Data> midi2;
 };
 
 struct WMidiClipEvent {
     double beat = 0.0;
     int status = 0;
     std::vector<int> data;
+};
+
+struct WMidiUmpEvent {
+    double beat = 0.0;
+    std::array<uint32_t, 4> words{};
+    int wordCount = 0;
 };
 
 struct WMidiRegion {
@@ -481,6 +496,7 @@ struct WMidiRegion {
     std::string color = "#3b82f6";
     std::vector<WMidiNote> notes;
     std::vector<WMidiClipEvent> events;
+    std::vector<WMidiUmpEvent> umpEvents;
     std::vector<WAutomationLane> automationLanes;
 };
 
@@ -946,6 +962,15 @@ WProject toWire(const Project& p) {
                 wn.tuningOffsetCents = n.tuningOffsetCents;
                 wn.muted = n.muted;
                 wn.channel = n.channel;
+                if (n.midi2) {
+                    WMidiNote::WMidi2Data midi2;
+                    midi2.group = n.midi2->group;
+                    midi2.velocity = n.midi2->velocity;
+                    midi2.releaseVelocity = n.midi2->releaseVelocity;
+                    midi2.attributeType = n.midi2->attributeType;
+                    midi2.attributeData = n.midi2->attributeData;
+                    wn.midi2 = midi2;
+                }
                 wmr.notes.push_back(std::move(wn));
             }
             wmr.events.reserve(mr.events.size());
@@ -956,6 +981,14 @@ WProject toWire(const Project& p) {
                 we.data.reserve(event.data.size());
                 for (uint8_t byte : event.data) we.data.push_back(byte);
                 wmr.events.push_back(std::move(we));
+            }
+            wmr.umpEvents.reserve(mr.umpEvents.size());
+            for (const auto& event : mr.umpEvents) {
+                WMidiUmpEvent we;
+                we.beat = finiteOrZero(event.beat);
+                we.words = event.words;
+                we.wordCount = event.wordCount;
+                wmr.umpEvents.push_back(std::move(we));
             }
             for (const auto& al : mr.automationLanes)
                 wmr.automationLanes.push_back(toWireAutomationLane(al));
@@ -1323,6 +1356,15 @@ Project fromWire(const WProject& w) {
                 note.tuningOffsetCents = static_cast<int8_t>(std::clamp(n.tuningOffsetCents, -100, 100));
                 note.muted = n.muted;
                 note.channel = static_cast<uint8_t>(std::clamp(n.channel, 0, 15));
+                if (n.midi2) {
+                    MidiNote::Midi2Data midi2;
+                    midi2.group = static_cast<uint8_t>(std::clamp(n.midi2->group, 0, 15));
+                    midi2.velocity = n.midi2->velocity;
+                    midi2.releaseVelocity = n.midi2->releaseVelocity;
+                    midi2.attributeType = static_cast<uint8_t>(std::clamp(n.midi2->attributeType, 0, 255));
+                    midi2.attributeData = n.midi2->attributeData;
+                    note.midi2 = midi2;
+                }
                 reg.notes.push_back(std::move(note));
             }
             reg.events.reserve(mr.events.size());
@@ -1334,6 +1376,14 @@ Project fromWire(const WProject& w) {
                 for (int byte : event.data)
                     restored.data.push_back(static_cast<uint8_t>(std::clamp(byte, 0, 255)));
                 reg.events.push_back(std::move(restored));
+            }
+            for (const auto& we : mr.umpEvents) {
+                if (we.wordCount < 1 || we.wordCount > 4 || !std::isfinite(we.beat)) continue;
+                MidiUmpEvent event;
+                event.beat = std::max(0.0, we.beat);
+                event.words = we.words;
+                event.wordCount = static_cast<uint8_t>(we.wordCount);
+                reg.umpEvents.push_back(event);
             }
             for (const auto& wal : mr.automationLanes)
                 reg.automationLanes.push_back(fromWireAutomationLane(wal));
