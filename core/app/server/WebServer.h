@@ -586,8 +586,15 @@ struct WebUiState {
                 int pan = -1;
                 int tuningOffsetCents = 0;
                 bool muted = false;
+                int channel = 0;
             };
             std::vector<Note> notes;
+            struct MidiEvent {
+                double beat = 0.0;
+                int status = 0;
+                std::vector<int> data;
+            };
+            std::vector<MidiEvent> events;
         };
         std::vector<MidiRegionRow> midiRegions;
 
@@ -1127,8 +1134,8 @@ public:
     // is for, plus the original filename (so the archive entry ends up
     // "Audio/kick.wav" instead of a generic temp name) -- see
     // WebCommandKind::BuilderTrackImportWavBegin/Upload.
-    void beginTrackImport(int songIndex, int trackIndex, std::string fileName);
-    void takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName);
+    void beginTrackImport(int songIndex, int trackIndex, std::string fileName, double startSeconds);
+    void takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName, double& startSeconds);
 
     // GET /api/v1/remote/discovered-devices -- LAN discovered ResoStage instances
     using DiscoveredDevicesProvider = std::function<std::vector<DiscoveredDevice>()>;
@@ -1280,6 +1287,7 @@ private:
     int pendingImportSongIndex = -1;
     int pendingImportTrackIndex = -1;
     std::string pendingImportFileName;
+    double pendingImportStartSeconds = 0.0;
 
     mutable std::mutex peaksMutex;
     std::string peaksJson = "{\"tracks\":[]}";

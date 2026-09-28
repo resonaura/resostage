@@ -103,11 +103,17 @@ public:
         const OfflineProcessorTransport& transport) noexcept = 0;
     /** Timestamped sequenced MIDI for a private instrument strip. */
     virtual bool stripHasInstrument(uint32_t strip) const noexcept { (void)strip; return false; }
-    virtual void queueMidiNote(uint32_t strip, uint8_t pitch, uint8_t velocity,
+    virtual void queueMidiNote(uint32_t strip, uint8_t channel, uint8_t pitch, uint8_t velocity,
                                uint8_t releaseVelocity, bool noteOn,
                                int samplePosition) noexcept {
-        (void)strip; (void)pitch; (void)velocity; (void)releaseVelocity;
+        (void)strip; (void)channel; (void)pitch; (void)velocity; (void)releaseVelocity;
         (void)noteOn; (void)samplePosition;
+    }
+    virtual void queueMidiMessage(uint32_t strip, uint8_t status, uint8_t data1,
+                                  uint8_t data2, uint8_t dataLength,
+                                  int samplePosition) noexcept {
+        (void)strip; (void)status; (void)data1; (void)data2;
+        (void)dataLength; (void)samplePosition;
     }
     /** Conservative serial-path tail used as a Leave minimum, in seconds. */
     virtual double declaredTailSeconds() const noexcept { return 0.0; }

@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { builder, transport } from "../../lib/state/api";
-import { parseStandardMidiFile } from "../../lib/midi/standardMidiFile";
+import { songBeatsAtSeconds } from "../../lib/midi/standardMidiFile";
 import {
   beginCancellableDrag,
   type CancellableDrag,
@@ -1158,7 +1158,9 @@ export function Timeline({
 
   const onTracksDrop = (e: React.DragEvent) => {
     if (readOnly || effectiveViewMode !== "audio") return;
-    const dropped = e.dataTransfer.files?.[0] ?? null;
+    const droppedFiles = Array.from(e.dataTransfer.files ?? []);
+    const dropped = droppedFiles[0] ?? null;
+    const allMidi = droppedFiles.length > 0 && droppedFiles.every((file) => /\.(mid|midi)$/i.test(file.name));
     const isMidi = Boolean(dropped && /\.(mid|midi)$/i.test(dropped.name));
     const file = isMidi ? dropped : audioFileDropEvent(e);
     if (!file) {
@@ -1177,47 +1179,36 @@ export function Timeline({
     clearAudioDrop();
     if (!pos) return;
     if (isMidi) {
+      if (!allMidi) {
+        showToast("Drop MIDI files together, or audio files together; mixed batches are not supported yet");
+        return;
+      }
       const track = state.tracks[pos.trackIndex];
       if (!track || !["instrument", "midi", "externalMidi"].includes(track.kind ?? "")) {
         showToast("Drop MIDI on an instrument or MIDI track");
         return;
       }
-      if (file.size > 32 * 1024 * 1024) {
-        showToast("MIDI file exceeds 32 MiB limit");
-        return;
-      }
       const song = songs[pos.songIndex];
       const startSeconds = Math.max(0, pos.startPx / pxPerSec - (songOffsets[pos.songIndex] ?? 0));
-      const rawStartBeats = startSeconds * (song?.bpm || 120) / 60;
+      const rawStartBeats = song ? songBeatsAtSeconds(song, startSeconds) : startSeconds * 2;
       const startBeats = snapToGrid ? Math.round(rawStartBeats * 4) / 4 : rawStartBeats;
-      void file.arrayBuffer().then((buffer) => {
-        const imported = parseStandardMidiFile(new Uint8Array(buffer));
-        const noteTracks = imported.tracks.filter((item) => item.notes.length > 0);
-        if (!noteTracks.length) throw new Error("MIDI file has no note events");
-        let nextId = 1;
-        const notes = noteTracks.flatMap((item) => item.notes.map((note) => ({ ...note, id: nextId++ })));
-        const durationBeats = Math.max(1, ...noteTracks.map((item) => item.durationBeats));
-        return builder.midiRegionAdd({
-          songIndex: pos.songIndex,
-          trackId: track.id,
-          name: file.name.replace(/\.(mid|midi)$/i, ""),
-          startBeats,
-          durationBeats,
-          loop: false,
-          loopLengthBeats: durationBeats,
-          color: rows[pos.rowIndex]?.color,
-          notes,
-        }).then(() => {
-          showToast(noteTracks.length > 1
-            ? `Imported ${noteTracks.length} MIDI tracks into ${track.name}`
-            : `Imported MIDI into ${track.name}`);
-        });
-      }).catch((reason: unknown) => {
-        showToast(reason instanceof Error ? reason.message : "MIDI import failed");
-      });
+      window.dispatchEvent(new CustomEvent("resostage-import-midi", {
+        detail: { files: droppedFiles, target: { songIndex: pos.songIndex, trackId: track.id, startBeats } },
+      }));
       return;
     }
-    void builder.trackImportWav(pos.songIndex, pos.trackIndex, file);
+    if (droppedFiles.some((candidate) => /\.(mid|midi)$/i.test(candidate.name))) {
+      showToast("Drop MIDI files together, or audio files together; mixed batches are not supported");
+      return;
+    }
+    const startSeconds = Math.max(0, pos.startPx / pxPerSec - (songOffsets[pos.songIndex] ?? 0));
+    if (droppedFiles.length > 1) {
+      window.dispatchEvent(new CustomEvent("resostage-import-audio-batch", {
+        detail: { files: droppedFiles, songIndex: pos.songIndex, startSeconds },
+      }));
+      return;
+    }
+    void builder.trackImportWav(pos.songIndex, pos.trackIndex, file, startSeconds);
   };
 
   // Imported audio that lands past an authored song end has to be dealt with

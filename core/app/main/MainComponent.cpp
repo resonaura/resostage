@@ -71,15 +71,25 @@ public:
         return bank != nullptr && bank->stripHasInstrument(strip);
     }
 
-    void queueMidiNote(uint32_t strip, uint8_t pitch, uint8_t velocity,
+    void queueMidiNote(uint32_t strip, uint8_t channel, uint8_t pitch, uint8_t velocity,
                        uint8_t releaseVelocity, bool noteOn,
                        int samplePosition) noexcept override {
         if (bank == nullptr || !bank->stripHasInstrument(strip))
             return;
         const auto message = noteOn
-            ? juce::MidiMessage::noteOn(1, pitch, velocity)
-            : juce::MidiMessage::noteOff(1, pitch, releaseVelocity);
+            ? juce::MidiMessage::noteOn(static_cast<int>(channel) + 1, pitch, velocity)
+            : juce::MidiMessage::noteOff(static_cast<int>(channel) + 1, pitch, releaseVelocity);
         bank->addStripMidiEvent(strip, message, samplePosition);
+    }
+
+    void queueMidiMessage(uint32_t strip, uint8_t status, uint8_t data1,
+                          uint8_t data2, uint8_t dataLength,
+                          int samplePosition) noexcept override {
+        if (bank == nullptr || !bank->stripHasInstrument(strip) || dataLength > 2)
+            return;
+        uint8_t bytes[3] = { status, data1, data2 };
+        const int length = static_cast<int>(dataLength) + 1;
+        bank->addStripMidiEvent(strip, juce::MidiMessage(bytes, length), samplePosition);
     }
 
     double declaredTailSeconds() const noexcept override {
@@ -1436,7 +1446,13 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderTrackImportWavBegin:
                 break;
             case WebCommandKind::BuilderTrackImportWavUpload:
-                builderTrackImportWavUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path);
+                {
+                    double startSeconds = 0.0;
+                    glz::generic importOptions;
+                    if (builder_json::parseJson(cmd.json, importOptions))
+                        builder_json::getDouble(importOptions, "startSeconds", startSeconds);
+                    builderTrackImportWavUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path, startSeconds);
+                }
                 break;
             case WebCommandKind::BuilderTrackImportWavDialog: builderTrackImportWavDialog(cmd.json); break;
             case WebCommandKind::BuilderRegionAdd: builderRegionAdd(cmd.json); break;
@@ -2025,7 +2041,17 @@ void MainComponent::publishWebState() {
                 nr.pan = n.pan;
                 nr.tuningOffsetCents = n.tuningOffsetCents;
                 nr.muted = n.muted;
+                nr.channel = n.channel;
                 mrr.notes.push_back(std::move(nr));
+            }
+            mrr.events.reserve(mr.events.size());
+            for (const auto& event : mr.events) {
+                WebUiState::SongRow::MidiRegionRow::MidiEvent rowEvent;
+                rowEvent.beat = event.beat;
+                rowEvent.status = event.status;
+                rowEvent.data.reserve(event.data.size());
+                for (uint8_t byte : event.data) rowEvent.data.push_back(byte);
+                mrr.events.push_back(std::move(rowEvent));
             }
             row.midiRegions.push_back(std::move(mrr));
         }

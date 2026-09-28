@@ -106,7 +106,7 @@ public:
         *observedBpm = value.bpm;
     }
     bool stripHasInstrument(uint32_t value) const noexcept override { return value == strip; }
-    void queueMidiNote(uint32_t value, uint8_t pitch, uint8_t velocity,
+    void queueMidiNote(uint32_t value, uint8_t /*channel*/, uint8_t pitch, uint8_t velocity,
                        uint8_t releaseVelocity, bool noteOn,
                        int samplePosition) noexcept override {
         if (value == strip)

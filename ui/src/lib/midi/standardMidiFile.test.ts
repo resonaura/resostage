@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseStandardMidiFile, writeSongsMidiFile, writeStandardMidiFile } from "./standardMidiFile";
+import {
+  adaptMidiTracksToSongTempo,
+  midiSecondsAtBeat,
+  parseStandardMidiFile,
+  songBeatAtElapsedSeconds,
+  writeSongsMidiFile,
+  writeStandardMidiFile,
+} from "./standardMidiFile";
 import type { MidiRegionRow, SongRow } from "../state/types";
 
 const region: MidiRegionRow = {
@@ -12,6 +19,25 @@ const region: MidiRegionRow = {
 };
 
 describe("Standard MIDI File", () => {
+  it("uses the SMF default tempo and converts imported timing into a destination tempo", () => {
+    expect(midiSecondsAtBeat([], 4)).toBe(2);
+    expect(midiSecondsAtBeat([{ beat: 0, bpm: 60 }], 4)).toBe(4);
+    const song = {
+      name: "Song", bpm: 60, mode: "auto" as const, tsNum: 4, tsDen: 4,
+      events: [], tempoPoints: [], signaturePoints: [], midiRegions: [], regions: [],
+    } as unknown as SongRow;
+    expect(songBeatAtElapsedSeconds(song, 4)).toBeCloseTo(4, 5);
+    const imported = adaptMidiTracksToSongTempo([{
+      name: "Piano", durationBeats: 4, notes: [{
+        id: 1, pitch: 60, startBeats: 1, durationBeats: 1,
+        velocity: 1, releaseVelocity: 0.5, probability: 1,
+      }],
+    }], [{ beat: 0, bpm: 120 }], song);
+    expect(imported[0].notes[0].startBeats).toBeCloseTo(0.5, 5);
+    expect(imported[0].notes[0].durationBeats).toBeCloseTo(0.5, 5);
+    expect(imported[0].durationBeats).toBeCloseTo(2, 5);
+  });
+
   it("round-trips a MIDI region with tempo and meter", () => {
     const bytes = writeStandardMidiFile([{ name: "Piano", regions: [region] }], {
       bpm: 123, numerator: 3, denominator: 4,
@@ -25,6 +51,41 @@ describe("Standard MIDI File", () => {
     expect(parsed.tracks[1].notes[0]).toMatchObject({
       pitch: 60, startBeats: 8.5, durationBeats: 1.5,
     });
+  });
+
+  it("preserves source MIDI channels and non-note channel/meta events", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [{ ...region.notes[0], channel: 9 }],
+      events: [
+        { beat: 0, status: 0xc9, data: [40] },
+        { beat: 0.5, status: 0xb9, data: [1, 64] },
+        { beat: 1, status: 0xff, data: [0x05, 0x68, 0x69] },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile([{ name: "Drums", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: true,
+    }));
+    expect(parsed.tracks[1].notes[0].channel).toBe(9);
+    expect(parsed.tracks[1].events).toContainEqual({ beat: 0, status: 0xc9, data: [40] });
+    expect(parsed.tracks[1].events).toContainEqual({ beat: 0.5, status: 0xb9, data: [1, 64] });
+    expect(parsed.tracks[1].events).toContainEqual({ beat: 1, status: 0xff, data: [0x05, 0x68, 0x69] });
+  });
+
+  it("converts SMPTE-clocked SMF event times into musical beats", () => {
+    // Type 0, -24 fps, 40 ticks/frame: 960 ticks/second. A note lasting
+    // 0.5 seconds is one quarter note at the SMF default 120 BPM.
+    const bytes = Uint8Array.from([
+      0x4d,0x54,0x68,0x64, 0,0,0,6, 0,0, 0,1, 0xe8,40,
+      0x4d,0x54,0x72,0x6b, 0,0,0,13,
+      0,0x90,60,100, 0x83,0x60,0x80,60,0, 0,0xff,0x2f,0,
+    ]);
+    const parsed = parseStandardMidiFile(bytes);
+    expect(parsed.tracks[0].notes[0].startBeats).toBe(0);
+    expect(parsed.tracks[0].notes[0].durationBeats).toBeCloseTo(1, 5);
+    expect(parsed.tracks[0].durationBeats).toBeCloseTo(1, 5);
   });
 
   it("can export from the first region rather than project zero", () => {

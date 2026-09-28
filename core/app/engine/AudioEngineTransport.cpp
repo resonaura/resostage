@@ -427,6 +427,14 @@ bool AudioEngine::consumeGaplessUiNotify(size_t& outSongIndex) {
     return true;
 }
 
+void AudioEngine::refreshActiveTempoMap() {
+    if (!projectLoaded || currentSong >= loader.project().songs.size())
+        return;
+    const auto& song = loader.project().songs[currentSong];
+    auto next = std::make_shared<const TempoMap>(song.bpm, song.tempoPoints);
+    std::atomic_store_explicit(&activeTempoMap, std::move(next), std::memory_order_release);
+}
+
 void AudioEngine::syncTransportCycleFromProject() {
     // Bump epoch first so any in-flight callAsync cycle seeks from the OLD
     // zone become no-ops (disable / move / replace must cut the previous
@@ -1577,7 +1585,7 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
     const auto& projectTracks = project().tracks;
 
     for (const auto& region : song.midiRegions) {
-        if (region.muted || region.notes.empty() || region.durationBeats <= 0.0)
+        if (region.muted || (region.notes.empty() && region.events.empty()) || region.durationBeats <= 0.0)
             continue;
 
         const double regionStartBeat = region.startBeats;
@@ -1645,7 +1653,7 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                 const double noteOnBeat = iterationOffset + note.startBeats;
                 const double noteOffBeat = noteOnBeat + note.durationBeats;
 
-                const uint8_t ch = 1;
+                const uint8_t ch = static_cast<uint8_t>(std::clamp(static_cast<int>(note.channel) + 1, 1, 16));
                 const uint8_t pitch = static_cast<uint8_t>(std::clamp(static_cast<int>(note.pitch), 0, 127));
                 const uint8_t vel = static_cast<uint8_t>(std::clamp(
                     static_cast<int>(std::llround(note.velocity * 127.0f)), 1, 127));
@@ -1672,7 +1680,7 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                             const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
                             MidiCommand cmd;
                             cmd.kind = MidiCommandKind::NoteOn;
-                            cmd.channel = 0; // 0-indexed channel 1
+                            cmd.channel = note.channel;
                             cmd.data1 = pitch;
                             cmd.data2 = vel;
                             cmd.targetHostTimeNanos = heardHostNanos(hostTimeNanos, offsetSec, outputLatencySec);
@@ -1702,13 +1710,50 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                             const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
                             MidiCommand cmd;
                             cmd.kind = MidiCommandKind::NoteOff;
-                            cmd.channel = 0; // 0-indexed channel 1
+                            cmd.channel = note.channel;
                             cmd.data1 = pitch;
                             cmd.data2 = relVel;
                             cmd.targetHostTimeNanos = heardHostNanos(hostTimeNanos, offsetSec, outputLatencySec);
                             midiDispatcher.enqueue(cmd);
                         }
                     }
+                }
+            }
+
+            for (const auto& event : region.events) {
+                const double eventBeat = iterationOffset + event.beat;
+                if (eventBeat < regionStartBeat || eventBeat >= regionEndBeat) continue;
+                const int64_t eventSample = beatsToSamples(eventBeat);
+                if (eventSample < blockStartSample || eventSample >= blockEndSample) continue;
+                // Meta events and SysEx are retained losslessly for file
+                // round-trips. SysEx can be arbitrarily large and therefore
+                // cannot be constructed/copied on the real-time callback;
+                // short channel/system messages are safe to schedule here.
+                if (event.status == 0xff || event.status == 0xf0 || event.status == 0xf7
+                    || event.data.size() > 2 || event.status < 0x80)
+                    continue;
+                const int sampleOffset = std::clamp(static_cast<int>(eventSample - blockStartSample), 0, numSamples - 1);
+                uint8_t bytes[3] = {event.status, 0, 0};
+                for (size_t byte = 0; byte < event.data.size(); ++byte) bytes[byte + 1] = event.data[byte];
+                const auto statusKind = event.status & 0xf0;
+                const size_t expectedLength = event.status >= 0xf8 || event.status == 0xf6 ? 0u
+                    : statusKind == 0xc0 || statusKind == 0xd0 || event.status == 0xf1 || event.status == 0xf3
+                        ? 1u : 2u;
+                const size_t dataLength = std::min(event.data.size(), expectedLength);
+                if (canSendToPlugin)
+                    pluginBank->addStripMidiEvent(targetStripIndex,
+                        juce::MidiMessage(bytes, static_cast<int>(dataLength + 1)), sampleOffset);
+                if (canSendToExternalMidi) {
+                    MidiCommand cmd;
+                    cmd.kind = MidiCommandKind::Raw;
+                    cmd.status = event.status;
+                    cmd.channel = event.status < 0xf0 ? static_cast<uint8_t>(event.status & 0x0f) : 0;
+                    cmd.dataLength = static_cast<uint8_t>(dataLength);
+                    if (dataLength > 0) cmd.data1 = event.data[0];
+                    if (dataLength > 1) cmd.data2 = event.data[1];
+                    const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
+                    cmd.targetHostTimeNanos = heardHostNanos(hostTimeNanos, offsetSec, outputLatencySec);
+                    midiDispatcher.enqueue(cmd);
                 }
             }
         }

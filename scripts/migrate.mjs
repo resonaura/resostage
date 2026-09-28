@@ -14,7 +14,8 @@
  *   v2  half-migrated    -- nested output objects, but legacy ids (bar_1, lt_1,
  *                          reg_song_1_trk_4, sec_1), camelCase enum values and
  *                          "" where null belongs
- * and always emits the same current canon (v4 adds ordered plug-in slots):
+ * and always emits the same current canon (v4 adds plug-in slots; v5 adds
+ * retained MIDI channel/event data):
  *
  *   ids            "<ns>::<kind>:<n>"  audio::track:1, audio::send:2,
  *                                      audio::out:11, light::bar:1,
@@ -35,7 +36,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 4;
+export const TARGET_FORMAT_VERSION = 5;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -597,6 +598,19 @@ export function migrateProjectObject(old) {
   };
 }
 
+/** Additive in-place upgrade for canonical v4 data; preserve stable IDs. */
+export function upgradeFormat4MidiData(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  for (const song of upgraded.songs ?? []) {
+    for (const region of song.midiRegions ?? []) {
+      for (const note of region.notes ?? []) note.channel ??= 0;
+      region.events ??= [];
+    }
+  }
+  return upgraded;
+}
+
 function resolveProjectJsonPath(target) {
   const abs = path.resolve(target);
   if (!fs.existsSync(abs)) {
@@ -639,11 +653,10 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
     // The engine only ever reads the data file, so a .bak next to it is inert
     // and gives an undo for a conversion that renumbers every id in the file.
     fs.copyFileSync(jsonPath, `${jsonPath}.bak`);
-    fs.writeFileSync(
-      outPath,
-      `${JSON.stringify(migrateProjectObject(oldObj), null, 2)}\n`,
-      "utf-8",
-    );
+    const migrated = fromVersion === 4 && !isLegacy
+      ? upgradeFormat4MidiData(oldObj)
+      : migrateProjectObject(oldObj);
+    fs.writeFileSync(outPath, `${JSON.stringify(migrated, null, 2)}\n`, "utf-8");
     if (isLegacy) fs.rmSync(jsonPath, { force: true });
     console.log(
       `Migrated ${outPath}: format v${fromVersion} -> v${TARGET_FORMAT_VERSION}`

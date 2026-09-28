@@ -12,7 +12,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "./components/dialogs/ConfirmDialog";
 import { ExportMidiDialog, type MidiExportIntent } from "./components/dialogs/ExportMidiDialog";
-import { parseStandardMidiFile } from "./lib/midi/standardMidiFile";
+import { ImportMidiDialog } from "./components/dialogs/ImportMidiDialog";
+import { ImportAudioBatchDialog } from "./components/dialogs/ImportAudioBatchDialog";
 import {
   ContextMenu,
   ContextMenuDivider,
@@ -26,7 +27,7 @@ import {
 import { VirtualMidiKeyboard } from "./components/midi/VirtualMidiKeyboard";
 import { Button, Tabs } from "./components/ui";
 import { performAction, type ActionId } from "./lib/state/actions";
-import { builder, fetchAllPeaks, fetchPeaks, project, transport } from "./lib/state/api";
+import { fetchAllPeaks, fetchPeaks, project, transport } from "./lib/state/api";
 import {
   apiFetch,
   getRemoteBackend,
@@ -314,6 +315,16 @@ export default function App() {
   });
   const midiImportInput = useRef<HTMLInputElement>(null);
   const audioImportInput = useRef<HTMLInputElement>(null);
+  const [midiImportRequest, setMidiImportRequest] = useState<{
+    files: File[];
+    target?: { songIndex: number; trackId?: string; startBeats?: number };
+  } | null>(null);
+  const [audioImportRequest, setAudioImportRequest] = useState<{
+    files: File[];
+    songIndex: number;
+    startSeconds?: number;
+    trackIndex?: number;
+  } | null>(null);
   useEffect(() => {
     const midi = () => midiImportInput.current?.click();
     const audio = () => audioImportInput.current?.click();
@@ -323,6 +334,30 @@ export default function App() {
       window.removeEventListener("resostage-open-midi-import", midi);
       window.removeEventListener("resostage-open-audio-import", audio);
     };
+  }, []);
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        files: File[];
+        songIndex: number;
+        startSeconds?: number;
+        trackIndex?: number;
+      }>).detail;
+      if (detail?.files?.length) setAudioImportRequest(detail);
+    };
+    window.addEventListener("resostage-import-audio-batch", handle);
+    return () => window.removeEventListener("resostage-import-audio-batch", handle);
+  }, []);
+  useEffect(() => {
+    const handle = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        files: File[];
+        target?: { songIndex: number; trackId?: string; startBeats?: number };
+      }>).detail;
+      if (detail?.files?.length) setMidiImportRequest(detail);
+    };
+    window.addEventListener("resostage-import-midi", handle);
+    return () => window.removeEventListener("resostage-import-midi", handle);
   }, []);
   useEffect(() => {
     const handle = (event: Event) => {
@@ -886,59 +921,56 @@ export default function App() {
         intent={midiExport.intent}
         onClose={() => setMidiExport((current) => ({ ...current, open: false }))}
       />
+      <ImportMidiDialog
+        open={midiImportRequest !== null}
+        files={midiImportRequest?.files ?? []}
+        target={midiImportRequest?.target}
+        state={state}
+        onClose={() => setMidiImportRequest(null)}
+      />
+      <ImportAudioBatchDialog
+        open={audioImportRequest !== null}
+        files={audioImportRequest?.files ?? []}
+        state={state}
+        songIndex={audioImportRequest?.songIndex ?? state.songIndex}
+        startSeconds={audioImportRequest?.startSeconds}
+        trackIndex={audioImportRequest?.trackIndex}
+        onClose={() => setAudioImportRequest(null)}
+      />
       <input
         ref={midiImportInput}
         type="file"
         accept=".mid,.midi,audio/midi"
+        multiple
         className="hidden"
         aria-label="Import MIDI file"
         onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
+          const files = Array.from(event.currentTarget.files ?? []);
           event.currentTarget.value = "";
-          if (!file) return;
-          if (file.size > 32 * 1024 * 1024) {
-            window.alert("MIDI file exceeds 32 MiB limit.");
-            return;
-          }
-          const track = state.tracks.find((item) => item.id === state.activeTrackId &&
-            ["instrument", "midi", "externalMidi"].includes(item.kind ?? ""));
-          if (!track) {
-            window.alert("Select an instrument or MIDI track before importing MIDI.");
-            return;
-          }
-          void file.arrayBuffer().then((buffer) => {
-            const imported = parseStandardMidiFile(new Uint8Array(buffer));
-            const sourceTracks = imported.tracks.filter((item) => item.notes.length > 0);
-            if (!sourceTracks.length) throw new Error("MIDI file has no notes");
-            let id = 1;
-            return builder.midiRegionAdd({
-              songIndex: state.songIndex,
-              trackId: track.id,
-              name: file.name.replace(/\.(mid|midi)$/i, ""),
-              startBeats: 0,
-              durationBeats: Math.max(1, ...sourceTracks.map((item) => item.durationBeats)),
-              notes: sourceTracks.flatMap((item) => item.notes.map((note) => ({ ...note, id: id++ }))),
-            });
-          }).catch((cause: unknown) => window.alert(cause instanceof Error ? cause.message : "MIDI import failed"));
+          if (files.length) setMidiImportRequest({ files, target: { songIndex: state.songIndex } });
         }}
       />
       <input
         ref={audioImportInput}
         type="file"
         accept="audio/wav,.wav,.wave"
+        multiple
         className="hidden"
         aria-label="Import audio file"
         onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
+          const files = Array.from(event.currentTarget.files ?? []);
           event.currentTarget.value = "";
-          if (!file) return;
-          const index = state.tracks.findIndex((track) => track.id === state.activeTrackId && track.kind === "audio");
-          if (index < 0) {
-            window.alert("Select an audio track before importing audio.");
+          if (!files.length) return;
+          if (files.length > 1) {
+            setAudioImportRequest({ files, songIndex: state.songIndex });
             return;
           }
-          void builder.trackImportWav(state.songIndex, index, file)
-            .catch((cause: unknown) => window.alert(cause instanceof Error ? cause.message : "Audio import failed"));
+          const index = state.tracks.findIndex((track) => track.id === state.activeTrackId && track.kind === "audio");
+          if (index < 0) {
+            setAudioImportRequest({ files, songIndex: state.songIndex });
+            return;
+          }
+          setAudioImportRequest({ files, songIndex: state.songIndex, trackIndex: index });
         }}
       />
 

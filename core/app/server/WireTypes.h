@@ -398,6 +398,13 @@ struct WMidiNoteTelemetry {
     int pan = -1;
     int tuningOffsetCents = 0;
     bool muted = false;
+    int channel = 0;
+};
+
+struct WMidiClipEventTelemetry {
+    double beat = 0.0;
+    int status = 0;
+    std::vector<int> data;
 };
 
 struct WMidiRegionTelemetry {
@@ -412,6 +419,7 @@ struct WMidiRegionTelemetry {
     bool muted = false;
     std::string color = "#3b82f6";
     std::vector<WMidiNoteTelemetry> notes;
+    std::vector<WMidiClipEventTelemetry> events;
 };
 
 struct WTempoPointTelemetry {
@@ -929,6 +937,7 @@ struct WTrackImportBeginPayload {
     int songIndex = -1;
     int index = -1;
     std::string fileName;
+    double startSeconds = 0.0;
 };
 
 struct WDiscoveryTogglePayload {

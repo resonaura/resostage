@@ -279,6 +279,14 @@ export interface MidiNoteRow {
   pan?: number;
   tuningOffsetCents?: number;
   muted?: boolean;
+  channel?: number;
+}
+
+/** Non-note MIDI events retained with an imported clip (status + data bytes). */
+export interface MidiClipEventRow {
+  beat: number;
+  status: number;
+  data: number[];
 }
 
 export type AutomationDomain = "strip" | "plugin" | "midiCC" | "lighting";
@@ -334,6 +342,7 @@ export interface MidiRegionRow {
   muted?: boolean;
   color?: string;
   notes: MidiNoteRow[];
+  events?: MidiClipEventRow[];
   automationLanes?: AutomationLaneRow[];
 }
 

@@ -31,7 +31,8 @@ using audio_engine_detail::streamingIoThreadStop;
 using audio_engine_detail::residentIoYield;
 
 void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
-                                         std::function<void(bool, std::string)> onComplete) {
+                                         std::function<void(bool, std::string)> onComplete,
+                                         double startSeconds) {
     auto fail = [&onComplete](std::string msg) {
         if (onComplete)
             onComplete(false, std::move(msg));
@@ -69,7 +70,13 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
         base = base.substr(slash + 1);
     if (base.empty())
         base = track->id + ".wav";
-    const std::string entry = "Audio/" + base;
+    // The original filename alone is not a unique archive key: a batch may
+    // contain two different files both named "take.wav". Include the stable
+    // destination track ID so independent imports never overwrite one another.
+    std::string archiveTrackId = track->id;
+    for (char& ch : archiveTrackId)
+        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '_') ch = '_';
+    const std::string entry = "Audio/" + archiveTrackId + "_" + base;
     std::string newTrackName = track->name;
     if (newTrackName.empty() || newTrackName == "New Track") {
         const auto dot = base.find_last_of('.');
@@ -112,6 +119,7 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
                 regPtr = &s.regions.back();
             }
             regPtr->source.file = entry;
+            regPtr->startSeconds = std::max(0.0, startSeconds);
         }
     }
 
@@ -141,6 +149,7 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
                 regPtr = &s.regions.back();
             }
             regPtr->source.file = entry;
+            regPtr->startSeconds = std::max(0.0, startSeconds);
         }
     }
 
@@ -152,6 +161,7 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
 
 
     importThread = std::thread([this, songIndex, trackIndex, filesystemPath, entry, archivePath, tempOut, projectSnapshot, songToRestore, wasPlaying,
+                                 startSeconds,
                                  onComplete]() mutable {
         std::string error;
         std::vector<uint8_t> data;
@@ -201,6 +211,13 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
                                 break;
                             }
                         }
+                        // An authored song boundary is a guard, not a reason
+                        // to truncate newly imported audio. Keep derived
+                        // lengths derived (zero), but grow explicit lengths
+                        // to include the complete file.
+                        if (s.endSeconds > 0.0)
+                            s.endSeconds = std::max(s.endSeconds,
+                                std::max(0.0, startSeconds) + overview.durationSeconds);
                     }
                 }
             }

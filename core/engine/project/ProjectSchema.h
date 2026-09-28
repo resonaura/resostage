@@ -25,11 +25,12 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 4;
-// Format 4 only added optional insert chains. Version 3 projects have the
-// same routing/timeline shape and can therefore be upgraded losslessly while
-// parsing by supplying empty chains. Older revisions changed identifiers and
-// ownership and still require the explicit migrator.
+inline constexpr int kCurrentFormatVersion = 5;
+// Format 5 adds optional per-note MIDI channels and retained non-note clip
+// events. Format 4 has identical ownership and is promoted losslessly with
+// default channels / empty event lists. Format 3 additionally defaults plug-in
+// chains. Older revisions changed identifiers and ownership and require the
+// explicit migrator.
 inline constexpr int kMinimumReadableFormatVersion = 3;
 
 // The single on-disk project data file (holds the full WProject schema, i.e.
@@ -511,6 +512,16 @@ struct MidiNote {
     int8_t pan = -1;              // -1 = unassigned/default, 0-127 MIDI 2.0 per-note pan
     int8_t tuningOffsetCents = 0; // -100 to +100 cents detune
     bool muted = false;
+    uint8_t channel = 0;          // 0-15 source/output MIDI channel
+};
+
+// Non-note MIDI data retained when importing Standard MIDI Files. The status
+// byte is the original SMF status (channel voice or F0/F7 SysEx); `data`
+// contains the bytes following status, without delta-time encoding.
+struct MidiClipEvent {
+    double beat = 0.0;
+    uint8_t status = 0;
+    std::vector<uint8_t> data;
 };
 
 // A MIDI region containing notes placed on a track. Ids are UUIDv7.
@@ -526,6 +537,7 @@ struct MidiRegion {
     bool muted = false;
     std::string color = "#3b82f6";
     std::vector<MidiNote> notes;  // Note container, sorted by startBeats
+    std::vector<MidiClipEvent> events; // Non-note MIDI events, sorted by beat
     std::vector<AutomationLane> automationLanes;
 };
 

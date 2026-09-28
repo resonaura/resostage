@@ -8,6 +8,7 @@ const MAX_EVENTS = 200_000;
 export interface ImportedMidiTrack {
   name: string;
   notes: MidiNoteRow[];
+  events?: Array<{ beat: number; status: number; data: number[] }>;
   durationBeats: number;
 }
 
@@ -51,7 +52,7 @@ class Reader {
   }
 }
 
-/** Parse PPQN SMF 0/1, retaining note pairs without executing SysEx. */
+/** Parse SMF 0/1 on PPQN or SMPTE clocks, retaining paired notes and MIDI events. */
 export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   if (bytes.length > MAX_BYTES) throw new Error("MIDI file exceeds 32 MiB limit");
   const reader = new Reader(bytes);
@@ -62,13 +63,25 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   const count = reader.uint16();
   const division = reader.uint16();
   reader.take(headerLength - 6);
-  if (format > 1 || count < 1 || count > MAX_TRACKS)
+  if (format > 1 || count < 1 || count > MAX_TRACKS || (format === 0 && count !== 1))
     throw new Error("Only MIDI format 0/1 with up to 256 tracks is supported");
-  if ((division & 0x8000) || division === 0)
-    throw new Error("SMPTE-time MIDI files are not supported");
+  const smpte = (division & 0x8000) !== 0;
+  let ticksPerSecond = 0;
+  if (smpte) {
+    const frameCode = (division >> 8) - 256;
+    const ticksPerFrame = division & 0xff;
+    const framesPerSecond = frameCode === -29 ? 30_000 / 1_001 : Math.abs(frameCode);
+    if (![-24, -25, -29, -30].includes(frameCode) || ticksPerFrame === 0)
+      throw new Error("Invalid SMPTE time division");
+    ticksPerSecond = framesPerSecond * ticksPerFrame;
+  } else if (division === 0) {
+    throw new Error("Invalid MIDI PPQN time division");
+  }
+  const musicalPosition = (tick: number) => smpte ? tick / ticksPerSecond : tick / division;
 
   const result: ImportedMidiFile = { tracks: [], tempoEvents: [], meterEvents: [] };
   let nextId = 1;
+  let totalEventCount = 0;
   for (let trackIndex = 0; trackIndex < count; trackIndex++) {
     if (reader.fourCC() !== "MTrk") throw new Error("Missing MIDI track chunk");
     const trackLength = reader.uint32();
@@ -78,10 +91,10 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
     let runningStatus = 0;
     let name = `MIDI Track ${trackIndex + 1}`;
     const notes: MidiNoteRow[] = [];
+    const events: ImportedMidiTrack["events"] = [];
     const held = new Map<number, Array<{ tick: number; velocity: number }>>();
-    let eventCount = 0;
     while (reader.offset < trackEnd) {
-      if (++eventCount > MAX_EVENTS) throw new Error("MIDI track has too many events");
+      if (++totalEventCount > MAX_EVENTS) throw new Error("MIDI file has too many events");
       tick += reader.vlq();
       if (reader.offset >= trackEnd) throw new Error("Truncated MIDI event");
       const next = reader.byte();
@@ -98,7 +111,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           if (micros > 0) {
             const bpm = 60_000_000 / micros;
             result.bpm ??= bpm;
-            result.tempoEvents.push({ beat: tick / division, bpm });
+            result.tempoEvents.push({ beat: musicalPosition(tick), bpm });
           }
         }
         if (kind === 0x58 && data.length >= 2) {
@@ -106,29 +119,44 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           const denominator = 2 ** data[1];
           result.numerator ??= numerator;
           result.denominator ??= denominator;
-          result.meterEvents.push({ beat: tick / division, numerator, denominator });
+          result.meterEvents.push({ beat: musicalPosition(tick), numerator, denominator });
         }
         if (kind === 0x2f) {
           reader.offset = trackEnd;
           break;
+        }
+        if (kind !== 0x51 && kind !== 0x58 && kind !== 0x2f) {
+          events.push({ beat: musicalPosition(tick), status: 0xff, data: [kind, ...data] });
         }
         if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
         continue;
       }
       if (status === 0xf0 || status === 0xf7) {
         runningStatus = 0;
-        reader.take(reader.vlq());
+        events.push({ beat: musicalPosition(tick), status, data: Array.from(reader.take(reader.vlq())) });
         if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
         continue;
       }
-      if (status >= 0xf0) throw new Error("Unsupported system MIDI event");
+      if (status >= 0xf0) {
+        runningStatus = 0;
+        const systemDataLength = status === 0xf1 || status === 0xf3 ? 1
+          : status === 0xf2 ? 2
+            : status === 0xf6 || status >= 0xf8 ? 0 : -1;
+        if (systemDataLength < 0) throw new Error(`Unsupported MIDI system event 0x${status.toString(16)}`);
+        const data = Array.from(reader.take(systemDataLength));
+        events.push({ beat: musicalPosition(tick), status, data });
+        continue;
+      }
       runningStatus = status;
       const kind = status & 0xf0;
       const channel = status & 0x0f;
       const data1 = reader.byte();
       const data2 = kind === 0xc0 || kind === 0xd0 ? 0 : reader.byte();
       if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
-      if (kind !== 0x80 && kind !== 0x90) continue;
+      if (kind !== 0x80 && kind !== 0x90) {
+        events.push({ beat: tick / division, status, data: kind === 0xc0 || kind === 0xd0 ? [data1] : [data1, data2] });
+        continue;
+      }
       const key = channel * 128 + data1;
       if (kind === 0x90 && data2 > 0) {
         const queue = held.get(key) ?? [];
@@ -136,12 +164,16 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         held.set(key, queue);
       } else {
         const start = held.get(key)?.shift();
-        if (!start) continue;
+        if (!start) {
+          events.push({ beat: musicalPosition(tick), status, data: [data1, data2] });
+          continue;
+        }
         notes.push({
           id: nextId++,
           pitch: data1,
-          startBeats: start.tick / division,
-          durationBeats: Math.max(0.03125, (tick - start.tick) / division),
+          channel,
+          startBeats: musicalPosition(start.tick),
+          durationBeats: Math.max(0.03125, musicalPosition(tick) - musicalPosition(start.tick)),
           velocity: start.velocity / 127,
           releaseVelocity: data2 / 127,
           probability: 1,
@@ -151,15 +183,57 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
     for (const [key, queue] of held) for (const start of queue) {
       notes.push({
         id: nextId++, pitch: key % 128,
-        startBeats: start.tick / division,
-        durationBeats: Math.max(0.03125, (tick - start.tick) / division),
+        channel: Math.floor(key / 128),
+        startBeats: musicalPosition(start.tick),
+        durationBeats: Math.max(0.03125, musicalPosition(tick) - musicalPosition(start.tick)),
         velocity: start.velocity / 127, releaseVelocity: 0, probability: 1,
       });
     }
     notes.sort((a, b) => a.startBeats - b.startBeats || a.pitch - b.pitch);
-    result.tracks.push({ name, notes, durationBeats: tick / division });
+    result.tracks.push({ name, notes, events, durationBeats: musicalPosition(tick) });
     reader.offset = trackEnd;
   }
+  result.tempoEvents.sort((a, b) => a.beat - b.beat);
+  result.meterEvents.sort((a, b) => a.beat - b.beat);
+  if (smpte) {
+    // SMPTE files encode absolute time, not musical ticks. Convert each event
+    // through the file's tempo map so the imported clip remains on its clock.
+    const secondsToBeat = (seconds: number) => {
+      const points = [...result.tempoEvents].sort((a, b) => a.beat - b.beat);
+      const effective: Array<{ beat: number; bpm: number }> = [{ beat: 0, bpm: 120 }];
+      for (const point of points) {
+        const previous = effective.at(-1)!;
+        if (Math.abs(previous.beat - point.beat) < 1e-9) effective[effective.length - 1] = point;
+        else if (point.beat >= 0) effective.push(point);
+      }
+      let beats = 0;
+      for (let index = 0; index < effective.length; index++) {
+        const point = effective[index];
+        const next = effective[index + 1];
+        const end = Math.min(seconds, next?.beat ?? seconds);
+        if (end > point.beat) beats += (end - point.beat) * point.bpm / 60;
+        if (!next || seconds <= next.beat) break;
+      }
+      return beats;
+    };
+    const tempoSeconds = [...result.tempoEvents];
+    const meterSeconds = [...result.meterEvents];
+    result.tempoEvents = tempoSeconds.map((event) => ({ ...event, beat: secondsToBeat(event.beat) }));
+    result.meterEvents = meterSeconds.map((event) => ({ ...event, beat: secondsToBeat(event.beat) }));
+    for (const track of result.tracks) {
+      for (const note of track.notes) {
+        const startSeconds = note.startBeats;
+        const endSeconds = startSeconds + note.durationBeats;
+        note.startBeats = secondsToBeat(startSeconds);
+        note.durationBeats = Math.max(0.03125, secondsToBeat(endSeconds) - note.startBeats);
+      }
+      for (const event of track.events ?? []) event.beat = secondsToBeat(event.beat);
+      track.durationBeats = secondsToBeat(track.durationBeats);
+    }
+  }
+  result.bpm = result.tempoEvents.filter((event) => event.beat <= 0).at(-1)?.bpm ?? 120;
+  result.numerator = result.meterEvents.filter((event) => event.beat <= 0).at(-1)?.numerator ?? 4;
+  result.denominator = result.meterEvents.filter((event) => event.beat <= 0).at(-1)?.denominator ?? 4;
   return result;
 }
 
@@ -251,9 +325,34 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           const end = Math.max(start + 1, Math.round((region.startBeats + Math.min(region.durationBeats, relative + note.durationBeats) - origin) * PPQN));
           const pitch = Math.max(0, Math.min(127, Math.round(note.pitch)));
           const velocity = Math.max(1, Math.min(127, Math.round(note.velocity * 127)));
-          events.push({ tick: start, order: 1, bytes: [0x90, pitch, velocity] });
-          events.push({ tick: end, order: 0, bytes: [0x80, pitch, Math.max(0, Math.min(127, Math.round(note.releaseVelocity * 127)))] });
+          const channel = Math.max(0, Math.min(15, Math.round(note.channel ?? 0)));
+          events.push({ tick: start, order: 1, bytes: [0x90 | channel, pitch, velocity] });
+          events.push({ tick: end, order: 0, bytes: [0x80 | channel, pitch, Math.max(0, Math.min(127, Math.round(note.releaseVelocity * 127)))] });
           totalEvents += 2;
+          if (events.length > MAX_EVENTS || totalEvents > 400_000)
+            throw new Error("MIDI export exceeds event limit");
+        }
+      }
+      for (const event of region.events ?? []) {
+        const repeats = options.expandLoops && region.loop && loopLength > 0
+          ? Math.min(100_000, Math.ceil((region.durationBeats + region.clipOffsetBeats) / loopLength))
+          : 1;
+        for (let repeat = 0; repeat < repeats; repeat++) {
+          const relative = event.beat + repeat * loopLength - region.clipOffsetBeats;
+          if (relative < 0 || relative >= region.durationBeats) continue;
+          const tick = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
+          let bytes: number[];
+          if (event.status === 0xff) {
+            const [metaType, ...payload] = event.data;
+            if (metaType === undefined) continue;
+            bytes = [0xff, metaType, ...vlq(payload.length), ...payload];
+          } else if (event.status === 0xf0 || event.status === 0xf7) {
+            bytes = [event.status, ...vlq(event.data.length), ...event.data];
+          } else {
+            bytes = [event.status, ...event.data];
+          }
+          events.push({ tick, order: 1, bytes });
+          totalEvents++;
           if (events.length > MAX_EVENTS || totalEvents > 400_000)
             throw new Error("MIDI export exceeds event limit");
         }
@@ -302,7 +401,7 @@ export function songSecondsAtBeat(song: SongRow, beat: number): number {
   return seconds;
 }
 
-function songBeatsAtSeconds(song: SongRow, seconds: number): number {
+export function songBeatsAtSeconds(song: SongRow, seconds: number): number {
   let high = Math.max(1, seconds * Math.max(1, song.bpm || 120) / 30);
   while (songSecondsAtBeat(song, high) < seconds && high < 1_000_000) high *= 2;
   let low = 0;
@@ -312,6 +411,85 @@ function songBeatsAtSeconds(song: SongRow, seconds: number): number {
     else high = mid;
   }
   return (low + high) / 2;
+}
+
+/**
+ * Convert a beat position in an imported SMF to elapsed seconds. SMF tempo is
+ * expressed as microseconds per quarter-note, with the format default of 120
+ * BPM when no tempo meta-event is present. Simultaneous tempo events are
+ * resolved in file order (the last event at a tick wins).
+ */
+export function midiSecondsAtBeat(
+  tempoEvents: ReadonlyArray<{ beat: number; bpm: number }>,
+  beat: number,
+): number {
+  const points = [...tempoEvents]
+    .filter((point) => Number.isFinite(point.beat) && Number.isFinite(point.bpm) && point.bpm > 0)
+    .sort((a, b) => a.beat - b.beat);
+  const effective: Array<{ beat: number; bpm: number }> = [{ beat: 0, bpm: 120 }];
+  for (const point of points) {
+    if (point.beat < 0) continue;
+    const previous = effective.at(-1)!;
+    if (Math.abs(previous.beat - point.beat) < 1e-9) effective[effective.length - 1] = point;
+    else effective.push(point);
+  }
+  let seconds = 0;
+  for (let index = 0; index < effective.length; index++) {
+    const current = effective[index];
+    const next = effective[index + 1];
+    const end = Math.min(beat, next?.beat ?? beat);
+    if (end > current.beat) seconds += (end - current.beat) * 60 / current.bpm;
+    if (!next || beat <= next.beat) break;
+  }
+  return seconds;
+}
+
+/** Convert an elapsed duration to the project's song-local beat domain. */
+export function songBeatAtElapsedSeconds(song: SongRow, seconds: number): number {
+  return songBeatsAtSeconds(song, Math.max(0, seconds));
+}
+
+/**
+ * Preserve the imported MIDI's real-time placement while conforming it to the
+ * destination song's tempo map. Note duration is converted independently at
+ * its start/end so tempo changes inside a note do not shift its release time.
+ */
+export function adaptMidiTracksToSongTempo(
+  tracks: ReadonlyArray<ImportedMidiTrack>,
+  tempoEvents: ReadonlyArray<{ beat: number; bpm: number }>,
+  song: SongRow,
+): ImportedMidiTrack[] {
+  return tracks.map((track) => {
+    const notes = track.notes.map((note) => {
+      const startSeconds = midiSecondsAtBeat(tempoEvents, note.startBeats);
+      const endSeconds = midiSecondsAtBeat(tempoEvents, note.startBeats + note.durationBeats);
+      const startBeats = songBeatAtElapsedSeconds(song, startSeconds);
+      const endBeats = songBeatAtElapsedSeconds(song, endSeconds);
+      return { ...note, startBeats, durationBeats: Math.max(1 / 64, endBeats - startBeats) };
+    });
+    const sourceEndSeconds = midiSecondsAtBeat(tempoEvents, track.durationBeats);
+    const events = track.events?.map((event) => ({
+      ...event,
+      beat: songBeatAtElapsedSeconds(song, midiSecondsAtBeat(tempoEvents, event.beat)),
+    }));
+    return { ...track, notes, events, durationBeats: songBeatAtElapsedSeconds(song, sourceEndSeconds) };
+  });
+}
+
+/** True when the imported MIDI tempo map changes the file's playback clock. */
+export function midiTempoDiffersFromSong(
+  tempoEvents: ReadonlyArray<{ beat: number; bpm: number }>,
+  song: SongRow,
+): boolean {
+  const candidates = new Set<number>([0]);
+  for (const event of tempoEvents) if (event.beat >= 0) candidates.add(event.beat);
+  for (const point of song.tempoPoints ?? []) if (point.beat >= 0) candidates.add(point.beat);
+  for (const beat of candidates) {
+    const importedSeconds = midiSecondsAtBeat(tempoEvents, beat);
+    const projectSeconds = songSecondsAtBeat(song, beat);
+    if (Math.abs(importedSeconds - projectSeconds) > 0.01) return true;
+  }
+  return false;
 }
 
 export interface MidiSongExportOptions {

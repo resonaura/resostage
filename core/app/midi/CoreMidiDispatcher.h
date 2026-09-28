@@ -36,6 +36,7 @@ enum class MidiCommandKind : uint8_t {
     Continue,            // 0xFB realtime message, no data bytes
     Stop,                // 0xFC realtime message, no data bytes
     SongPositionPointer, // 0xF2, 2 data bytes (14-bit MIDI-beat count, LSB/MSB)
+    Raw,                 // Generic short MIDI message (up to 2 data bytes)
 };
 
 struct MidiCommand {
@@ -43,6 +44,8 @@ struct MidiCommand {
     uint8_t channel = 0; // 0-15
     uint8_t data1 = 0;   // note number or CC number
     uint8_t data2 = 0;   // velocity or CC value (unused for ProgramChange/ClockTick)
+    uint8_t status = 0;  // Raw only: complete MIDI status byte
+    uint8_t dataLength = 0; // Raw only: number of following data bytes (0..2)
     // Absolute target send time, same nanosecond domain as
     // SystemMonotonicClock/MasterClock (converted to mach ticks internally --
     // CoreMIDI's MIDITimeStamp is raw mach_absolute_time() ticks, not nanoseconds).

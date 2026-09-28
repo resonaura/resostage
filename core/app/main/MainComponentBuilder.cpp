@@ -12,6 +12,7 @@
 #include "project/ProjectJson.h"
 #include "project/RouteId.h"
 #include "server/BuilderJson.h"
+#include "timing/TempoMap.h"
 #include "automation/AutomationRecorder.h"
 #include "automation/RamerDouglasPeucker.h"
 
@@ -20,6 +21,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace resostage {
@@ -62,12 +64,44 @@ std::vector<MidiNote> parseMidiNotes(const glz::generic& doc) {
         if (getInt(noteVal, "tuningOffsetCents", tuning))
             n.tuningOffsetCents = static_cast<int8_t>(std::clamp(tuning, -100, 100));
         getBool(noteVal, "muted", n.muted);
+        int channel = 0;
+        if (getInt(noteVal, "channel", channel)) n.channel = static_cast<uint8_t>(std::clamp(channel, 0, 15));
         notes.push_back(n);
     }
     std::stable_sort(notes.begin(), notes.end(), [](const MidiNote& a, const MidiNote& b) {
         return a.startBeats < b.startBeats;
     });
     return notes;
+}
+
+std::vector<MidiClipEvent> parseMidiClipEvents(const glz::generic& doc) {
+    std::vector<MidiClipEvent> events;
+    if (!doc.contains("events") || !doc["events"].is_array()) return events;
+    const auto& values = doc["events"].get_array();
+    if (values.size() > 200'000) return events;
+    events.reserve(values.size());
+    size_t totalPayloadBytes = 0;
+    for (const auto& value : values) {
+        if (!value.is_object()) continue;
+        MidiClipEvent event;
+        int status = 0;
+        if (!getDouble(value, "beat", event.beat) || !getInt(value, "status", status)) continue;
+        event.beat = std::max(0.0, event.beat);
+        event.status = static_cast<uint8_t>(std::clamp(status, 0, 255));
+        if (const auto* data = getArray(value, "data")) {
+            if (data->size() > 65'536 || totalPayloadBytes + data->size() > 8 * 1024 * 1024) continue;
+            event.data.reserve(data->size());
+            for (const auto& byteValue : *data) {
+                if (!byteValue.is_number()) { event.data.clear(); break; }
+                const auto byte = static_cast<int>(byteValue.get_number());
+                event.data.push_back(static_cast<uint8_t>(std::clamp(byte, 0, 255)));
+            }
+            totalPayloadBytes += event.data.size();
+        }
+        events.push_back(std::move(event));
+    }
+    std::stable_sort(events.begin(), events.end(), [](const auto& a, const auto& b) { return a.beat < b.beat; });
+    return events;
 }
 
 std::vector<AutomationLane> parseAutomationLanes(const glz::generic& doc) {
@@ -371,21 +405,59 @@ void MainComponent::builderSongUpdate(const std::string& json) {
     SongDef& s = proj.songs[static_cast<size_t>(index)];
 
     bool bpmChanged = false;
+    bool tempoMapChanged = false;
     if (getString(doc, "name", strVal)) s.name = strVal;
     if (getDouble(doc, "bpm", numVal)) { s.bpm = numVal; bpmChanged = true; }
     if (getString(doc, "mode", strVal))
         s.onEnded = (strVal == "auto") ? SongEnd::Next : SongEnd::Stop;
     if (getInt(doc, "tsNum", intVal)) s.timeSignature.numerator = intVal;
     if (getInt(doc, "tsDen", intVal)) s.timeSignature.denominator = intVal;
+    if (const auto* tempoArr = getArray(doc, "tempoPoints")) {
+        std::vector<TempoPoint> importedPoints;
+        importedPoints.reserve(tempoArr->size());
+        for (const auto& pointValue : *tempoArr) {
+            TempoPoint point;
+            if (!getDouble(pointValue, "beat", point.beat)
+                || !getDouble(pointValue, "bpm", point.bpm)
+                || !std::isfinite(point.beat) || !std::isfinite(point.bpm) || point.bpm <= 0.0)
+                continue;
+            getDouble(pointValue, "timeSeconds", point.timeSeconds);
+            getDouble(pointValue, "curve", point.curve);
+            importedPoints.push_back(point);
+        }
+        TempoMap normalized(s.bpm, std::move(importedPoints));
+        s.tempoPoints = normalized.points();
+        tempoMapChanged = true;
+    }
+    if (const auto* signatureArr = getArray(doc, "signaturePoints")) {
+        std::vector<SignaturePoint> importedPoints;
+        importedPoints.reserve(signatureArr->size());
+        for (const auto& pointValue : *signatureArr) {
+            SignaturePoint point;
+            if (!getDouble(pointValue, "beat", point.beat)
+                || !getInt(pointValue, "numerator", point.numerator)
+                || !getInt(pointValue, "denominator", point.denominator)
+                || !std::isfinite(point.beat) || point.beat < 0.0
+                || point.numerator <= 0 || point.denominator <= 0)
+                continue;
+            getInt(pointValue, "bar", point.bar);
+            importedPoints.push_back(point);
+        }
+        SignatureMap normalized(s.timeSignature.numerator, s.timeSignature.denominator,
+                                std::move(importedPoints));
+        s.signaturePoints = normalized.points();
+    }
 
     if (index != static_cast<int>(engine.currentSongIndex())) {
         goToSong(index); // pushes BPM to LightEngine itself once this song is staged
-    } else if (bpmChanged) {
+    } else if (bpmChanged || tempoMapChanged) {
         // Editing the ACTIVE song's own tempo -- goToSong() isn't called for
         // this branch, so nothing else re-syncs LightEngine's BPM. Without
         // this, tempo-synced light effects on real hardware keep running at
         // the pre-edit tempo indefinitely (see RESTORE_POINT.md).
-        engine.notifyLightEngineBpmChanged(s.bpm);
+        if (bpmChanged || tempoMapChanged)
+            engine.notifyLightEngineBpmChanged(s.bpm);
+        engine.refreshActiveTempoMap();
     }
     engine.projectHistoryCommitEdit();
     notifyProjectStructureChanged();
@@ -845,6 +917,8 @@ void MainComponent::builderMidiRegionAdd(const std::string& json) {
     getBool(doc, "muted", reg.muted);
     if (doc.contains("notes") && doc["notes"].is_array())
         reg.notes = parseMidiNotes(doc);
+    if (doc.contains("events") && doc["events"].is_array())
+        reg.events = parseMidiClipEvents(doc);
     if (doc.contains("automationLanes") && doc["automationLanes"].is_array()) {
         reg.automationLanes = parseAutomationLanes(doc);
         for (auto& lane : reg.automationLanes) {
@@ -927,6 +1001,8 @@ void MainComponent::builderMidiRegionUpdate(const std::string& json) {
     // Optional notes array update
     if (doc.contains("notes") && doc["notes"].is_array())
         regPtr->notes = parseMidiNotes(doc);
+    if (doc.contains("events") && doc["events"].is_array())
+        regPtr->events = parseMidiClipEvents(doc);
     if (doc.contains("automationLanes") && doc["automationLanes"].is_array())
         regPtr->automationLanes = parseAutomationLanes(doc);
 
@@ -1573,7 +1649,8 @@ void MainComponent::removeTrackSendFromJson(const std::string& json) {
     }
 }
 
-void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath) {
+void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath,
+                                                double startSeconds) {
     if (songIndex < 0 || trackIndex < 0) {
         std::remove(tempWavPath.c_str());
         setStatus("Import failed: no target track");
@@ -1601,7 +1678,7 @@ void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, c
         }
     notifyProjectStructureChanged();
         setStatus("WAV imported");
-    });
+    }, startSeconds);
 }
 
 void MainComponent::builderTrackImportWavDialog(const std::string& json) {

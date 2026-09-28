@@ -58,6 +58,7 @@ void buildMidiBytes(const MidiCommand& cmd, Byte (&buffer)[3], ByteCount& totalB
         case MidiCommandKind::Continue: statusByte = 0xFB; numDataBytes = 0; break;
         case MidiCommandKind::Stop: statusByte = 0xFC; numDataBytes = 0; break;
         case MidiCommandKind::SongPositionPointer: statusByte = 0xF2; numDataBytes = 2; break;
+        case MidiCommandKind::Raw: statusByte = cmd.status; numDataBytes = cmd.dataLength > 2 ? 2 : cmd.dataLength; break;
     }
 
     buffer[0] = statusByte;

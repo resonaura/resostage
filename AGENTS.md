@@ -511,6 +511,12 @@ latency, including the compatible plug-in bank's compensated path latency, is
 included when deriving target host time so MIDI/DMX/HTTP intent is aligned
 with audio as it is heard, not merely when buffers are filled.
 
+Song tempo edits are message-thread project mutations. For the currently staged
+song, publish a replacement immutable `TempoMap` snapshot atomically with
+`AudioEngine::refreshActiveTempoMap()`; do not restage streams or seek merely
+to make tempo edits visible to playback. Offline renderers continue to build
+their own maps from their private project snapshot.
+
 `LightEngine` resolves cues/effects on its own high-priority loop (nominally
 60 Hz) from the master clock and immutable project state. Hardware protocols
 may have their own lower safe rate (for example roughly 44 Hz per DMX
@@ -531,7 +537,7 @@ parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `4`. A `.rsnraset` is normally a directory package containing
+format version is `5`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -560,10 +566,10 @@ Key ownership rules:
 There is deliberately no general in-engine migration ladder during this
 pre-release phase. `ProjectLoader` rejects formats older than the explicitly
 declared readable floor and directs the operator to `pnpm migrate <project>`.
-Format v3 is a narrow exception: v4 only added optional plug-in chains, so v3
-is parsed losslessly with empty chains and promoted in memory; the package is
-rewritten as v4 only on the next normal save. Newer unknown formats are always
-rejected. When persisted semantics change, bump the format, update
+Format v3 and v4 are additive compatibility exceptions: v3 gains empty plug-in
+chains and v4 gains default MIDI channels/empty retained-event vectors. Both
+are parsed losslessly and promoted in memory; the package is rewritten at v5
+only on its next normal save. Newer unknown formats are always rejected. When persisted semantics change, bump the format, update
 serialization/parsing/defaults/fixtures and the external migrator, and add an
 explicit compatibility rule only when the old shape is provably unambiguous.
 

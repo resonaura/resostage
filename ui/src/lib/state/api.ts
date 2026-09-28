@@ -645,6 +645,8 @@ export const builder = {
     clickMono?: boolean;
     clickName?: string;
     clickSends: { busId: string; level: number; enabled: boolean }[];
+    tempoPoints?: { beat: number; bpm: number; timeSeconds: number; curve: number }[];
+    signaturePoints?: { beat: number; numerator: number; denominator: number; bar: number }[];
   }) => post("/api/v1/builder/song/update", patch),
 
   trackAdd: (
@@ -739,6 +741,7 @@ export const builder = {
     muted?: boolean;
     color?: string;
     notes?: import("./types").MidiNoteRow[];
+    events?: import("./types").MidiClipEventRow[];
     automationLanes?: import("./types").AutomationLaneRow[];
     gestureId?: string;
   }) => post("/api/v1/builder/midi-region/add", patch),
@@ -761,6 +764,7 @@ export const builder = {
     muted?: boolean;
     color?: string;
     notes?: import("./types").MidiNoteRow[];
+    events?: import("./types").MidiClipEventRow[];
     automationLanes?: import("./types").AutomationLaneRow[];
     gestureId?: string;
   }) => post("/api/v1/builder/midi-region/update", patch),
@@ -836,20 +840,18 @@ export const builder = {
     songIndex: number,
     index: number,
     file: File,
+    startSeconds = 0,
   ): Promise<void> {
     await post("/api/v1/builder/track/import-wav/begin", {
       songIndex,
       index,
       fileName: file.name,
+      startSeconds,
     });
-    try {
-      await apiFetch("/api/v1/builder/track/import-wav/upload", {
-        method: "POST",
-        body: file,
-      });
-    } catch {
-      // Best-effort -- surfaced via statusMessage.
-    }
+    await apiFetch("/api/v1/builder/track/import-wav/upload", {
+      method: "POST",
+      body: file,
+    });
   },
 
   // Native "Open Audio File" picker (embedded webview only -- see

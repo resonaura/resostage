@@ -68,7 +68,8 @@
     // disables further edits and shows a spinner) -- see
     // ProjectLoader::saveAsWithExtras's projectOverride parameter doc for why.
     void importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
-                                std::function<void(bool success, std::string error)> onComplete);
+                                std::function<void(bool success, std::string error)> onComplete,
+                                double startSeconds = 0.0);
 
     // Imports multiple stem WAV files at once in a single background pass into the container package.
     struct BatchItem {

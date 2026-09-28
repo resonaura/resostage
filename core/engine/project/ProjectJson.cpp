@@ -459,6 +459,13 @@ struct WMidiNote {
     int pan = -1;
     int tuningOffsetCents = 0;
     bool muted = false;
+    int channel = 0;
+};
+
+struct WMidiClipEvent {
+    double beat = 0.0;
+    int status = 0;
+    std::vector<int> data;
 };
 
 struct WMidiRegion {
@@ -473,6 +480,7 @@ struct WMidiRegion {
     bool muted = false;
     std::string color = "#3b82f6";
     std::vector<WMidiNote> notes;
+    std::vector<WMidiClipEvent> events;
     std::vector<WAutomationLane> automationLanes;
 };
 
@@ -937,7 +945,17 @@ WProject toWire(const Project& p) {
                 wn.pan = n.pan;
                 wn.tuningOffsetCents = n.tuningOffsetCents;
                 wn.muted = n.muted;
+                wn.channel = n.channel;
                 wmr.notes.push_back(std::move(wn));
+            }
+            wmr.events.reserve(mr.events.size());
+            for (const auto& event : mr.events) {
+                WMidiClipEvent we;
+                we.beat = finiteOrZero(event.beat);
+                we.status = event.status;
+                we.data.reserve(event.data.size());
+                for (uint8_t byte : event.data) we.data.push_back(byte);
+                wmr.events.push_back(std::move(we));
             }
             for (const auto& al : mr.automationLanes)
                 wmr.automationLanes.push_back(toWireAutomationLane(al));
@@ -1304,7 +1322,18 @@ Project fromWire(const WProject& w) {
                 note.pan = static_cast<int8_t>(n.pan);
                 note.tuningOffsetCents = static_cast<int8_t>(std::clamp(n.tuningOffsetCents, -100, 100));
                 note.muted = n.muted;
+                note.channel = static_cast<uint8_t>(std::clamp(n.channel, 0, 15));
                 reg.notes.push_back(std::move(note));
+            }
+            reg.events.reserve(mr.events.size());
+            for (const auto& event : mr.events) {
+                MidiClipEvent restored;
+                restored.beat = std::max(0.0, event.beat);
+                restored.status = static_cast<uint8_t>(std::clamp(event.status, 0, 255));
+                restored.data.reserve(event.data.size());
+                for (int byte : event.data)
+                    restored.data.push_back(static_cast<uint8_t>(std::clamp(byte, 0, 255)));
+                reg.events.push_back(std::move(restored));
             }
             for (const auto& wal : mr.automationLanes)
                 reg.automationLanes.push_back(fromWireAutomationLane(wal));

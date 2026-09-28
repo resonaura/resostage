@@ -234,7 +234,8 @@ private:
     void setTrackSendFromJson(const std::string& json);
     void removeTrackSendFromJson(const std::string& json);
     void setProjectNameFromJson(const std::string& json);
-    void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath);
+    void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath,
+                                     double startSeconds = 0.0);
     void builderTrackImportWavDialog(const std::string& json);
     void builderBusAdd();
     void builderBusRemove(const std::string& json);

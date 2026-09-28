@@ -148,9 +148,15 @@ struct OfflineMidiEvent {
     int64_t sample = 0;
     uint32_t strip = MixGraph::kNoStrip;
     uint8_t pitch = 0;
+    uint8_t channel = 0;
     uint8_t velocity = 0;
     uint8_t releaseVelocity = 0;
+    uint8_t status = 0;
+    uint8_t data1 = 0;
+    uint8_t data2 = 0;
+    uint8_t dataLength = 0;
     bool noteOn = false;
+    bool raw = false;
 };
 
 bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
@@ -165,7 +171,7 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
     if (processors == nullptr)
         return true;
     for (const auto& region : song.midiRegions) {
-        if (region.muted || region.notes.empty() || !std::isfinite(region.startBeats)
+        if (region.muted || (region.notes.empty() && region.events.empty()) || !std::isfinite(region.startBeats)
             || !std::isfinite(region.durationBeats) || region.durationBeats <= 0.0)
             continue;
         const TrackDef* targetTrack = nullptr;
@@ -222,10 +228,44 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
                     static_cast<int>(std::llround(safeVelocity * 127.0f)), 1, 127));
                 const uint8_t releaseVelocity = static_cast<uint8_t>(std::clamp(
                     static_cast<int>(std::llround(safeReleaseVelocity * 127.0f)), 0, 127));
-                events.push_back({effectiveOnSample, strip, pitch,
-                                  velocity, releaseVelocity, true});
-                events.push_back({effectiveOffSample, strip, pitch, velocity,
-                                  releaseVelocity, false});
+                const uint8_t channel = static_cast<uint8_t>(std::clamp(static_cast<int>(note.channel), 0, 15));
+                OfflineMidiEvent noteOn;
+                noteOn.sample = effectiveOnSample;
+                noteOn.strip = strip;
+                noteOn.pitch = pitch;
+                noteOn.channel = channel;
+                noteOn.velocity = velocity;
+                noteOn.releaseVelocity = releaseVelocity;
+                noteOn.noteOn = true;
+                events.push_back(noteOn);
+                OfflineMidiEvent noteOff = noteOn;
+                noteOff.sample = effectiveOffSample;
+                noteOff.noteOn = false;
+                events.push_back(noteOff);
+                if (events.size() > kMaximumEvents) {
+                    error = "MIDI arrangement exceeds the offline render event limit";
+                    return false;
+                }
+            }
+            for (const auto& message : region.events) {
+                if (!std::isfinite(message.beat) || message.data.size() > 2
+                    || message.status == 0xff || message.status == 0xf0 || message.status == 0xf7)
+                    continue; // Meta and variable-length SysEx are retained for SMF export only.
+                const int64_t sample = tempoMap.beatsToSamples(
+                    iterationOffset + message.beat, sampleRate);
+                if (sample < renderStartSample || sample >= renderEndSample
+                    || sample < tempoMap.beatsToSamples(region.startBeats, sampleRate)
+                    || sample >= tempoMap.beatsToSamples(regionEndBeat, sampleRate))
+                    continue;
+                OfflineMidiEvent event;
+                event.sample = sample;
+                event.strip = strip;
+                event.status = message.status;
+                event.dataLength = static_cast<uint8_t>(message.data.size());
+                if (!message.data.empty()) event.data1 = message.data[0];
+                if (message.data.size() > 1) event.data2 = message.data[1];
+                event.raw = true;
+                events.push_back(event);
                 if (events.size() > kMaximumEvents) {
                     error = "MIDI arrangement exceeds the offline render event limit";
                     return false;
@@ -236,6 +276,7 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
     std::stable_sort(events.begin(), events.end(), [](const auto& a, const auto& b) {
         if (a.sample != b.sample) return a.sample < b.sample;
         if (a.noteOn != b.noteOn) return !a.noteOn; // release before retrigger
+        if (a.raw != b.raw) return !a.raw;
         return a.strip < b.strip;
     });
     return true;
@@ -867,10 +908,16 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                         || event.sample > renderContentEndFrame
                         || (event.noteOn && event.sample == renderContentEndFrame))
                         continue;
-                    processorSession->queueMidiNote(
-                        event.strip, event.pitch, event.velocity,
-                        event.releaseVelocity, event.noteOn,
-                        static_cast<int>(event.sample - sourceFrameBase));
+                    if (event.raw) {
+                        processorSession->queueMidiMessage(
+                            event.strip, event.status, event.data1, event.data2,
+                            event.dataLength, static_cast<int>(event.sample - sourceFrameBase));
+                    } else {
+                        processorSession->queueMidiNote(
+                            event.strip, event.channel, event.pitch, event.velocity,
+                            event.releaseVelocity, event.noteOn,
+                            static_cast<int>(event.sample - sourceFrameBase));
+                    }
                 }
             }
             mixer.process(graph, count, processors);

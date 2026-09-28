@@ -518,9 +518,10 @@ bool ProjectLoader::reparseProject(std::string& error) {
         }
         if (!parseProjectJson(json, out, err))
             return false;
-        // v3 -> v4 is additive: plug-in vectors default empty. Promote the
-        // private in-memory snapshot so the next ordinary save writes v4;
-        // never rewrite the package merely because it was opened.
+        // v3 -> v4 defaults plug-in vectors; v4 -> v5 defaults optional MIDI
+        // channels/events. Both changes are additive. Promote the private
+        // in-memory snapshot so the next normal save writes v5, without
+        // rewriting the package merely because it was opened.
         out.format.version = kCurrentFormatVersion;
         return true;
     };

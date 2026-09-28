@@ -893,7 +893,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 if (pss->isWavUpload) {
                     int songIndex = -1, trackIndex = -1;
                     std::string fileName;
-                    server->takeTrackImportTarget(songIndex, trackIndex, fileName);
+                    double startSeconds = 0.0;
+                    server->takeTrackImportTarget(songIndex, trackIndex, fileName, startSeconds);
 
                     // Rename to the original filename (sanitized) so the
                     // archive entry importWavForTrackAsync creates ends up
@@ -912,7 +913,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                             finalPath = renamed.string();
                     }
                     server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWavUpload, songIndex,
-                                                      static_cast<double>(trackIndex), finalPath, ""});
+                                                      static_cast<double>(trackIndex), finalPath,
+                                                      "{\"startSeconds\":" + std::to_string(startSeconds) + "}"});
                 } else {
                     server->enqueueCommand(
                         WebCommand{WebCommandKind::LoadProjectFromPath, 0, 0.0, std::string(pss->uploadPath)});
@@ -1714,7 +1716,18 @@ std::string WebServer::buildStateJson(const char* view) const {
                     wN.pan = n.pan;
                     wN.tuningOffsetCents = n.tuningOffsetCents;
                     wN.muted = n.muted;
+                    wN.channel = n.channel;
                     wMr.notes.push_back(std::move(wN));
+                }
+                wMr.events.reserve(mr.events.size());
+                for (const auto& event : mr.events) {
+                    WMidiClipEventTelemetry wEvent;
+                    wEvent.beat = finiteOrZero(event.beat);
+                    wEvent.status = event.status;
+                    wEvent.data.reserve(event.data.size());
+                    for (int byte : event.data)
+                        wEvent.data.push_back(static_cast<uint8_t>(std::clamp(byte, 0, 255)));
+                    wMr.events.push_back(std::move(wEvent));
                 }
                 wSong.midiRegions.push_back(std::move(wMr));
             }
@@ -2254,7 +2267,7 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         if (builderKind == WebCommandKind::BuilderTrackImportWavBegin) {
             wire::WTrackImportBeginPayload p;
             if (!glz::read_json(p, std::string_view(body, bodyLen))) {
-                beginTrackImport(p.songIndex, p.index, p.fileName);
+                beginTrackImport(p.songIndex, p.index, p.fileName, p.startSeconds);
             }
         }
         cmd = {builderKind, 0, 0.0, "", std::string(body, bodyLen)};
@@ -2470,21 +2483,24 @@ void WebServer::failAudioRender(std::string error) {
     audioRenderStatus.error = std::move(error);
 }
 
-void WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName) {
+void WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName, double startSeconds) {
     std::lock_guard<std::mutex> lock(importMutex);
     pendingImportSongIndex = songIndex;
     pendingImportTrackIndex = trackIndex;
     pendingImportFileName = std::move(fileName);
+    pendingImportStartSeconds = std::isfinite(startSeconds) ? std::max(0.0, startSeconds) : 0.0;
 }
 
-void WebServer::takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName) {
+void WebServer::takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName, double& startSeconds) {
     std::lock_guard<std::mutex> lock(importMutex);
     songIndex = pendingImportSongIndex;
     trackIndex = pendingImportTrackIndex;
     fileName = pendingImportFileName;
+    startSeconds = pendingImportStartSeconds;
     pendingImportSongIndex = -1;
     pendingImportTrackIndex = -1;
     pendingImportFileName.clear();
+    pendingImportStartSeconds = 0.0;
 }
 
 void WebServer::publishPeaks(std::string json) {

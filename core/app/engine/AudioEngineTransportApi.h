@@ -84,6 +84,10 @@
     // Message-thread only.
     void syncTransportCycleFromProject();
 
+    // Re-publish the active song's immutable tempo-map snapshot after a
+    // message-thread project edit, without restaging streams or seeking.
+    void refreshActiveTempoMap();
+
     // True when the audio thread wants a same-song cycle/skip seek; clears
     // the pending request. Message-thread only (timerCallback / callAsync).
     bool consumeCycleSeek(double& outSeconds);
