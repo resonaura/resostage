@@ -79,6 +79,7 @@ struct MixStrip {
     int channels = 2;        // 1 = fold L+R to mono before pan
     float gainLinear = 1.0f; // fader, already converted from dB
     float pan = 0.0f;        // -1..+1 balance law
+    PanLaw panLaw = PanLaw::Linear0dB;
 
     bool mute = false;
     bool solo = false;
@@ -150,13 +151,19 @@ struct MixGraph {
     // using its strip-indexed function table.
     uint64_t processorLayoutKey = 0;
 
+    // Changes when strip order/identity or edge topology changes, but not
+    // when a plug-in chain changes. During an asynchronous plug-in rebuild the
+    // callback may keep using the previous bank only while this key still
+    // matches, preserving audio until the replacement bank is ready.
+    uint64_t routingLayoutKey = 0;
+
     // Set by AudioEngine when publishing. A callback must not pair a graph
     // acquired before a document replacement with the new ProjectLoader.
     uint64_t projectEpoch = 0;
 
-    // Includes processorLayoutKey plus physical lanes and edge topology. PDC
-    // uses this separate key so a routing edit can rebuild only delay lines
-    // without recreating stateful vendor processors.
+    // Includes routingLayoutKey and processorLayoutKey. PDC uses this
+    // separate key so a routing edit can rebuild only delay lines without
+    // recreating stateful vendor processors.
     uint64_t latencyLayoutKey = 0;
 
     // Section boundaries in `strips` (sources < busses < lanes).

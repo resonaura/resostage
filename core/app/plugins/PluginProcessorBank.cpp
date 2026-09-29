@@ -110,6 +110,10 @@ bool createPrivateHostSnapshot(
     size_t totalStateBytes = 0;
     for (size_t i = 0; i < track.plugins.size(); ++i) {
         auto& slot = track.plugins[i];
+        // Preserve the source reference before replacing it with the snapshot's
+        // private resource path. Resetting it first silently skipped project
+        // state restoration and made isolated AU/VST instances open defaults.
+        const auto sourceStateResource = slot.stateResource;
         slot.stateResource.reset();
         const PluginProcessorBank::StateBlob* transient = nullptr;
         if (transientStates != nullptr) {
@@ -122,13 +126,14 @@ bool createPrivateHostSnapshot(
         std::vector<uint8_t> state;
         if (transient != nullptr) {
             state = transient->data;
-        } else if (resources != nullptr && slot.stateResource.has_value()) {
+        } else if (resources != nullptr && sourceStateResource.has_value()) {
             std::string stateError;
-            if (!resources->extractFile(*slot.stateResource, state, stateError,
+            if (!resources->extractFile(*sourceStateResource, state, stateError,
                                         kMaximumStateBytesPerSlot)) {
-                // A missing/corrupt state should not stop the audio graph from
-                // opening. The child will load the plug-in's safe defaults.
-                state.clear();
+                error = "Could not restore saved state for plug-in "
+                    + slot.plugin.name + ": " + stateError;
+                projectDirectory.deleteRecursively();
+                return false;
             }
         }
         if (state.size() > kMaximumStateBytesPerSlot
@@ -157,14 +162,29 @@ bool createPrivateHostSnapshot(
 }
 
 juce::File pluginHostExecutable() {
+    const auto coreExecutable =
+        juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+#if defined(__APPLE__)
+    // The assembled macOS app launches the helper from its own nested bundle
+    // so Activity Monitor, crash reports, and plug-in editor windows inherit
+    // the host's identity and icon. Raw CMake builds keep the sibling binary.
+    const auto bundledHost = coreExecutable.getParentDirectory()
+        .getParentDirectory()
+        .getChildFile("Helpers")
+        .getChildFile("ResoStage Plug-in Host.app")
+        .getChildFile("Contents")
+        .getChildFile("MacOS")
+        .getChildFile("resostage-plugin-host");
+    if (bundledHost.existsAsFile())
+        return bundledHost;
+#endif
     const auto executableName =
 #if defined(_WIN32)
         "resostage-plugin-host.exe";
 #else
         "resostage-plugin-host";
 #endif
-    return juce::File::getSpecialLocation(juce::File::currentExecutableFile)
-        .getSiblingFile(executableName);
+    return coreExecutable.getSiblingFile(executableName);
 }
 
 } // namespace
@@ -670,9 +690,24 @@ void PluginProcessorBank::injectAllNotesOff() noexcept {
         if (chain != nullptr) {
             for (int ch = 1; ch <= 16; ++ch) {
                 chain->midi.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
-                chain->midi.addEvent(juce::MidiMessage::allSoundOff(ch), 0);
+                // Release sustained voices, but do not send All Sound Off
+                // (CC 120): that kills envelopes immediately and can click
+                // on Stop/seek instead of letting the synth's release/tail
+                // run through the normal mixer path.
                 chain->midi.addEvent(juce::MidiMessage::controllerEvent(ch, 64, 0), 0);
             }
+        }
+    }
+}
+
+void PluginProcessorBank::injectAllSoundOff() noexcept {
+    for (auto& chain : chains) {
+        if (chain == nullptr)
+            continue;
+        for (int ch = 1; ch <= 16; ++ch) {
+            chain->midi.addEvent(juce::MidiMessage::allSoundOff(ch), 0);
+            chain->midi.addEvent(juce::MidiMessage::controllerEvent(ch, 121, 0), 0);
+            chain->midi.addEvent(juce::MidiMessage::pitchWheel(ch, 8192), 0);
         }
     }
 }
@@ -1035,13 +1070,19 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                                     case plugin_host::PluginSlotStatus::Missing:
                                         node->loadState = "missing";
                                         node->missingInstrument = node->instrument;
-                                        node->loadError = "Plug-in is not present in the isolated host catalog";
+                                        node->loadError = chain->hostedProcess->process
+                                            ->pluginSlotLoadError(i);
+                                        if (node->loadError.empty())
+                                            node->loadError = "Plug-in is not present in the isolated host catalog";
                                         break;
                                     case plugin_host::PluginSlotStatus::Failed:
                                         node->loadState = "failed";
                                         node->faulted.store(true, std::memory_order_relaxed);
                                         node->missingInstrument = node->instrument;
-                                        node->loadError = "Plug-in failed to initialize in the isolated host";
+                                        node->loadError = chain->hostedProcess->process
+                                            ->pluginSlotLoadError(i);
+                                        if (node->loadError.empty())
+                                            node->loadError = "Plug-in failed to initialize in the isolated host";
                                         break;
                                     case plugin_host::PluginSlotStatus::Unknown:
                                         node->loadState = "failed";
@@ -1510,6 +1551,62 @@ std::string PluginProcessorBank::getSlotLoadState(const std::string& slotId) con
     return "loading";
 }
 
+std::vector<PluginProcessorBank::ParameterInfo>
+PluginProcessorBank::parametersForSlot(const std::string& slotId) const {
+    for (const auto& chain : chains) {
+        if (chain == nullptr)
+            continue;
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
+            if (node == nullptr || node->slotId != slotId)
+                continue;
+            std::vector<ParameterInfo> result;
+            if (chain->hostedProcess != nullptr
+                && chain->hostedProcess->process != nullptr) {
+                const auto descriptors = chain->hostedProcess->process
+                    ->parameterDescriptorsForSlot(slotIndex);
+                result.reserve(descriptors.size());
+                for (const auto& descriptor : descriptors) {
+                    const auto nameEnd = std::find(std::begin(descriptor.name),
+                                                   std::end(descriptor.name), '\0');
+                    const auto labelEnd = std::find(std::begin(descriptor.label),
+                                                    std::end(descriptor.label), '\0');
+                    result.push_back({descriptor.parameterIndex,
+                                      std::string(std::begin(descriptor.name), nameEnd),
+                                      std::string(std::begin(descriptor.label), labelEnd),
+                                      descriptor.defaultValue, descriptor.steps});
+                }
+                return result;
+            }
+            // In-process banks only exist in the helper and offline worker;
+            // callers there are on their owner thread, never the Core callback.
+            if (node->instance == nullptr)
+                return result;
+            try {
+                const auto& parameters = node->instance->getParameters();
+                const int limit = std::min<int>(
+                    parameters.size(), plugin_host::kMaximumParameterDescriptorsPerChain);
+                result.reserve(static_cast<size_t>(limit));
+                for (int i = 0; i < limit; ++i) {
+                    const auto* parameter = parameters[i];
+                    if (parameter == nullptr)
+                        continue;
+                    result.push_back({static_cast<uint32_t>(i),
+                                      parameter->getName(63).toStdString(),
+                                      parameter->getLabel().toStdString(),
+                                      std::clamp(parameter->getDefaultValue(), 0.0f, 1.0f),
+                                      static_cast<uint32_t>(
+                                          std::max(0, parameter->getNumSteps()))});
+                }
+            } catch (...) {
+                result.clear();
+            }
+            return result;
+        }
+    }
+    return {};
+}
+
 std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) const {
     for (const auto& chain : chains) {
         if (chain == nullptr) continue;
@@ -1519,6 +1616,8 @@ std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) con
                 && (chain->hostedProcess->process == nullptr
                     || !chain->hostedProcess->process->isRunning()))
                 return "Isolated plug-in host exited; chain audio is temporarily unavailable";
+            if (node->loadState == "missing" || node->loadState == "failed")
+                return node->loadError;
             if (node->faulted.load(std::memory_order_relaxed))
                 return "Plug-in raised an exception while processing audio";
             return node->loadError;

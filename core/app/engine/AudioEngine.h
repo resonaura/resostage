@@ -157,6 +157,8 @@ public:
     void servicePluginHostChanges();
     /** Pins and returns the currently published live processor bank. */
     std::shared_ptr<PluginProcessorBank> activePluginProcessorBank() const;
+    /** True only when that bank matches the latest project's plug-in layout. */
+    bool hasCurrentPluginProcessorBank() const noexcept;
     bool retryPluginSlot(const std::string& slotId);
     /** Applies slot bypass immediately and refreshes any in-flight bank request. */
     void setPluginSlotBypassed(const std::string& slotId, bool bypassed);

@@ -320,6 +320,22 @@ export const pluginCatalog = {
 };
 
 export const pluginChains = {
+  parameters: async (slotId: string): Promise<{
+    slotId: string;
+    parameters: Array<{
+      index: number;
+      name: string;
+      label: string;
+      defaultValue: number;
+      steps: number;
+    }>;
+  }> => {
+    const response = await apiFetch(
+      `/api/v1/plugins/slot/parameters?slotId=${encodeURIComponent(slotId)}`,
+    );
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  },
   add: (stripId: string, pluginId: string) =>
     post("/api/v1/plugins/slot/add", { stripId, pluginId }),
   replace: (stripId: string, slotId: string, pluginId: string) =>
@@ -428,6 +444,8 @@ export const mixer = {
     postContinuous("/api/v1/track/gain", { index, value }),
   setTrackPan: (index: number, value: number) =>
     postContinuous("/api/v1/track/pan", { index, value }),
+  setTrackPanLaw: (index: number, value: number) =>
+    post("/api/v1/track/pan-law", { index, value }),
   setTrackMute: (index: number, value: boolean) =>
     post("/api/v1/track/mute", { index, value }),
   setTrackSolo: (index: number, value: boolean) =>
@@ -785,6 +803,8 @@ export const builder = {
     writeMode?: import("./types").AutomationWriteMode;
     enabled?: boolean;
     muted?: boolean;
+    initialTimeBeats?: number;
+    initialValue?: number;
     gestureId?: string;
   }) => post("/api/v1/builder/automation-lane/add", patch),
   automationLaneRemove: (

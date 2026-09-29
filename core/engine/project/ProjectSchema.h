@@ -26,7 +26,8 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 6;
+inline constexpr int kCurrentFormatVersion = 7;
+// Format 7 adds a per-track pan law, defaulting to the prior 0 dB balance.
 // Format 6 adds exact MIDI 2.0 note fields and lossless raw UMP event storage.
 // Format 5 adds optional per-note MIDI channels and retained non-note events;
 // format 4 defaults plug-in chains. These versions are promoted losslessly
@@ -50,6 +51,32 @@ enum class SendTap : uint8_t {
     PostFader = 1,
     PostPan = 2,
 };
+
+// Per-track pan taper. Linear0dB is the legacy balance curve and remains the
+// default so existing projects keep their exact level and stereo image.
+enum class PanLaw : uint8_t {
+    Linear0dB = 0,
+    ConstantPower3dB = 1,
+    Broadcast4p5dB = 2,
+    ConstantVoltage6dB = 3,
+};
+
+inline std::string panLawToString(PanLaw law) {
+    switch (law) {
+        case PanLaw::ConstantPower3dB: return "-3dB";
+        case PanLaw::Broadcast4p5dB: return "-4.5dB";
+        case PanLaw::ConstantVoltage6dB: return "-6dB";
+        case PanLaw::Linear0dB:
+        default: return "0dB";
+    }
+}
+
+inline PanLaw panLawFromString(const std::string& value) {
+    if (value == "-3dB" || value == "constant-power") return PanLaw::ConstantPower3dB;
+    if (value == "-4.5dB" || value == "broadcast") return PanLaw::Broadcast4p5dB;
+    if (value == "-6dB" || value == "constant-voltage") return PanLaw::ConstantVoltage6dB;
+    return PanLaw::Linear0dB;
+}
 
 inline std::string sendTapToString(SendTap tap) {
     switch (tap) {
@@ -274,6 +301,7 @@ struct TrackDef {
     int channels = 2; // 1 = mono: stereo regions are summed L+R before pan/sends (replaces old TrackDef::mono bool)
     double gainDb = 0.0;
     double pan = 0.0; // -1..+1
+    PanLaw panLaw = PanLaw::Linear0dB;
     bool mute = false;
     bool solo = false; // joins the same solo group as ClickChannel::solo
     bool soloSafe = false;

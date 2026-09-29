@@ -102,7 +102,7 @@ const BOTTOM_LANE_OPTIONS: { label: string; value: PianoRollBottomLane }[] = [
   { label: "CC 1: Modulation", value: "cc1" },
   { label: "CC 11: Expression", value: "cc11" },
   { label: "CC 64: Sustain", value: "cc64" },
-  { label: "Pitch Bend", value: "pitchBend" },
+  { label: "Pitch Bend (channel)", value: "pitchBend" },
 ];
 
 export function PianoRollToolbar({
@@ -224,17 +224,18 @@ export function PianoRollToolbar({
               size="sm"
               isSelected={Boolean(loopEnabled)}
               onChange={onLoopEnabledChange}
-              aria-label="Loop MIDI region"
+              aria-label="Repeat MIDI region pattern"
+              aria-description="Repeats MIDI notes inside this arrangement region. The ruler above controls the cycle for the whole song."
               className="h-7 px-2"
             >
               <Repeat2 size={14} className="mr-1" />
-              Loop
+              Repeat
             </ToggleButton>
             {loopEnabled && onLoopLengthBeatsChange && (
               <label className="flex items-center gap-1 text-[10px] text-foreground/60" title="Pattern repeat length in beats">
                 Length
                 <input
-                  aria-label="Loop length in beats"
+                  aria-label="Pattern repeat length in beats"
                   type="number"
                   min={0.125}
                   step={snap > 0 ? snap : 0.25}

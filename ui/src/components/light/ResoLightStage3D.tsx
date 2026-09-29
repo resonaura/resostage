@@ -268,8 +268,8 @@ function FrameAllHelper({
   // anything actually changed ("lighting ... always shipped" in
   // WebServer.cpp), so keying this effect on the raw `fixtures` prop
   // re-ran it -- and re-snapped the camera to Frame All -- on nearly every
-  // frame, fighting any manual OrbitControls drag ("график поворачивается к
-  // Frame All при попытке покрутить"). Only re-auto-frame when fixtures are
+  // frame, fighting any manual OrbitControls drag ("the view snaps back to
+  // Frame All when trying to orbit"). Only re-auto-frame when fixtures are
   // actually added/removed, per the original intent below.
   const fixtureSetKey = fixtures.map((f) => f.id).join("\n");
 

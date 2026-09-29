@@ -290,7 +290,7 @@ function Sparkline({
   //
   // A sample that is about to be dropped has to already be outside the
   // viewport, or its removal re-spaces every remaining point and the whole
-  // graph jerks -- which is what "точка удаляется и график скачет" was. With
+  // graph jerks -- which is what "a point is removed and the graph jumps" was. With
   // the domain running from -step to WIDTH, the oldest point spends its last
   // second travelling out through the left edge (the svg clips it) and is
   // gone from view well before it is gone from the array. The newest enters

@@ -14,14 +14,29 @@ namespace resostage::plugin_host {
 // header free of JUCE, STL containers, pointers, and platform handles: the
 // mapped area is a byte-level process boundary, not a shared object graph.
 inline constexpr uint32_t kMagic = 0x52535048; // "RSPH"
-inline constexpr uint32_t kProtocolVersion = 1;
+inline constexpr uint32_t kProtocolVersion = 3;
 inline constexpr size_t kSlotCount = 3;
 inline constexpr uint32_t kMaximumBlockSamples = 8192;
 inline constexpr uint32_t kMaximumMidiEventsPerBlock = 512;
 inline constexpr uint32_t kMaximumMidiEventBytes = 16;
 inline constexpr uint32_t kMaximumParameterEventsPerBlock = 256;
 inline constexpr uint32_t kMaximumPluginSlotsPerChain = 128;
+inline constexpr uint32_t kMaximumParameterDescriptorsPerChain = 2048;
 inline constexpr uint32_t kControlEventQueueCapacity = 256;
+// One callback of asynchronous headroom was too fragile when macOS briefly
+// deprioritized a background helper. Keep a second bounded quantum between
+// submission and playout; MixGraph PDC includes the same delay.
+inline constexpr uint32_t kAudioPipelineCallbacks = 2;
+
+// A block that missed its audio callback deadline can never be played later
+// without moving plug-in time relative to the DAW. The output cursor must be
+// strictly past that request before its eventual completion is considered.
+constexpr uint64_t outputCursorAfterDeadlineMiss(
+    uint64_t currentCursor, uint64_t missedSequence) noexcept {
+    const uint64_t afterMiss = missedSequence == UINT64_MAX
+        ? UINT64_MAX : missedSequence + 1;
+    return currentCursor < afterMiss ? afterMiss : currentCursor;
+}
 
 // All state transitions are one-way within a generation:
 // Core: Empty -> Writing -> Ready -> Processing -> Complete -> Empty.
@@ -86,6 +101,18 @@ struct ParameterEvent {
     float normalizedValue = 0.0f;
 };
 
+// Published once by the child before HostState::Ready. Core reads these only
+// off the callback, so parameter discovery never calls vendor code in Core.
+struct ParameterDescriptor {
+    uint16_t slotIndex = 0;
+    uint16_t reserved = 0;
+    uint32_t parameterIndex = 0;
+    float defaultValue = 0.0f;
+    uint32_t steps = 0;
+    char name[64]{};
+    char label[16]{};
+};
+
 struct alignas(16) ControlEventCell {
     std::atomic<uint64_t> sequence{0};
     ParameterEvent event{};
@@ -129,6 +156,16 @@ struct alignas(64) SharedArea {
     double processorTailSeconds = 0.0;
     uint32_t pluginSlotCount = 0;
     std::array<uint8_t, kMaximumPluginSlotsPerChain> pluginSlotStatuses{};
+    // Startup/slot diagnostics are written by the helper before publishing
+    // HostState::Ready/Failed, then remain immutable for this generation.
+    // Fixed-size text avoids a second IPC channel and preserves bounded reads.
+    std::array<char, 512> startupError{};
+    std::array<std::array<char, 256>, kMaximumPluginSlotsPerChain>
+        pluginSlotErrors{};
+    uint32_t parameterDescriptorCount = 0;
+    uint8_t parameterMetadataTruncated = 0;
+    std::array<ParameterDescriptor, kMaximumParameterDescriptorsPerChain>
+        parameterDescriptors{};
     std::atomic<uint32_t> hostState{
         static_cast<uint32_t>(HostState::Initializing)};
     std::atomic<uint32_t> command{
@@ -161,6 +198,7 @@ static_assert(std::is_standard_layout_v<MidiEvent>);
 static_assert(std::is_trivially_copyable_v<MidiEvent>);
 static_assert(std::is_standard_layout_v<ParameterEvent>);
 static_assert(std::is_trivially_copyable_v<ParameterEvent>);
+static_assert(std::is_trivially_copyable_v<ParameterDescriptor>);
 static_assert(std::is_standard_layout_v<ControlEventCell>);
 
 // Bounded lock-free multi-producer/single-consumer controls. UI, automation,

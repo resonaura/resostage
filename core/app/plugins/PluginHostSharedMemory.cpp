@@ -53,6 +53,9 @@ struct PluginHostSharedMemory::Impl {
 #else
     int descriptor = -1;
     sem_t* wakeSemaphore = SEM_FAILED;
+#if defined(__APPLE__)
+    std::chrono::steady_clock::time_point hotWakeUntil{};
+#endif
 #endif
 
     void close() noexcept {
@@ -312,18 +315,30 @@ bool PluginHostSharedMemory::waitForWake(uint32_t timeoutMilliseconds) noexcept 
         return false;
 #if defined(__APPLE__)
     // Darwin does not expose sem_timedwait for named POSIX semaphores. The
-    // semaphore remains the primary wake path; this helper-only bounded sleep
-    // supplies timeout/parent-death checks without spinning.
+    // semaphore remains the primary wake path. In idle, poll at a low rate so
+    // each isolated chain does not burn CPU; after a wake, poll more quickly
+    // for a short window because real-time audio blocks keep arriving. That
+    // avoids paying a full millisecond of wake latency at small device buffers.
     const auto deadline = std::chrono::steady_clock::now()
         + std::chrono::milliseconds(timeoutMilliseconds);
     do {
         if (sem_trywait(impl->wakeSemaphore) == 0)
+        {
+            impl->hotWakeUntil = std::chrono::steady_clock::now()
+                + std::chrono::milliseconds(40);
             return true;
+        }
         if (errno == EINTR)
             continue;
-        if (errno != EAGAIN || std::chrono::steady_clock::now() >= deadline)
+        const auto now = std::chrono::steady_clock::now();
+        if (errno != EAGAIN || now >= deadline)
             return false;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const auto pollInterval = now < impl->hotWakeUntil
+            ? std::chrono::microseconds(250)
+            : std::chrono::milliseconds(1);
+        std::this_thread::sleep_for(std::min(
+            pollInterval,
+            std::chrono::duration_cast<decltype(pollInterval)>(deadline - now)));
     } while (true);
 #else
     struct timespec deadline {};

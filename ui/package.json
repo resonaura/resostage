@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build --outDir .dist-staging && node scripts/publish-dist.mjs",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run"

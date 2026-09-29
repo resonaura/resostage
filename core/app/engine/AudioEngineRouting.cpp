@@ -262,6 +262,7 @@ void AudioEngine::publishRoutingSnapshot() {
     const size_t needed = graph->strips.size() + 16;
     const size_t neededEdges = graph->edges.size() + 32;
     bool processorLayoutChanged = false;
+    bool routingLayoutChanged = false;
     bool latencyLayoutChanged = false;
     bool projectChanged = false;
 
@@ -281,6 +282,8 @@ void AudioEngine::publishRoutingSnapshot() {
         }
         processorLayoutChanged = publishedGraph == nullptr
             || publishedGraph->processorLayoutKey != graph->processorLayoutKey;
+        routingLayoutChanged = publishedGraph == nullptr
+            || publishedGraph->routingLayoutKey != graph->routingLayoutKey;
         latencyLayoutChanged = publishedGraph == nullptr
             || publishedGraph->latencyLayoutKey != graph->latencyLayoutKey;
         projectChanged = publishedGraph == nullptr
@@ -303,11 +306,16 @@ void AudioEngine::publishRoutingSnapshot() {
     // Atomic shared_ptr swap -- its own synchronisation, no lock needed, and
     // deliberately outside so the callback picks the new graph up even if it
     // is mid-block.
+    currentProcessorLayoutKey.store(graph->processorLayoutKey,
+                                    std::memory_order_release);
     routing.publish(std::move(graph));
     if ((processorLayoutChanged || latencyLayoutChanged || projectChanged) && projectLoaded) {
-        // The old bank is incompatible with this graph and the callback will
-        // bypass it until the worker publishes the matching generation.
-        currentPluginLatencySamples.store(0, std::memory_order_relaxed);
+        // A plug-in-only edit keeps using the previous processor and PDC bank
+        // until its replacement is atomically ready, so its published latency
+        // must stay in force. A routing-layout or project change cannot reuse
+        // the old delay plan and fails closed until a matching plan arrives.
+        if (routingLayoutChanged || projectChanged)
+            currentPluginLatencySamples.store(0, std::memory_order_relaxed);
         schedulePluginBankRebuild();
     }
 }
@@ -340,6 +348,15 @@ void AudioEngine::setTrackPan(size_t songIndex, size_t trackIndex, double pan) {
     if (t == nullptr)
         return;
     t->pan = std::clamp(pan, -1.0, 1.0);
+    publishRoutingSnapshot();
+}
+
+void AudioEngine::setTrackPanLaw(size_t songIndex, size_t trackIndex, PanLaw law) {
+    (void)songIndex;
+    TrackDef* track = trackDefAt(trackIndex);
+    if (track == nullptr)
+        return;
+    track->panLaw = law;
     publishRoutingSnapshot();
 }
 

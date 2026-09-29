@@ -265,6 +265,19 @@ struct WPluginSlotTelemetry {
     std::string loadError;
 };
 
+struct WPluginParameterInfo {
+    uint32_t index = 0;
+    std::string name;
+    std::string label;
+    float defaultValue = 0.0f;
+    uint32_t steps = 0;
+};
+
+struct WPluginParameterList {
+    std::string slotId;
+    std::vector<WPluginParameterInfo> parameters;
+};
+
 // Project-global metronome, mirrored field-for-field from ClickChannel in
 // ProjectSchema.h (type/target/sends carry the routing exactly like a track).
 struct WClickTelemetry {
@@ -307,6 +320,32 @@ struct WRegionLoop {
     double lengthSeconds = 0.0;
 };
 
+struct WAutomationTargetTelemetry {
+    std::string domain = "strip";
+    std::string entityId;
+    std::string parameterId;
+    std::string valueType = "floatNormalized";
+    double defaultValue = 0.0;
+    double minValue = 0.0;
+    double maxValue = 1.0;
+};
+
+struct WAutomationPointTelemetry {
+    double timeBeats = 0.0;
+    double value = 0.0;
+    double curve = 0.0;
+};
+
+struct WAutomationLaneTelemetry {
+    std::string id;
+    WAutomationTargetTelemetry target;
+    std::string scope = "track";
+    bool enabled = true;
+    bool muted = false;
+    std::string writeMode = "read";
+    std::vector<WAutomationPointTelemetry> points;
+};
+
 struct WRegionTelemetry {
     std::string id;
     std::string trackId;
@@ -319,6 +358,7 @@ struct WRegionTelemetry {
     std::optional<WRegionFade> fade;
     std::optional<WRegionLoop> loop;
     std::optional<WRegionPlaybackWire> playback;
+    std::vector<WAutomationLaneTelemetry> automationLanes;
 };
 
 struct WEventTelemetry {
@@ -436,6 +476,7 @@ struct WMidiRegionTelemetry {
     std::vector<WMidiNoteTelemetry> notes;
     std::vector<WMidiClipEventTelemetry> events;
     std::vector<WMidiUmpEventTelemetry> umpEvents;
+    std::vector<WAutomationLaneTelemetry> automationLanes;
 };
 
 struct WTempoPointTelemetry {
@@ -472,6 +513,7 @@ struct WSongTelemetry {
     std::vector<WEventTelemetry> events;
     std::vector<WSectionTelemetry> sections;
     std::vector<WLightCueTelemetry> lightCues;
+    std::vector<WAutomationLaneTelemetry> automationLanes;
 };
 
 struct WCycleTelemetry {
@@ -507,6 +549,7 @@ struct WTrackTelemetry {
     int channels = 2; // 1 = mono (stereo regions summed L+R before pan/sends)
     double gainDb = 0.0;
     double pan = 0.0;
+    std::string panLaw = "0dB";
     bool mute = false;
     bool solo = false;
     bool soloSafe = false;

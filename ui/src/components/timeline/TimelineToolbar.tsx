@@ -268,7 +268,7 @@ export function TimelineToolbar({
               disallowEmptySelection
               selectedKeys={[effectiveViewMode]}
               onSelectionChange={(keys) => {
-                // keys это Set, берем первый элемент или Array.from(keys)
+                // keys is a Set; take the first element via Array.from(keys)
                 const mode = Array.from(keys)[0] as TimelineViewMode;
                 if (mode) setViewMode(mode);
               }}

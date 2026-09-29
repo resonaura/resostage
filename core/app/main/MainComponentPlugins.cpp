@@ -481,7 +481,7 @@ void MainComponent::pluginSlotOpenEditor(const std::string& json) {
     }
 
     auto bank = engine.activePluginProcessorBank();
-    if (bank == nullptr) {
+    if (!engine.hasCurrentPluginProcessorBank() || bank == nullptr) {
         setStatus("Plug-in is still loading; try again in a moment");
         return;
     }

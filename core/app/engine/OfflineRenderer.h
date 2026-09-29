@@ -115,6 +115,11 @@ public:
         (void)strip; (void)status; (void)data1; (void)data2;
         (void)dataLength; (void)samplePosition;
     }
+    /** Offline-only parameter write; implementations own their private bank. */
+    virtual void setPluginParameter(const std::string& slotId, int parameterIndex,
+                                    float normalizedValue) noexcept {
+        (void)slotId; (void)parameterIndex; (void)normalizedValue;
+    }
     /** Conservative serial-path tail used as a Leave minimum, in seconds. */
     virtual double declaredTailSeconds() const noexcept { return 0.0; }
     virtual std::vector<std::string> warnings() const { return {}; }

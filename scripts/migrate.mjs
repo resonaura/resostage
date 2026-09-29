@@ -15,7 +15,8 @@
  *                          reg_song_1_trk_4, sec_1), camelCase enum values and
  *                          "" where null belongs
  * and always emits the same current canon (v4 adds plug-in slots; v5 adds
- * retained MIDI channel/event data; v6 adds MIDI 2.0 UMP storage):
+ * retained MIDI channel/event data; v6 adds MIDI 2.0 UMP storage; v7 adds
+ * per-track pan-law choice):
  *
  *   ids            "<ns>::<kind>:<n>"  audio::track:1, audio::send:2,
  *                                      audio::out:11, light::bar:1,
@@ -36,7 +37,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 6;
+export const TARGET_FORMAT_VERSION = 7;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -614,10 +615,18 @@ export function upgradeFormat4MidiData(old) {
 /** Additive in-place upgrade for canonical v5 data; preserve all MIDI 1 data. */
 export function upgradeFormat5Midi2Data(old) {
   const upgraded = structuredClone(old);
-  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  upgraded.format = { ...(upgraded.format ?? {}), version: 6 };
   for (const song of upgraded.songs ?? []) {
     for (const region of song.midiRegions ?? []) region.umpEvents ??= [];
   }
+  return upgradeFormat6PanLawData(upgraded);
+}
+
+/** Additive in-place upgrade for canonical v6 data; preserve legacy pan sound. */
+export function upgradeFormat6PanLawData(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  for (const track of upgraded.tracks ?? []) track.panLaw ??= "0dB";
   return upgraded;
 }
 
@@ -668,8 +677,10 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
       migrated = upgradeFormat5Midi2Data(upgradeFormat4MidiData(oldObj));
     } else if (!isLegacy && fromVersion === 5) {
       migrated = upgradeFormat5Midi2Data(oldObj);
+    } else if (!isLegacy && fromVersion === 6) {
+      migrated = upgradeFormat6PanLawData(oldObj);
     } else {
-      migrated = migrateProjectObject(oldObj);
+      migrated = upgradeFormat6PanLawData(migrateProjectObject(oldObj));
     }
     fs.writeFileSync(outPath, `${JSON.stringify(migrated, null, 2)}\n`, "utf-8");
     if (isLegacy) fs.rmSync(jsonPath, { force: true });

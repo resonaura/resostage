@@ -32,6 +32,8 @@ public:
     bool closeEditor(uint32_t slotIndex);
     void closeAllEditors();
     void publishSlotStatuses(plugin_host::SharedArea& area) const noexcept;
+    /** Writes bounded parameter names before the shared host becomes Ready. */
+    void publishParameterDescriptors(plugin_host::SharedArea& area) const noexcept;
     PluginProcessorBank* bank() noexcept;
     const std::vector<std::string>& warnings() const noexcept;
 

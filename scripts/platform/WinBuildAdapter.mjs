@@ -5,6 +5,7 @@ import { BuildAdapter } from "./BuildAdapter.mjs";
 import {
   ROOT,
   BUILD_DIR,
+  BUILD_TYPE,
   PLATFORM_DIST_DIR,
   CORE_APP_NAME,
   SHELL_APP_NAME,
@@ -87,8 +88,13 @@ export class WinBuildAdapter extends BuildAdapter {
     }
   }
 
-  patchWindowsExeMetadata(exePath, icoPath, exeName = "resostage.exe") {
-    if (!existsSync(exePath)) return;
+  patchWindowsExeMetadata(
+    exePath,
+    icoPath,
+    exeName = "resostage.exe",
+    description = "ResoStage Live Performance Engine",
+  ) {
+    if (!existsSync(exePath)) return false;
     try {
       const exeBuf = readFileSync(exePath);
       const exe = NtExecutable.from(exeBuf);
@@ -105,26 +111,41 @@ export class WinBuildAdapter extends BuildAdapter {
         );
       }
 
-      let versionInfos = Resource.VersionInfo.fromEntries(res.entries);
-      if (versionInfos && versionInfos.length > 0) {
-        for (const info of versionInfos) {
-          info.setStringValues(
-            { lang: 1033, codepage: 1200 },
-            {
-              OriginalFilename: exeName,
-              InternalName: exeName,
-              FileDescription: "ResoStage Live Performance Engine",
-              ProductName: "ResoStage",
-            },
-          );
-          info.outputToResourceEntries(res.entries);
-        }
+      const version = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
+      if (!/^\d+(?:\.\d+){0,3}$/.test(version)) {
+        throw new Error(`Invalid ResoStage executable version: ${version}`);
+      }
+      const versionParts = version.split(".").map(Number);
+      while (versionParts.length < 4) versionParts.push(0);
+      const versionInfos = Resource.VersionInfo.fromEntries(res.entries);
+      if (versionInfos.length === 0) {
+        const info = Resource.VersionInfo.createEmpty();
+        info.lang = 1033;
+        versionInfos.push(info);
+      }
+      for (const info of versionInfos) {
+        info.setFileVersion(...versionParts, 1033);
+        info.setProductVersion(...versionParts, 1033);
+        info.setStringValues(
+          { lang: 1033, codepage: 1200 },
+          {
+            OriginalFilename: exeName,
+            InternalName: exeName.replace(/\.exe$/i, ""),
+            FileDescription: description,
+            ProductName: "ResoStage",
+            CompanyName: "Resonaura",
+            LegalCopyright: "Copyright Resonaura",
+          },
+        );
+        info.outputToResourceEntries(res.entries);
       }
 
       res.outputResource(exe);
       writeFileSync(exePath, Buffer.from(exe.generate()));
+      return true;
     } catch (err) {
       log(`Warning: PE metadata patch failed for ${exePath}: ${err.message} -- continuing without patching`);
+      return false;
     }
   }
 
@@ -237,10 +258,26 @@ export class WinBuildAdapter extends BuildAdapter {
     }
 
     const pluginHostDst = join(shellDir, "resostage-plugin-host.exe");
-    const pluginHostRaw = findFileRecursively(BUILD_DIR, "resostage-plugin-host.exe");
-    if (pluginHostRaw && existsSync(pluginHostRaw)) {
-      rmSync(pluginHostDst, { force: true });
-      cpSync(pluginHostRaw, pluginHostDst);
+    const pluginHostRaw = join(
+      BUILD_DIR, "app", "resostage_plugin_host_artefacts", BUILD_TYPE,
+      "resostage-plugin-host.exe",
+    );
+    if (!existsSync(pluginHostRaw)) {
+      throw new Error("Live plug-in host executable is missing from the native build");
+    }
+    rmSync(pluginHostDst, { force: true });
+    cpSync(pluginHostRaw, pluginHostDst);
+    // Use Core's artwork until a dedicated plugin-host.ico is supplied.
+    const dedicatedHostIco = join(ROOT, "icons", "plugin-host.ico");
+    const coreIco = join(ROOT, "icons", "core.ico");
+    const hostIco = existsSync(dedicatedHostIco) ? dedicatedHostIco : coreIco;
+    if (!existsSync(hostIco) || !this.patchWindowsExeMetadata(
+      pluginHostDst,
+      hostIco,
+      "resostage-plugin-host.exe",
+      "ResoStage Isolated Live Plug-in Host",
+    )) {
+      throw new Error(`Could not brand live plug-in host: ${pluginHostDst}`);
     }
 
     const kaishakuDst = join(shellDir, "kaishaku.exe");

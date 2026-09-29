@@ -88,7 +88,7 @@ TEST_CASE("ProjectLoader parses click, main, sends, tracks, songs, events, and m
     REQUIRE(loader.open(path, error));
 
     const Project& proj = loader.project();
-    CHECK(proj.format.version == 6);
+    CHECK(proj.format.version == kCurrentFormatVersion);
     CHECK(proj.name == "Full Parse Test");
     CHECK(proj.sampleRate == 48000.0);
 

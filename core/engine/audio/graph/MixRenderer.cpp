@@ -288,7 +288,8 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
 
         float targetL = 0.0f;
         float targetR = 0.0f;
-        mix_math::panGains(strip.gainLinear, strip.pan, targetL, targetR);
+        mix_math::panGains(strip.gainLinear, strip.pan, targetL, targetR,
+                           strip.panLaw);
         const float targetFader = strip.gainLinear;
         const float targetMono = strip.channels == 1 ? 1.0f : 0.0f;
 

@@ -1,9 +1,11 @@
 #include "AudioEngine.h"
 
 #include "plugins/PluginPaths.h"
+#include "plugins/PluginHostProtocol.h"
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace resostage {
 
@@ -85,7 +87,10 @@ void AudioEngine::schedulePluginBankRebuild(bool forceRecreate,
     request.sampleRate = currentSampleRate;
     request.maximumBlockSize =
         std::max({currentBlockSize, 512, mixRenderer.maxBlockSize()});
-    request.pipelineLatencySamples = std::max(1, currentBlockSize);
+    request.pipelineLatencySamples = static_cast<int>(std::min<int64_t>(
+        std::numeric_limits<int>::max(),
+        static_cast<int64_t>(std::max(1, currentBlockSize))
+            * plugin_host::kAudioPipelineCallbacks));
     request.forceRecreate = forceRecreate;
     request.recoverFailedHosts = recoverFailedHosts;
 
@@ -128,6 +133,15 @@ std::shared_ptr<PluginProcessorBank> AudioEngine::activePluginProcessorBank() co
     return publication != nullptr
                && publication->projectEpoch == projectEpoch.load(std::memory_order_acquire)
         ? publication->bank : nullptr;
+}
+
+bool AudioEngine::hasCurrentPluginProcessorBank() const noexcept {
+    const auto publication = std::atomic_load_explicit(
+        &activePluginBank, std::memory_order_acquire);
+    return publication != nullptr && publication->bank != nullptr
+        && publication->projectEpoch == projectEpoch.load(std::memory_order_acquire)
+        && publication->processorLayoutKey
+            == currentProcessorLayoutKey.load(std::memory_order_acquire);
 }
 
 bool AudioEngine::retryPluginSlot(const std::string& slotId) {
@@ -231,6 +245,7 @@ void AudioEngine::runPluginBankBuilder() {
 
         auto publication = std::make_shared<PublishedPluginBank>();
         publication->processorLayoutKey = request.graph->processorLayoutKey;
+        publication->routingLayoutKey = request.graph->routingLayoutKey;
         publication->projectEpoch = request.projectEpoch;
         publication->latencyLayoutKey = request.graph->latencyLayoutKey;
         publication->sampleRate = request.sampleRate;
@@ -271,37 +286,14 @@ void AudioEngine::runPluginBankBuilder() {
         });
         } catch (const std::exception& error) {
             std::fprintf(stderr, "[PluginBank] Build failed: %s\n", error.what());
-            // A third-party C++ exception must not escape the worker's thread
-            // entry point. Fail closed for this exact generation so an older
-            // same-layout bank cannot continue rendering by accident.
-            std::lock_guard lock(pluginBankMutex);
-            if (request.generation
-                    == pluginBankGeneration.load(std::memory_order_acquire)
-                && request.projectEpoch
-                    == projectEpoch.load(std::memory_order_acquire)) {
-                auto previous = std::atomic_exchange_explicit(
-                    &activePluginBank,
-                    std::shared_ptr<const PublishedPluginBank>{},
-                    std::memory_order_acq_rel);
-                currentPluginLatencySamples.store(0, std::memory_order_relaxed);
-                if (previous != nullptr)
-                    retiredPluginBanks.push_back(std::move(previous));
-            }
+            // Preserve the last publication. The callback validates its
+            // project, strip layout, rate and block capacity before use, so a
+            // failed replacement cannot make an incompatible bank audible;
+            // a compatible previous bank is preferable to an avoidable gap.
         } catch (...) {
             std::fprintf(stderr, "[PluginBank] Build failed with unknown exception\n");
-            std::lock_guard lock(pluginBankMutex);
-            if (request.generation
-                    == pluginBankGeneration.load(std::memory_order_acquire)
-                && request.projectEpoch
-                    == projectEpoch.load(std::memory_order_acquire)) {
-                auto previous = std::atomic_exchange_explicit(
-                    &activePluginBank,
-                    std::shared_ptr<const PublishedPluginBank>{},
-                    std::memory_order_acq_rel);
-                currentPluginLatencySamples.store(0, std::memory_order_relaxed);
-                if (previous != nullptr)
-                    retiredPluginBanks.push_back(std::move(previous));
-            }
+            // See the typed-exception path above: callback compatibility
+            // checks are the fail-closed boundary, not clearing a usable bank.
         }
     }
 }

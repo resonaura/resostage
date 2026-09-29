@@ -2,7 +2,7 @@
 
 **Purpose of this document:** Give a technically informed reader a clear, honest picture of what ResoStage is, what it is trying to become, how it is built, where it may stand out, what is already implemented, and what still needs proof or development. This is a project overview, not a market study, legal opinion, or promise of future features.
 
-**Status reference:** This document reflects repository documentation available on 2026-09-28. Implementation changes over time. For feature status, the source code, tests, release notes, and the most specific current status documents take precedence over this overview.
+**Status reference:** This document reflects repository documentation available on 2026-09-29. Implementation changes over time. For feature status, the source code, tests, release notes, and the most specific current status documents take precedence over this overview.
 
 ---
 
@@ -58,7 +58,7 @@ ResoStage has a native multitrack audio engine with project transport, audio reg
 
 The project model covers audio, instrument, MIDI, external MIDI, lighting, folder, and bus-timeline concepts. The user-facing system includes track and mixer controls, buses and sends, physical output assignment, record arming and input monitoring, and arrangement editing. Audio recording uses a callback-to-worker path: the real-time side writes bounded planar frames, while an asynchronous worker finalizes files and project regions. Offline rendering uses the production graph and renderer against a project snapshot rather than stopping live transport or entering the device callback.
 
-The design includes fades, looping, speed and pitch treatments, automation, metering, and plug-in processing. The precise available workflows should be checked against the current UI and release, especially where architecture documents still mark broad DAW expansion work as `IN_PROGRESS`.
+The design includes fades, looping, speed and pitch treatments, automation, metering, and plug-in processing. Per-track pan-law choices are persisted and shared by live/offline mixing. Plug-in parameter lanes can be selected from the plug-in's exposed parameter list and edited with a point curve. Automation is still narrower than a mature DAW: general-purpose strip/fader/pan automation editing and a full arrangement automation mode remain unfinished.
 
 ### 5.2 MIDI and instruments
 
@@ -92,9 +92,9 @@ This is more concrete than a generic claim of “cloud control”: it is a docum
 
 ### 5.6 Plug-ins
 
-ResoStage includes plug-in scanning and live AU/VST3 hosting workflows. Scanning is isolated in a helper process because discovering plug-ins executes third-party vendor code. The catalog and scan status are exposed as structural state, and the live and offline processor banks have separate ownership.
+ResoStage includes plug-in scanning and live AU/VST3 hosting workflows. Both discovery and live DSP run outside Core: the scanner helper owns enumeration, and a separate helper process owns each non-empty live serial plug-in chain. A native fault or hang therefore takes down that chain rather than unwinding through Core or unrelated chains. A bounded shared-memory protocol transports audio, MIDI, parameters, and transport state; a watchdog can make one automatic restart attempt. This is process isolation, not a reduced-permission security sandbox, and a plug-in may still affect resources available to the current user.
 
-There is a consequential limitation: the scanner helper does **not** isolate live plug-in execution. Live AU/VST3 instances run inside Core. In-process hardening handles some ordinary C++ exceptions, stale bank builds, and project-replacement hazards, but a native crash, abort, hang, deadlock, or memory corruption in a live plug-in can still stop or damage Core. `docs/PLUGIN_FAILURE_CONTAINMENT.md` documents out-of-process live hosting as the remaining architecture needed to contain arbitrary native plug-in failures. ResoStage should not claim that third-party plug-ins cannot bring down playback.
+Offline render deliberately owns a separate in-process processor bank so it can give plug-ins non-realtime render context. A native offline plug-in crash is not contained by the live-host boundary. Exact behavior, protocol limits, and recovery scope are documented in `docs/PLUGIN_FAILURE_CONTAINMENT.md`.
 
 ## 6. Why the engineering approach is relevant to live use
 
@@ -203,7 +203,8 @@ ResoStage is an ambitious product with a substantial implementation and document
 - **Real-world hardware validation:** Lighting support is actively seeking community validation on physical equipment. Compatibility claims should name the tested interfaces, fixtures, and network conditions.
 - **Performance claims:** The baseline is specific to one M1 test system, one build, and defined workloads. It is not a universal no-dropout guarantee.
 - **Callback terminology:** The callback is designed to be bounded and non-waiting but does use `try_lock`; describing it as completely lock-free would conflict with `AGENTS.md`.
-- **Live plug-ins:** Discovery is isolated; actual live plug-in DSP remains in Core. Arbitrary native plug-in failures are not fully contained.
+- **Plug-ins:** Live plug-ins run in per-chain helper processes, but those helpers are not OS sandboxes. Offline plug-in rendering remains in-process and can still fail with the renderer.
+- **Automation:** Plug-in parameter lanes and MIDI-region CC/channel pitch bend are editable and dispatched at block granularity. General strip automation editing and per-note MIDI 2.0 glide are not implemented.
 - **ResoLink:** Core-to-Core synchronization and distributed execution are marked in progress, separate from the documented native remote-control mode.
 - **MIDI 2.0:** Some file and project support is implemented; end-to-end UMP hardware and plug-in support is not complete.
 - **DAW expansion:** The unified track/channel-strip architecture and several broad DAW subsystems have design documents marked `IN_PROGRESS`.
@@ -281,8 +282,8 @@ This overview is based primarily on the following project documents:
 - [`AGENTS.md`](AGENTS.md) — current architectural contract, process and thread ownership, real-time behavior, project model, telemetry, rendering, and verification expectations.
 - [`docs/REMOTE_CONTROL.md`](docs/REMOTE_CONTROL.md) — native remote topology, command/telemetry split, discovery, and two-machine verification.
 - [`docs/performance/DAW_BASELINE.md`](docs/performance/DAW_BASELINE.md) — dated benchmark environment, workloads, and test results.
-- [`docs/PLUGIN_HOSTING.md`](docs/PLUGIN_HOSTING.md) — scanner process boundary and live plug-in hosting model.
-- [`docs/PLUGIN_FAILURE_CONTAINMENT.md`](docs/PLUGIN_FAILURE_CONTAINMENT.md) — implemented in-process hardening and remaining native plug-in isolation risks.
+- [`docs/PLUGIN_HOSTING.md`](docs/PLUGIN_HOSTING.md) — scanner and per-chain live plug-in process boundaries.
+- [`docs/PLUGIN_FAILURE_CONTAINMENT.md`](docs/PLUGIN_FAILURE_CONTAINMENT.md) — live-host crash containment, watchdog/restart limits, offline-render risk, and remaining integration verification.
 - [`docs/MIDI2_REMAINING_WORK.md`](docs/MIDI2_REMAINING_WORK.md) — implemented MIDI 2.0 file/project scope and incomplete live UMP support.
 - [`docs/architecture/RESOLINK_PROTOCOL.md`](docs/architecture/RESOLINK_PROTOCOL.md) — in-progress Core-to-Core synchronization design.
 - [`docs/architecture/DAW_TRACK_MODEL.md`](docs/architecture/DAW_TRACK_MODEL.md), [`docs/architecture/AUTOMATION_MODEL.md`](docs/architecture/AUTOMATION_MODEL.md), [`docs/architecture/MIDI_AND_PIANO_ROLL.md`](docs/architecture/MIDI_AND_PIANO_ROLL.md), and [`docs/architecture/PLUGIN_POWER_MANAGEMENT.md`](docs/architecture/PLUGIN_POWER_MANAGEMENT.md) — broader architecture designs and their stated in-progress status.

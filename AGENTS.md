@@ -62,6 +62,16 @@ desktop remote is the performance target. “Telemetry over UDP” means sampled
 latest-wins live state. Commands such as Stop, Save, routing edits, and fader
 changes intentionally use HTTP/TCP because delivery and ordering matter.
 
+UI production builds write into `ui/.dist-staging`, copy newly generated assets
+into `ui/dist`, then atomically replace `ui/dist/index.html` last. Do not clear
+the live `ui/dist/assets` directory during a build: an already-open Electron
+renderer can still be requesting content-hashed chunks referenced by its
+previous HTML document. Old hashed assets are retained so those requests can
+finish while Core serves the new entry point. Electron also watches its own
+static asset responses and performs at most two delayed cache-bypassing
+reloads after same-origin 404s; this is a recovery path, not a substitute for
+publishing a complete UI build.
+
 On macOS the assembled Electron shell, nested Core app, helpers, frameworks,
 and native modules are signed bottom-up with one named identity. This stable
 designated requirement is required for persistent microphone/TCC consent;
@@ -288,6 +298,11 @@ Preserve these rules:
   - `PostFader`: Taps signal post-fader and post-mute, pre-pan.
   - `PostPan`: Taps signal post-fader, post-mute, and post-pan (stereo distribution to destination bus).
   Change schema, builder, renderer, serialization, UI, and tests together.
+- Track pan law is persisted per track (`0dB` legacy balance, `-3dB` constant power,
+  `-4.5dB` broadcast, or `-6dB` constant voltage). Missing values resolve to the
+  legacy balance law; format v7 plus `scripts/migrate.mjs` preserves old mixes.
+  The single `MixRenderer` pan-coefficient path applies the selected law to live
+  and offline rendering.
 - Polarity inversion (`PolarityMask { None = 0, Left = 1, Right = 2, Both = 3 }`):
   Applied at strip input conditioning in `MixRenderer` before insert plug-in chains
   using smooth 32-sample glide to prevent declick artifacts. The real-time timeline
@@ -333,8 +348,14 @@ Preserve these rules:
   offsets and deposited into the strip's preallocated MIDI buffer before
   processing; the chain clears its MIDI buffer immediately after execution
   without heap allocation. Live input is copied into versioned fixed-capacity
-  shared-memory slots and processed one callback later; Core applies that
-  nominal callback quantum plus reported plug-in latency through normal PDC.
+  shared-memory slots and processed two callback quanta later to tolerate
+  bounded helper scheduling jitter; Core applies those nominal quanta plus
+  reported plug-in latency through normal PDC. The helper DSP worker receives
+  a platform best-effort priority above UI/background work but below the
+  device's real-time audio callback. On macOS, named-semaphore wake polling is
+  adaptive: idle chains use a low poll rate, while active block streams use a
+  short higher-rate window so small device buffers do not lose most of their
+  deadline to helper wake latency.
   If a result misses its deadline, effects retain their dry input and instrument
   strips emit silence for that block. MIDI packets and host controls use bounded
   queues; rejected control events increment a health counter without marking a
@@ -356,6 +377,18 @@ Preserve these rules:
   provides dedicated AU/VST3 generator selection via categorized context menus grouped
   by manufacturer (with 'Open UI' and 'No Plug-in' removal options), and `pluginSlotAdd`
   atomically replaces existing slot 0 instruments or prepends them before existing audio insert FX.
+- Processor-bank replacement during an insert-chain-only edit is latest-wins
+  and non-disruptive: while the new bank is built, the callback may keep using
+  the previous immutable bank only when project epoch, sample rate, block
+  capacity, and ordered strip/edge routing-layout key still match. It keeps
+  that bank's matching PDC plan too, then switches banks atomically when the
+  replacement is ready. A plug-in bank build exception leaves the last
+  publication intact; callback compatibility checks decide whether it is
+  still safe to render. A project replacement or routing-topology change
+  rejects the stale delay plan (and a project-epoch mismatch rejects the bank
+  entirely). Inspector/editor state must identify a matching current bank,
+  not display or open a continuity-only previous bank as the newly selected
+  plug-in.
 - A whole-document replacement has a monotonically increasing
   `AudioEngine::projectEpoch`. Every published `MixGraph`, asynchronous
   plug-in-bank request, and published bank carries that epoch; the callback
@@ -381,6 +414,17 @@ Preserve these rules:
   signal tracking utilizes `EnvelopeFollower` with peak/RMS detection and anti-denormal
   flush. Automation recording utilizes `AutomationRecorder` with touch/latch modes
   and non-destructive Ramer-Douglas-Peucker reduction (`RamerDouglasPeucker.cpp`).
+- Plug-in parameter metadata is enumerated only inside the isolated plug-in
+  host and copied into a fixed-capacity shared-memory table before the host
+  publishes `Ready`. Core exposes that immutable table through the plug-in
+  parameter HTTP endpoint; the HTTP thread must never inspect vendor objects.
+  The editor can create and draw normalized track-level plug-in automation
+  against stable slot/parameter IDs. Live block dispatch queues parameter
+  changes to the isolated host; offline rendering evaluates track and audio-/
+  MIDI-region plug-in lanes on its private render session. MIDI CC and channel
+  pitch-bend lanes on MIDI regions are dispatched to the track instrument (and
+  scheduled external MIDI output where applicable), at audio-block granularity.
+  These channel lanes are not per-note MIDI 2.0 glide.
 - Plug-in delay compensation is derived from the same topologically ordered
   graph. A topology-specific delay bank publishes pre-bound per-edge entries
   so every summing strip aligns to its slowest input without lookup or
@@ -507,6 +551,12 @@ WebSocket/JSON state remains useful for browsers and slower structural state.
 In Electron, high-rate telemetry is UDP while HTTP polling supplies structural
 state that is unsuitable for a compact datagram. Do not reintroduce a
 high-frequency full JSON state broadcast.
+
+Structural project data, including song-, audio-region-, and MIDI-region
+automation lanes, is copied into `WebUiState` by
+`MainComponent::publishWebState()` on the JUCE message thread. `WebServer`
+serializes that immutable snapshot only; it must not read mutable `Project`
+objects from the libwebsockets thread.
 
 ### ResoLink Core-to-Core session protocol and serialization
 
@@ -940,11 +990,17 @@ release code:
 - Windows x64: `build/win/x64/resostage.exe` with its sibling `core.exe` and
   Electron resources
 
-The assembled Core also carries `resostage-plugin-scanner` and
-`resostage-plugin-host` (with `.exe` suffix on Windows) beside its executable.
-Do not omit either helper from a platform adapter. Missing scanner means the
-catalog API reports a visible scan failure; missing live host makes affected
-plugin slots visibly fail closed rather than loading vendor code in Core.
+The assembled Core carries `resostage-plugin-scanner` beside its executable.
+On Windows and Linux it also carries `resostage-plugin-host` beside the Core
+executable (`.exe` suffix on Windows). On macOS the live host is a separately
+identified `Contents/Helpers/ResoStage Plug-in Host.app` inside the Core bundle;
+Core launches its `Contents/MacOS/resostage-plugin-host` executable. Raw CMake
+Core builds may still launch the sibling unbundled host. Keep the nested app's
+icon, version, and bundle identifier intact for OS process attribution and
+bottom-up code signing. Do not omit either helper from a platform adapter.
+Missing scanner means the catalog API reports a visible scan failure; missing
+live host makes affected plugin slots visibly fail closed rather than loading
+vendor code in Core.
 
 On Windows the executable is not standalone; keep the complete assembled
 directory together. On macOS the outer Electron application contains

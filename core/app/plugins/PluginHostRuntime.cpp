@@ -30,6 +30,12 @@ struct PluginHostRuntime::EditorWindow final : juce::DocumentWindow {
         centreWithSize(getWidth(), getHeight());
         setVisible(true);
         toFront(true);
+        // The macOS helper bundle is an LSUIElement agent so it does not add
+        // a second Dock icon. Agent windows do not become the key application
+        // merely from DocumentWindow::toFront(); explicitly activate the host
+        // when a plug-in editor is requested or it can appear to have vanished
+        // behind the ResoStage shell.
+        juce::Process::makeForegroundProcess();
     }
 
     ~EditorWindow() override {
@@ -161,10 +167,15 @@ bool PluginHostRuntime::openEditor(uint32_t slotIndex) {
         return false;
     if (slotIndex >= projectLoader.project().tracks.front().plugins.size())
         return false;
+    // This helper is an LSUIElement agent launched by Core. Activate it before
+    // creating/showing a native editor so macOS assigns the window to a visible
+    // foreground app instead of leaving it behind the shell.
+    juce::Process::makeForegroundProcess();
     for (auto& existing : editors) {
         if (existing != nullptr && existing->slotIndex == slotIndex) {
             existing->setVisible(true);
             existing->toFront(true);
+            juce::Process::makeForegroundProcess();
             return true;
         }
     }
@@ -218,6 +229,50 @@ void PluginHostRuntime::publishSlotStatuses(
         else if (state == "missing") status = plugin_host::PluginSlotStatus::Missing;
         else if (state == "failed") status = plugin_host::PluginSlotStatus::Failed;
         area.pluginSlotStatuses[i] = static_cast<uint8_t>(status);
+        area.pluginSlotErrors[i].fill('\0');
+        try {
+            const auto error = builtBank.bank->getSlotLoadError(slots[i].id);
+            juce::String::fromUTF8(error.c_str()).copyToUTF8(
+                area.pluginSlotErrors[i].data(), area.pluginSlotErrors[i].size());
+        } catch (...) {
+            // Diagnostics are optional; a vendor's broken error formatting
+            // must not prevent a prepared processor chain from becoming Ready.
+        }
+    }
+}
+
+void PluginHostRuntime::publishParameterDescriptors(
+    plugin_host::SharedArea& area) const noexcept {
+    area.parameterDescriptorCount = 0;
+    area.parameterMetadataTruncated = 0;
+    if (builtBank.bank == nullptr || projectLoader.project().tracks.empty())
+        return;
+    const auto& slots = projectLoader.project().tracks.front().plugins;
+    try {
+        for (size_t slotIndex = 0; slotIndex < slots.size(); ++slotIndex) {
+            const auto parameters = builtBank.bank->parametersForSlot(slots[slotIndex].id);
+            for (const auto& parameter : parameters) {
+                if (area.parameterDescriptorCount
+                    >= plugin_host::kMaximumParameterDescriptorsPerChain) {
+                    area.parameterMetadataTruncated = 1;
+                    return;
+                }
+                auto& descriptor = area.parameterDescriptors[area.parameterDescriptorCount++];
+                descriptor.slotIndex = static_cast<uint16_t>(slotIndex);
+                descriptor.parameterIndex = parameter.index;
+                descriptor.defaultValue = parameter.defaultValue;
+                descriptor.steps = parameter.steps;
+                juce::String(parameter.name.empty()
+                    ? "Parameter " + std::to_string(parameter.index + 1)
+                    : parameter.name).copyToUTF8(descriptor.name, sizeof(descriptor.name));
+                juce::String(parameter.label).copyToUTF8(
+                    descriptor.label, sizeof(descriptor.label));
+            }
+        }
+    } catch (...) {
+        // Metadata is optional; a vendor throwing while enumerating it must
+        // not prevent the already-prepared audio chain from starting.
+        area.parameterMetadataTruncated = 1;
     }
 }
 

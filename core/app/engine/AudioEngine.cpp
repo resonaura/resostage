@@ -786,16 +786,42 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         ~CallbackFlight() { count.fetch_sub(1); }
     } callbackFlight{audioCallbacksInFlight};
 
+    // Structural edits and relocates may make a bounded early return below
+    // the safest choice for this block. Fade the last real sample to zero
+    // instead of turning that one missed block into an audible discontinuity;
+    // the normal post-render fade path gently restores gain on the next good
+    // block. All storage is prepared before the callback.
+    const auto declickSilentBlock = [this, outputChannelData,
+                                     numOutputChannels, numSamples]() noexcept {
+        const int rampSamples = std::min(numSamples, kUnderrunFadeSamples);
+        for (int ch = 0; ch < numOutputChannels; ++ch) {
+            float* output = outputChannelData != nullptr ? outputChannelData[ch] : nullptr;
+            if (output == nullptr)
+                continue;
+            const float previous = static_cast<size_t>(ch) < lastOutputSample.size()
+                ? lastOutputSample[static_cast<size_t>(ch)] : 0.0f;
+            for (int sample = 0; sample < rampSamples; ++sample) {
+                const float gain = rampSamples <= 1 ? 0.0f
+                    : 1.0f - static_cast<float>(sample)
+                        / static_cast<float>(rampSamples - 1);
+                output[sample] = previous * gain;
+            }
+            if (numSamples > rampSamples)
+                std::fill(output + rampSamples, output + numSamples, 0.0f);
+            if (static_cast<size_t>(ch) < lastOutputSample.size())
+                lastOutputSample[static_cast<size_t>(ch)] = 0.0f;
+        }
+        underrunFadeOutRemaining = 0;
+        recoveryFadeInLength = kUnderrunFadeSamples;
+        recoveryFadeInRemaining = kUnderrunFadeSamples;
+        outputHeldSilent = false;
+    };
+
     if (projectTransitioning.load()) {
-        for (int ch = 0; ch < numOutputChannels; ++ch)
-            if (outputChannelData[ch] != nullptr)
-                std::fill(outputChannelData[ch], outputChannelData[ch] + numSamples, 0.0f);
+        declickSilentBlock();
         systemHealth.noteSilentBlock();
         return;
     }
-
-    if (activeMidiNotesClearRequested.exchange(false, std::memory_order_acq_rel))
-        clearActiveMidiNotes();
 
     // Flush-to-zero for the whole callback. Everything downstream of a strip is
     // a recursive filter -- the fader/pan glide, the K-weighting stages, the six
@@ -864,6 +890,26 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                             ? SystemMonotonicClock::ticksToNanos(*context.hostTimeNs)
                                             : SystemMonotonicClock{}.nowNanos();
     const uint64_t hostTimeNanos = baseHostTimeNanos + gExactCycleHostOffsetNanos;
+
+    // Stop/seek clears are requested by the control thread, but the active
+    // note counters and project track layout are owned by the audio callback.
+    // Service them only after a successful non-waiting lock; if a structural
+    // edit currently owns it, leave the request pending for the next block.
+    if (activeMidiNotesClearRequested.load(std::memory_order_acquire)) {
+        std::unique_lock<std::recursive_mutex> clearLock(
+            routingMutex, std::try_to_lock);
+        if (clearLock.owns_lock()
+            && activeMidiNotesClearRequested.exchange(
+                false, std::memory_order_acq_rel)) {
+            const int64_t effectiveLatency =
+                currentOutputLatencySamples.load(std::memory_order_relaxed)
+                + currentPluginLatencySamples.load(std::memory_order_relaxed);
+            const double outputLatencySec = resostage::outputLatencySeconds(
+                effectiveLatency, currentSampleRate);
+            clearActiveMidiNotes(heardHostNanos(hostTimeNanos, 0.0,
+                                                outputLatencySec));
+        }
+    }
 
     // A message-thread seek is intrinsically the wrong primitive for a cycle:
     // it waits for a later UI tick, parks stream reads and requests a global
@@ -1085,7 +1131,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         pauseTailSilenceBlocks = 0;
     }
 
-    const bool isRenderingTail = !isPlaying && (pauseTailRemainingSamples > 0 || bankHasPlugins);
+    const bool isRenderingTail = !isPlaying && (pauseTailRemainingSamples > 0
+        || bankHasPlugins
+        || hardAllSoundOffRequested.load(std::memory_order_acquire));
     const bool hasLiveMonitoring = (activeInputMonitoringCount.load(std::memory_order_relaxed) > 0 ||
                                     activeRecordArmCount.load(std::memory_order_relaxed) > 0 ||
                                     focusedMidiMonitorActive.load(std::memory_order_relaxed));
@@ -1202,7 +1250,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     // shows up as an underrun; it is only audible, as a crackle. Counting them
     // is the difference between "the health panel says 0 underruns" and
     // knowing the outputs actually went quiet 40 times while a fader moved.
-    const auto bailSilently = [this]() { systemHealth.noteSilentBlock(); };
+    const auto bailSilently = [this, &declickSilentBlock]() noexcept {
+        declickSilentBlock();
+        systemHealth.noteSilentBlock();
+    };
 
     // Gapless / restage handoff: keep outs silent and do not touch rings
     // until the message thread has reset the playhead to match the new song.
@@ -1231,14 +1282,23 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     MixProcessorView pluginProcessors;
     PluginProcessorBank* compatiblePluginBank = nullptr;
     int64_t pluginLatencyForBlock = 0;
+    const bool processorLayoutMatches = pluginPublication != nullptr
+        && pluginPublication->processorLayoutKey == graph.processorLayoutKey;
+    const bool routingLayoutMatches = pluginPublication != nullptr
+        && pluginPublication->routingLayoutKey == graph.routingLayoutKey;
     if (pluginPublication != nullptr
         && pluginPublication->projectEpoch == graph.projectEpoch
-        && pluginPublication->processorLayoutKey == graph.processorLayoutKey
+        // A newly edited chain is built off-thread. Keep the previous chain
+        // alive until its replacement is published, but only when the strip
+        // ordered processor-strip layout still matches exactly. Project and
+        // strip-layout changes remain fail-closed; a route-only change may
+        // retain an identical processor table but never its stale PDC plan.
+        && (processorLayoutMatches || routingLayoutMatches)
         && std::abs(pluginPublication->sampleRate - currentSampleRate) < 1e-6
         && numSamples <= pluginPublication->maximumBlockSize
         && pluginPublication->bank != nullptr) {
         const PluginDelayBank* compatibleDelayBank =
-            pluginPublication->latencyLayoutKey == graph.latencyLayoutKey
+            routingLayoutMatches
                 ? pluginPublication->delayBank.get() : nullptr;
         pluginProcessors = pluginPublication->bank->processorView(
             compatibleDelayBank);
@@ -1278,6 +1338,41 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         }
     }
 
+    // A second press of the dedicated Stop button is an explicit panic.
+    // Ordinary Stop/seek use Note-Off so release tails remain musical; this
+    // path intentionally kills voices and resets controllers on every MIDI
+    // channel, including devices whose note counters were cleared by the
+    // first Stop. Keep all vendor interaction in the existing callback bank.
+    if (hardAllSoundOffRequested.exchange(false, std::memory_order_acq_rel)) {
+        if (compatiblePluginBank != nullptr)
+            compatiblePluginBank->injectAllSoundOff();
+        const double latencySec = resostage::outputLatencySeconds(
+            currentOutputLatencySamples.load(std::memory_order_relaxed)
+                + pluginLatencyForBlock,
+            currentSampleRate);
+        const uint64_t targetTime = heardHostNanos(hostTimeNanos, 0.0, latencySec);
+        for (uint8_t channel = 0; channel < 16; ++channel) {
+            MidiCommand command;
+            command.kind = MidiCommandKind::ControlChange;
+            command.channel = channel;
+            command.data2 = 0;
+            command.targetHostTimeNanos = targetTime;
+            command.data1 = 120; // All Sound Off
+            midiDispatcher.enqueue(command);
+            command.data1 = 121; // Reset All Controllers
+            midiDispatcher.enqueue(command);
+
+            MidiCommand pitchReset;
+            pitchReset.kind = MidiCommandKind::Raw;
+            pitchReset.status = static_cast<uint8_t>(0xE0u | channel);
+            pitchReset.dataLength = 2;
+            pitchReset.data1 = 0;
+            pitchReset.data2 = 64; // 14-bit pitch wheel centre
+            pitchReset.targetHostTimeNanos = targetTime;
+            midiDispatcher.enqueue(pitchReset);
+        }
+    }
+
     if (sequencedMidiFlushAtBlockStart) {
         // Release only notes emitted by MIDI regions. A blanket all-notes-off
         // here used to terminate live notes held on other focused/monitored
@@ -1295,26 +1390,30 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             const bool external = track != nullptr
                 && (track->kind == TrackKind::ExternalMIDI
                     || track->kind == TrackKind::MIDI);
-            for (int pitch = 0; pitch < 128; ++pitch) {
-                auto& count = sequencedMidiNoteCounts[strip][static_cast<size_t>(pitch)];
-                while (count != 0) {
-                    if (compatiblePluginBank != nullptr
-                        && compatiblePluginBank->stripHasInstrument(strip)) {
-                        compatiblePluginBank->addStripMidiEvent(
-                            strip, juce::MidiMessage::noteOff(1, pitch), 0);
+            for (int channel = 0; channel < 16; ++channel) {
+                for (int pitch = 0; pitch < 128; ++pitch) {
+                    auto& count = sequencedMidiNoteCounts[strip]
+                        [static_cast<size_t>(channel)][static_cast<size_t>(pitch)];
+                    while (count != 0) {
+                        if (compatiblePluginBank != nullptr
+                            && compatiblePluginBank->stripHasInstrument(strip)) {
+                            compatiblePluginBank->addStripMidiEvent(
+                                strip, juce::MidiMessage::noteOff(
+                                    channel + 1, pitch), 0);
+                        }
+                        if (external) {
+                            MidiCommand cmd;
+                            cmd.kind = MidiCommandKind::NoteOff;
+                            cmd.channel = static_cast<uint8_t>(channel);
+                            cmd.data1 = static_cast<uint8_t>(pitch);
+                            cmd.data2 = 0;
+                            cmd.targetHostTimeNanos = heardHostNanos(
+                                hostTimeNanos, 0.0, latencySec);
+                            midiDispatcher.enqueue(cmd);
+                        }
+                        updateActiveMidiNote(strip, pitch, false);
+                        --count;
                     }
-                    if (external) {
-                        MidiCommand cmd;
-                        cmd.kind = MidiCommandKind::NoteOff;
-                        cmd.channel = 0;
-                        cmd.data1 = static_cast<uint8_t>(pitch);
-                        cmd.data2 = 0;
-                        cmd.targetHostTimeNanos = heardHostNanos(
-                            hostTimeNanos, 0.0, latencySec);
-                        midiDispatcher.enqueue(cmd);
-                    }
-                    updateActiveMidiNote(strip, pitch, false);
-                    --count;
                 }
             }
         }
@@ -1401,6 +1500,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                     }
                 }
 
+                bool forwardedToExternalMidi = false;
                 for (size_t t = 0; t < trackIdByIndex.size() && t < trackScratch.size(); ++t) {
                     const TrackDef* tDef = trackDefAt(t);
                     if (tDef == nullptr) continue;
@@ -1428,6 +1528,39 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                         }
                         if (compatiblePluginBank != nullptr) {
                             compatiblePluginBank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
+                        }
+
+                        // External MIDI tracks are a live thru destination as
+                        // well as a sequenced destination. All tracks currently
+                        // share the configured hardware MIDI output, so send a
+                        // given incoming packet only once even if several
+                        // monitored external tracks accept it.
+                        const bool externalMidiTrack = tDef->kind == TrackKind::ExternalMIDI
+                            || tDef->kind == TrackKind::MIDI;
+                        const int messageBytes = msg.getRawDataSize();
+                        if (externalMidiTrack && !forwardedToExternalMidi
+                            && messageBytes >= 1 && messageBytes <= 3) {
+                            MidiCommand command;
+                            command.kind = MidiCommandKind::Raw;
+                            command.status = msg.getRawData()[0];
+                            command.channel = command.status < 0xf0
+                                ? static_cast<uint8_t>(command.status & 0x0f) : 0;
+                            command.dataLength = static_cast<uint8_t>(messageBytes - 1);
+                            if (messageBytes > 1) command.data1 = msg.getRawData()[1];
+                            if (messageBytes > 2) command.data2 = msg.getRawData()[2];
+                            const double latencySeconds = resostage::outputLatencySeconds(
+                                currentOutputLatencySamples.load(std::memory_order_relaxed)
+                                    + pluginLatencyForBlock,
+                                currentSampleRate);
+                            command.targetHostTimeNanos = heardHostNanos(
+                                hostTimeNanos, 0.0, latencySeconds);
+                            midiDispatcher.enqueue(command);
+                            forwardedToExternalMidi = true;
+                            if (msg.isNoteOn() && msg.getVelocity() > 0
+                                && msgChannel > 0 && msgChannel <= 16) {
+                                activeExternalMidiChannelMask |= static_cast<uint16_t>(
+                                    1u << static_cast<unsigned>(msgChannel - 1));
+                            }
                         }
 
                         if (midiCaptureActive && isArmed) {

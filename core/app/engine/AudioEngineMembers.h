@@ -47,6 +47,7 @@
 
     struct PublishedPluginBank {
         uint64_t processorLayoutKey = 0;
+        uint64_t routingLayoutKey = 0;
         uint64_t projectEpoch = 0;
         uint64_t latencyLayoutKey = 0;
         double sampleRate = 48000.0;
@@ -66,6 +67,9 @@
     std::optional<PluginBankBuildRequest> pendingPluginBankBuild;
     std::vector<std::shared_ptr<const PublishedPluginBank>> retiredPluginBanks;
     std::atomic<uint64_t> pluginBankGeneration{0};
+    // Latest graph layout, published atomically so UI/editor requests never
+    // mistake a continuity-only previous bank for the requested plug-in.
+    std::atomic<uint64_t> currentProcessorLayoutKey{0};
     // One automatic restart per failed strip/document. Further recovery is
     // explicit so a crashing plug-in cannot create an unbounded respawn loop.
     std::unordered_set<std::string> recoveredPluginHostKeys;
@@ -694,13 +698,22 @@
     // separate from live input so a project-cycle wrap can release notes that
     // extend beyond the right locator without sending All Notes Off and
     // killing a performer's held note on another monitored instrument.
-    std::array<std::array<uint8_t, 128>, kMaxActiveMidiStrips> sequencedMidiNoteCounts{};
+    // Counts are channel-specific: a cycle/relocate must send Note-Off on the
+    // same MIDI channel as the originating Note-On, especially for external
+    // MIDI tracks where the destination owns the actual voice state.
+    std::array<std::array<std::array<uint8_t, 128>, 16>,
+               kMaxActiveMidiStrips> sequencedMidiNoteCounts{};
+    uint16_t activeExternalMidiChannelMask = 0; // audio-thread owned
     bool sequencedMidiFlushAtBlockStart = false; // audio-thread owned
     ActiveMidiNotesFrame activeMidiNotesWorkingFrame{};
     SeqLock<ActiveMidiNotesFrame> activeMidiNotesFrame;
     std::atomic<bool> activeMidiNotesClearRequested{false};
+    // A second Stop is a deliberate panic, unlike an ordinary pause/seek.
+    // The callback sends CC 120/121 and resets hosted instruments without
+    // making the message thread race the MIDI dispatch queue.
+    std::atomic<bool> hardAllSoundOffRequested{false};
     void updateActiveMidiNote(size_t strip, int pitch, bool noteOn);
-    void clearActiveMidiNotes();
+    void clearActiveMidiNotes(uint64_t targetHostTimeNanos);
 
     // Lock-free incoming MIDI queue for real-time instrument playback & MIDI recording
     struct QueuedMidiPacket {

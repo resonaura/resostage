@@ -11,12 +11,14 @@
 #include "automation/AutomationEvaluator.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "project/Uuid.h"
 
@@ -779,6 +781,11 @@ void AudioEngine::stop() {
 }
 
 void AudioEngine::stopToStart() {
+    const bool wasAlreadyStopped = !playing.load(std::memory_order_acquire);
+    if (wasAlreadyStopped) {
+        hardAllSoundOffRequested.store(true, std::memory_order_release);
+        activeMidiNotesClearRequested.store(true, std::memory_order_release);
+    }
     flushPauseTailRequested.store(true, std::memory_order_release);
     resetMetersSilent();
     if (!projectLoaded || currentSong == static_cast<size_t>(-1)) {
@@ -1212,6 +1219,13 @@ std::vector<LiveRecordingRegionInfo> AudioEngine::getLiveRecordingRegions() cons
 }
 
 std::vector<AudioEngine::ActiveMidiNoteInfo> AudioEngine::getActiveMidiNotes() const {
+    // Stop/seek requests are immediate from the UI's point of view. The audio
+    // callback still owns the note counters and publishes the actual empty
+    // frame at its next boundary, but do not expose the previous frame during
+    // that hand-off window.
+    if (activeMidiNotesClearRequested.load(std::memory_order_acquire))
+        return {};
+
     ActiveMidiNotesFrame frame;
     (void)activeMidiNotesFrame.read(frame);
     std::vector<ActiveMidiNoteInfo> result;
@@ -1246,9 +1260,41 @@ void AudioEngine::updateActiveMidiNote(size_t strip, int pitch, bool noteOn) {
     activeMidiNotesFrame.write(activeMidiNotesWorkingFrame);
 }
 
-void AudioEngine::clearActiveMidiNotes() {
+void AudioEngine::clearActiveMidiNotes(uint64_t targetHostTimeNanos) {
     for (auto& track : activeMidiNoteCounts) track.fill(0);
-    for (auto& track : sequencedMidiNoteCounts) track.fill(0);
+    uint16_t activeExternalChannels = activeExternalMidiChannelMask;
+    const size_t trackCount = std::min(trackIdByIndex.size(), kMaxActiveMidiStrips);
+    for (size_t strip = 0; strip < sequencedMidiNoteCounts.size(); ++strip) {
+        const TrackDef* track = strip < trackCount ? trackDefAt(strip) : nullptr;
+        const bool external = track != nullptr
+            && (track->kind == TrackKind::ExternalMIDI
+                || track->kind == TrackKind::MIDI);
+        for (size_t channel = 0; channel < 16; ++channel) {
+            auto& pitches = sequencedMidiNoteCounts[strip][channel];
+            if (external && std::any_of(pitches.begin(), pitches.end(),
+                                        [](uint8_t count) { return count != 0; })) {
+                activeExternalChannels |= static_cast<uint16_t>(1u << channel);
+            }
+            pitches.fill(0);
+        }
+    }
+    activeExternalMidiChannelMask = 0;
+
+    // CC 123 is bounded to one event per active channel, unlike issuing a
+    // Note-Off for every overlapping voice. It also clears external notes
+    // whose scheduled Note-On has reached the device but whose matching
+    // region Note-Off lies beyond the relocation/stop point.
+    for (uint8_t channel = 0; channel < 16; ++channel) {
+        if ((activeExternalChannels & static_cast<uint16_t>(1u << channel)) == 0)
+            continue;
+        MidiCommand command;
+        command.kind = MidiCommandKind::ControlChange;
+        command.channel = channel;
+        command.data1 = 123; // All Notes Off
+        command.data2 = 0;
+        command.targetHostTimeNanos = targetHostTimeNanos;
+        midiDispatcher.enqueue(command);
+    }
     sequencedMidiFlushAtBlockStart = false;
     activeMidiNotesWorkingFrame = {};
     activeMidiNotesFrame.write(activeMidiNotesWorkingFrame);
@@ -1373,6 +1419,7 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
         if (pluginPub != nullptr && pluginPub->bank != nullptr) {
             pluginPub->bank->requestAllNotesOff();
         }
+        activeMidiNotesClearRequested.store(true, std::memory_order_release);
 
         if (wasPlaying || sameSong) {
             // sameSong keeps transport running across the seek; cross-song
@@ -1672,7 +1719,10 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                         if (canSendToPlugin || canSendToExternalMidi)
                             updateActiveMidiNote(targetStripIndex, pitch, true);
                         if (targetStripIndex < kMaxActiveMidiStrips) {
-                            auto& count = sequencedMidiNoteCounts[targetStripIndex][pitch];
+                            const size_t channelIndex = std::min<size_t>(
+                                static_cast<size_t>(note.channel), 15);
+                            auto& count = sequencedMidiNoteCounts[targetStripIndex]
+                                [channelIndex][pitch];
                             if (count < std::numeric_limits<uint8_t>::max())
                                 ++count;
                         }
@@ -1685,6 +1735,8 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                             cmd.data2 = vel;
                             cmd.targetHostTimeNanos = heardHostNanos(hostTimeNanos, offsetSec, outputLatencySec);
                             midiDispatcher.enqueue(cmd);
+                            activeExternalMidiChannelMask |= static_cast<uint16_t>(
+                                1u << std::min<unsigned>(note.channel, 15u));
                         }
                     }
                 }
@@ -1702,7 +1754,10 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                         if (canSendToPlugin || canSendToExternalMidi)
                             updateActiveMidiNote(targetStripIndex, pitch, false);
                         if (targetStripIndex < kMaxActiveMidiStrips) {
-                            auto& count = sequencedMidiNoteCounts[targetStripIndex][pitch];
+                            const size_t channelIndex = std::min<size_t>(
+                                static_cast<size_t>(note.channel), 15);
+                            auto& count = sequencedMidiNoteCounts[targetStripIndex]
+                                [channelIndex][pitch];
                             if (count != 0)
                                 --count;
                         }
@@ -1785,6 +1840,7 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
             }
         }
     }
+
 }
 
 void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
@@ -1796,10 +1852,6 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
                                              const TempoMap* tempoMap,
                                              uint64_t hostTimeNanos,
                                              double outputLatencySec) {
-    (void)numSamples;
-    (void)hostTimeNanos;
-    (void)outputLatencySec;
-
     if (song.automationLanes.empty() && song.midiRegions.empty() && song.regions.empty())
         return;
 
@@ -1808,6 +1860,88 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
     const double blockStartBeat = tempoMap != nullptr
         ? tempoMap->samplesToBeats(blockStartSample, safeRate)
         : (blockStartSeconds * 2.0);
+
+    const auto parsePluginParameterIndex = [](std::string_view id) noexcept {
+        if (id.starts_with("param:")) id.remove_prefix(6);
+        int index = -1;
+        if (id.empty()) return index;
+        const auto parsed = std::from_chars(id.data(), id.data() + id.size(), index);
+        if (parsed.ec != std::errc{} || parsed.ptr != id.data() + id.size())
+            return -1;
+        return index;
+    };
+
+    // MIDI controller automation is stored as typed values (CC 0..127,
+    // pitch bend -8192..8191), not always normalized floats. Keep parsing and
+    // event construction allocation-free because this runs at block rate.
+    const auto sendMidiAutomation = [&](const AutomationLane& lane, float value,
+                                        std::string_view trackId) {
+        if (lane.target.domain != AutomationDomain::MidiCC || numSamples <= 0)
+            return;
+
+        const std::string_view parameterId(lane.target.parameterId);
+        const bool pitchBend = parameterId == "pitchBend" || parameterId == "pitch-bend";
+        int controller = -1;
+        if (!pitchBend) {
+            std::string_view digits = parameterId;
+            if (digits.starts_with("cc:")) digits.remove_prefix(3);
+            else if (digits.starts_with("cc")) digits.remove_prefix(2);
+            const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), controller);
+            if (digits.empty() || parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size())
+                return;
+            controller = std::clamp(controller, 0, 127);
+        }
+
+        const float minValue = lane.target.minValue;
+        const float maxValue = lane.target.maxValue;
+        const bool normalized = maxValue <= minValue + 1.0e-6f;
+        const float low = normalized ? 0.0f : minValue;
+        const float high = normalized ? 1.0f : maxValue;
+        const float typedValue = std::clamp(value, low, high);
+        const float unit = (typedValue - low) / std::max(1.0e-6f, high - low);
+
+        uint32_t stripIndex = MixGraph::kNoStrip;
+        bool externalMidi = false;
+        if (!trackId.empty()) {
+            for (const auto& track : project().tracks) {
+                if (track.id != trackId)
+                    continue;
+                externalMidi = track.kind == TrackKind::MIDI || track.kind == TrackKind::ExternalMIDI;
+                if (graph != nullptr)
+                    stripIndex = graph->find(track.effectiveStripId());
+                break;
+            }
+        }
+        if (pluginBank != nullptr && stripIndex != MixGraph::kNoStrip
+            && pluginBank->stripHasInstrument(stripIndex)) {
+            const auto message = pitchBend
+                ? juce::MidiMessage::pitchWheel(1, std::clamp(
+                    static_cast<int>(std::lround(unit * 16383.0f)), 0, 16383))
+                : juce::MidiMessage::controllerEvent(1, controller,
+                    std::clamp(static_cast<int>(std::lround(unit * 127.0f)), 0, 127));
+            pluginBank->addStripMidiEvent(stripIndex, message, 0);
+        }
+
+        if (externalMidi) {
+            MidiCommand command;
+            command.targetHostTimeNanos = heardHostNanos(hostTimeNanos, 0.0, outputLatencySec);
+            command.channel = 0; // Track MIDI output defaults to channel 1.
+            if (pitchBend) {
+                const int bend14 = std::clamp(static_cast<int>(std::lround(unit * 16383.0f)), 0, 16383);
+                command.kind = MidiCommandKind::Raw;
+                command.status = 0xE0;
+                command.dataLength = 2;
+                command.data1 = static_cast<uint8_t>(bend14 & 0x7f);
+                command.data2 = static_cast<uint8_t>((bend14 >> 7) & 0x7f);
+            } else {
+                command.kind = MidiCommandKind::ControlChange;
+                command.data1 = static_cast<uint8_t>(controller);
+                command.data2 = static_cast<uint8_t>(std::clamp(
+                    static_cast<int>(std::lround(unit * 127.0f)), 0, 127));
+            }
+            midiDispatcher.enqueue(command);
+        }
+    };
 
     // 1. Evaluate TrackAutomation lanes defined on the SongDef
     for (const auto& lane : song.automationLanes) {
@@ -1819,44 +1953,14 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
 
         if (lane.target.domain == AutomationDomain::Plugin) {
             if (pluginBank != nullptr) {
-                int paramIdx = 0;
-                try {
-                    if (lane.target.parameterId.rfind("param:", 0) == 0) {
-                        paramIdx = std::stoi(lane.target.parameterId.substr(6));
-                    } else {
-                        paramIdx = std::stoi(lane.target.parameterId);
-                    }
-                } catch (...) {
-                    paramIdx = 0;
-                }
-                pluginBank->setPluginParameterBySlotId(lane.target.entityId, paramIdx, value);
+                const int parameterIndex = parsePluginParameterIndex(
+                    lane.target.parameterId);
+                if (parameterIndex >= 0)
+                    pluginBank->setPluginParameterBySlotId(
+                        lane.target.entityId, parameterIndex, value);
             }
         } else if (lane.target.domain == AutomationDomain::MidiCC) {
-            int ccNum = 1;
-            try {
-                if (lane.target.parameterId.rfind("cc:", 0) == 0) {
-                    ccNum = std::stoi(lane.target.parameterId.substr(3));
-                } else {
-                    ccNum = std::stoi(lane.target.parameterId);
-                }
-            } catch (...) {
-                ccNum = 1;
-            }
-            ccNum = std::clamp(ccNum, 0, 127);
-            const uint8_t ccVal = static_cast<uint8_t>(std::clamp(
-                static_cast<int>(std::llround(value * 127.0f)), 0, 127));
-
-            if (graph != nullptr && pluginBank != nullptr) {
-                for (size_t stripIdx = 0; stripIdx < graph->strips.size(); ++stripIdx) {
-                    if (graph->strips[stripIdx].id == lane.target.entityId) {
-                        pluginBank->addStripMidiEvent(
-                            stripIdx,
-                            juce::MidiMessage::controllerEvent(1, ccNum, ccVal),
-                            0);
-                        break;
-                    }
-                }
-            }
+            sendMidiAutomation(lane, value, lane.target.entityId);
         }
     }
 
@@ -1880,18 +1984,47 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
                 lane.points, relBeats, lane.target.defaultValue);
 
             if (lane.target.domain == AutomationDomain::Plugin && pluginBank != nullptr) {
-                int paramIdx = 0;
-                try {
-                    if (lane.target.parameterId.rfind("param:", 0) == 0) {
-                        paramIdx = std::stoi(lane.target.parameterId.substr(6));
-                    } else {
-                        paramIdx = std::stoi(lane.target.parameterId);
-                    }
-                } catch (...) {
-                    paramIdx = 0;
-                }
-                pluginBank->setPluginParameterBySlotId(lane.target.entityId, paramIdx, value);
+                const int parameterIndex = parsePluginParameterIndex(
+                    lane.target.parameterId);
+                if (parameterIndex >= 0)
+                    pluginBank->setPluginParameterBySlotId(
+                        lane.target.entityId, parameterIndex, value);
+            } else if (lane.target.domain == AutomationDomain::MidiCC) {
+                sendMidiAutomation(lane, value, mr.trackId);
             }
+        }
+    }
+
+    // Audio-region plug-in automation is local to the clip just like MIDI
+    // region automation. Region placement is stored in seconds, so convert its
+    // origin through the same tempo map before evaluating musical-time points.
+    for (const auto& region : song.regions) {
+        if (region.automationLanes.empty()
+            || blockStartSeconds < region.startSeconds
+            || (region.durationSeconds > 0.0
+                && blockStartSeconds >= region.startSeconds + region.durationSeconds))
+            continue;
+
+        const int64_t regionStartSample = static_cast<int64_t>(
+            std::llround(region.startSeconds * safeRate));
+        const double regionStartBeat = tempoMap != nullptr
+            ? tempoMap->samplesToBeats(regionStartSample, safeRate)
+            : (region.startSeconds * std::max(1.0, song.bpm) / 60.0);
+        const double regionBeat = blockStartBeat - regionStartBeat;
+        for (const auto& lane : region.automationLanes) {
+            if (!lane.enabled || lane.muted || lane.points.empty()
+                || lane.target.domain != AutomationDomain::Plugin
+                || pluginBank == nullptr)
+                continue;
+
+            const int parameterIndex = parsePluginParameterIndex(
+                lane.target.parameterId);
+            if (parameterIndex < 0)
+                continue;
+            const float value = AutomationEvaluator::evaluatePoints(
+                lane.points, regionBeat, lane.target.defaultValue);
+            pluginBank->setPluginParameterBySlotId(
+                lane.target.entityId, parameterIndex, value);
         }
     }
 }

@@ -93,6 +93,8 @@
 
     void setTrackPan(size_t songIndex, size_t trackIndex, double pan);
 
+    void setTrackPanLaw(size_t songIndex, size_t trackIndex, PanLaw law);
+
     void setTrackMute(size_t songIndex, size_t trackIndex, bool mute);
 
     void setTrackSolo(size_t songIndex, size_t trackIndex, bool solo);

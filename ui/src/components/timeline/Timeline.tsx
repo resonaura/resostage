@@ -395,7 +395,7 @@ export function Timeline({
   // ZOOM-only flag feeding the playhead clock FREEZE: while the user is
   // zooming, the transport keeps playing but the timeline's clock must stand
   // still so the playhead marker doesn't creep left-right against the
-  // zoom-focus anchor ("плейхед должен стоять на месте во время зума").
+  // zoom-focus anchor ("the playhead must stay in place while zooming").
   // Deliberately NOT set by manual horizontal scrolling -- looking around must
   // never pause time, only a zoom gesture should.
   //
@@ -404,7 +404,7 @@ export function Timeline({
   // overwrite (clear) the timer that resets gestureActiveNowRef, so a pinch
   // whose gestureend was lost would leave gestureActiveNowRef stuck true --
   // which permanently disabled auto-scroll in EVERY follow mode
-  // ("автоскролл не пашет никакой теперь").
+  // ("auto-scroll is completely broken now").
   /**
    * A follow scroll owed to the playhead once the zoom finishes.
    *
@@ -431,7 +431,7 @@ export function Timeline({
   // sparsely than the timer window), but the browser ALSO fires gestureend /
   // touchend when the fingers lift -- clearing here makes the end exact
   // instead of waiting out the timer, and guarantees the zoom flag can't
-  // outlive the fingers ("пинч периодически прерывается" was the timer
+  // outlive the fingers ("pinch keeps getting interrupted" was the timer
   // firing mid-gesture, flipping zoomActive off and unfreezing the clock
   // while fingers were still down).
   const endGestureRef = useRef(() => {
@@ -467,7 +467,7 @@ export function Timeline({
   // pixel comparison above then misses (the position moved on since), and
   // onScrollSync wrongly treated ITS OWN continuous auto-scroll as a user
   // gesture, pausing autofollow for 700ms, over and over
-  // ("смотри такую вещь ... рывками и плейхед и таймлайн показывает"). Any
+  // ("look at this thing ... both the playhead and the timeline are jerking"). Any
   // scroll event landing shortly after ANY programmatic write is still
   // almost certainly an echo of ours, regardless of exact pixel match.
   const lastProgrammaticWriteAtRef = useRef(0);
@@ -1398,7 +1398,7 @@ export function Timeline({
     // playhead is NOT pinned while zooming: it just sits at its natural
     // document position (the rAF loop snaps it to px during a gesture), so
     // whatever is under the cursor/fingers stays exactly under them through
-    // the zoom ("пинчится не совсем точно там где нужно"). The old
+    // the zoom ("pinch isn't landing quite where it should"). The old
     // marker-anchored pin drifted away from the pinch midpoint and landed
     // somewhere else when the gesture ended.
     let focusX =
@@ -1424,7 +1424,7 @@ export function Timeline({
     // A trackpad pinch/scroll-zoom fires wheel/gesturechange far faster than
     // the display can paint -- committing setPxPerSec on every single one
     // forces a full re-render of every region + ruler mark + waveform canvas
-    // per event, backing up the event queue ("дико лагает при зуме"). Every
+    // per event, backing up the event queue ("massively lags during zoom"). Every
     // other reader of the zoom level during a gesture already goes through
     // pxPerSecRef (always current, see its assignment two lines up) rather
     // than the pxPerSec render value, so collapsing the REACT commit to once
@@ -1445,7 +1445,7 @@ export function Timeline({
   // active (gestureActiveNowRef). A single writer keeps the timeline content
   // and the marker in lockstep -- two writers (e.g. an earlier version also
   // applying the pending value inside the rAF tick) fought each other and
-  // wobbled the whole timeline ("колбасит не только плейхед но и таймлайн").
+  // wobbled the whole timeline ("not just the playhead but the entire timeline is wobbling").
   useLayoutEffect(() => {
     if (scrollRef.current) {
       const scroller = scrollRef.current;
@@ -1902,7 +1902,7 @@ export function Timeline({
     lastScrollStateCommitAtRef.current = performance.now();
     // Vertical-only scroll (scrollTop changed, scrollLeft didn't) is not a
     // user fight for the horizontal timeline -- don't pause auto-follow for
-    // it ("при вертикальном скролле стопается автоскролл").
+    // it ("vertical scroll stops the auto-scroll").
     if (movedHorizontally) {
       markGestureActiveRef.current();
       // Manual pan while playing suspends follow; catch flags re-enable later.
@@ -2119,7 +2119,7 @@ export function Timeline({
   // worse -- the committed render (and thus the marker's new position) landed
   // a frame AFTER the native scrollLeft write below had already taken effect,
   // so the marker visibly lagged/stuttered behind a viewport that was moving
-  // every frame ("плейхед стал дико баганным"). Writing the style attribute
+  // every frame ("the playhead became insanely buggy"). Writing the style attribute
   // in the same tick as the scroll write makes the two atomic within a frame;
   // there is no React commit in between to desync them.
   //
@@ -2127,8 +2127,8 @@ export function Timeline({
   // playhead-anchored target with a per-frame speed cap: normal follow eases
   // at ~25%/frame (filtering the small clock wobble), while big jumps --
   // song change, stop/full-stop reset, far seek -- PAN instead of teleporting
-  // ("при переключении песен хай плавно скроллится к нужной песне", "время
-  // стопилось якобы а потом оно с анимацией догоняло"). It runs ONCE (the
+  // ("when switching songs, scroll smoothly to the right position", "time
+  // seemed to stop and then animated to catch up"). It runs ONCE (the
   // song index is tracked through a ref) so a song change doesn't restart it
   // and lose the in-flight glide.
   // Ruler uses real CSS position:sticky (see markup). Do NOT emulate sticky
@@ -2354,7 +2354,7 @@ export function Timeline({
 
         // Animated PANS (glide), unified for every follow mode and for
         // playing and stopped alike. Three triggers, all gliding instead of
-        // teleporting ("глайд нужен не только в smooth", "не резко а плавно"):
+        // teleporting ("glide is needed not just in smooth mode", "not abruptly but smoothly"):
         //  - "snap"-mode edge: while playing and followMode==="snap", pan
         //    once the playhead nears a viewport edge (the old behavior was a
         //    hard jump in a React effect).
@@ -2459,7 +2459,7 @@ export function Timeline({
       // OLD one until the [pxPerSec] layout effect commits the atomic
       // scroll+marker write. If this loop painted the marker here it would
       // run one frame ahead of the scroll and the playhead would visibly
-      // wobble over the content ("всё ещё колбасит плейхед"). When the
+      // wobble over the content ("the playhead is still wobbling"). When the
       // pending target is consumed, the DOM is consistent again and the loop
       // resumes writing the marker itself.
       if (pendingScrollLeftRef.current === null) {

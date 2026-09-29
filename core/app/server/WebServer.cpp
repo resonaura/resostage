@@ -37,6 +37,8 @@ namespace {
 // KB; this is a safety net for huge editor projects.
 constexpr size_t kWsTxMax = 512 * 1024;
 
+double finiteOrZero(double v);
+
 WPluginSlotTelemetry pluginSlotToWire(const WebUiState::PluginSlotRow& slot) {
     WPluginSlotTelemetry wire;
     wire.id = slot.id;
@@ -51,6 +53,31 @@ WPluginSlotTelemetry pluginSlotToWire(const WebUiState::PluginSlotRow& slot) {
     wire.powerState = slot.powerState;
     wire.loadState = slot.loadState;
     wire.loadError = slot.loadError;
+    return wire;
+}
+
+WAutomationLaneTelemetry automationLaneToWire(const WebUiState::AutomationLaneRow& lane) {
+    WAutomationLaneTelemetry wire;
+    wire.id = lane.id;
+    wire.target.domain = lane.target.domain;
+    wire.target.entityId = lane.target.entityId;
+    wire.target.parameterId = lane.target.parameterId;
+    wire.target.valueType = lane.target.valueType;
+    wire.target.defaultValue = finiteOrZero(lane.target.defaultValue);
+    wire.target.minValue = finiteOrZero(lane.target.minValue);
+    wire.target.maxValue = finiteOrZero(lane.target.maxValue);
+    wire.scope = lane.scope;
+    wire.enabled = lane.enabled;
+    wire.muted = lane.muted;
+    wire.writeMode = lane.writeMode;
+    wire.points.reserve(lane.points.size());
+    for (const auto& point : lane.points) {
+        WAutomationPointTelemetry wirePoint;
+        wirePoint.timeBeats = finiteOrZero(point.timeBeats);
+        wirePoint.value = finiteOrZero(point.value);
+        wirePoint.curve = finiteOrZero(point.curve);
+        wire.points.push_back(std::move(wirePoint));
+    }
     return wire;
 }
 
@@ -443,7 +470,8 @@ bool parseIndexAndValue(const char* body, size_t len, int& outIndex, double& out
 
 bool isMixerCommandPath(const char* path) {
     static const char* const kPaths[] = {
-        "/api/v1/track/gain", "/api/v1/track/pan",  "/api/v1/track/mute", "/api/v1/track/solo",
+        "/api/v1/track/gain", "/api/v1/track/pan", "/api/v1/track/pan-law",
+        "/api/v1/track/mute", "/api/v1/track/solo",
         "/api/v1/track/solo-safe",
         "/api/v1/track/mono", "/api/v1/track/arm",  "/api/v1/track/monitor", "/api/v1/track/focus",
         "/api/v1/bus/gain",   "/api/v1/bus/pan",    "/api/v1/bus/mute",   "/api/v1/bus/solo",
@@ -459,6 +487,7 @@ bool isMixerCommandPath(const char* path) {
 WebCommandKind mixerCommandKindForPath(const char* path) {
     if (std::strcmp(path, "/api/v1/track/gain") == 0) return WebCommandKind::SetTrackGain;
     if (std::strcmp(path, "/api/v1/track/pan") == 0) return WebCommandKind::SetTrackPan;
+    if (std::strcmp(path, "/api/v1/track/pan-law") == 0) return WebCommandKind::SetTrackPanLaw;
     if (std::strcmp(path, "/api/v1/track/mute") == 0) return WebCommandKind::SetTrackMute;
     if (std::strcmp(path, "/api/v1/track/solo") == 0) return WebCommandKind::SetTrackSolo;
     if (std::strcmp(path, "/api/v1/track/solo-safe") == 0) return WebCommandKind::SetTrackSoloSafe;
@@ -806,6 +835,11 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return server->serveAudioRenderStatus(wsi);
                     if (std::strcmp(uri, "/api/v1/plugins/list") == 0)
                         return server->servePluginCatalog(wsi);
+                    if (std::strcmp(uri, "/api/v1/plugins/slot/parameters") == 0) {
+                        char argsBuf[512] = "";
+                        lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
+                        return server->servePluginParameters(wsi, argsBuf);
+                    }
                     if (std::strcmp(uri, "/api/v1/player/peaks") == 0)
                         return server->servePeaks(wsi);
                     if (std::strcmp(uri, "/api/v1/player/peaks-all") == 0)
@@ -1630,10 +1664,18 @@ std::string WebServer::buildStateJson(const char* view) const {
                     wPlay.reverse = r.playback.reverse;
                     wReg.playback = wPlay;
                 }
+                if (wantSongsFull) {
+                    wReg.automationLanes.reserve(r.automationLanes.size());
+                    for (const auto& lane : r.automationLanes)
+                        wReg.automationLanes.push_back(automationLaneToWire(lane));
+                }
                 wSong.regions.push_back(std::move(wReg));
             }
 
             if (wantSongsFull) {
+                wSong.automationLanes.reserve(song.automationLanes.size());
+                for (const auto& lane : song.automationLanes)
+                    wSong.automationLanes.push_back(automationLaneToWire(lane));
                 wSong.events.reserve(song.events.size());
                 for (const auto& e : song.events) {
                     WEventTelemetry wEv;
@@ -1703,6 +1745,11 @@ std::string WebServer::buildStateJson(const char* view) const {
                 wMr.loopLengthBeats = finiteOrZero(mr.loopLengthBeats);
                 wMr.muted = mr.muted;
                 wMr.color = mr.color;
+                if (wantSongsFull) {
+                    wMr.automationLanes.reserve(mr.automationLanes.size());
+                    for (const auto& lane : mr.automationLanes)
+                        wMr.automationLanes.push_back(automationLaneToWire(lane));
+                }
                 wMr.notes.reserve(mr.notes.size());
                 for (const auto& n : mr.notes) {
                     WMidiNoteTelemetry wN;
@@ -1811,6 +1858,7 @@ std::string WebServer::buildStateJson(const char* view) const {
             wT.channels = t.channels;
             wT.gainDb = finiteOrZero(t.gainDb);
             wT.pan = finiteOrZero(t.pan);
+            wT.panLaw = t.panLaw;
             wT.mute = t.mute;
             wT.solo = t.solo;
             wT.soloSafe = t.soloSafe;
@@ -2809,6 +2857,17 @@ int WebServer::servePluginCatalog(struct lws* wsi) {
         ? pluginCatalogProvider()
         : "{\"scan\":{\"state\":\"unavailable\",\"progress\":0,\"format\":\"\",\"currentPlugin\":\"\",\"error\":\"Plug-in catalog is unavailable\"},\"catalog\":{\"plugins\":[],\"blacklist\":[]}}";
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+int WebServer::servePluginParameters(struct lws* wsi, const char* queryArgs) {
+    const std::string slotId = queryParam(queryArgs, "slotId");
+    if (slotId.empty() || slotId.size() > 128)
+        return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid slotId");
+    const std::string json = pluginParametersProvider
+        ? pluginParametersProvider(slotId)
+        : "{\"slotId\":\"\",\"parameters\":[]}";
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
+                             json.c_str(), json.size());
 }
 
 int WebServer::serveExportDownload(struct lws* wsi) {

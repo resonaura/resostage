@@ -53,6 +53,14 @@ import type {
 // ─── Re-export tab type ────────────────────────────────────────────────────
 type EditorTab = "timeline" | "pianoroll" | "songs";
 
+interface PendingMidiRegionCreation {
+  songIndex: number;
+  trackId: string;
+  notes: MidiNoteRow[];
+  followupEdit: boolean;
+  startedAt: number;
+}
+
 const inputCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";
 const labelCls =
@@ -450,12 +458,38 @@ export function EditorScreen({
   const [selectedMidiRegionId, setSelectedMidiRegionId] = useState<
     string | null
   >(null);
+  const pendingMidiRegionCreatesRef = useRef(
+    new Map<string, PendingMidiRegionCreation>(),
+  );
   const [visibleMidiRegionIds, setVisibleMidiRegionIds] = useState<string[]>(
     [],
   );
   const midiRecordingWasActiveRef = useRef(false);
   const midiRecordingBaselineRef = useRef<Map<string, number>>(new Map());
   const awaitingRecordedMidiRef = useRef(false);
+
+  useEffect(() => {
+    const pendingCreates = pendingMidiRegionCreatesRef.current;
+    for (const [placeholderId, pending] of pendingCreates) {
+      const created = state.songs[pending.songIndex]?.midiRegions?.find(
+        (region) => region.trackId === pending.trackId,
+      );
+      if (created) {
+        pendingCreates.delete(placeholderId);
+        // Edits made before Core returned the durable region ID are collapsed
+        // to the latest note set, then applied to that newly-created region.
+        if (pending.followupEdit) {
+          void builder.midiRegionUpdate({
+            songIndex: pending.songIndex,
+            regionId: created.id,
+            notes: pending.notes,
+          });
+        }
+      } else if (Date.now() - pending.startedAt > 30_000) {
+        pendingCreates.delete(placeholderId);
+      }
+    }
+  }, [state.songs]);
 
   useEffect(() => {
     const focused = state.tracks.find(
@@ -846,9 +880,22 @@ export function EditorScreen({
               });
               const exists = midiRegions.some((r) => r.id === activeRegion.id);
               if (!exists) {
-                // The placeholder id is UI-only; Core assigns the durable
-                // region id. Send its first notes in the create command so we
-                // never follow up by updating an id that cannot exist.
+                const pending = pendingMidiRegionCreatesRef.current.get(activeRegion.id);
+                if (pending) {
+                  pending.notes = notesToSave;
+                  pending.followupEdit = true;
+                  return;
+                }
+                // The placeholder ID is UI-only; Core assigns the durable ID.
+                // Include the first notes in Add and defer any follow-up edits
+                // until telemetry reveals that durable ID.
+                pendingMidiRegionCreatesRef.current.set(activeRegion.id, {
+                  songIndex: state.songIndex,
+                  trackId: activeRegion.trackId,
+                  notes: notesToSave,
+                  followupEdit: false,
+                  startedAt: Date.now(),
+                });
                 void builder.midiRegionAdd({
                   songIndex: state.songIndex,
                   trackId: activeRegion.trackId,
@@ -863,6 +910,14 @@ export function EditorScreen({
                   notes: notesToSave,
                 });
               } else {
+                // If Core's add has reached the UI state but the reconciliation
+                // effect has not run yet, discard the queued stale snapshot;
+                // this authoritative update already contains the newest edit.
+                for (const [placeholderId, pending] of pendingMidiRegionCreatesRef.current) {
+                  if (pending.songIndex === state.songIndex
+                      && pending.trackId === activeRegion.trackId)
+                    pendingMidiRegionCreatesRef.current.delete(placeholderId);
+                }
                 void builder.midiRegionUpdate({
                   songIndex: state.songIndex,
                   regionId: activeRegion.id,

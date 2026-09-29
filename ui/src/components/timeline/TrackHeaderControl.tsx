@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Mic, Music } from "lucide-react";
 import { mixer } from "../../lib/state/api";
+import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "../common/ContextMenu";
 import { getTrackLiveLevel } from "../../lib/audio/liveLevels";
 import { useLiveValue } from "../../lib/state/optimistic";
 import type { TrackRow } from "../../lib/state/types";
@@ -41,6 +42,14 @@ export const TrackHeaderControl = memo(
     const [pan, setPan] = useLiveValue(track.pan ?? 0, (v) =>
       mixer.setTrackPan(index, v),
     );
+    const [panLawMenu, setPanLawMenu] = useState<{ x: number; y: number } | null>(null);
+    const panLaws = [
+      { id: 0, value: "0dB", label: "0 dB · Legacy balance" },
+      { id: 1, value: "-3dB", label: "−3 dB · Constant power" },
+      { id: 2, value: "-4.5dB", label: "−4.5 dB · Broadcast" },
+      { id: 3, value: "-6dB", label: "−6 dB · Constant voltage" },
+    ] as const;
+    const activePanLaw = track.panLaw ?? "0dB";
 
     const formatPan = (p: number) => {
       if (Math.abs(p) < 0.05) return "C";
@@ -270,7 +279,12 @@ export const TrackHeaderControl = memo(
     const panControl = showPan && (
       <div
         className="flex shrink-0 items-center gap-0.5"
-        title={`Pan: ${formatPan(pan)}`}
+        title={`Pan: ${formatPan(pan)} · ${activePanLaw} pan law (right-click to change)`}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setPanLawMenu({ x: event.clientX, y: event.clientY });
+        }}
       >
         <Knob
           value={pan}
@@ -285,6 +299,35 @@ export const TrackHeaderControl = memo(
           <span className="w-4 text-center font-mono font-medium text-foreground/50 text-[8px]">
             {formatPan(pan)}
           </span>
+        )}
+        {panLawMenu && (
+          <ContextMenu
+            x={panLawMenu.x}
+            y={panLawMenu.y}
+            width={232}
+            onClose={() => setPanLawMenu(null)}
+          >
+            <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-foreground/45">
+              Pan law · {track.name || track.id}
+            </div>
+            {panLaws.map((law) => (
+              <ContextMenuItem
+                key={law.value}
+                checked={activePanLaw === law.value}
+                radio
+                onClick={() => {
+                  void mixer.setTrackPanLaw(index, law.id);
+                  setPanLawMenu(null);
+                }}
+              >
+                {law.label}
+              </ContextMenuItem>
+            ))}
+            <ContextMenuDivider />
+            <div className="px-2.5 py-1.5 text-[10px] leading-snug text-foreground/45">
+              Right-click the pan knob to choose how its center level is compensated.
+            </div>
+          </ContextMenu>
         )}
       </div>
     );
@@ -492,6 +535,7 @@ export const TrackHeaderControl = memo(
     prev.track.soloSafe === next.track.soloSafe &&
     prev.track.gainDb === next.track.gainDb &&
     prev.track.pan === next.track.pan &&
+    prev.track.panLaw === next.track.panLaw &&
     prev.track.polarity === next.track.polarity &&
     prev.track.phaseInvert === next.track.phaseInvert &&
     prev.isRecording === next.isRecording,

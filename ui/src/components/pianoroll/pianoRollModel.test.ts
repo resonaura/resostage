@@ -10,6 +10,8 @@ import {
   applyLegato,
   applyOverlapTrim,
   canvasYToPitch,
+  editControllerPoint,
+  MAX_CONTROLLER_POINTS,
   paintBrushNote,
   sliceNote,
 } from "./pianoRollModel";
@@ -32,6 +34,33 @@ describe("Piano Roll canvas geometry", () => {
         pixelsPerPitch,
       ),
     ).toBe(renderedPitch);
+  });
+});
+
+describe("Piano Roll controller editing", () => {
+  it("creates a two-point bend ramp and moves one endpoint without duplicating times", () => {
+    const start = editControllerPoint([], null, 2, 0);
+    expect(start).toEqual([{ timeBeats: 2, value: 0, curve: 0 }]);
+    const ramp = editControllerPoint(start!, null, 3, 4096);
+    expect(ramp).toEqual([
+      { timeBeats: 2, value: 0, curve: 0 },
+      { timeBeats: 3, value: 4096, curve: 0 },
+    ]);
+    expect(editControllerPoint(ramp!, 1, 2, -4096)).toEqual([
+      { timeBeats: 2, value: -4096, curve: 0 },
+    ]);
+  });
+
+  it("caps new controller points while allowing an existing point to be edited", () => {
+    const full = Array.from({ length: MAX_CONTROLLER_POINTS }, (_, index) => ({
+      timeBeats: index,
+      value: 0,
+      curve: 0,
+    }));
+    expect(editControllerPoint(full, null, MAX_CONTROLLER_POINTS, 1)).toBeNull();
+    const edited = editControllerPoint(full, 0, 0, 8191);
+    expect(edited).toHaveLength(MAX_CONTROLLER_POINTS);
+    expect(edited?.[0].value).toBe(8191);
   });
 });
 

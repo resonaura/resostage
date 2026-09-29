@@ -31,6 +31,7 @@ import {
   Menu,
   powerMonitor,
   powerSaveBlocker,
+  session,
   screen,
   TouchBar,
   type MenuItemConstructorOptions,
@@ -732,6 +733,56 @@ async function findDevServer(budgetMs: number): Promise<boolean> {
     if (Date.now() >= deadline) return false;
     await new Promise((r) => setTimeout(r, 250));
   }
+}
+
+/**
+ * Recover once or twice when a renderer's entry document references a
+ * content-hashed bundle that the backend does not have yet. This can happen
+ * during a first launch that overlaps UI publication or when an older
+ * renderer survives a deployment. A fresh document points at the currently
+ * published asset set; the bounded retry avoids reload loops for real 404s.
+ */
+function watchForMissingUiAssets(): void {
+  let recoveryAttempts = 0;
+  let lastFailureAt = 0;
+  let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  session.defaultSession.webRequest.onCompleted(
+    { urls: ["http://*/*", "https://*/*"] },
+    ({ url, statusCode, resourceType }) => {
+      if (statusCode !== 404 || !["script", "stylesheet", "font", "image"].includes(resourceType))
+        return;
+
+      const win = mainWindow;
+      if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+      try {
+        const assetUrl = new URL(url);
+        const pageUrl = new URL(win.webContents.getURL());
+        if (assetUrl.origin !== pageUrl.origin
+            || !assetUrl.pathname.startsWith("/assets/")
+            || !/\.(?:js|css|woff2?|ttf|otf|png|svg|webp)$/i.test(assetUrl.pathname))
+          return;
+      } catch {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastFailureAt > 5_000) recoveryAttempts = 0;
+      lastFailureAt = now;
+      if (recoveryAttempts >= 2 || recoveryTimer !== null) return;
+
+      const delay = recoveryAttempts === 0 ? 250 : 900;
+      recoveryAttempts += 1;
+      console.warn(
+        `[resostage] UI asset returned 404; retrying renderer load (${recoveryAttempts}/2): ${url}`,
+      );
+      recoveryTimer = setTimeout(() => {
+        recoveryTimer = null;
+        if (!win.isDestroyed() && !win.webContents.isDestroyed())
+          win.webContents.reloadIgnoringCache();
+      }, delay);
+    },
+  );
 }
 
 // Standalone launch (double-clicked ResoStage.app directly -- no
@@ -2771,6 +2822,7 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(async () => {
     if (STANDALONE) spawnBackend();
+    watchForMissingUiAssets();
     ensureAppNotSuspended();
     if (activeRemoteHost) {
       acceptedTelemetrySources =

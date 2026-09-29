@@ -5,6 +5,7 @@ import { BuildAdapter } from "./BuildAdapter.mjs";
 import {
   ROOT,
   BUILD_DIR,
+  BUILD_TYPE,
   PLATFORM_DIST_DIR,
   CORE_APP_NAME,
   SHELL_APP_NAME,
@@ -157,13 +158,19 @@ export class LinuxBuildAdapter extends BuildAdapter {
     }
 
     const pluginHostDst = join(shellDir, "resostage-plugin-host");
-    const pluginHostRaw = findFileRecursively(BUILD_DIR, "resostage-plugin-host");
-    if (pluginHostRaw && existsSync(pluginHostRaw) && !statSync(pluginHostRaw).isDirectory()) {
-      rmSync(pluginHostDst, { force: true });
-      cpSync(pluginHostRaw, pluginHostDst);
-      try {
-        execFileSync("chmod", ["+x", pluginHostDst]);
-      } catch {}
+    const pluginHostRaw = join(
+      BUILD_DIR, "app", "resostage_plugin_host_artefacts", BUILD_TYPE,
+      "resostage-plugin-host",
+    );
+    if (!existsSync(pluginHostRaw) || statSync(pluginHostRaw).isDirectory()) {
+      throw new Error("Live plug-in host executable is missing from the native build");
+    }
+    rmSync(pluginHostDst, { force: true });
+    cpSync(pluginHostRaw, pluginHostDst);
+    try {
+      execFileSync("chmod", ["+x", pluginHostDst]);
+    } catch {
+      throw new Error(`Could not mark live plug-in host executable: ${pluginHostDst}`);
     }
 
     const kaishakuDst = join(shellDir, "kaishaku");

@@ -295,6 +295,8 @@ export function EditorInspector({
           stripId={pluginTarget.stripId}
           stripName={pluginTarget.stripName}
           track={selectedTrack?.id === pluginTarget.stripId ? selectedTrack : undefined}
+          songIndex={Math.max(0, state.songIndex)}
+          song={state.songs[Math.max(0, state.songIndex)]}
           slots={
             selectedTrack && selectedTrack.id === pluginTarget.stripId
               ? (selectedTrack.plugins ?? [])

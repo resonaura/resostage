@@ -27,9 +27,23 @@
 #include <cerrno>
 #include <signal.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <pthread.h>
+#include <pthread/qos.h>
+#endif
 #endif
 
 namespace {
+
+void prioritizePluginAudioWorker() noexcept {
+#if defined(__APPLE__)
+    // Keep helper DSP ahead of ordinary UI/background workers, but below the
+    // device callback's realtime workgroup so a plug-in can never starve CoreAudio.
+    (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, -8);
+#elif defined(_WIN32)
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+#endif
+}
 
 juce::String argumentValue(const juce::StringArray& arguments,
                            const juce::String& name) {
@@ -254,6 +268,7 @@ public:
                 std::memory_order_relaxed);
             area->processorTailSeconds = runtime->bank()->tailSeconds();
             runtime->publishSlotStatuses(*area);
+            runtime->publishParameterDescriptors(*area);
         }
 
         area->hostState.store(
@@ -299,6 +314,8 @@ private:
     void fail(int code, const std::string& message) {
         std::cerr << message << '\n';
         if (auto* area = sharedMemory.area()) {
+            juce::String::fromUTF8(message.c_str()).copyToUTF8(
+                area->startupError.data(), area->startupError.size());
             area->commandResult.store(static_cast<uint32_t>(code),
                                       std::memory_order_relaxed);
             area->hostState.store(
@@ -348,6 +365,7 @@ private:
 
     void runAudioWorker(resostage::plugin_host::SharedArea& area,
                         uint32_t blockSize) {
+        prioritizePluginAudioWorker();
         uint64_t nextSequence = 0;
         while (!stopAudioWorker.load(std::memory_order_acquire)) {
             if (area.hostState.load(std::memory_order_acquire)

@@ -76,7 +76,10 @@ std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
             unsigned int caps = snd_seq_port_info_get_capability(pinfo);
             if ((caps & (SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE)) ==
                 (SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE)) {
-                names.push_back(std::string(snd_seq_client_info_get_name(cinfo)) + ": " + snd_seq_port_info_get_name(pinfo));
+                names.push_back(std::string(snd_seq_client_info_get_name(cinfo))
+                    + ": " + snd_seq_port_info_get_name(pinfo)
+                    + " [" + std::to_string(c) + ":"
+                    + std::to_string(snd_seq_port_info_get_port(pinfo)) + "]");
             }
         }
     }
@@ -85,7 +88,6 @@ std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
 }
 
 bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std::string& error) {
-    (void)destinationName;
     closeDestination();
     snd_seq_t* seq = nullptr;
     if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_OUTPUT, 0) < 0) {
@@ -93,7 +95,7 @@ bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std
         return false;
     }
     snd_seq_set_client_name(seq, "ResoStage");
-    int port = snd_seq_create_simple_port(seq, "Output",
+    const int port = snd_seq_create_simple_port(seq, "Output",
         SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
         SND_SEQ_PORT_TYPE_APPLICATION | SND_SEQ_PORT_TYPE_MIDI_GENERIC);
     if (port < 0) {
@@ -102,9 +104,49 @@ bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std
         return false;
     }
 
+    int destinationClient = -1;
+    int destinationPort = -1;
+    snd_seq_client_info_t* cinfo;
+    snd_seq_port_info_t* pinfo;
+    snd_seq_client_info_alloca(&cinfo);
+    snd_seq_port_info_alloca(&pinfo);
+    snd_seq_client_info_set_client(cinfo, -1);
+    while (snd_seq_query_next_client(seq, cinfo) >= 0 && destinationClient < 0) {
+        const int candidateClient = snd_seq_client_info_get_client(cinfo);
+        snd_seq_port_info_set_client(pinfo, candidateClient);
+        snd_seq_port_info_set_port(pinfo, -1);
+        while (snd_seq_query_next_port(seq, pinfo) >= 0) {
+            const unsigned int caps = snd_seq_port_info_get_capability(pinfo);
+            if ((caps & (SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE))
+                != (SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE))
+                continue;
+            const int candidatePort = snd_seq_port_info_get_port(pinfo);
+            const std::string label = std::string(
+                snd_seq_client_info_get_name(cinfo)) + ": "
+                + snd_seq_port_info_get_name(pinfo);
+            const std::string qualified = label + " ["
+                + std::to_string(candidateClient) + ":"
+                + std::to_string(candidatePort) + "]";
+            if (destinationName.empty() || destinationName == qualified
+                || destinationName == label) {
+                destinationClient = candidateClient;
+                destinationPort = candidatePort;
+                break;
+            }
+        }
+    }
+    if (destinationClient < 0
+        || snd_seq_connect_to(seq, port, destinationClient, destinationPort) < 0) {
+        snd_seq_close(seq);
+        error = destinationName.empty()
+            ? "No connectable ALSA MIDI output destinations are available"
+            : "ALSA MIDI output destination not found: " + destinationName;
+        return false;
+    }
+
     client = reinterpret_cast<MidiClientRef>(seq);
     outputPort = static_cast<MidiPortRef>(port);
-    destination = 1;
+    destination = 1; // The ALSA subscription is the concrete endpoint handle.
     return true;
 }
 
@@ -215,13 +257,61 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
         uint8_t buf[3];
         int totalBytes = 0;
         buildMidiBytes(cmd, buf, totalBytes);
+        if (totalBytes <= 0)
+            return;
 
-        if (totalBytes > 0) {
-            snd_seq_ev_set_fixed(&ev);
-            ev.type = SND_SEQ_EVENT_ECHO;
-            snd_seq_event_output(seq, &ev);
-            snd_seq_drain_output(seq);
+        const uint8_t status = buf[0];
+        const uint8_t family = status & 0xf0u;
+        const int channel = status & 0x0fu;
+        if (status < 0xf0u) {
+            switch (family) {
+                case 0x80:
+                    snd_seq_ev_set_noteoff(&ev, channel, buf[1], buf[2]);
+                    break;
+                case 0x90:
+                    if (buf[2] == 0)
+                        snd_seq_ev_set_noteoff(&ev, channel, buf[1], 0);
+                    else
+                        snd_seq_ev_set_noteon(&ev, channel, buf[1], buf[2]);
+                    break;
+                case 0xa0:
+                    snd_seq_ev_set_keypress(&ev, channel, buf[1], buf[2]);
+                    break;
+                case 0xb0:
+                    snd_seq_ev_set_controller(&ev, channel, buf[1], buf[2]);
+                    break;
+                case 0xc0:
+                    snd_seq_ev_set_pgmchange(&ev, channel, buf[1]);
+                    break;
+                case 0xd0:
+                    snd_seq_ev_set_chanpress(&ev, channel, buf[1]);
+                    break;
+                case 0xe0:
+                    snd_seq_ev_set_pitchbend(
+                        &ev, channel,
+                        static_cast<int>(buf[1])
+                            + (static_cast<int>(buf[2]) << 7u) - 8192);
+                    break;
+                default:
+                    return;
+            }
+        } else {
+            switch (status) {
+                case 0xf8: ev.type = SND_SEQ_EVENT_CLOCK; break;
+                case 0xfa: ev.type = SND_SEQ_EVENT_START; break;
+                case 0xfb: ev.type = SND_SEQ_EVENT_CONTINUE; break;
+                case 0xfc: ev.type = SND_SEQ_EVENT_STOP; break;
+                case 0xf2:
+                    ev.type = SND_SEQ_EVENT_SONGPOS;
+                    ev.data.control.value = static_cast<int>(buf[1])
+                        | (static_cast<int>(buf[2]) << 7u);
+                    break;
+                default:
+                    return;
+            }
         }
+        if (snd_seq_event_output(seq, &ev) >= 0)
+            (void)snd_seq_drain_output(seq);
     }
 }
 

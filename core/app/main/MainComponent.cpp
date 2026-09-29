@@ -92,6 +92,16 @@ public:
         bank->addStripMidiEvent(strip, juce::MidiMessage(bytes, length), samplePosition);
     }
 
+    void setPluginParameter(const std::string& slotId, int parameterIndex,
+                            float normalizedValue) noexcept override {
+        if (bank == nullptr || slotId.empty())
+            return;
+        // This session is private to the offline render worker. Unlike live
+        // automation, this write never races the device callback or UI host.
+        (void)bank->setPluginParameterBySlotId(
+            slotId, parameterIndex, normalizedValue);
+    }
+
     double declaredTailSeconds() const noexcept override {
         return bank != nullptr ? bank->tailSeconds() : 0.0;
     }
@@ -315,6 +325,26 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     });
     webServer.setPluginCatalogProvider([this] {
         return pluginCatalog.snapshotJson();
+    });
+    webServer.setPluginParametersProvider([this](const std::string& slotId) {
+        wire::WPluginParameterList response;
+        response.slotId = slotId;
+        // The active bank is atomically held for this read. Isolated-process
+        // metadata was published before its host became Ready; no vendor API
+        // is called on the HTTP service thread.
+        if (engine.hasCurrentPluginProcessorBank()) {
+            if (const auto bank = engine.activePluginProcessorBank()) {
+                for (const auto& parameter : bank->parametersForSlot(slotId)) {
+                    response.parameters.push_back({parameter.index, parameter.name,
+                                                   parameter.label,
+                                                   parameter.defaultValue,
+                                                   parameter.steps});
+                }
+            }
+        }
+        std::string json;
+        (void)glz::write_json(response, json);
+        return json;
     });
     webServer.setLivePeaksProvider([this](const std::string& trackId, size_t level, size_t first, size_t count) {
         return engine.getLiveRecordingPeaks(trackId, level, first, count);
@@ -1189,6 +1219,14 @@ void MainComponent::drainWebCommands() {
                 engine.projectHistoryCommitEdit();
                 break;
             }
+            case WebCommandKind::SetTrackPanLaw: {
+                const int law = std::clamp(static_cast<int>(cmd.value), 0, 3);
+                engine.projectHistoryBeginEdit("tpl" + std::to_string(idx), "Set Track Pan Law");
+                engine.setTrackPanLaw(engine.currentSongIndex(), idx,
+                    static_cast<PanLaw>(law));
+                engine.projectHistoryCommitEdit();
+                break;
+            }
             case WebCommandKind::SetTrackMute: {
                 engine.projectHistoryBeginEdit("", "Toggle Track Mute");
                 engine.setTrackMute(engine.currentSongIndex(), idx, cmd.value != 0.0);
@@ -1852,7 +1890,8 @@ void MainComponent::publishWebState() {
     state.hardwareAlarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
 
     const Project& proj = engine.project();
-    const auto activeBank = engine.activePluginProcessorBank();
+    const auto activeBank = engine.hasCurrentPluginProcessorBank()
+        ? engine.activePluginProcessorBank() : nullptr;
     const auto copyPluginSlots = [&activeBank](const std::vector<PluginSlot>& slots) {
         std::vector<WebUiState::PluginSlotRow> rows;
         rows.reserve(slots.size());
@@ -1874,6 +1913,35 @@ void MainComponent::publishWebState() {
             } else {
                 row.powerState = "active";
                 row.loadState = "loading";
+            }
+            rows.push_back(std::move(row));
+        }
+        return rows;
+    };
+    const auto copyAutomationLanes = [](const std::vector<AutomationLane>& lanes) {
+        std::vector<WebUiState::AutomationLaneRow> rows;
+        rows.reserve(lanes.size());
+        for (const auto& lane : lanes) {
+            WebUiState::AutomationLaneRow row;
+            row.id = lane.id;
+            row.target.domain = automationDomainToString(lane.target.domain);
+            row.target.entityId = lane.target.entityId;
+            row.target.parameterId = lane.target.parameterId;
+            row.target.valueType = parameterValueTypeToString(lane.target.valueType);
+            row.target.defaultValue = lane.target.defaultValue;
+            row.target.minValue = lane.target.minValue;
+            row.target.maxValue = lane.target.maxValue;
+            row.scope = automationScopeToString(lane.scope);
+            row.enabled = lane.enabled;
+            row.muted = lane.muted;
+            row.writeMode = automationWriteModeToString(lane.writeMode);
+            row.points.reserve(lane.points.size());
+            for (const auto& point : lane.points) {
+                WebUiState::AutomationLaneRow::Point rowPoint;
+                rowPoint.timeBeats = point.timeBeats;
+                rowPoint.value = point.value;
+                rowPoint.curve = point.curve;
+                row.points.push_back(std::move(rowPoint));
             }
             rows.push_back(std::move(row));
         }
@@ -1985,8 +2053,10 @@ void MainComponent::publishWebState() {
             rr.playback.speed = r.playback.speed;
             rr.playback.semitones = r.playback.semitones;
             rr.playback.reverse = r.playback.reverse;
+            rr.automationLanes = copyAutomationLanes(r.automationLanes);
             row.regions.push_back(std::move(rr));
         }
+        row.automationLanes = copyAutomationLanes(song.automationLanes);
 
         row.events.reserve(song.events.size());
         for (const TimelineEvent& e : song.events) {
@@ -2098,6 +2168,7 @@ void MainComponent::publishWebState() {
                 rowEvent.wordCount = event.wordCount;
                 mrr.umpEvents.push_back(std::move(rowEvent));
             }
+            mrr.automationLanes = copyAutomationLanes(mr.automationLanes);
             row.midiRegions.push_back(std::move(mrr));
         }
 
@@ -2168,6 +2239,7 @@ void MainComponent::publishWebState() {
         tr.channels = def.channels;
         tr.gainDb = def.gainDb;
         tr.pan = def.pan;
+        tr.panLaw = panLawToString(def.panLaw);
         tr.mute = def.mute;
         tr.solo = def.solo;
         tr.soloSafe = def.soloSafe;

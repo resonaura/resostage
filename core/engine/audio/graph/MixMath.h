@@ -9,6 +9,8 @@
 // Every function is inline, side-effect free and independent of JUCE.
 #pragma once
 
+#include "../project/ProjectSchema.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -36,10 +38,31 @@ inline float dbToGain(double db) {
 // Balance pan: attenuate the side you pan away from, never boost the other.
 // One law for tracks, sends, the click and the master -- a strip's pan means
 // the same thing wherever it sits in the graph.
-inline void panGains(float gain, float pan, float& outL, float& outR) {
+inline void panGains(float gain, float pan, float& outL, float& outR,
+                     PanLaw law = PanLaw::Linear0dB) {
     const float p = std::clamp(pan, -1.0f, 1.0f);
-    outL = gain * (1.0f - std::max(0.0f, p));
-    outR = gain * (1.0f + std::min(0.0f, p));
+    switch (law) {
+        case PanLaw::ConstantPower3dB:
+            outL = gain * std::sqrt(0.5f * (1.0f - p));
+            outR = gain * std::sqrt(0.5f * (1.0f + p));
+            break;
+        case PanLaw::Broadcast4p5dB: {
+            constexpr float exponent = 1.494869f;
+            const float theta = 0.7853981633974483f * (p + 1.0f);
+            outL = gain * std::pow(std::max(0.0f, std::cos(theta)), exponent);
+            outR = gain * std::pow(std::max(0.0f, std::sin(theta)), exponent);
+            break;
+        }
+        case PanLaw::ConstantVoltage6dB:
+            outL = gain * (0.5f * (1.0f - p));
+            outR = gain * (0.5f * (1.0f + p));
+            break;
+        case PanLaw::Linear0dB:
+        default:
+            outL = gain * (1.0f - std::max(0.0f, p));
+            outR = gain * (1.0f + std::min(0.0f, p));
+            break;
+    }
 }
 
 // Stereo -> mono fold. Averaged, not summed, so folding a correlated stereo

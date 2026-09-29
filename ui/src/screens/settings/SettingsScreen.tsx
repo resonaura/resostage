@@ -527,7 +527,7 @@ function AudioTab({ state }: { state: WebUiState }) {
               onPress={() => void settingsApi.showAudioControlPanel()}
             >
               <SlidersHorizontal size={14} />
-              Control Panel (Панель управления)
+              Control Panel
             </Button>
           </div>
         )}

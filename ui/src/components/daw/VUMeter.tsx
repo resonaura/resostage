@@ -10,7 +10,7 @@ const PIVOT_Y = 730.481;
 const NEEDLE_TIP_X = 184.04706;
 const NEEDLE_TIP_Y = 291.70923;
 
-// Калиброванная карта углов
+// Calibrated angle map
 const DB_MAP: Array<{ db: number; rot: number }> = [
   { db: -40, rot: -8.9 },
   { db: -20, rot: 3.5 },
@@ -228,7 +228,7 @@ export function VUMeter({
     // bitmap every meter of this size is using.
     let face: HTMLCanvasElement | null = null;
 
-    // Сохраняем состояние текущего угла и сглаженного входного уровня
+    // Stores the current needle angle and smoothed input level
     const anim = {
       currentRot: DB_MAP[0].rot,
       smoothedDb: VU_MIN_DB,
@@ -248,25 +248,25 @@ export function VUMeter({
         live !== undefined && Number.isFinite(live) ? live : dbRef.current;
       const rawTargetDb = Math.max(VU_MIN_DB, Math.min(VU_MAX_DB, raw));
 
-      // 1. Фильтр низкой частоты на входные дБ (гасит резкий микрофонный/аудио шум)
+      // 1. Low-pass filter on input dB (suppresses sharp microphone/audio noise)
       const inputSmoothing = 1 - Math.exp(-25 * dt);
       anim.smoothedDb += (rawTargetDb - anim.smoothedDb) * inputSmoothing;
 
-      // 2. Расчет идеального угла
+      // 2. Compute ideal needle angle
       const targetRot = dbToRotation(anim.smoothedDb);
 
-      // 3. Аналоговая инерция стрелки
+      // 3. Analog needle inertia
       if (targetRot >= anim.currentRot) {
-        // Плавная атака с инерцией (подъем)
+        // Smooth attack with inertia (rise)
         const attackEase = 1 - Math.exp(-18 * dt);
         anim.currentRot += (targetRot - anim.currentRot) * attackEase;
       } else {
-        // Мягкий, слегка вязкий спад (релиз)
+        // Soft, slightly viscous decay (release)
         const decayEase = 1 - Math.exp(-8 * dt);
         anim.currentRot += (targetRot - anim.currentRot) * decayEase;
       }
 
-      // Отсекаем бесконечно малый хвост при возврате на ноль
+      // Snap off the infinitesimally small tail when returning to zero
       if (Math.abs(anim.currentRot - targetRot) < 0.005) {
         anim.currentRot = targetRot;
       }
@@ -317,7 +317,7 @@ export function VUMeter({
       ctx.translate(offsetX, offsetY);
       ctx.scale(scale, scale);
 
-      // Маска прибора
+      // Meter clip mask
       ctx.beginPath();
       ctx.rect(0, 0, 1080, 600);
       ctx.clip();

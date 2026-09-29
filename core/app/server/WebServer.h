@@ -50,6 +50,7 @@ enum class WebCommandKind : uint8_t {
     // in dB/-1..1, or 0.0/1.0 for mute/solo booleans.
     SetTrackGain,
     SetTrackPan,
+    SetTrackPanLaw,
     SetTrackMute,
     SetTrackSolo,
     SetTrackSoloSafe,
@@ -289,6 +290,32 @@ struct WebCommand {
 // Strings are plain std::string under a mutex -- this path is never on the
 // audio callback.
 struct WebUiState {
+    // Project automation mirrored into the UI snapshot. Keep this DTO separate
+    // from the persisted Project types: WebServer serializes snapshots without
+    // reaching into mutable project state from its network thread.
+    struct AutomationLaneRow {
+        struct Target {
+            std::string domain = "strip";
+            std::string entityId;
+            std::string parameterId;
+            std::string valueType = "floatNormalized";
+            double defaultValue = 0.0;
+            double minValue = 0.0;
+            double maxValue = 1.0;
+        } target;
+        struct Point {
+            double timeBeats = 0.0;
+            double value = 0.0;
+            double curve = 0.0;
+        };
+        std::string id;
+        std::string scope = "track";
+        bool enabled = true;
+        bool muted = false;
+        std::string writeMode = "read";
+        std::vector<Point> points;
+    };
+
     struct PluginSlotRow {
         std::string id;
         std::string pluginId;
@@ -490,8 +517,10 @@ struct WebUiState {
                 double semitones = 0.0;
                 bool reverse = false;
             } playback;
+            std::vector<AutomationLaneRow> automationLanes;
         };
         std::vector<RegionRow> regions;
+        std::vector<AutomationLaneRow> automationLanes;
 
         struct EventRow {
             std::string id;
@@ -611,6 +640,7 @@ struct WebUiState {
                 int wordCount = 0;
             };
             std::vector<UmpEvent> umpEvents;
+            std::vector<AutomationLaneRow> automationLanes;
         };
         std::vector<MidiRegionRow> midiRegions;
 
@@ -664,6 +694,7 @@ struct WebUiState {
         int channels = 2; // 1 = mono (stereo regions summed L+R before pan/sends)
         double gainDb = 0.0;
         double pan = 0.0;
+        std::string panLaw = "0dB";
         bool mute = false;
         bool solo = false;
         bool soloSafe = false;
@@ -1133,6 +1164,10 @@ public:
     void setPluginCatalogProvider(PluginCatalogProvider provider) {
         pluginCatalogProvider = std::move(provider);
     }
+    using PluginParametersProvider = std::function<std::string(const std::string&)>;
+    void setPluginParametersProvider(PluginParametersProvider provider) {
+        pluginParametersProvider = std::move(provider);
+    }
 
     using LivePeaksProvider = std::function<std::vector<PeakPair16>(const std::string& trackId, size_t level, size_t first, size_t count)>;
     void setLivePeaksProvider(LivePeaksProvider provider) {
@@ -1231,6 +1266,7 @@ private:
     int serveExportDownload(struct lws* wsi);
     int serveAudioRenderStatus(struct lws* wsi);
     int servePluginCatalog(struct lws* wsi);
+    int servePluginParameters(struct lws* wsi, const char* queryArgs);
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
     int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
@@ -1318,6 +1354,7 @@ private:
     DiscoveryStatusProvider discoveryStatusProvider;
     DiscoveryToggleHandler discoveryToggleHandler;
     PluginCatalogProvider pluginCatalogProvider;
+    PluginParametersProvider pluginParametersProvider;
     LivePeaksProvider livePeaksProvider;
 
     std::unique_ptr<juce::DatagramSocket> udpSocket_;

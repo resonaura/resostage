@@ -77,9 +77,8 @@ uint64_t processorLayoutKey(const Project& project, const MixGraph& graph) {
     return hash;
 }
 
-uint64_t latencyLayoutKey(const MixGraph& graph, uint64_t processorKey) {
+uint64_t routingLayoutKey(const MixGraph& graph) {
     uint64_t hash = kFnvOffset;
-    hashU64(hash, processorKey);
     for (const auto& strip : graph.strips) {
         hashBytes(hash, strip.id);
         hashByte(hash, static_cast<uint8_t>(strip.kind));
@@ -90,6 +89,13 @@ uint64_t latencyLayoutKey(const MixGraph& graph, uint64_t processorKey) {
         hashByte(hash, static_cast<uint8_t>(edge.tap));
         hashByte(hash, static_cast<uint8_t>(edge.sourceChannel));
     }
+    return hash;
+}
+
+uint64_t latencyLayoutKey(const MixGraph& graph, uint64_t processorKey) {
+    uint64_t hash = kFnvOffset;
+    hashU64(hash, processorKey);
+    hashU64(hash, graph.routingLayoutKey);
     return hash;
 }
 
@@ -232,6 +238,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         strip.channels = clampChannels(track.channels);
         strip.gainLinear = dbToGain(track.gainDb);
         strip.pan = clampPan(track.pan);
+        strip.panLaw = track.panLaw;
         strip.mute = track.mute;
         strip.solo = track.solo;
         strip.soloSafe = track.soloSafe;
@@ -464,6 +471,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
                      [](const MixEdge& a, const MixEdge& b) { return a.to < b.to; });
 
     graph.processorLayoutKey = processorLayoutKey(project, graph);
+    graph.routingLayoutKey = routingLayoutKey(graph);
     graph.latencyLayoutKey = latencyLayoutKey(
         graph, graph.processorLayoutKey);
     return graph;

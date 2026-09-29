@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace resostage {
 
@@ -54,14 +55,19 @@ public:
             ? static_cast<plugin_host::PluginSlotStatus>(area->pluginSlotStatuses[index])
             : plugin_host::PluginSlotStatus::Unknown;
     }
+    /** Startup-only diagnostics published by the helper before it becomes Ready. */
+    std::string pluginSlotLoadError(size_t index) const;
+    /** Startup-only immutable metadata; query from a non-realtime thread. */
+    std::vector<plugin_host::ParameterDescriptor> parameterDescriptorsForSlot(
+        size_t slotIndex) const;
     double processorTailSeconds() const noexcept {
         const auto* area = sharedMemory.area();
         return area != nullptr ? area->processorTailSeconds : 0.0;
     }
 
     /**
-     * Non-blocking one-callback pipeline. It returns the previous request's
-     * result or silence if the helper missed its deadline, then submits this
+     * Non-blocking two-callback pipeline. It returns the corresponding older
+     * request's result or the configured miss fallback, then submits this
      * input block. `left/right` are replaced with the returned audio.
      */
     bool processBlock(float* left, float* right, uint32_t numSamples,

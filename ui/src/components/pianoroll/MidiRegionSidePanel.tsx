@@ -106,9 +106,9 @@ export function MidiRegionSidePanel({
           />
         </div>
         <div className="flex items-center justify-between text-[11px] font-semibold">
-          <span>Loop</span>
+          <span title="Repeat this region's MIDI pattern within its arrangement span">Repeat pattern</span>
           <Switch
-            aria-label="Loop MIDI region"
+            aria-label="Repeat MIDI region pattern"
             isSelected={region.loop}
             isDisabled={!persisted}
             onChange={(loop) => patch({ loop })}
@@ -136,7 +136,7 @@ export function MidiRegionSidePanel({
         />
         {region.loop && (
           <LabeledSlider
-            label="Loop length"
+            label="Repeat length"
             defaultValue={region.durationBeats}
             value={region.loopLengthBeats}
             min={0.25}

@@ -15,6 +15,7 @@ export type EventTypeWire =
   | "dmx";
 
 export type SendTapMode = "pre-fader" | "post-fader" | "post-pan";
+export type PanLawWire = "0dB" | "-3dB" | "-4.5dB" | "-6dB";
 
 /** One aux send from a track/click into a send bus. level is 0-100 LINEAR
  *  percent (100 = unity/0 dB). */
@@ -411,6 +412,7 @@ export interface TrackRow {
   channels: number;
   gainDb: number;
   pan: number;
+  panLaw?: PanLawWire;
   mute: boolean;
   solo: boolean;
   /** Solo-safe (isolate) flag prevents this strip from being muted when others are soloed. */

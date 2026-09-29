@@ -41,8 +41,10 @@ bool PluginHostProcess::start(const juce::File& executable,
 
     hostGeneration = generation;
     nextSequence = 0;
+    nextOutputSequence = 0;
     maximumBlockSize = maximumBlockSamples;
     configuredSampleRate = sampleRate;
+    outputFifoRead = outputFifoWrite = outputFifoSize = 0;
     missedOutputBlockCount.store(0, std::memory_order_relaxed);
     missedInputBlockCount.store(0, std::memory_order_relaxed);
 
@@ -96,6 +98,10 @@ bool PluginHostProcess::start(const juce::File& executable,
                     area->commandResult.load(std::memory_order_acquire);
                 if (failureCode != 0)
                     error += " (host error " + std::to_string(failureCode) + ")";
+                const auto messageEnd = std::find(
+                    area->startupError.begin(), area->startupError.end(), '\0');
+                if (messageEnd != area->startupError.begin())
+                    error += ": " + std::string(area->startupError.begin(), messageEnd);
             }
             if (process != nullptr && !process->isRunning())
                 error += " (exit "
@@ -132,8 +138,10 @@ void PluginHostProcess::stop() noexcept {
     sharedMemory = PluginHostSharedMemory{};
     hostGeneration = 0;
     nextSequence = 0;
+    nextOutputSequence = 0;
     maximumBlockSize = 0;
     configuredSampleRate = 48000.0;
+    outputFifoRead = outputFifoWrite = outputFifoSize = 0;
 }
 
 bool PluginHostProcess::isRunning() const noexcept {
@@ -144,6 +152,32 @@ bool PluginHostProcess::isReady() const noexcept {
     return sharedMemory.area() != nullptr
         && sharedMemory.area()->hostState.load(std::memory_order_acquire)
             == static_cast<uint32_t>(plugin_host::HostState::Ready);
+}
+
+std::string PluginHostProcess::pluginSlotLoadError(size_t slotIndex) const {
+    const auto* area = sharedMemory.area();
+    if (area == nullptr || !isReady() || slotIndex >= area->pluginSlotCount)
+        return {};
+    const auto& message = area->pluginSlotErrors[slotIndex];
+    const auto messageEnd = std::find(message.begin(), message.end(), '\0');
+    return std::string(message.begin(), messageEnd);
+}
+
+std::vector<plugin_host::ParameterDescriptor>
+PluginHostProcess::parameterDescriptorsForSlot(size_t slotIndex) const {
+    std::vector<plugin_host::ParameterDescriptor> result;
+    const auto* area = sharedMemory.area();
+    if (area == nullptr || !isReady() || slotIndex >= area->pluginSlotCount)
+        return result;
+    const auto count = std::min<uint32_t>(
+        area->parameterDescriptorCount,
+        plugin_host::kMaximumParameterDescriptorsPerChain);
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto& descriptor = area->parameterDescriptors[i];
+        if (descriptor.slotIndex == slotIndex)
+            result.push_back(descriptor);
+    }
+    return result;
 }
 
 bool PluginHostProcess::enqueueParameterEvent(
@@ -214,6 +248,33 @@ bool PluginHostProcess::requestCommand(
 
 void PluginHostProcess::drainCompletedOutputs(
     plugin_host::SharedArea& area, uint64_t beforeSequence) noexcept {
+    // A child may finish a block after its playout deadline. Never put that
+    // stale block into the FIFO on a later callback: doing so would make the
+    // plug-in's time position wobble whenever the helper is briefly late.
+    // Reclaim completed/untouched stale slots, but never steal a slot while
+    // the child owns it in Processing state.
+    for (auto& slot : area.slots) {
+        auto state = static_cast<plugin_host::SlotState>(
+            slot.state.load(std::memory_order_acquire));
+        // sequence is ordinary shared memory. It is published before Ready
+        // and must not be read while an Empty/Writing slot is being reused.
+        if ((state != plugin_host::SlotState::Complete
+             && state != plugin_host::SlotState::Ready)
+            || slot.sequence >= nextOutputSequence)
+            continue;
+        if (state == plugin_host::SlotState::Complete) {
+            plugin_host::releaseOutput(slot);
+            missedOutputBlockCount.fetch_add(1, std::memory_order_relaxed);
+        } else if (state == plugin_host::SlotState::Ready) {
+            uint32_t expected = static_cast<uint32_t>(plugin_host::SlotState::Ready);
+            if (slot.state.compare_exchange_strong(
+                    expected,
+                    static_cast<uint32_t>(plugin_host::SlotState::Empty),
+                    std::memory_order_acq_rel))
+                missedOutputBlockCount.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+
     // At most the three shared slots can be retired per callback. Sequence
     // gaps are skipped in a bounded loop; callback cost cannot grow with a
     // child that has been stalled for minutes.
@@ -302,9 +363,16 @@ bool PluginHostProcess::processBlock(
     }
 
     const uint64_t inputSequence = nextSequence;
+    const bool pipelinePrimed = inputSequence
+        >= plugin_host::kAudioPipelineCallbacks;
+    const uint64_t expectedOutputSequence = pipelinePrimed
+        ? inputSequence - plugin_host::kAudioPipelineCallbacks
+        : 0;
+    const uint64_t outputSequenceLimit = pipelinePrimed
+        ? expectedOutputSequence + 1 : 0;
     if (area->hostState.load(std::memory_order_acquire)
             == static_cast<uint32_t>(plugin_host::HostState::Ready)) {
-        drainCompletedOutputs(*area, inputSequence);
+        drainCompletedOutputs(*area, outputSequenceLimit);
     } else {
         // Failed means the helper is already gone (or never became ready), so
         // its abandoned ownership states may be safely reclaimed in this new
@@ -357,7 +425,8 @@ bool PluginHostProcess::processBlock(
         area->missedInputBlocks.fetch_add(1, std::memory_order_relaxed);
     }
 
-    const bool outputAvailable = outputFifoSize >= numSamples;
+    const bool outputAvailable = pipelinePrimed
+        && outputFifoSize >= numSamples;
     if (outputAvailable) {
         const size_t first = std::min<size_t>(
             numSamples, outputFifoCapacity - outputFifoRead);
@@ -379,9 +448,16 @@ bool PluginHostProcess::processBlock(
             std::fill(left, left + numSamples, 0.0f);
             std::fill(right, right + numSamples, 0.0f);
         }
-        if (inputSequence != 0) {
+        if (pipelinePrimed) {
             missedOutputBlockCount.fetch_add(1, std::memory_order_relaxed);
             area->missedOutputBlocks.fetch_add(1, std::memory_order_relaxed);
+            // Only the exact block due for this callback is retired. Future
+            // blocks may still meet their own deadlines; skipping through the
+            // submitted sequence would turn one helper scheduling hiccup into
+            // a multi-callback dropout.
+            outputFifoRead = outputFifoWrite = outputFifoSize = 0;
+            nextOutputSequence = plugin_host::outputCursorAfterDeadlineMiss(
+                nextOutputSequence, expectedOutputSequence);
         }
     }
 

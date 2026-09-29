@@ -1,4 +1,33 @@
-import type { MidiNoteRow } from "../../lib/state/types";
+import type { AutomationPointRow, MidiNoteRow } from "../../lib/state/types";
+
+/** A controller gesture adds at most one endpoint; keep saved lanes bounded. */
+export const MAX_CONTROLLER_POINTS = 4096;
+
+/**
+ * Replace an existing automation point, or insert one at a musical beat.
+ * The result is sorted and has at most one point at the edited beat.
+ */
+export function editControllerPoint(
+  points: AutomationPointRow[],
+  pointIndex: number | null,
+  beat: number,
+  value: number,
+): AutomationPointRow[] | null {
+  const timeBeats = Math.max(0, beat);
+  if (pointIndex === null && points.length >= MAX_CONTROLLER_POINTS &&
+      !points.some((point) => Math.abs(point.timeBeats - timeBeats) <= 1e-9)) return null;
+  if (pointIndex !== null && (pointIndex < 0 || pointIndex >= points.length)) return null;
+
+  const edited = pointIndex === null
+    ? { timeBeats, value, curve: 0 }
+    : { ...points[pointIndex], timeBeats, value };
+  const next = points.filter((point, index) =>
+    index !== pointIndex && Math.abs(point.timeBeats - timeBeats) > 1e-9,
+  );
+  next.push(edited);
+  next.sort((left, right) => left.timeBeats - right.timeBeats);
+  return next;
+}
 
 let nextNoteCounter = 1;
 export function generateNoteId(): number {

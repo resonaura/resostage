@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MidiNoteRow, MidiRegionRow, SongRow } from "../../lib/state/types";
+import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "../../lib/state/types";
 import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
 import { RULER_HEIGHT } from "../timeline/constants";
 import { Ruler } from "../timeline/Ruler";
@@ -10,6 +10,7 @@ import { resolveCssVar } from "../../lib/theme/cssColor";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import {
   canvasYToPitch,
+  editControllerPoint,
   generateNoteId,
   paintBrushNote,
   sliceNote,
@@ -53,6 +54,33 @@ function noteTextColor(fill: string, background: string, opacity: number): strin
   const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
   return luminance > 0.179 ? "#111" : "#fff";
 }
+
+function controllerParameterId(lane: PianoRollBottomLane): string {
+  if (lane === "pitchBend") return "pitchBend";
+  return `cc:${lane.slice(2)}`;
+}
+
+function isControllerLane(lane: AutomationLaneRow, selected: PianoRollBottomLane): boolean {
+  const parameterId = lane.target.parameterId;
+  return parameterId === selected || parameterId === controllerParameterId(selected)
+    || (selected !== "pitchBend" && parameterId === selected.slice(2));
+}
+
+function controllerValueFromY(y: number, gridBottom: number, height: number, pitchBend: boolean): number {
+  const top = gridBottom + 18;
+  const bottom = height - 6;
+  const normalized = Math.max(0, Math.min(1, (bottom - y) / Math.max(1, bottom - top)));
+  return pitchBend ? Math.round(normalized * 16383 - 8192) : Math.round(normalized * 127);
+}
+
+function controllerYFromValue(value: number, gridBottom: number, height: number, pitchBend: boolean): number {
+  const top = gridBottom + 18;
+  const bottom = height - 6;
+  const normalized = pitchBend ? (value + 8192) / 16383 : value / 127;
+  return bottom - normalized * (bottom - top);
+}
+
+const DEFAULT_NOTE_VELOCITY = 0.8;
 
 interface PianoRollCanvasProps {
   region: MidiRegionRow;
@@ -144,6 +172,25 @@ export function PianoRollCanvas({
   const [localNotes, setLocalNotes] = useState<MidiNoteRow[] | null>(null);
   const notesToRender = localNotes || region.notes;
   const pendingCommitRef = useRef<MidiNoteRow[] | null>(null);
+  const lastSingleSelectedDurationRef = useRef<number | null>(null);
+  const [localAutomationLanes, setLocalAutomationLanes] = useState<AutomationLaneRow[] | null>(null);
+  const localAutomationLanesRef = useRef<AutomationLaneRow[] | null>(null);
+  const setControllerPreview = useCallback((lanes: AutomationLaneRow[] | null) => {
+    localAutomationLanesRef.current = lanes;
+    setLocalAutomationLanes(lanes);
+  }, []);
+  const pendingAutomationCommitRef = useRef<{ parameterId: string; points: AutomationLaneRow["points"] } | null>(null);
+  const controllerGestureRef = useRef<{
+    beforeLanes: AutomationLaneRow[] | null;
+    baseLanes: AutomationLaneRow[];
+    laneIndex: number;
+    pointIndex: number;
+    added: boolean;
+    anchorBeat: number;
+    changed: boolean;
+    lastBeat: number;
+    lastValue: number;
+  } | null>(null);
   const velocityPaintRef = useRef<{
     lastBeat: number;
     notes: MidiNoteRow[];
@@ -170,6 +217,27 @@ export function PianoRollCanvas({
     }
   }, [region.notes]);
 
+  useEffect(() => {
+    const pending = pendingAutomationCommitRef.current;
+    if (!pending || controllerGestureRef.current) return;
+    const accepted = region.automationLanes?.find((lane) => lane.target.parameterId === pending.parameterId);
+    if (!accepted || accepted.points.length !== pending.points.length) return;
+    if (accepted.points.every((point, index) =>
+      Math.abs(point.timeBeats - pending.points[index].timeBeats) < 1e-6 &&
+      Math.abs(point.value - pending.points[index].value) < 1e-6 &&
+      Math.abs(point.curve - pending.points[index].curve) < 1e-6,
+    )) {
+      pendingAutomationCommitRef.current = null;
+      setControllerPreview(null);
+    }
+  }, [region.automationLanes, setControllerPreview]);
+
+  useEffect(() => {
+    pendingAutomationCommitRef.current = null;
+    controllerGestureRef.current = null;
+    setControllerPreview(null);
+  }, [region.id, setControllerPreview]);
+
   // Auto-scroll loop state while dragging notes near canvas edges
   const autoScrollRafRef = useRef<number | null>(null);
   const lastPointerPosRef = useRef<{ clientX: number; clientY: number }>({
@@ -178,6 +246,16 @@ export function PianoRollCanvas({
   });
   const autoScrollTimeRef = useRef<number | null>(null);
   const lastDragDetentRef = useRef<string | null>(null);
+
+  // Pencil's one-click note length follows the last note the user selected
+  // alone. A later multi-selection must not erase that useful preference.
+  useEffect(() => {
+    if (selectedNoteIds.size !== 1) return;
+    const selectedId = selectedNoteIds.values().next().value;
+    const selected = notesToRender.find((note) => note.id === selectedId);
+    if (selected && Number.isFinite(selected.durationBeats) && selected.durationBeats > 0)
+      lastSingleSelectedDurationRef.current = selected.durationBeats;
+  }, [notesToRender, selectedNoteIds]);
 
   // Playhead autofollow suspension flag (suspended by manual scroll / pan gestures)
   const isFollowSuspendedRef = useRef<boolean>(false);
@@ -817,7 +895,7 @@ export function PianoRollCanvas({
         cc1: "CC 1 · MODULATION",
         cc11: "CC 11 · EXPRESSION",
         cc64: "CC 64 · SUSTAIN",
-        pitchBend: "PITCH BEND",
+        pitchBend: "CHANNEL PITCH BEND",
       };
       const title = laneLabels[bottomLane] || bottomLane.toUpperCase();
 
@@ -852,43 +930,53 @@ export function PianoRollCanvas({
       ctx.fillText(isPB ? "0" : "64", 6, midY + 3);
       ctx.fillText(isPB ? "-8192" : "0", 6, botY - 1);
 
-      const lane = region.automationLanes?.find(
-        (l) =>
-          l.target.parameterId === bottomLane ||
-          (bottomLane === "cc1" && l.target.parameterId === "1") ||
-          (bottomLane === "cc11" && l.target.parameterId === "11") ||
-          (bottomLane === "cc64" && l.target.parameterId === "64"),
+      const lane = (localAutomationLanes ?? region.automationLanes)?.find(
+        (candidate) => isControllerLane(candidate, bottomLane),
       );
 
       if (lane && lane.points && lane.points.length > 0) {
         const sorted = [...lane.points].sort(
           (a, b) => a.timeBeats - b.timeBeats,
         );
-        const valToY = (v: number) => {
-          const norm = isPB ? (v + 8192) / 16383 : v / 127;
-          return botY - norm * (botY - topY);
-        };
-
-        ctx.strokeStyle = theme.accent;
-        ctx.lineWidth = 2;
+        const repeatLength = region.loop && region.loopLengthBeats > 0 ? region.loopLengthBeats : 0;
+        const firstRepeat = repeatLength > 0
+          ? Math.max(0, Math.floor((minBeat + region.clipOffsetBeats) / repeatLength) - 1)
+          : 0;
+        const lastRepeat = repeatLength > 0
+          ? Math.max(firstRepeat, Math.ceil((maxBeat + region.clipOffsetBeats) / repeatLength))
+          : 0;
+        // Bound canvas work even when a tiny source loop is repeated thousands
+        // of times across a zoomed-out region.
+        const pointStride = Math.max(1, Math.ceil(
+          sorted.length * (lastRepeat - firstRepeat + 1) / 12_000,
+        ));
+        ctx.save();
         ctx.beginPath();
-        sorted.forEach((pt, idx) => {
-          const px = beatToX(pt.timeBeats);
-          const py = valToY(pt.value);
-          if (idx === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        });
-        ctx.stroke();
-
-        if (sorted.length > 1) {
-          // Keep automation previews crisp and theme-solid; translucent
-          // underlays made the whole editor appear washed out.
-        }
-
-        for (const pt of sorted) {
-          const px = beatToX(pt.timeBeats);
-          const py = valToY(pt.value);
-          if (px >= viewport.keyWidth - 4 && px <= width + 4) {
+        ctx.rect(viewport.keyWidth, laneY, width - viewport.keyWidth, height - laneY);
+        ctx.clip();
+        for (let repeat = firstRepeat; repeat <= lastRepeat; repeat += 1) {
+          const offset = repeatLength > 0 ? repeat * repeatLength - region.clipOffsetBeats : 0;
+          ctx.strokeStyle = theme.accent;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          let drawn = false;
+          for (let index = 0; index < sorted.length; index += pointStride) {
+            const point = sorted[index];
+            const beat = point.timeBeats + offset;
+            if (beat < minBeat - 1 || beat > maxBeat + 1 || beat >= region.durationBeats) continue;
+            const px = beatToX(beat);
+            const py = controllerYFromValue(point.value, gridBottom, height, isPB);
+            if (!drawn) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+            drawn = true;
+          }
+          if (drawn) ctx.stroke();
+          for (let index = 0; index < sorted.length; index += pointStride) {
+            const point = sorted[index];
+            const beat = point.timeBeats + offset;
+            if (beat < minBeat || beat > maxBeat || beat >= region.durationBeats) continue;
+            const px = beatToX(beat);
+            const py = controllerYFromValue(point.value, gridBottom, height, isPB);
             ctx.fillStyle = theme.accent;
             ctx.beginPath();
             ctx.arc(px, py, 3, 0, Math.PI * 2);
@@ -898,6 +986,7 @@ export function PianoRollCanvas({
             ctx.stroke();
           }
         }
+        ctx.restore();
       }
     }
 
@@ -906,6 +995,8 @@ export function PianoRollCanvas({
     viewport,
     bottomLane,
     region,
+    notesToRender,
+    localAutomationLanes,
     rootNote,
     scaleMode,
     showGhostNotes,
@@ -1171,7 +1262,21 @@ export function PianoRollCanvas({
           beat,
           Math.max(0.08, 8 / viewport.pixelsPerBeat),
         );
-        const workingNotes = region.notes.map((note) => ({ ...note }));
+        const workingNotes = notesToRender.map((note) => ({ ...note }));
+        if (hit && e.detail >= 2) {
+          const target = workingNotes.find((note) => note.id === hit.id);
+          if (target && target.velocity !== DEFAULT_NOTE_VELOCITY) {
+            target.velocity = DEFAULT_NOTE_VELOCITY;
+            setLocalNotes(workingNotes);
+            pendingCommitRef.current = workingNotes;
+            onNotesChange(workingNotes);
+          }
+          velocityPaintRef.current = null;
+          draggingRef.current = null;
+          canvas.releasePointerCapture(e.pointerId);
+          render();
+          return;
+        }
         if (hit) {
           const vel = Math.max(
             0.01,
@@ -1194,35 +1299,20 @@ export function PianoRollCanvas({
           startPitch: 0,
           initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
         };
-      } else {
-        const beat = Math.max(0, snapBeat(xToBeat(x)));
-        const topY = gridBottom + 18;
-        const botY = height - 6;
-        const norm = Math.max(
-          0,
-          Math.min(1, (botY - y) / Math.max(1, botY - topY)),
-        );
+      } else if (onRegionChange) {
+        const beat = Math.max(0, snapBeat(sourceBeatAt(xToBeat(x))));
         const isPB = bottomLane === "pitchBend";
-        const val = isPB
-          ? Math.round(norm * 16383 - 8192)
-          : Math.round(norm * 127);
-
-        const lanes = region.automationLanes ? [...region.automationLanes] : [];
-        let laneIdx = lanes.findIndex(
-          (l) =>
-            l.target.parameterId === bottomLane ||
-            (bottomLane === "cc1" && l.target.parameterId === "1") ||
-            (bottomLane === "cc11" && l.target.parameterId === "11") ||
-            (bottomLane === "cc64" && l.target.parameterId === "64"),
-        );
-
+        const val = controllerValueFromY(y, gridBottom, height, isPB);
+        const beforeLanes = localAutomationLanesRef.current;
+        const lanes = [...(beforeLanes ?? region.automationLanes ?? [])];
+        let laneIdx = lanes.findIndex((candidate) => isControllerLane(candidate, bottomLane));
         if (laneIdx < 0) {
           lanes.push({
-            id: `lane_${bottomLane}`,
+            id: `lane_${region.id}_${bottomLane}`,
             target: {
               domain: "midiCC",
               entityId: region.id,
-              parameterId: bottomLane,
+              parameterId: controllerParameterId(bottomLane),
               valueType: "integer",
               defaultValue: 0,
               minValue: isPB ? -8192 : 0,
@@ -1231,29 +1321,37 @@ export function PianoRollCanvas({
             scope: "region",
             enabled: true,
             writeMode: "read",
-            points: [{ timeBeats: beat, value: val, curve: 0 }],
+            points: [],
           });
-        } else {
-          const lane = {
-            ...lanes[laneIdx],
-            points: [...lanes[laneIdx].points],
-          };
-          const existingPtIdx = lane.points.findIndex(
-            (p) => Math.abs(p.timeBeats - beat) < 0.1,
-          );
-          if (existingPtIdx >= 0) {
-            lane.points[existingPtIdx] = {
-              ...lane.points[existingPtIdx],
-              value: val,
-            };
-          } else {
-            lane.points.push({ timeBeats: beat, value: val, curve: 0 });
-            lane.points.sort((a, b) => a.timeBeats - b.timeBeats);
-          }
-          lanes[laneIdx] = lane;
+          laneIdx = lanes.length - 1;
         }
-
-        onRegionChange?.({ ...region, automationLanes: lanes });
+        const sourcePoints = lanes[laneIdx].points;
+        const hitIndex = sourcePoints.findIndex((point) =>
+          Math.abs(point.timeBeats - beat) * viewport.pixelsPerBeat <= 7 &&
+          Math.abs(controllerYFromValue(point.value, gridBottom, height, isPB) - y) <= 7,
+        );
+        let pointIndex = hitIndex;
+        if (hitIndex < 0) {
+          const points = editControllerPoint(sourcePoints, null, beat, val);
+          if (!points) {
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+          pointIndex = points.findIndex((point) => point.timeBeats === beat);
+          lanes[laneIdx] = { ...lanes[laneIdx], points };
+          setControllerPreview(lanes);
+        }
+        controllerGestureRef.current = {
+          beforeLanes,
+          baseLanes: lanes,
+          laneIndex: laneIdx,
+          pointIndex,
+          added: hitIndex < 0,
+          anchorBeat: beat,
+          changed: hitIndex < 0,
+          lastBeat: beat,
+          lastValue: val,
+        };
         draggingRef.current = {
           type: "cc",
           startPointerX: x,
@@ -1262,6 +1360,8 @@ export function PianoRollCanvas({
           startPitch: 0,
           initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
         };
+      } else {
+        canvas.releasePointerCapture(e.pointerId);
       }
       return;
     }
@@ -1301,7 +1401,7 @@ export function PianoRollCanvas({
       if (!newSelection.has(noteHit.note.id)) return;
 
       const initialMap = new Map<number, MidiNoteRow>();
-      for (const note of region.notes) {
+      for (const note of notesToRender) {
         if (newSelection.has(note.id)) initialMap.set(note.id, { ...note });
       }
 
@@ -1323,7 +1423,11 @@ export function PianoRollCanvas({
 
     if (tool === "erase") {
       if (hit) {
-        onNotesChange(region.notes.filter((n) => n.id !== hit.note.id));
+        const updated = notesToRender.filter((note) => note.id !== hit.note.id);
+        setLocalNotes(updated);
+        pendingCommitRef.current = updated;
+        onNotesChange(updated);
+        onSelectionChange(new Set([...selectedNoteIds].filter((id) => id !== hit.note.id)));
       }
       return;
     }
@@ -1334,9 +1438,11 @@ export function PianoRollCanvas({
         const sliced = sliceNote(hit.note, cutBeat);
         if (sliced) {
           const [noteA, noteB] = sliced;
-          const updated = region.notes
+          const updated = notesToRender
             .map((n) => (n.id === hit.note.id ? noteA : n))
             .concat(noteB);
+          setLocalNotes(updated);
+          pendingCommitRef.current = updated;
           onNotesChange(updated);
           onSelectionChange(new Set([noteB.id]));
         }
@@ -1352,13 +1458,14 @@ export function PianoRollCanvas({
       }
       const dur = snap > 0 ? snap : 0.25;
       const painted = paintBrushNote(
-        region.notes,
+        notesToRender,
         snappedBeat,
         snappedPitch,
         dur,
       );
       if (painted) {
-        onNotesChange(painted.updatedNotes);
+        setLocalNotes(painted.updatedNotes);
+        pendingCommitRef.current = painted.updatedNotes;
         onSelectionChange(new Set([painted.newNote.id]));
       }
       draggingRef.current = {
@@ -1367,7 +1474,7 @@ export function PianoRollCanvas({
         startPointerY: y,
         startBeat: snappedBeat,
         startPitch: snappedPitch,
-        initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
+        initialNotesSnapshot: new Map(notesToRender.map((n) => [n.id, n])),
       };
       return;
     }
@@ -1384,19 +1491,25 @@ export function PianoRollCanvas({
         if (snapToScale) {
           snappedPitch = snapPitchToScale(snappedPitch, rootNote, scaleMode);
         }
-        const duration = snap > 0 ? snap : 1.0;
+        const duration = Math.max(
+          0.125,
+          lastSingleSelectedDurationRef.current ?? (snap > 0 ? snap : 1.0),
+        );
         const newNote: MidiNoteRow = {
           id: generateNoteId(),
           pitch: snappedPitch,
           startBeats: snappedBeat,
           durationBeats: duration,
-          velocity: 0.8,
+          velocity: DEFAULT_NOTE_VELOCITY,
           releaseVelocity: 0.5,
           probability: 1.0,
         };
 
-        const updated = [...region.notes, newNote];
-        onNotesChange(updated);
+        const updated = [...notesToRender, newNote];
+        setLocalNotes(updated);
+        // Keep the first click authoritative even if React has not committed
+        // the optimistic render before the matching pointer-up event.
+        pendingCommitRef.current = updated;
         const targetIds = new Set([newNote.id]);
         onSelectionChange(targetIds);
 
@@ -1526,43 +1639,29 @@ export function PianoRollCanvas({
 
     // ── Dragging: CC Automation ──────────────────────────────────────────
     if (dragging.type === "cc" && onRegionChange) {
-      const curBeat = Math.max(0, snapBeat(xToBeat(x)));
-      const topY = gridBottom + 18;
-      const botY = height - 6;
-      const norm = Math.max(
-        0,
-        Math.min(1, (botY - y) / Math.max(1, botY - topY)),
-      );
-      const isPB = bottomLane === "pitchBend";
-      const val = isPB
-        ? Math.round(norm * 16383 - 8192)
-        : Math.round(norm * 127);
+      const gesture = controllerGestureRef.current;
+      if (!gesture) return;
+      const beat = Math.max(0, snapBeat(sourceBeatAt(xToBeat(x))));
+      const value = controllerValueFromY(y, gridBottom, height, bottomLane === "pitchBend");
+      if (gesture.lastBeat === beat && gesture.lastValue === value) return;
+      gesture.lastBeat = beat;
+      gesture.lastValue = value;
 
-      const lanes = region.automationLanes ? [...region.automationLanes] : [];
-      const laneIdx = lanes.findIndex(
-        (l) =>
-          l.target.parameterId === bottomLane ||
-          (bottomLane === "cc1" && l.target.parameterId === "1") ||
-          (bottomLane === "cc11" && l.target.parameterId === "11") ||
-          (bottomLane === "cc64" && l.target.parameterId === "64"),
+      const lane = gesture.baseLanes[gesture.laneIndex];
+      const startedNewRamp = gesture.added &&
+        Math.hypot(x - dragging.startPointerX, y - dragging.startPointerY) > 3 &&
+        beat !== gesture.anchorBeat;
+      const points = editControllerPoint(
+        lane.points,
+        startedNewRamp ? null : gesture.pointIndex,
+        beat,
+        value,
       );
-      if (laneIdx >= 0) {
-        const lane = { ...lanes[laneIdx], points: [...lanes[laneIdx].points] };
-        const existingPtIdx = lane.points.findIndex(
-          (p) => Math.abs(p.timeBeats - curBeat) < 0.1,
-        );
-        if (existingPtIdx >= 0) {
-          lane.points[existingPtIdx] = {
-            ...lane.points[existingPtIdx],
-            value: val,
-          };
-        } else {
-          lane.points.push({ timeBeats: curBeat, value: val, curve: 0 });
-          lane.points.sort((a, b) => a.timeBeats - b.timeBeats);
-        }
-        lanes[laneIdx] = lane;
-        onRegionChange({ ...region, automationLanes: lanes });
-      }
+      if (!points) return;
+      gesture.changed = true;
+      const lanes = [...gesture.baseLanes];
+      lanes[gesture.laneIndex] = { ...lane, points };
+      setControllerPreview(lanes);
       return;
     }
 
@@ -1574,9 +1673,10 @@ export function PianoRollCanvas({
         curPitch = snapPitchToScale(curPitch, rootNote, scaleMode);
       }
       const dur = snap > 0 ? snap : 0.25;
-      const painted = paintBrushNote(region.notes, curBeat, curPitch, dur);
+      const painted = paintBrushNote(notesToRender, curBeat, curPitch, dur);
       if (painted) {
-        onNotesChange(painted.updatedNotes);
+        setLocalNotes(painted.updatedNotes);
+        pendingCommitRef.current = painted.updatedNotes;
         onSelectionChange(new Set([painted.newNote.id]));
       }
       return;
@@ -1604,7 +1704,7 @@ export function PianoRollCanvas({
       }
 
       // Update local working state relative to initial snapshot
-      const updated = region.notes.map((note) => {
+      const updated = notesToRender.map((note) => {
         if (!dragging.targetNoteIds?.has(note.id)) return note;
         const initial = dragging.initialNotesSnapshot.get(note.id);
         if (!initial) return note;
@@ -1633,7 +1733,7 @@ export function PianoRollCanvas({
         }
       }
 
-      const updated = region.notes.map((note) => {
+      const updated = notesToRender.map((note) => {
         if (!dragging.targetNoteIds?.has(note.id)) return note;
         const initial = dragging.initialNotesSnapshot.get(note.id);
         if (!initial) return note;
@@ -1683,20 +1783,35 @@ export function PianoRollCanvas({
     if (dragging) {
       const finalNotes = dragging.type === "velocity"
         ? velocityPaintRef.current?.notes ?? null
-        : localNotes;
+        : localNotes ?? pendingCommitRef.current;
       if (
-        (dragging.type === "move" || dragging.type === "resize" || dragging.type === "velocity") &&
+        (dragging.type === "move" || dragging.type === "resize" || dragging.type === "velocity" || dragging.type === "brush") &&
         finalNotes
       ) {
         pendingCommitRef.current = finalNotes;
         onNotesChange(finalNotes);
         triggerHaptic("generic");
+      } else if (dragging.type === "cc" && controllerGestureRef.current?.changed &&
+                 localAutomationLanesRef.current && onRegionChange) {
+        const lanes = localAutomationLanesRef.current;
+        const lane = controllerGestureRef.current && lanes[controllerGestureRef.current.laneIndex];
+        if (lane) {
+          pendingAutomationCommitRef.current = {
+            parameterId: lane.target.parameterId,
+            points: lane.points,
+          };
+          onRegionChange({ ...region, automationLanes: lanes });
+          triggerHaptic("generic");
+        }
+        pendingCommitRef.current = null;
+        setLocalNotes(null);
       } else {
         pendingCommitRef.current = null;
         setLocalNotes(null);
       }
     }
     draggingRef.current = null;
+    controllerGestureRef.current = null;
     velocityPaintRef.current = null;
     setHoveredPitch(null);
     render();
@@ -1713,6 +1828,9 @@ export function PianoRollCanvas({
     // running RAF loop behind. The authoritative notes were not committed.
     setLocalNotes(null);
     pendingCommitRef.current = null;
+    if (controllerGestureRef.current)
+      setControllerPreview(controllerGestureRef.current.beforeLanes);
+    controllerGestureRef.current = null;
     draggingRef.current = null;
     velocityPaintRef.current = null;
     lastDragDetentRef.current = null;

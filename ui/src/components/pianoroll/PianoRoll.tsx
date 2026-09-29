@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PianoRollCanvas } from "./PianoRollCanvas";
 import { PianoRollToolbar } from "./PianoRollToolbar";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
@@ -29,6 +29,21 @@ const DEFAULT_VIEWPORT: PianoRollViewport = {
   keyWidth: 54,
   velocityLaneHeight: 90,
 };
+
+function sameEditableNotes(left: MidiNoteRow[], right: MidiNoteRow[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightById = new Map(right.map((note) => [note.id, note]));
+  return left.every((note) => {
+    const actual = rightById.get(note.id);
+    return actual !== undefined
+      && actual.pitch === note.pitch
+      && actual.startBeats === note.startBeats
+      && actual.durationBeats === note.durationBeats
+      && actual.velocity === note.velocity
+      && actual.releaseVelocity === note.releaseVelocity
+      && actual.probability === note.probability;
+  });
+}
 
 export function PianoRoll({
   region,
@@ -75,6 +90,14 @@ export function PianoRoll({
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<number>>(
     new Set(),
   );
+  const authoritativeNoteIdsRef = useRef({
+    regionId: region.id,
+    ids: new Set(region.notes.map((note) => note.id)),
+  });
+  const optimisticNotesRef = useRef<{
+    regionId: string;
+    notes: MidiNoteRow[];
+  } | null>(null);
   const [noteClipboard, setNoteClipboard] = useState<MidiNoteRow[]>([]);
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
@@ -83,10 +106,43 @@ export function PianoRoll({
 
   useEffect(() => {
     const available = new Set(region.notes.map((note) => note.id));
-    setSelectedNoteIds((current) => {
-      const next = new Set([...current].filter((id) => available.has(id)));
-      return next.size === current.size ? current : next;
-    });
+    const previous = authoritativeNoteIdsRef.current;
+    if (previous.regionId !== region.id) {
+      authoritativeNoteIdsRef.current = { regionId: region.id, ids: available };
+      setSelectedNoteIds(new Set());
+      return;
+    }
+
+    // Prune only IDs that existed in Core's previous snapshot and have now
+    // disappeared. Newly created optimistic notes are not authoritative yet;
+    // don't clear their selection merely because the next state poll still
+    // contains the pre-edit MIDI region.
+    const removed = new Set([...previous.ids].filter((id) => !available.has(id)));
+    authoritativeNoteIdsRef.current = { regionId: region.id, ids: available };
+    if (removed.size > 0) {
+      setSelectedNoteIds((current) => {
+        const next = new Set([...current].filter((id) => !removed.has(id)));
+        return next.size === current.size ? current : next;
+      });
+    }
+  }, [region.id, region.notes]);
+
+  const getEditableNotes = useCallback(() => {
+    const optimistic = optimisticNotesRef.current;
+    return optimistic?.regionId === region.id ? optimistic.notes : region.notes;
+  }, [region.id, region.notes]);
+
+  const commitNotes = useCallback((notes: MidiNoteRow[]) => {
+    optimisticNotesRef.current = { regionId: region.id, notes };
+    onNotesChange(notes);
+  }, [region.id, onNotesChange]);
+
+  useEffect(() => {
+    const optimistic = optimisticNotesRef.current;
+    if (!optimistic) return;
+    if (optimistic.regionId !== region.id
+        || sameEditableNotes(optimistic.notes, region.notes))
+      optimisticNotesRef.current = null;
   }, [region.id, region.notes]);
 
   const [viewport, setViewport] = useState<PianoRollViewport>(() => {
@@ -160,21 +216,23 @@ export function PianoRoll({
   // Delete selected notes
   const handleDeleteSelected = useCallback(() => {
     if (selectedNoteIds.size === 0) return;
-    const remaining = region.notes.filter((n) => !selectedNoteIds.has(n.id));
-    onNotesChange(remaining);
+    const remaining = getEditableNotes().filter((n) => !selectedNoteIds.has(n.id));
+    commitNotes(remaining);
     setSelectedNoteIds(new Set());
-  }, [region.notes, selectedNoteIds, onNotesChange]);
+  }, [getEditableNotes, selectedNoteIds, commitNotes]);
 
   const handleCutSelected = useCallback(() => {
     if (selectedNoteIds.size === 0) return;
-    const copied = region.notes.filter((note) => selectedNoteIds.has(note.id));
+    const notes = getEditableNotes();
+    const copied = notes.filter((note) => selectedNoteIds.has(note.id));
     setNoteClipboard(copied.map((note) => ({ ...note })));
-    onNotesChange(region.notes.filter((note) => !selectedNoteIds.has(note.id)));
+    commitNotes(notes.filter((note) => !selectedNoteIds.has(note.id)));
     setSelectedNoteIds(new Set());
-  }, [region.notes, selectedNoteIds, onNotesChange]);
+  }, [getEditableNotes, selectedNoteIds, commitNotes]);
 
   const handlePasteNotes = useCallback(() => {
     if (noteClipboard.length === 0) return;
+    const notes = getEditableNotes();
     const sourceStart = Math.min(...noteClipboard.map((note) => note.startBeats));
     const pasteStart = Math.max(0, playheadBeats ?? sourceStart);
     const pasted = noteClipboard.map((note) => ({
@@ -182,20 +240,21 @@ export function PianoRoll({
       id: generateNoteId(),
       startBeats: pasteStart + note.startBeats - sourceStart,
     }));
-    onNotesChange([...region.notes, ...pasted]);
+    commitNotes([...notes, ...pasted]);
     setSelectedNoteIds(new Set(pasted.map((note) => note.id)));
-  }, [noteClipboard, playheadBeats, region.notes, onNotesChange]);
+  }, [noteClipboard, playheadBeats, getEditableNotes, commitNotes]);
 
   const handleSplitAtPlayhead = useCallback(() => {
+    const notes = getEditableNotes();
     const beat = Math.max(0, playheadBeats ?? 0);
     const targets = selectedNoteIds.size > 0
-      ? region.notes.filter((note) => selectedNoteIds.has(note.id))
-      : region.notes.filter((note) => beat > note.startBeats && beat < note.startBeats + note.durationBeats);
+      ? notes.filter((note) => selectedNoteIds.has(note.id))
+      : notes.filter((note) => beat > note.startBeats && beat < note.startBeats + note.durationBeats);
     if (targets.length === 0) return;
     const targetIds = new Set(targets.map((note) => note.id));
     const updated: MidiNoteRow[] = [];
     const newIds = new Set<number>();
-    for (const note of region.notes) {
+    for (const note of notes) {
       if (!targetIds.has(note.id)) { updated.push(note); continue; }
       const split = sliceNote(note, beat);
       if (!split) { updated.push(note); continue; }
@@ -203,20 +262,21 @@ export function PianoRoll({
       newIds.add(split[0].id);
       newIds.add(split[1].id);
     }
-    if (updated.length === region.notes.length) return;
-    onNotesChange(updated);
+    if (updated.length === notes.length) return;
+    commitNotes(updated);
     setSelectedNoteIds(newIds);
-  }, [playheadBeats, selectedNoteIds, region.notes, onNotesChange]);
+  }, [playheadBeats, selectedNoteIds, getEditableNotes, commitNotes]);
 
   // Quantize selected notes (or all if none selected)
   const handleQuantize = useCallback(() => {
     if (snap <= 0) return;
+    const notes = getEditableNotes();
     const targetIds =
       selectedNoteIds.size > 0
         ? selectedNoteIds
-        : new Set(region.notes.map((n) => n.id));
+        : new Set(notes.map((n) => n.id));
 
-    const quantized = region.notes.map((note) => {
+    const quantized = notes.map((note) => {
       if (!targetIds.has(note.id)) return note;
       const snappedStart = Math.max(
         0,
@@ -233,17 +293,18 @@ export function PianoRoll({
       };
     });
 
-    onNotesChange(quantized);
-  }, [snap, selectedNoteIds, region.notes, onNotesChange]);
+    commitNotes(quantized);
+  }, [snap, selectedNoteIds, getEditableNotes, commitNotes]);
 
   // Humanize timing and velocity
   const handleHumanize = useCallback(() => {
+    const notes = getEditableNotes();
     const targetIds =
       selectedNoteIds.size > 0
         ? selectedNoteIds
-        : new Set(region.notes.map((n) => n.id));
+        : new Set(notes.map((n) => n.id));
 
-    const humanized = region.notes.map((note) => {
+    const humanized = notes.map((note) => {
       if (!targetIds.has(note.id)) return note;
       // Timing jitter: +/- 0.02 beats (~10ms @ 120bpm)
       const deltaBeat = (Math.random() - 0.5) * 0.04;
@@ -260,18 +321,19 @@ export function PianoRoll({
       };
     });
 
-    onNotesChange(humanized);
-  }, [selectedNoteIds, region.notes, onNotesChange]);
+    commitNotes(humanized);
+  }, [selectedNoteIds, getEditableNotes, commitNotes]);
 
   // Transpose selected notes
   const handleTranspose = useCallback(
     (semitones: number) => {
+      const notes = getEditableNotes();
       const targetIds =
         selectedNoteIds.size > 0
           ? selectedNoteIds
-          : new Set(region.notes.map((n) => n.id));
+          : new Set(notes.map((n) => n.id));
 
-      const transposed = region.notes.map((note) => {
+      const transposed = notes.map((note) => {
         if (!targetIds.has(note.id)) return note;
         let newPitch = Math.max(0, Math.min(127, note.pitch + semitones));
         if (snapToScale) {
@@ -283,15 +345,15 @@ export function PianoRoll({
         };
       });
 
-      onNotesChange(transposed);
+      commitNotes(transposed);
     },
     [
       selectedNoteIds,
-      region.notes,
+      getEditableNotes,
       snapToScale,
       rootNote,
       scaleMode,
-      onNotesChange,
+      commitNotes,
     ],
   );
 
@@ -299,28 +361,29 @@ export function PianoRoll({
   // transpose, an empty selection intentionally targets the whole region.
   const handleNudge = useCallback(
     (direction: -1 | 1) => {
+      const notes = getEditableNotes();
       const targetIds = selectedNoteIds.size > 0
         ? selectedNoteIds
-        : new Set(region.notes.map((note) => note.id));
+        : new Set(notes.map((note) => note.id));
       const amount = snap > 0 ? snap : 0.25;
-      onNotesChange(region.notes.map((note) => targetIds.has(note.id)
+      commitNotes(notes.map((note) => targetIds.has(note.id)
         ? { ...note, startBeats: Math.max(0, note.startBeats + direction * amount) }
         : note));
     },
-    [selectedNoteIds, region.notes, snap, onNotesChange],
+    [selectedNoteIds, getEditableNotes, snap, commitNotes],
   );
 
   // Force Legato
   const handleLegato = useCallback(() => {
-    const updated = applyLegato(region.notes, selectedNoteIds);
-    onNotesChange(updated);
-  }, [region.notes, selectedNoteIds, onNotesChange]);
+    const updated = applyLegato(getEditableNotes(), selectedNoteIds);
+    commitNotes(updated);
+  }, [getEditableNotes, selectedNoteIds, commitNotes]);
 
   // Overlap Trim
   const handleOverlapTrim = useCallback(() => {
-    const updated = applyOverlapTrim(region.notes, selectedNoteIds);
-    onNotesChange(updated);
-  }, [region.notes, selectedNoteIds, onNotesChange]);
+    const updated = applyOverlapTrim(getEditableNotes(), selectedNoteIds);
+    commitNotes(updated);
+  }, [getEditableNotes, selectedNoteIds, commitNotes]);
 
   // Register Piano Roll commands with the shared application hotkey manager.
   useEffect(() => {
@@ -345,12 +408,12 @@ export function PianoRoll({
       bind("tool-erase", "e", () => setTool("erase")),
       bind("quantize", "q", handleQuantize),
       bind("select-all-notes", `${primary} + a`, () =>
-        setSelectedNoteIds(new Set(region.notes.map((note) => note.id))),
+        setSelectedNoteIds(new Set(getEditableNotes().map((note) => note.id))),
       ),
       bind("cut-notes", `${primary} + x`, handleCutSelected),
       bind("copy-notes", `${primary} + c`, () =>
         setNoteClipboard(
-          region.notes
+          getEditableNotes()
             .filter((note) => selectedNoteIds.has(note.id))
             .map((note) => ({ ...note })),
         ),
@@ -374,7 +437,7 @@ export function PianoRoll({
       bind("nudge-right-shift", "alt + shift + right", () => handleNudge(1)),
     ];
     return () => unregister.forEach((dispose) => dispose());
-  }, [handleDeleteSelected, handleCutSelected, handlePasteNotes, handleQuantize, handleTranspose, handleNudge, region.notes, selectedNoteIds, setTool]);
+  }, [handleDeleteSelected, handleCutSelected, handlePasteNotes, handleQuantize, handleTranspose, handleNudge, getEditableNotes, selectedNoteIds, setTool]);
 
   return (
     <div
@@ -515,7 +578,7 @@ export function PianoRoll({
         <div className="flex items-center gap-2 text-[11px] font-normal text-foreground/60 shrink-0">
           <span>
             {region.durationBeats} beats
-            {region.loop ? ` (Loop: ${region.loopLengthBeats}b)` : ""}
+            {region.loop ? ` (Repeats every ${region.loopLengthBeats}b)` : ""}
           </span>
         </div>
       </div>
@@ -626,7 +689,7 @@ export function PianoRoll({
           showGhostNotes={showGhostNotes}
           selectedNoteIds={selectedNoteIds}
           onSelectionChange={setSelectedNoteIds}
-          onNotesChange={onNotesChange}
+          onNotesChange={commitNotes}
           onRegionChange={onRegionChange}
           bottomLane={bottomLane}
           playheadBeats={playheadBeats}

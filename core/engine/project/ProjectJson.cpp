@@ -225,6 +225,7 @@ struct WTrack {
     int channels = 2;
     double gainDb = 0.0;
     double pan = 0.0;
+    std::string panLaw = "0dB";
     bool mute = false;
     bool solo = false;
     bool soloSafe = false;
@@ -836,6 +837,7 @@ WProject toWire(const Project& p) {
         wt.channels = std::clamp(t.channels, 1, 2);
         wt.gainDb = finiteOrZero(t.gainDb);
         wt.pan = finiteOrZero(t.pan);
+        wt.panLaw = panLawToString(t.panLaw);
         wt.mute = t.mute;
         wt.solo = t.solo;
         wt.soloSafe = t.soloSafe;
@@ -1219,6 +1221,7 @@ Project fromWire(const WProject& w) {
         tr.channels = std::clamp(t.channels, 1, 2);
         tr.gainDb = t.gainDb;
         tr.pan = t.pan;
+        tr.panLaw = panLawFromString(t.panLaw);
         tr.mute = t.mute;
         tr.solo = t.solo;
         tr.soloSafe = t.soloSafe;

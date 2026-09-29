@@ -4,12 +4,14 @@
 #include "audio/graph/MixGraph.h"
 #include "audio/graph/MixRenderer.h"
 #include "audio/streaming/WavStreamDecoder.h"
+#include "automation/AutomationEvaluator.h"
 #include "midi/Midi2Compatibility.h"
 #include "project/ProjectLoader.h"
 #include "timing/TempoMap.h"
 #include "signalsmith-stretch/signalsmith-stretch.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -17,6 +19,7 @@
 #include <filesystem>
 #include <memory>
 #include <random>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -26,6 +29,24 @@ namespace {
 constexpr int kBlockSize = 1024;
 constexpr int64_t kSourceCacheFrames = 8192;
 constexpr uint64_t kMaximumTapDelayBytes = 64ull * 1024ull * 1024ull;
+
+bool parseAutomationIndex(std::string_view id, std::string_view prefix,
+                          int& index) noexcept {
+    if (id.starts_with(prefix))
+        id.remove_prefix(prefix.size());
+    if (id.empty())
+        return false;
+    const auto parsed = std::from_chars(id.data(), id.data() + id.size(), index);
+    return parsed.ec == std::errc{} && parsed.ptr == id.data() + id.size();
+}
+
+float normalizedAutomationValue(const AutomationLane& lane, float value) noexcept {
+    const float minValue = lane.target.minValue;
+    const float maxValue = lane.target.maxValue;
+    if (maxValue <= minValue + 1.0e-6f)
+        return std::clamp(value, 0.0f, 1.0f);
+    return std::clamp((value - minValue) / (maxValue - minValue), 0.0f, 1.0f);
+}
 
 float dbToGain(double db) {
     return static_cast<float>(std::pow(10.0, db / 20.0));
@@ -920,6 +941,106 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                 transport.loopStartSample = sourceStartFrame;
                 transport.loopEndSample = sourceStartFrame + contentFrames;
                 processorSession->publishTransport(transport);
+
+                const double automationBeat = tempoMap.samplesToBeats(
+                    sourceFrameBase, request.sampleRate);
+                const auto applyAutomationLane = [&](const AutomationLane& lane,
+                                                     double laneBeat,
+                                                     uint32_t strip) {
+                    if (!lane.enabled || lane.muted || lane.points.empty())
+                        return;
+                    const float value = AutomationEvaluator::evaluatePoints(
+                        lane.points, laneBeat, lane.target.defaultValue);
+                    if (lane.target.domain == AutomationDomain::Plugin) {
+                        int parameterIndex = -1;
+                        std::string_view id(lane.target.parameterId);
+                        if (id.starts_with("param:")) id.remove_prefix(6);
+                        const auto parsed = std::from_chars(
+                            id.data(), id.data() + id.size(), parameterIndex);
+                        if (!id.empty() && parsed.ec == std::errc{}
+                            && parsed.ptr == id.data() + id.size()) {
+                            processorSession->setPluginParameter(
+                                lane.target.entityId, parameterIndex,
+                                normalizedAutomationValue(lane, value));
+                        }
+                    } else if (lane.target.domain == AutomationDomain::MidiCC
+                               && processorSession->stripHasInstrument(strip)) {
+                        const std::string_view parameterId(lane.target.parameterId);
+                        if (parameterId == "pitchBend" || parameterId == "pitch-bend") {
+                            const int bend14 = static_cast<int>(std::lround(
+                                normalizedAutomationValue(lane, value) * 16383.0f));
+                            processorSession->queueMidiMessage(
+                                strip, 0xE0, static_cast<uint8_t>(bend14 & 0x7f),
+                                static_cast<uint8_t>((bend14 >> 7) & 0x7f), 2, 0);
+                        } else {
+                            int controller = -1;
+                            if (parseAutomationIndex(parameterId, "cc:", controller)
+                                || parseAutomationIndex(parameterId, "cc", controller)
+                                || parseAutomationIndex(parameterId, "", controller)) {
+                                controller = std::clamp(controller, 0, 127);
+                                const int ccValue = static_cast<int>(std::lround(
+                                    normalizedAutomationValue(lane, value) * 127.0f));
+                                processorSession->queueMidiMessage(
+                                    strip, 0xB0, static_cast<uint8_t>(controller),
+                                    static_cast<uint8_t>(std::clamp(ccValue, 0, 127)), 2, 0);
+                            }
+                        }
+                    }
+                };
+
+                for (const auto& lane : song.automationLanes) {
+                    if (lane.target.domain == AutomationDomain::Plugin) {
+                        applyAutomationLane(lane, automationBeat, MixGraph::kNoStrip);
+                    } else if (lane.target.domain == AutomationDomain::MidiCC) {
+                        for (const auto& track : project.tracks) {
+                            if (track.id != lane.target.entityId)
+                                continue;
+                            const uint32_t strip = graph.find(track.effectiveStripId());
+                            if (strip != MixGraph::kNoStrip)
+                                applyAutomationLane(lane, automationBeat, strip);
+                            break;
+                        }
+                    }
+                }
+                const double automationSeconds =
+                    static_cast<double>(sourceFrameBase) / request.sampleRate;
+                for (const auto& regionReader : regions) {
+                    const Region& region = *regionReader.region;
+                    if (region.automationLanes.empty()
+                        || automationSeconds < region.startSeconds
+                        || (region.durationSeconds > 0.0
+                            && automationSeconds >= region.startSeconds + region.durationSeconds))
+                        continue;
+                    const int64_t regionStartSample = static_cast<int64_t>(
+                        std::llround(region.startSeconds * request.sampleRate));
+                    const double regionStartBeat = tempoMap.samplesToBeats(
+                        regionStartSample, request.sampleRate);
+                    const double regionBeat = automationBeat - regionStartBeat;
+                    for (const auto& lane : region.automationLanes)
+                        if (lane.target.domain == AutomationDomain::Plugin)
+                            applyAutomationLane(lane, regionBeat, MixGraph::kNoStrip);
+                }
+                for (const auto& region : song.midiRegions) {
+                    if (region.muted || automationBeat < region.startBeats
+                        || automationBeat >= region.startBeats + region.durationBeats)
+                        continue;
+                    const auto track = std::find_if(project.tracks.begin(), project.tracks.end(),
+                        [&region](const TrackDef& candidate) {
+                            return candidate.id == region.trackId;
+                        });
+                    if (track == project.tracks.end())
+                        continue;
+                    const uint32_t strip = graph.find(track->effectiveStripId());
+                    if (strip == MixGraph::kNoStrip)
+                        continue;
+                    double regionBeat = automationBeat - region.startBeats
+                        + region.clipOffsetBeats;
+                    if (region.loop && region.loopLengthBeats > 0.0)
+                        regionBeat = std::fmod(regionBeat, region.loopLengthBeats);
+                    for (const auto& lane : region.automationLanes)
+                        applyAutomationLane(lane, regionBeat, strip);
+                }
+
                 while (midiEventIndex < midiEvents.size()
                        && midiEvents[midiEventIndex].sample < sourceFrameBase + count) {
                     const auto& event = midiEvents[midiEventIndex++];

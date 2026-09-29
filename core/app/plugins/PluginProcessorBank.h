@@ -107,6 +107,14 @@ public:
         std::vector<std::string> warnings;
     };
 
+    struct ParameterInfo {
+        uint32_t index = 0;
+        std::string name;
+        std::string label;
+        float defaultValue = 0.0f;
+        uint32_t steps = 0;
+    };
+
     struct BuildResult {
         std::shared_ptr<PluginProcessorBank> bank;
         std::shared_ptr<PluginDelayBank> delayBank;
@@ -173,6 +181,8 @@ public:
         return allNotesOffPending.exchange(false, std::memory_order_acq_rel);
     }
     void injectAllNotesOff() noexcept;
+    /** Deliberate transport panic only: kill held voices and reset controllers. */
+    void injectAllSoundOff() noexcept;
 
     /** Real-time parameter automation methods (zero-allocation, non-blocking). */
     void setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value) noexcept;
@@ -184,6 +194,8 @@ public:
     PluginPowerState getSlotPowerState(const std::string& slotId) const noexcept;
     std::string getSlotLoadState(const std::string& slotId) const;
     std::string getSlotLoadError(const std::string& slotId) const;
+    /** Non-realtime discovery from a hosted chain's startup snapshot. */
+    std::vector<ParameterInfo> parametersForSlot(const std::string& slotId) const;
     void setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept;
     void prewarmStrip(size_t stripIndex) noexcept;
     void prewarmSlot(const std::string& slotId) noexcept;

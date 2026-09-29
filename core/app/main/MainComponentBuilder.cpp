@@ -1089,6 +1089,14 @@ void MainComponent::builderAutomationLaneAdd(const std::string& json) {
     if (getDouble(doc, "defaultValue", defVal)) lane.target.defaultValue = static_cast<float>(defVal);
     if (getDouble(doc, "minValue", minVal)) lane.target.minValue = static_cast<float>(minVal);
     if (getDouble(doc, "maxValue", maxVal)) lane.target.maxValue = static_cast<float>(maxVal);
+    double initialTimeBeats = 0.0, initialValue = 0.0;
+    if (getDouble(doc, "initialValue", initialValue)) {
+        (void)getDouble(doc, "initialTimeBeats", initialTimeBeats);
+        if (std::isfinite(initialTimeBeats) && std::isfinite(initialValue)) {
+            lane.points.push_back({std::max(0.0, initialTimeBeats),
+                static_cast<float>(initialValue), 0.0f});
+        }
+    }
 
     if (getString(doc, "scope", scopeStr)) lane.scope = automationScopeFromString(scopeStr);
     if (getString(doc, "writeMode", writeModeStr)) lane.writeMode = automationWriteModeFromString(writeModeStr);
