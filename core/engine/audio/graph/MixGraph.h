@@ -150,6 +150,10 @@ struct MixGraph {
     // using its strip-indexed function table.
     uint64_t processorLayoutKey = 0;
 
+    // Set by AudioEngine when publishing. A callback must not pair a graph
+    // acquired before a document replacement with the new ProjectLoader.
+    uint64_t projectEpoch = 0;
+
     // Includes processorLayoutKey plus physical lanes and edge topology. PDC
     // uses this separate key so a routing edit can rebuild only delay lines
     // without recreating stateful vendor processors.

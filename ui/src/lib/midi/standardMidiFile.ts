@@ -169,7 +169,8 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
       const data2 = kind === 0xc0 || kind === 0xd0 ? 0 : reader.byte();
       if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
       if (kind !== 0x80 && kind !== 0x90) {
-        events.push({ beat: tick / division, status, data: kind === 0xc0 || kind === 0xd0 ? [data1] : [data1, data2] });
+        events.push({ beat: musicalPosition(tick), status,
+          data: kind === 0xc0 || kind === 0xd0 ? [data1] : [data1, data2] });
         continue;
       }
       const key = channel * 128 + data1;
@@ -318,12 +319,7 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
         report.quantizedVelocities++;
     }
     for (const event of region.umpEvents ?? []) {
-      const first = event.words[0] >>> 0;
-      const type = first >>> 28;
-      const status = (first >>> 20) & 0xf;
-      const representable = (type === 2 && [0xa, 0xb, 0xd, 0xe].includes(status))
-        || (type === 4 && [0xa, 0xb, 0xd, 0xe].includes(status) && event.wordCount === 2);
-      if (!representable) report.unsupportedUmpEvents++;
+      if (!umpEventToMidi1(event.words, event.wordCount)) report.unsupportedUmpEvents++;
     }
   }
   return report;
@@ -353,11 +349,16 @@ function umpEventToMidi1(words: number[], wordCount: number): { status: number; 
   if (type === 2) {
     if (status === 0xa) return { status: statusByte, data: [data1, data2] };
     if (status === 0xb) return { status: statusByte, data: [data1, data2] };
+    if (status === 0xc) return { status: statusByte, data: [data1] };
     if (status === 0xd) return { status: statusByte, data: [data1] };
     if (status === 0xe) return { status: statusByte, data: [data1, data2] };
     return null;
   }
   if (wordCount !== 2) return null;
+  // MIDI 2.0 reserves these CC indices for unified Bank/Program, RPN/NRPN,
+  // and Note Velocity. Translating them as ordinary MIDI 1.0 CCs would create
+  // control changes a MIDI 2.0 receiver was required to ignore.
+  if (status === 0xb && [0, 6, 32, 38, 88, 98, 99, 100, 101].includes(data1)) return null;
   const value32 = words[1] >>> 0;
   const scale32To7 = (value: number) => value >>> 25;
   const scale32To14 = (value: number) => value >>> 18;
@@ -620,10 +621,10 @@ export function midiTempoDiffersFromSong(
 
 export interface MidiSongExportOptions {
   songIndices: number[];
+  /** Project-global tracks: songs contain regions but no track definitions. */
+  tracks: readonly { id: string; name: string }[];
   /** Exact track IDs to export; omit to include all MIDI tracks. */
   trackIds?: Set<string>;
-  /** Match a logical track across songs whose per-song IDs differ. */
-  trackNames?: Set<string>;
   fromProjectStart: boolean;
   expandLoops: boolean;
   format?: "midi1" | "midi2";
@@ -632,6 +633,7 @@ export interface MidiSongExportOptions {
 /** Concatenate chosen songs and encode their complete tempo/meter map. */
 export function writeSongsMidiFile(songs: SongRow[], options: MidiSongExportOptions): Uint8Array {
   const tracks = new Map<string, MidiExportTrack>();
+  const trackNames = new Map(options.tracks.map((track) => [track.id, track.name]));
   const tempoEvents: NonNullable<MidiExportOptions["tempoEvents"]> = [];
   const meterEvents: NonNullable<MidiExportOptions["meterEvents"]> = [];
   let beatOffset = 0;
@@ -668,13 +670,11 @@ export function writeSongsMidiFile(songs: SongRow[], options: MidiSongExportOpti
       if (point.beat >= 0 && point.beat <= durationBeats)
         meterEvents.push({ beat: beatOffset + point.beat, numerator: point.numerator, denominator: point.denominator });
     for (const region of song.midiRegions ?? []) {
-      const name = song.tracks.find((track) => track.id === region.trackId)?.name ?? region.trackId;
       if (options.trackIds && !options.trackIds.has(region.trackId)) continue;
-      if (options.trackNames && !options.trackNames.has(name)) continue;
-      const key = name;
-      const track = tracks.get(key) ?? { name, regions: [] };
+      const name = trackNames.get(region.trackId) ?? region.trackId;
+      const track = tracks.get(region.trackId) ?? { name, regions: [] };
       track.regions.push({ ...region, startBeats: beatOffset + region.startBeats });
-      tracks.set(key, track);
+      tracks.set(region.trackId, track);
     }
     beatOffset += durationBeats;
   }

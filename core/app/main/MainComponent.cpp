@@ -776,6 +776,16 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
 }
 
 void MainComponent::saveProjectToPath(const std::string& path, std::function<void(bool)> onDone) {
+    if (engine.isBusy()) {
+        setStatus("Project operation in progress; retry when it finishes");
+        if (onDone) onDone(false);
+        if (pendingSaveAsCallback) {
+            auto cb = std::move(pendingSaveAsCallback);
+            pendingSaveAsCallback = nullptr;
+            cb(false);
+        }
+        return;
+    }
     if (!engine.isProjectLoaded()) {
         setStatus("Nothing to save -- load a project first");
         if (onDone) onDone(false);
@@ -1142,6 +1152,22 @@ void MainComponent::drainWebCommands() {
     };
 
     auto dispatchOne = [this](const WebCommand& cmd) {
+        // Async save/import completion may reopen the live ProjectLoader. Keep
+        // transactional edits out until it has finished; Stop remains usable
+        // throughout a slow disk operation.
+        if (engine.isBusy() && cmd.kind != WebCommandKind::Stop
+            && cmd.kind != WebCommandKind::CancelAudioRender
+            && cmd.kind != WebCommandKind::PluginScanCancel) {
+            // Builder WAV uploads are temporary server-owned files. A load
+            // path may be a user's actual project/recent file and must never
+            // be deleted just because the engine is busy.
+            if (cmd.kind == WebCommandKind::BuilderTrackImportWavUpload)
+                std::remove(cmd.path.c_str());
+            if (cmd.kind == WebCommandKind::ExportProjectForDownload)
+                webServer.failExport();
+            setStatus("Project operation in progress; retry when it finishes");
+            return;
+        }
         const size_t idx = static_cast<size_t>(cmd.arg);
         switch (cmd.kind) {
             case WebCommandKind::Play: engine.play(); break;
@@ -1324,6 +1350,7 @@ void MainComponent::drainWebCommands() {
             }
             case WebCommandKind::SetProjectName: setProjectNameFromJson(cmd.json); break;
             case WebCommandKind::NewProject:
+                closeAllPluginEditors();
                 engine.newProject();
                 applyGlobalBindings();
                 onProjectLoaded();
@@ -1340,6 +1367,7 @@ void MainComponent::drainWebCommands() {
                 break;
             case WebCommandKind::LoadProjectFromPath: {
                 std::string error;
+                closeAllPluginEditors();
                 const bool loaded = engine.loadProject(cmd.path, error);
                 if (loaded) {
                     applyGlobalBindings();
@@ -2649,6 +2677,11 @@ void MainComponent::saveAppSettingsToDisk() {
 
 void MainComponent::newProjectClicked() {
     auto doNew = [this] {
+        if (engine.isBusy()) {
+            setStatus("Project operation in progress; retry when it finishes");
+            return;
+        }
+        closeAllPluginEditors();
         engine.newProject();
         applyGlobalBindings();
         onProjectLoaded();
@@ -2696,6 +2729,10 @@ void MainComponent::newProjectClicked() {
 }
 
 bool MainComponent::loadProjectFromPath(const juce::File& file) {
+    if (engine.isBusy()) {
+        setStatus("Project operation in progress; retry when it finishes");
+        return false;
+    }
     if (!file.exists())
         return false;
 
@@ -2740,6 +2777,10 @@ static void prepareNativeDialogForeground() {
 }
 
 void MainComponent::loadProjectClicked() {
+    if (engine.isBusy()) {
+        setStatus("Project operation in progress; retry when it finishes");
+        return;
+    }
     prepareNativeDialogForeground();
 
 #if JUCE_WINDOWS
@@ -2758,8 +2799,13 @@ void MainComponent::loadProjectClicked() {
         const auto file = fc.getResult();
         if (file == juce::File())
             return;
+        if (engine.isBusy()) {
+            setStatus("Project operation in progress; retry when it finishes");
+            return;
+        }
 
         std::string error;
+        closeAllPluginEditors();
         if (!engine.loadProject(file.getFullPathName().toStdString(), error)) {
             setStatus("Load failed: " + juce::String(error));
             return;
@@ -2778,6 +2824,11 @@ void MainComponent::loadProjectClicked() {
 }
 
 void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> onDone) {
+    if (engine.isBusy()) {
+        setStatus("Project operation in progress; retry when it finishes");
+        if (onDone) onDone(false);
+        return;
+    }
     if (!engine.isProjectLoaded()) {
         setStatus("Nothing to save -- load a project first");
         if (onDone)
@@ -2789,6 +2840,11 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
         if (file == juce::File()) {
             if (onDone)
                 onDone(false);
+            return;
+        }
+        if (engine.isBusy()) {
+            setStatus("Project operation in progress; retry when it finishes");
+            if (onDone) onDone(false);
             return;
         }
         // Always write a .rsnraset path (chooser may return bare name).

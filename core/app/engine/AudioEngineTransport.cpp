@@ -6,6 +6,7 @@
 #include "AudioEngineInternal.h"
 #include "project/RouteId.h"
 #include "events/DueQueue.h"
+#include "midi/Midi2Compatibility.h"
 #include "timing/SongLength.h"
 #include "automation/AutomationEvaluator.h"
 
@@ -1585,7 +1586,8 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
     const auto& projectTracks = project().tracks;
 
     for (const auto& region : song.midiRegions) {
-        if (region.muted || (region.notes.empty() && region.events.empty()) || region.durationBeats <= 0.0)
+        if (region.muted || (region.notes.empty() && region.events.empty() && region.umpEvents.empty())
+            || region.durationBeats <= 0.0)
             continue;
 
         const double regionStartBeat = region.startBeats;
@@ -1655,10 +1657,8 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
 
                 const uint8_t ch = static_cast<uint8_t>(std::clamp(static_cast<int>(note.channel) + 1, 1, 16));
                 const uint8_t pitch = static_cast<uint8_t>(std::clamp(static_cast<int>(note.pitch), 0, 127));
-                const uint8_t vel = static_cast<uint8_t>(std::clamp(
-                    static_cast<int>(std::llround(note.velocity * 127.0f)), 1, 127));
-                const uint8_t relVel = static_cast<uint8_t>(std::clamp(
-                    static_cast<int>(std::llround(note.releaseVelocity * 127.0f)), 0, 127));
+                const uint8_t vel = midi1NoteVelocity(note, true);
+                const uint8_t relVel = midi1NoteVelocity(note, false);
 
                 // Note-On dispatch
                 if (noteOnBeat >= regionStartBeat && noteOnBeat < regionEndBeat) {
@@ -1751,6 +1751,33 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                     cmd.dataLength = static_cast<uint8_t>(dataLength);
                     if (dataLength > 0) cmd.data1 = event.data[0];
                     if (dataLength > 1) cmd.data2 = event.data[1];
+                    const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
+                    cmd.targetHostTimeNanos = heardHostNanos(hostTimeNanos, offsetSec, outputLatencySec);
+                    midiDispatcher.enqueue(cmd);
+                }
+            }
+
+            for (const auto& event : region.umpEvents) {
+                const auto compatible = umpToMidi1ChannelControl(event);
+                if (!compatible || !std::isfinite(event.beat)) continue;
+                const double eventBeat = iterationOffset + event.beat;
+                if (eventBeat < regionStartBeat || eventBeat >= regionEndBeat) continue;
+                const int64_t eventSample = beatsToSamples(eventBeat);
+                if (eventSample < blockStartSample || eventSample >= blockEndSample) continue;
+                const int sampleOffset = std::clamp(static_cast<int>(eventSample - blockStartSample), 0, numSamples - 1);
+                if (canSendToPlugin) {
+                    const uint8_t bytes[3] = {compatible->status, compatible->data1, compatible->data2};
+                    pluginBank->addStripMidiEvent(targetStripIndex,
+                        juce::MidiMessage(bytes, compatible->dataLength + 1), sampleOffset);
+                }
+                if (canSendToExternalMidi) {
+                    MidiCommand cmd;
+                    cmd.kind = MidiCommandKind::Raw;
+                    cmd.status = compatible->status;
+                    cmd.channel = static_cast<uint8_t>(compatible->status & 0x0f);
+                    cmd.dataLength = compatible->dataLength;
+                    cmd.data1 = compatible->data1;
+                    cmd.data2 = compatible->data2;
                     const double offsetSec = static_cast<double>(sampleOffset) / sampleRate;
                     cmd.targetHostTimeNanos = heardHostNanos(hostTimeNanos, offsetSec, outputLatencySec);
                     midiDispatcher.enqueue(cmd);

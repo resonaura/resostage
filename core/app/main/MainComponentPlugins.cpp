@@ -497,6 +497,12 @@ void MainComponent::pluginSlotOpenEditor(const std::string& json) {
         }
     }
 
+    if (bank->openHostedEditor(slotId)) {
+        setStatus("Opened isolated plug-in editor: "
+                  + juce::String(slot->plugin.name));
+        return;
+    }
+
     restoreForegroundShell();
     auto editor = bank->createEditor(slotId);
     if (editor == nullptr) {
@@ -525,6 +531,13 @@ void MainComponent::pluginSlotOpenEditor(const std::string& json) {
 }
 
 void MainComponent::closePluginEditor(const std::string& slotId) {
+    if (auto bank = engine.activePluginProcessorBank()) {
+        if (slotId.empty()) {
+            (void)bank->closeAllHostedEditors();
+        } else if (bank->closeHostedEditor(slotId)) {
+            return;
+        }
+    }
     for (auto it = pluginEditorWindows.begin(); it != pluginEditorWindows.end(); ) {
         if (auto* pluginWindow = dynamic_cast<PluginEditorWindow*>(it->get());
             pluginWindow != nullptr && (slotId.empty() || pluginWindow->slotId() == slotId)) {

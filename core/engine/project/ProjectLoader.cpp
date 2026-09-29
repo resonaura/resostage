@@ -68,6 +68,8 @@ struct ProjectLoader::Impl {
 
 ProjectLoader::ProjectLoader() : impl(std::make_unique<Impl>()) {}
 ProjectLoader::~ProjectLoader() = default;
+ProjectLoader::ProjectLoader(ProjectLoader&&) noexcept = default;
+ProjectLoader& ProjectLoader::operator=(ProjectLoader&&) noexcept = default;
 
 void ProjectLoader::close() {
     impl->isContainerDir = false;
@@ -200,27 +202,70 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
     return true;
 }
 
-bool ProjectLoader::extractFile(const std::string& archivePath, std::vector<uint8_t>& outData, std::string& error) const {
+bool ProjectLoader::extractFile(const std::string& archivePath,
+                                std::vector<uint8_t>& outData,
+                                std::string& error,
+                                uint64_t maximumBytes) const {
+    outData.clear();
     if (!isOpen()) {
         error = "Container not open";
         return false;
     }
 
     namespace fs = std::filesystem;
-    fs::path filePath = fs::path(openArchivePath) / archivePath;
-    std::ifstream ifs(filePath, std::ios::binary | std::ios::ate);
+    const fs::path relativePath(archivePath);
+    if (archivePath.empty() || relativePath.is_absolute() || relativePath.has_root_name()) {
+        error = "Invalid project resource path";
+        return false;
+    }
+    for (const auto& component : relativePath) {
+        if (component == "..") {
+            error = "Project resource path escapes its container";
+            return false;
+        }
+    }
+
+    std::error_code ec;
+    const fs::path root = fs::canonical(openArchivePath, ec);
+    if (ec) {
+        error = "Failed to resolve project container path: " + ec.message();
+        return false;
+    }
+    const fs::path filePath = fs::canonical(root / relativePath, ec);
+    if (ec) {
+        error = "Failed to resolve project resource: " + archivePath;
+        return false;
+    }
+    const fs::path insidePath = filePath.lexically_relative(root);
+    if (insidePath.empty() || insidePath.is_absolute()
+        || *insidePath.begin() == ".." || !fs::is_regular_file(filePath, ec) || ec) {
+        error = "Project resource resolves outside its container or is not a regular file";
+        return false;
+    }
+
+    const uintmax_t fileSize = fs::file_size(filePath, ec);
+    if (ec || fileSize > maximumBytes
+        || fileSize > static_cast<uintmax_t>(std::numeric_limits<std::streamsize>::max())
+        || fileSize > static_cast<uintmax_t>(outData.max_size())) {
+        error = ec ? "Failed to inspect project resource size: " + ec.message()
+                   : "Project resource exceeds the permitted extraction size";
+        return false;
+    }
+
+    std::ifstream ifs(filePath, std::ios::binary);
     if (!ifs.is_open()) {
         error = "Failed to open file in container: " + filePath.string();
         return false;
     }
-    std::streamsize size = ifs.tellg();
-    ifs.seekg(0, std::ios::beg);
-    outData.resize(static_cast<size_t>(size));
-    if (size > 0 && ifs.read(reinterpret_cast<char*>(outData.data()), size)) {
-        return true;
+    outData.resize(static_cast<size_t>(fileSize));
+    if (!outData.empty()
+        && !ifs.read(reinterpret_cast<char*>(outData.data()),
+                     static_cast<std::streamsize>(outData.size()))) {
+        outData.clear();
+        error = "Failed to read file in container: " + filePath.string();
+        return false;
     }
-    error = "Failed to read file in container: " + filePath.string();
-    return false;
+    return true;
 }
 
 struct ProjectLoader::StreamCursor::Impl {

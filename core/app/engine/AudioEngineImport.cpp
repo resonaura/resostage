@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -38,6 +39,12 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             onComplete(false, std::move(msg));
     };
 
+    // A second request must not join the active import on the message thread
+    // or clear its busy flag before its completion has reopened the project.
+    if (isBusy()) {
+        fail("Project operation already in progress");
+        return;
+    }
     if (importThread.joinable())
         importThread.join();
     if (pendingFinishImport) {
@@ -45,7 +52,6 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
         pendingFinishImport = nullptr;
         fn();
     }
-    busyImporting.store(false, std::memory_order_release);
     const TrackDef* track = trackDefInSong(songIndex, trackIndex);
     if (track == nullptr) {
         fail("Invalid track index");
@@ -258,6 +264,10 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
         return;
     }
 
+    if (isBusy()) {
+        fail("Project operation already in progress");
+        return;
+    }
     if (importThread.joinable())
         importThread.join();
     if (pendingFinishImport) {
@@ -265,8 +275,6 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
         pendingFinishImport = nullptr;
         fn();
     }
-    busyImporting.store(false, std::memory_order_release);
-
     if (!loader.isOpen() || loader.archivePath().empty()) {
         newProject("New Project");
     }
@@ -374,7 +382,11 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
 void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError, const std::string& tempOut,
                                     const std::string& archivePath, size_t songToRestore, bool wasPlaying,
                                     const std::function<void(bool, std::string)>& onComplete) {
+    std::unique_ptr<ProjectReplacementScope> replacement;
     auto done = [&](bool ok, std::string msg) {
+        // The completion callback may immediately start another project
+        // operation. End this transition before it can reenter AudioEngine.
+        replacement.reset();
         busyImporting.store(false, std::memory_order_release);
         if (onComplete)
             onComplete(ok, std::move(msg));
@@ -400,16 +412,23 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     // naturally overwritten with the fresh one, and no other file's cached
     // peaks need to be thrown away just because an unrelated import happened.
 
+    // The archive is rewritten for this same logical document. Gate the
+    // callback while loader resources are replaced, but keep the project epoch
+    // so unchanged processor nodes stay live after the import completes.
+    replacement = std::make_unique<ProjectReplacementScope>(*this, false);
+
     if (std::rename(tempOut.c_str(), archivePath.c_str()) != 0) {
         std::string reopenError;
         (void)loader.reopenArchiveKeepProject(archivePath, reopenError);
         (void)loader.reparseProject(reopenError);
         projectLoaded = loader.isOpen();
-        if (projectLoaded)
+        if (projectLoaded) {
+            publishRoutingSnapshot();
             streaming.start(&loader,
                     streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
+        }
         done(false, "Failed to replace archive after import");
         return;
     }
@@ -425,12 +444,6 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     // No-op unless this was a folder import: a WAV import closed its own
     // entry synchronously, before the archive write ever started.
     (void)projectHistory.commitOpenEdit(kFolderImportGestureId, loader.project());
-    publishRoutingSnapshot();
-    streaming.start(&loader,
-                    streamingIoThreadStart,
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
-                    residentIoYield);
-
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
     trackScratch.clear();
@@ -440,6 +453,12 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     trackMeters.clear();
     trackBandMeters.clear();
     trackPeaks.clear();
+    publishRoutingSnapshot();
+    ensureScratchSizes();
+    streaming.start(&loader,
+                    streamingIoThreadStart,
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
 
     if (songToRestore != static_cast<size_t>(-1) && songToRestore < loader.project().songs.size()) {
         std::string selectError;
@@ -527,8 +546,8 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             onComplete(false, std::move(msg));
     };
 
-    if (busyImporting.load(std::memory_order_acquire)) {
-        fail("Another import is already in progress");
+    if (isBusy()) {
+        fail("Project operation already in progress");
         return;
     }
     if (!projectLoaded) {

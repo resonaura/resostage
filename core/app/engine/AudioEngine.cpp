@@ -477,9 +477,13 @@ bool AudioEngine::undoTimelineEdit(std::string& appliedLabel) {
     auto restored = projectHistory.undo();
     if (!restored.has_value())
         return false;
+    // History stores whole Project values. Keep the callback out until both
+    // the new document storage and its graph/event arrays are published.
+    ProjectReplacementScope replacement(*this, false);
     loader.project() = std::move(*restored);
     resyncStreamingWindowsForCurrentSong();
     syncTransportCycleFromProject();
+    rebuildBussesFromProject();
     markDirty();
     return true;
 }
@@ -489,9 +493,11 @@ bool AudioEngine::redoTimelineEdit(std::string& appliedLabel) {
     auto restored = projectHistory.redo();
     if (!restored.has_value())
         return false;
+    ProjectReplacementScope replacement(*this, false);
     loader.project() = std::move(*restored);
     resyncStreamingWindowsForCurrentSong();
     syncTransportCycleFromProject();
+    rebuildBussesFromProject();
     markDirty();
     return true;
 }
@@ -774,6 +780,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                                      int numOutputChannels,
                                                      int numSamples,
                                                      const juce::AudioIODeviceCallbackContext& context) {
+    audioCallbacksInFlight.fetch_add(1);
+    struct CallbackFlight {
+        std::atomic<uint32_t>& count;
+        ~CallbackFlight() { count.fetch_sub(1); }
+    } callbackFlight{audioCallbacksInFlight};
+
+    if (projectTransitioning.load()) {
+        for (int ch = 0; ch < numOutputChannels; ++ch)
+            if (outputChannelData[ch] != nullptr)
+                std::fill(outputChannelData[ch], outputChannelData[ch] + numSamples, 0.0f);
+        systemHealth.noteSilentBlock();
+        return;
+    }
+
     if (activeMidiNotesClearRequested.exchange(false, std::memory_order_acq_rel))
         clearActiveMidiNotes();
 
@@ -1042,7 +1062,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
 
     const auto pluginPub =
         std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
-    const bool bankHasPlugins = (pluginPub != nullptr && pluginPub->bank != nullptr && pluginPub->bank->hasPlugins());
+    const bool bankHasPlugins = pluginPub != nullptr
+        && pluginPub->projectEpoch == projectEpoch.load(std::memory_order_acquire)
+        && pluginPub->bank != nullptr && pluginPub->bank->hasPlugins();
 
     const bool isPlaying = playing.load(std::memory_order_acquire);
     if (isPlaying) {
@@ -1151,7 +1173,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         const auto stoppedPluginBank =
             std::atomic_load_explicit(&activePluginBank,
                                       std::memory_order_relaxed);
-        if (stoppedPluginBank != nullptr && stoppedPluginBank->bank != nullptr) {
+        if (stoppedPluginBank != nullptr
+            && stoppedPluginBank->projectEpoch == projectEpoch.load(std::memory_order_acquire)
+            && stoppedPluginBank->bank != nullptr) {
             PluginTransportState pluginTransport;
             pluginTransport.sample = renderPlayheadSample;
             pluginTransport.sampleRate = currentSampleRate;
@@ -1205,8 +1229,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         std::atomic_load_explicit(&activePluginBank,
                                   std::memory_order_acquire);
     MixProcessorView pluginProcessors;
+    PluginProcessorBank* compatiblePluginBank = nullptr;
     int64_t pluginLatencyForBlock = 0;
     if (pluginPublication != nullptr
+        && pluginPublication->projectEpoch == graph.projectEpoch
         && pluginPublication->processorLayoutKey == graph.processorLayoutKey
         && std::abs(pluginPublication->sampleRate - currentSampleRate) < 1e-6
         && numSamples <= pluginPublication->maximumBlockSize
@@ -1216,6 +1242,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 ? pluginPublication->delayBank.get() : nullptr;
         pluginProcessors = pluginPublication->bank->processorView(
             compatibleDelayBank);
+        compatiblePluginBank = pluginPublication->bank.get();
         pluginLatencyForBlock = compatibleDelayBank != nullptr
             ? compatibleDelayBank->latencySamples()
             : pluginPublication->bank->latencySamples();
@@ -1223,6 +1250,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
 
     std::unique_lock<std::recursive_mutex> routeLock(routingMutex, std::try_to_lock);
     if (!routeLock.owns_lock()) {
+        bailSilently();
+        return;
+    }
+    if (projectTransitioning.load(std::memory_order_acquire)
+        || graph.projectEpoch != projectEpoch.load(std::memory_order_acquire)) {
         bailSilently();
         return;
     }
@@ -1240,9 +1272,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
 
     const int64_t playheadSample = renderPlayheadSample;
 
-    if (pluginPublication != nullptr && pluginPublication->bank != nullptr) {
-        if (pluginPublication->bank->consumeAllNotesOff()) {
-            pluginPublication->bank->injectAllNotesOff();
+    if (compatiblePluginBank != nullptr) {
+        if (compatiblePluginBank->consumeAllNotesOff()) {
+            compatiblePluginBank->injectAllNotesOff();
         }
     }
 
@@ -1266,10 +1298,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             for (int pitch = 0; pitch < 128; ++pitch) {
                 auto& count = sequencedMidiNoteCounts[strip][static_cast<size_t>(pitch)];
                 while (count != 0) {
-                    if (pluginPublication != nullptr
-                        && pluginPublication->bank != nullptr
-                        && pluginPublication->bank->stripHasInstrument(strip)) {
-                        pluginPublication->bank->addStripMidiEvent(
+                    if (compatiblePluginBank != nullptr
+                        && compatiblePluginBank->stripHasInstrument(strip)) {
+                        compatiblePluginBank->addStripMidiEvent(
                             strip, juce::MidiMessage::noteOff(1, pitch), 0);
                     }
                     if (external) {
@@ -1325,7 +1356,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 std::llround(loopEnd * currentSampleRate));
         }
         pluginTransport.recording = isRecordingState.load(std::memory_order_relaxed);
-        pluginPublication->bank->publishTransport(pluginTransport);
+        compatiblePluginBank->publishTransport(pluginTransport);
     }
 
     // Drain queued incoming MIDI for real-time plugin instruments and MIDI recording
@@ -1395,8 +1426,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                             const bool noteOn = msg.isNoteOn() && msg.getVelocity() > 0;
                             updateActiveMidiNote(t, msg.getNoteNumber(), noteOn);
                         }
-                        if (pluginProcessors.strips != nullptr && pluginPublication != nullptr && pluginPublication->bank != nullptr) {
-                            pluginPublication->bank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
+                        if (compatiblePluginBank != nullptr) {
+                            compatiblePluginBank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
                         }
 
                         if (midiCaptureActive && isArmed) {
@@ -1476,7 +1507,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             song, blockStartSeconds, blockEndSeconds, hostTimeNanos,
             currentOutputLatencySamples.load(std::memory_order_relaxed)
                 + pluginLatencyForBlock,
-            pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
+            compatiblePluginBank,
             numSamples);
 
         const auto tempoMap = std::atomic_load_explicit(&activeTempoMap, std::memory_order_acquire);
@@ -1488,7 +1519,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         dispatchMidiRegionsForBlock(
             song, playheadSample, numSamples, currentSampleRate,
             &graph,
-            pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
+            compatiblePluginBank,
             tempoMap.get(),
             hostTimeNanos,
             outputLatencySec);
@@ -1496,7 +1527,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         dispatchAutomationForBlock(
             song, playheadSample, numSamples, currentSampleRate,
             &graph,
-            pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
+            compatiblePluginBank,
             tempoMap.get(),
             hostTimeNanos,
             outputLatencySec);
@@ -1504,7 +1535,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         prewarmPluginsLookahead(
             song, playheadSample, currentSampleRate,
             &graph,
-            pluginPublication != nullptr ? pluginPublication->bank.get() : nullptr,
+            compatiblePluginBank,
             tempoMap.get());
 
         // Cycle / skip-cycle (Logic-style locators, song-local). Applied on the

@@ -29,7 +29,7 @@ class ClipReader {
   fourCC(): string { return String.fromCharCode(this.byte(), this.byte(), this.byte(), this.byte()); }
 }
 
-interface ClipEvent { beat: number; words: number[]; order: number }
+interface ClipEvent { beat: number; words: number[]; priority: number; order: number }
 interface HeldNote { tick: number; velocity: number; attributeType: number; attributeData: number; group: number; channel: number; pitch: number }
 
 /** Parse the published MIDI Clip File (.midi2) UMP stream format. */
@@ -213,25 +213,28 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   const origin = options.fromProjectStart || !Number.isFinite(earliest) ? 0 : earliest;
   const events: ClipEvent[] = [];
   let order = 0;
-  const addNote = (note: MidiNoteRow, beat: number) => {
-    for (const item of notePackets({ ...note, startBeats: beat }, 0))
-      events.push({ ...item, order: order++ });
+  const addNote = (note: MidiNoteRow, beat: number, durationBeats: number) => {
+    for (const [index, item] of notePackets({ ...note, startBeats: beat, durationBeats }, 0).entries())
+      events.push({ ...item, priority: index === 0 ? 2 : 0, order: order++ });
   };
   for (const track of tracks) for (const region of track.regions) {
-    const loops = options.expandLoops && region.loop && region.loopLengthBeats > 0
-      ? Math.min(100_000, Math.ceil(region.durationBeats / region.loopLengthBeats)) : 1;
+    if (region.muted) continue;
+    const loopLength = region.loopLengthBeats > 0 ? region.loopLengthBeats : region.durationBeats;
+    const loops = options.expandLoops && region.loop && loopLength > 0
+      ? Math.min(100_000, Math.ceil((region.durationBeats + region.clipOffsetBeats) / loopLength)) : 1;
     for (let iteration = 0; iteration < loops; iteration++) {
-      const start = region.startBeats + iteration * (region.loopLengthBeats || region.durationBeats);
-      const limit = options.expandLoops && region.loop ? region.loopLengthBeats : region.durationBeats;
       for (const note of region.notes) {
-        if (note.startBeats < region.clipOffsetBeats || note.startBeats >= region.clipOffsetBeats + limit) continue;
-        const beat = start + note.startBeats - region.clipOffsetBeats - origin;
+        if (note.muted) continue;
+        const relative = note.startBeats + iteration * loopLength - region.clipOffsetBeats;
+        if (relative < 0 || relative >= region.durationBeats) continue;
+        const beat = region.startBeats + relative - origin;
         if (beat < -1e-9) continue;
-        addNote(note, Math.max(0, beat));
+        addNote(note, Math.max(0, beat), Math.min(note.durationBeats, region.durationBeats - relative));
       }
       for (const event of region.umpEvents ?? []) {
-        if (event.beat < region.clipOffsetBeats || event.beat >= region.clipOffsetBeats + limit) continue;
-        const beat = start + event.beat - region.clipOffsetBeats - origin;
+        const relative = event.beat + iteration * loopLength - region.clipOffsetBeats;
+        if (relative < 0 || relative >= region.durationBeats) continue;
+        const beat = region.startBeats + relative - origin;
         if (beat >= -1e-9) {
           const wordCount = event.wordCount;
           const words = event.words.slice(0, wordCount);
@@ -239,14 +242,15 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
             throw new Error("A stored UMP event is malformed");
           const expectedWords = packetWords(words[0] >>> 28);
           if (expectedWords !== wordCount) throw new Error("A stored UMP event has an invalid packet length");
-          events.push({ beat: Math.max(0, beat), words, order: order++ });
+          events.push({ beat: Math.max(0, beat), words, priority: 1, order: order++ });
         }
       }
       for (const event of region.events ?? []) {
-        if (event.beat < region.clipOffsetBeats || event.beat >= region.clipOffsetBeats + limit) continue;
-        const beat = start + event.beat - region.clipOffsetBeats - origin;
+        const relative = event.beat + iteration * loopLength - region.clipOffsetBeats;
+        if (relative < 0 || relative >= region.durationBeats) continue;
+        const beat = region.startBeats + relative - origin;
         const words = midi1EventToUmp(event.status, event.data);
-        if (words && beat >= -1e-9) events.push({ beat: Math.max(0, beat), words, order: order++ });
+        if (words && beat >= -1e-9) events.push({ beat: Math.max(0, beat), words, priority: 1, order: order++ });
       }
     }
   }
@@ -264,7 +268,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     if (beat < -1e-9) continue;
     const quantizedBeat = Math.max(0, Math.round(beat * 24) / 24);
     const units = Math.max(1, Math.min(0xffff_ffff, Math.round(60 / item.bpm * 100_000_000)));
-    events.push({ beat: quantizedBeat, words: [0xd0100000, units >>> 0, 0, 0], order: -100_000 + order++ });
+    events.push({ beat: quantizedBeat, words: [0xd0100000, units >>> 0, 0, 0], priority: -2, order: order++ });
   }
   const rawMeterEvents = [...(options.meterEvents ?? [{ beat: 0, numerator: options.numerator, denominator: options.denominator }])]
     .filter((item) => Number.isFinite(item.beat) && item.numerator > 0 && Number.isInteger(item.denominator))
@@ -282,11 +286,13 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     if (!Number.isInteger(power) || power < 0 || power > 7) continue;
     const quantizedBeat = Math.max(0, Math.round(beat * 24) / 24);
     const word1 = (((item.numerator & 0xff) << 24) | ((power & 0xff) << 16) | (8 << 8)) >>> 0;
-    events.push({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], order: -90_000 + order++ });
+    events.push({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], priority: -1, order: order++ });
   }
   if (!events.length) throw new Error("No MIDI events to export");
   if (events.length > MAX_EVENTS) throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
-  events.sort((a, b) => a.beat - b.beat || a.order - b.order);
+  // End an existing note before retriggering the same pitch at one tick,
+  // regardless of the order of notes in the project region.
+  events.sort((a, b) => a.beat - b.beat || a.priority - b.priority || a.order - b.order);
 
   const bytes = [...Array.from(MAGIC).map((letter) => letter.charCodeAt(0))];
   appendWord(bytes, dcs(0));

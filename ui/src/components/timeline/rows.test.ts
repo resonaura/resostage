@@ -35,7 +35,6 @@ const song = (partial: Partial<SongRow> & { name: string }): SongRow => ({
   click: false,
   clickBusId: "master",
   clickSends: [],
-  tracks: [],
   events: [],
   regions: [],
   sections: [],

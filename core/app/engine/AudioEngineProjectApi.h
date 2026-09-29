@@ -110,10 +110,9 @@
 
     void flushDeferredAutosave();
 
-    // True from the moment an async import starts until its onComplete
-
-    // fires. UI should disable further project-editing actions and show a
-    // busy/spinner indicator while this is true.
+    // True while an async import or save owns the live project/archive. UI and
+    // Core command dispatch defer project mutations until that transaction
+    // has reopened and published the matching project state.
     bool isBusy() const {
         return busyImporting.load(std::memory_order_acquire)
                || busySaving.load(std::memory_order_acquire);

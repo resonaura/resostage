@@ -11,6 +11,7 @@
 #include <cctype>
 #include <filesystem>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <thread>
 #include <utility>
@@ -222,6 +223,13 @@ using audio_engine_detail::makeDraftArchivePath;
 using audio_engine_detail::purgeStaleDrafts;
 
 bool AudioEngine::loadProject(const std::string& path, std::string& error) {
+    // Parse before disturbing the running document. ProjectLoader::open()
+    // closes its previous contents on failure, so opening directly into the
+    // live loader used to lose the old project on a malformed file.
+    ProjectLoader incoming;
+    if (!incoming.open(path, error))
+        return false;
+
     stop();
     // Background peak builds also read `loader` -- must finish before we
     // start mutating it directly below (streaming.stop() only halts the
@@ -229,9 +237,8 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     joinPendingPeakBuilds();
     streaming.stop();
     purgeStaleSavePackages();
-
-    if (!loader.open(path, error))
-        return false;
+    ProjectReplacementScope replacement(*this);
+    loader = std::move(incoming);
 
     projectHistory.clear(); // a freshly loaded document has no history of its own
     currentSong = static_cast<size_t>(-1);
@@ -313,6 +320,7 @@ void AudioEngine::newProject(const std::string& name) {
     clock.stop();
     joinPendingPeakBuilds();
     streaming.stop();
+    ProjectReplacementScope replacement(*this);
 
     loader.newProject(name);
     usingDraftArchive = false;
@@ -330,6 +338,12 @@ void AudioEngine::newProject(const std::string& name) {
     }
 
     projectLoaded = true;
+    currentSong = static_cast<size_t>(-1);
+    trackIdByIndex.clear();
+    trackScratch.clear();
+    mixRenderer.resetSmoothing();
+    trackMeters.clear();
+    trackBandMeters.clear();
     publishRoutingSnapshot();
     midiClockEverStarted = false;
 
@@ -341,12 +355,6 @@ void AudioEngine::newProject(const std::string& name) {
     if (!loader.project().songs.empty()) {
         std::string err;
         selectSong(0, err);
-    } else {
-        currentSong = static_cast<size_t>(-1);
-        trackIdByIndex.clear();
-        trackScratch.clear();
-        trackMeters.clear();
-        trackBandMeters.clear();
     }
     clearDirty();
     // Notify LightEngine (and re-apply the Art-Net target) for the new
@@ -380,6 +388,10 @@ void AudioEngine::flushDeferredAutosave() {
 }
 
 bool AudioEngine::saveProject(const std::string& path, std::string& error) {
+    if (isBusy()) {
+        error = "Project operation already in progress";
+        return false;
+    }
     if (!projectLoaded) {
         error = "No project loaded";
         return false;
@@ -457,21 +469,32 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     joinPendingPeakBuilds();
     streaming.stop();
     purgeStaleSavePackages();
+    std::unique_ptr<ProjectReplacementScope> replacement;
+    const auto resumeAfterWriteFailure = [this]() {
+        streaming.start(&loader,
+            streamingIoThreadStart, streamingIoThreadStop,
+            demoteBackgroundWorkerPriority, residentIoYield);
+    };
 
     if (overwriteOpen || promotingDraft) {
         const std::string tempOut = path + ".new";
-        if (!loader.saveAsWithExtras(tempOut, saveExtras, error, &snapshot))
+        if (!loader.saveAsWithExtras(tempOut, saveExtras, error, &snapshot)) {
+            resumeAfterWriteFailure();
             return false;
+        }
 
+        replacement = std::make_unique<ProjectReplacementScope>(*this, false);
         loader.close();
         if (!replacePath(tempOut, path, error)) {
             (void)loader.open(sourcePath, error);
             projectLoaded = loader.isOpen();
-            if (projectLoaded)
+            if (projectLoaded) {
+                publishRoutingSnapshot();
                 streaming.start(&loader,
                     streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
+            }
             return false;
         }
         if (!loader.open(path, error)) {
@@ -486,8 +509,11 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             }
         }
     } else if (switchingToNewPath) {
-        if (!loader.saveAsWithExtras(path, saveExtras, error, &snapshot))
+        if (!loader.saveAsWithExtras(path, saveExtras, error, &snapshot)) {
+            resumeAfterWriteFailure();
             return false;
+        }
+        replacement = std::make_unique<ProjectReplacementScope>(*this, false);
         loader.close();
         if (!loader.open(path, error)) {
             projectLoaded = false;
@@ -499,10 +525,13 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
             forceRemoveAll(oldDraftPath, ec);
         }
     } else {
-        if (!loader.saveAsWithExtras(path, saveExtras, error, &snapshot))
+        if (!loader.saveAsWithExtras(path, saveExtras, error, &snapshot)) {
+            resumeAfterWriteFailure();
             return false;
+        }
 
         if (!loader.isOpen()) {
+            replacement = std::make_unique<ProjectReplacementScope>(*this, false);
             if (!loader.open(path, error)) {
                 projectLoaded = false;
                 return false;
@@ -512,12 +541,8 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
 
     projectLoaded = true;
     applyPluginStateReferences(loader.project(), pluginStateReferences);
-    publishRoutingSnapshot();
-    streaming.start(&loader,
-                    streamingIoThreadStart,
-                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
-                    residentIoYield);
-
+    if (replacement == nullptr)
+        replacement = std::make_unique<ProjectReplacementScope>(*this, false);
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
     trackScratch.clear();
@@ -526,16 +551,12 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     mixRenderer.resetSmoothing();
     trackMeters.clear();
     trackBandMeters.clear();
-
-    const auto& projTracks = loader.project().tracks;
-    if (!projTracks.empty()) {
-        for (const auto& t : projTracks)
-            trackIdByIndex.push_back(t.id);
-        trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
-        ensureTrackMeters(trackIdByIndex.size());
-        ensureScratchSizes();
-        publishRoutingSnapshot();
-    }
+    publishRoutingSnapshot();
+    ensureScratchSizes();
+    streaming.start(&loader,
+                    streamingIoThreadStart,
+                    streamingIoThreadStop, demoteBackgroundWorkerPriority,
+                    residentIoYield);
 
     if (songToRestore != static_cast<size_t>(-1)
         && songToRestore < loader.project().songs.size()) {
@@ -568,8 +589,14 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             onComplete(false, "No project loaded");
         return;
     }
-    if (busySaving.exchange(true) || busyImporting.load(std::memory_order_acquire)) {
-        busySaving.store(false);
+    if (busyImporting.load(std::memory_order_acquire)) {
+        if (onComplete)
+            onComplete(false, "Already busy");
+        return;
+    }
+    bool expectedIdle = false;
+    if (!busySaving.compare_exchange_strong(expectedIdle, true,
+                                            std::memory_order_acq_rel)) {
         if (onComplete)
             onComplete(false, "Already busy");
         return;
@@ -589,6 +616,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
     const bool promotingDraft = usingDraftArchive && path != loader.archivePath();
     const std::string oldDraftPath = usingDraftArchive ? loader.archivePath() : std::string();
     const std::string sourcePath = loader.archivePath();
+    const uint64_t saveProjectEpoch = projectEpoch.load(std::memory_order_acquire);
     const bool isContainer = loader.isDirectoryContainer();
     // Same-path overwrite of a directory package can swap under live FILE*
     // cursors (they keep reading the old inodes). Save-As / draft promote /
@@ -603,11 +631,11 @@ void AudioEngine::saveProjectAsync(const std::string& path,
     auto pluginBank = activePluginProcessorBank();
     const std::string tempOut = path + ".saving";
 
-    // Heavy archive write off the message thread. Directory packages copy via
-    // the filesystem (no shared zip handle). saveAsWithExtras no longer mutates
-    // openArchivePath, so streaming keeps the correct live path the whole time.
-    saveThread = std::thread([this, path, tempOut, snapshot, extras, sourcePath, promotingDraft,
-                              oldDraftPath, songToRestore, wasPlaying, playThroughOk, isContainer,
+    // The worker owns its loader. A project replacement or another command on
+    // the message thread must never invalidate a ProjectLoader while this
+    // background copy is traversing its resources.
+    saveThread = std::thread([this, path, tempOut, snapshot, extras, sourcePath, saveProjectEpoch, promotingDraft,
+                              oldDraftPath, songToRestore, wasPlaying, playThroughOk,
                               pluginBank, onComplete]() mutable {
         std::string error;
         auto pluginStateReferences = appendPluginStateFiles(
@@ -615,26 +643,36 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             pluginBank != nullptr
                 ? pluginBank->snapshotStates()
                 : PluginProcessorBank::StateSnapshot{});
-        // Legacy ZIP shares mz_zip with streaming — serialize against IO.
         bool wrote = false;
-        if (isContainer) {
-            wrote = loader.saveAsWithExtras(tempOut, extras, error, &snapshot);
-        } else {
-            streaming.withProjectLoaderLock([&] {
-                wrote = loader.saveAsWithExtras(tempOut, extras, error, &snapshot);
-            });
-        }
+        ProjectLoader source;
+        if (sourcePath.empty() || source.open(sourcePath, error))
+            wrote = source.saveAsWithExtras(tempOut, extras, error, &snapshot);
 
-        juce::MessageManager::callAsync([this, wrote, error, path, tempOut, sourcePath, promotingDraft,
+        juce::MessageManager::callAsync([this, wrote, error, path, tempOut, sourcePath, saveProjectEpoch, promotingDraft,
                                          oldDraftPath, songToRestore, wasPlaying, playThroughOk,
                                          savedPluginStateReferences = std::move(pluginStateReferences),
                                          onComplete]() {
             namespace fs = std::filesystem;
+            std::unique_ptr<ProjectReplacementScope> replacement;
             auto finish = [&](bool ok, const std::string& err) {
+                // Completion may synchronously trigger another save/load.
+                // Release the transition before dropping busy or invoking it.
+                replacement.reset();
                 busySaving.store(false, std::memory_order_release);
                 if (onComplete)
                     onComplete(ok, err);
             };
+
+            // The normal UI busy barrier prevents replacement, but direct
+            // engine callers can still invalidate the document while a worker
+            // writes. Never install such a stale result over another project.
+            if (saveProjectEpoch != projectEpoch.load(std::memory_order_acquire)
+                || loader.archivePath() != sourcePath) {
+                std::error_code ec;
+                forceRemoveAll(tempOut, ec);
+                finish(false, "Project changed while saving");
+                return;
+            }
 
             if (!wrote) {
                 std::error_code ec;
@@ -691,17 +729,20 @@ void AudioEngine::saveProjectAsync(const std::string& path,
             joinPendingPeakBuilds();
             purgeStaleSavePackages(); // safe: no open stem FDs into old packages
 
+            replacement = std::make_unique<ProjectReplacementScope>(*this, false);
             loader.close();
             std::string replaceErr;
             if (!replacePathHelper(tempOut, path, replaceErr, &staleSavePackages)) {
                 std::string recoverErr;
                 (void)loader.open(sourcePath, recoverErr);
                 projectLoaded = loader.isOpen();
-                if (projectLoaded)
+                if (projectLoaded) {
+                    publishRoutingSnapshot();
                     streaming.start(&loader,
                     streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
+                }
                 finish(false, replaceErr.empty() ? "Failed to replace archive" : replaceErr);
                 return;
             }
@@ -719,38 +760,18 @@ void AudioEngine::saveProjectAsync(const std::string& path,
 
             projectLoaded = true;
             applyPluginStateReferences(loader.project(), savedPluginStateReferences);
+            currentSong = static_cast<size_t>(-1);
+            trackIdByIndex.clear();
+            trackScratch.clear();
+            mixRenderer.resetSmoothing();
+            trackMeters.clear();
+            trackBandMeters.clear();
             publishRoutingSnapshot();
+            ensureScratchSizes();
             streaming.start(&loader,
                     streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
-
-            {
-                // The callback reads these vectors while holding the same
-                // mutex with a non-blocking try_lock. Keep reset/reprepare
-                // under it: clearing BandEnergyMeter while currentLevels()
-                // runs caused an observed Core SIGSEGV during save/reopen.
-                std::lock_guard<std::recursive_mutex> routeLock(routingMutex);
-                currentSong = static_cast<size_t>(-1);
-                trackIdByIndex.clear();
-                trackScratch.clear();
-                // Drop every gain/pan glide: the strip layout is about to
-                // change, so gliding from the old coefficients would be an
-                // artefact, not a de-click.
-                mixRenderer.resetSmoothing();
-                trackMeters.clear();
-                trackBandMeters.clear();
-                const auto& projTracks = loader.project().tracks;
-                if (!projTracks.empty()) {
-                    for (const auto& t : projTracks)
-                        trackIdByIndex.push_back(t.id);
-                    trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
-                    ensureTrackMeters(trackIdByIndex.size());
-                    ensureScratchSizes();
-                }
-            }
-            if (!trackIdByIndex.empty())
-                publishRoutingSnapshot();
 
             if (songToRestore != static_cast<size_t>(-1)
                 && songToRestore < loader.project().songs.size()) {

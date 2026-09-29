@@ -35,12 +35,33 @@ Only one scan may run at a time. Core stops its helper on shutdown. Catalog
 data is deliberately absent from live telemetry because it can be large and
 does not change at frame rate.
 
-## Current boundary
+## Live hosting boundary
 
-Discovery is implemented; inserting catalog entries into tracks/buses/master,
-running vendor DSP, restoring serialized states, and compensating plug-in
-latency are a separate stage. Until that processor-bank layer is complete,
-the catalog is informational and no discovered plug-in is placed in the live
-or offline signal path. This boundary is intentional: sharing a stateful live
-`AudioPluginInstance` with the offline renderer or destroying one on the audio
-callback would violate ResoStage's real-time contract.
+Core owns routing and publishes a graph-facing asynchronous
+`PluginProcessorBank`; actual live AU/VST3 instances run in the packaged
+`resostage-plugin-host`, one helper per serial strip chain (up to 32). Empty
+chains do not launch helpers. Same-project rebuilds reuse unchanged healthy
+helpers, while whole-project replacement invalidates all prior helpers by
+project epoch. Native plug-in editors run in their owning helper. State capture
+is requested off the callback and the resulting bounded blobs are copied back
+into the normal project save. Offline renders continue to use a separate
+in-process bank and do not share live instances.
+
+Audio crosses a versioned shared-memory ABI with three ownership-tracked audio
+slots, a fixed-capacity audio plane, and a bounded MIDI/control protocol. The
+Core callback never waits for the host or does process/filesystem work. The
+one-callback pipe is included in PDC using the nominal device block size plus
+reported plug-in latency. If a response is missing, effects fall back to their
+dry input and instruments output silence for that block. A non-realtime
+watchdog detects dead/stalled helpers and allows one automatic restart per
+chain/document; further retries are explicit.
+Runtime latency changes are sent back through shared atomics and rebuild only
+the delay-compensation plan; sample-rate or shared-buffer-capacity changes
+prepare a new helper.
+
+This is crash/hang containment, not a security sandbox: the helper has the
+user's normal OS permissions. The scanner process remains a separate discovery
+boundary. Offline renderer failures are also not contained by this live-host
+guarantee. Protocol limits, lifecycle details, verification coverage, and
+remaining integration tests are documented in
+[PLUGIN_FAILURE_CONTAINMENT.md](PLUGIN_FAILURE_CONTAINMENT.md).

@@ -97,9 +97,11 @@ class MidiCaptureSession final : public OfflineProcessorSession {
 public:
     struct Event { int64_t sample; uint8_t pitch; uint8_t velocity;
                    uint8_t releaseVelocity; bool noteOn; };
+    struct RawEvent { int64_t sample; uint8_t status; uint8_t data1;
+                      uint8_t data2; uint8_t dataLength; };
     MidiCaptureSession(uint32_t instrumentStrip, std::vector<Event>* captured,
-                       double* bpm)
-        : strip(instrumentStrip), observedBpm(bpm), events(captured) {}
+                       std::vector<RawEvent>* capturedRaw, double* bpm)
+        : strip(instrumentStrip), observedBpm(bpm), events(captured), rawEvents(capturedRaw) {}
     MixProcessorView processorView() const noexcept override { return {}; }
     void publishTransport(const OfflineProcessorTransport& value) noexcept override {
         transportSample = value.sample;
@@ -113,10 +115,17 @@ public:
             events->push_back({transportSample + samplePosition, pitch, velocity,
                                releaseVelocity, noteOn});
     }
+    void queueMidiMessage(uint32_t value, uint8_t status, uint8_t data1,
+                          uint8_t data2, uint8_t dataLength,
+                          int samplePosition) noexcept override {
+        if (value == strip)
+            rawEvents->push_back({transportSample + samplePosition, status, data1, data2, dataLength});
+    }
     uint32_t strip;
     int64_t transportSample = 0;
     double* observedBpm;
     std::vector<Event>* events;
+    std::vector<RawEvent>* rawEvents;
 };
 
 class LatencyProcessorSession final : public OfflineProcessorSession {
@@ -479,7 +488,10 @@ TEST_CASE("OfflineRenderer sends song-tempo MIDI to the private instrument proce
     note.durationBeats = 1.0;
     note.velocity = 0.75f;
     note.releaseVelocity = 0.25f;
+    note.midi2 = MidiNote::Midi2Data{0, 0x9234, 0x4567, 0, 0};
     region.notes.push_back(note);
+    region.umpEvents.push_back(MidiUmpEvent{
+        .beat = 0.75, .words = {0x40b20700u, 0x80000000u, 0, 0}, .wordCount = 2});
     song.midiRegions.push_back(region);
     project.songs.push_back(song);
 
@@ -492,12 +504,13 @@ TEST_CASE("OfflineRenderer sends song-tempo MIDI to the private instrument proce
     request.sampleRate = 48000;
 
     std::vector<MidiCaptureSession::Event> capturedEvents;
+    std::vector<MidiCaptureSession::RawEvent> capturedRawEvents;
     double observedBpm = 0.0;
     const OfflineRenderer::ProcessorFactory factory =
-        [&capturedEvents, &observedBpm](const Project&, const MixGraph& graph, double, int,
+        [&capturedEvents, &capturedRawEvents, &observedBpm](const Project&, const MixGraph& graph, double, int,
                    std::string&) -> std::unique_ptr<OfflineProcessorSession> {
             return std::make_unique<MidiCaptureSession>(
-                graph.find("audio::track:instrument"), &capturedEvents, &observedBpm);
+                graph.find("audio::track:instrument"), &capturedEvents, &capturedRawEvents, &observedBpm);
         };
     const auto result = OfflineRenderer{}.render(project, {}, request, {}, nullptr, factory);
     REQUIRE(result.ok);
@@ -505,10 +518,16 @@ TEST_CASE("OfflineRenderer sends song-tempo MIDI to the private instrument proce
     CHECK(capturedEvents[0].noteOn);
     CHECK(capturedEvents[0].sample == 12000);
     CHECK(capturedEvents[0].pitch == 64);
-    CHECK(capturedEvents[0].velocity == 95);
+    CHECK(capturedEvents[0].velocity == 0x9234 >> 9);
     CHECK_FALSE(capturedEvents[1].noteOn);
     CHECK(capturedEvents[1].sample == 48000);
-    CHECK(capturedEvents[1].releaseVelocity == 32);
+    CHECK(capturedEvents[1].releaseVelocity == 0x4567 >> 9);
+    REQUIRE(capturedRawEvents.size() == 1);
+    CHECK(capturedRawEvents[0].sample == 18000);
+    CHECK(capturedRawEvents[0].status == 0xb2);
+    CHECK(capturedRawEvents[0].data1 == 7);
+    CHECK(capturedRawEvents[0].data2 == 64);
+    CHECK(capturedRawEvents[0].dataLength == 2);
     CHECK(observedBpm == doctest::Approx(60.0));
 
     std::error_code ignored;

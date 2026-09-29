@@ -13,6 +13,8 @@ add_executable(resostage_engine_tests
   test_streaming_engine.cpp
   test_io_pressure_policy.cpp
   test_project_loader.cpp
+  test_plugin_host_protocol.cpp
+  ../app/plugins/PluginHostSharedMemory.cpp
   test_project_history.cpp
   test_click_generator.cpp
   test_system_health.cpp
@@ -60,6 +62,20 @@ add_executable(resostage_engine_tests
 target_include_directories(resostage_engine_tests PRIVATE ../app)
 
 target_link_libraries(resostage_engine_tests PRIVATE resostage_engine doctest)
+if(TARGET resostage_plugin_host)
+  target_sources(resostage_engine_tests PRIVATE
+    ../app/plugins/PluginHostProcess.cpp
+  )
+  target_compile_definitions(resostage_engine_tests PRIVATE
+    RESOSTAGE_TEST_PLUGIN_HOST
+    RESOSTAGE_PLUGIN_HOST_PATH="$<TARGET_FILE:resostage_plugin_host>"
+  )
+  target_link_libraries(resostage_engine_tests PRIVATE
+    juce::juce_core
+    juce::juce_gui_basics
+  )
+  add_dependencies(resostage_engine_tests resostage_plugin_host)
+endif()
 if(TARGET signalsmith-stretch)
   target_link_libraries(resostage_engine_tests PRIVATE signalsmith-stretch)
 endif()

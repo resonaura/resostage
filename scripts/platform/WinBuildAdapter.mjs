@@ -236,6 +236,13 @@ export class WinBuildAdapter extends BuildAdapter {
       cpSync(scannerRaw, scannerDst);
     }
 
+    const pluginHostDst = join(shellDir, "resostage-plugin-host.exe");
+    const pluginHostRaw = findFileRecursively(BUILD_DIR, "resostage-plugin-host.exe");
+    if (pluginHostRaw && existsSync(pluginHostRaw)) {
+      rmSync(pluginHostDst, { force: true });
+      cpSync(pluginHostRaw, pluginHostDst);
+    }
+
     const kaishakuDst = join(shellDir, "kaishaku.exe");
     const kaishakuRaw = findFileRecursively(BUILD_DIR, "kaishaku.exe");
     if (kaishakuRaw && existsSync(kaishakuRaw)) {

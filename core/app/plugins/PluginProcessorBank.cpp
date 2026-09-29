@@ -1,12 +1,23 @@
 #include "PluginProcessorBank.h"
+#include "PluginHostProcess.h"
+#include "PluginPaths.h"
+#include "project/ProjectSchema.h"
+#include "plugins/PluginHostProtocol.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <climits>
 #include <cmath>
 #include <limits>
 #include <new>
+#include <stdexcept>
 #include <thread>
+
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 namespace resostage {
 namespace {
@@ -20,6 +31,8 @@ constexpr size_t kMaximumStateBytesPerBank = 256 * 1024 * 1024;
 // audio, but publishes no partial compensation plan.
 constexpr uint64_t kMaximumDelayMemoryBytes = 128ull * 1024ull * 1024ull;
 constexpr double kMaximumCompensatedSeconds = 10.0;
+constexpr size_t kMaximumIsolatedChains = 32;
+std::atomic<uint64_t> nextPluginHostGeneration{1};
 
 const std::vector<PluginSlot>* slotsForStrip(const Project& project,
                                              const MixStrip& strip) {
@@ -44,6 +57,114 @@ const juce::PluginDescription* findDescription(
         if (description.createIdentifierString().toStdString() == identifier)
             return &description;
     return nullptr;
+}
+
+bool createPrivateHostSnapshot(
+    const MixStrip& strip,
+    const std::vector<PluginSlot>& sourceSlots,
+    const ProjectLoader* resources,
+    const std::vector<PluginProcessorBank::StateBlob>* transientStates,
+    double sampleRate, juce::File& projectDirectory, std::string& error) {
+    const auto root = juce::File::getSpecialLocation(
+        juce::File::tempDirectory).getChildFile("ResoStageLivePluginHosts");
+    if (root.createDirectory().failed()) {
+        error = "Could not create private live plug-in host directory";
+        return false;
+    }
+#if !defined(_WIN32)
+    struct stat rootStatus {};
+    const auto rootPath = root.getFullPathName().toStdString();
+    if (::lstat(rootPath.c_str(), &rootStatus) != 0
+        || !S_ISDIR(rootStatus.st_mode) || rootStatus.st_uid != ::getuid()
+        || ::chmod(rootPath.c_str(), 0700) != 0) {
+        error = "Live plug-in host directory is not private to this user";
+        return false;
+    }
+#endif
+    projectDirectory = root.getChildFile(juce::Uuid().toString().removeCharacters("{}-"));
+    if (projectDirectory.createDirectory().failed()) {
+        error = "Could not create unique live plug-in host snapshot directory";
+        return false;
+    }
+#if !defined(_WIN32)
+    if (::chmod(projectDirectory.getFullPathName().toRawUTF8(), 0700) != 0) {
+        error = "Could not secure live plug-in host snapshot permissions";
+        projectDirectory.deleteRecursively();
+        return false;
+    }
+#endif
+
+    Project snapshot;
+    snapshot.format.version = kCurrentFormatVersion;
+    snapshot.name = "Isolated Plug-in Chain";
+    snapshot.sampleRate = sampleRate;
+    TrackDef track;
+    track.id = "host::track:1";
+    track.name = strip.name.empty() ? "Plug-in Chain" : strip.name;
+    track.kind = std::any_of(sourceSlots.begin(), sourceSlots.end(),
+        [](const PluginSlot& slot) { return slot.plugin.instrument; })
+        ? TrackKind::Instrument : TrackKind::Audio;
+    track.plugins = sourceSlots;
+
+    std::vector<ProjectLoader::ExtraFile> extraFiles;
+    size_t totalStateBytes = 0;
+    for (size_t i = 0; i < track.plugins.size(); ++i) {
+        auto& slot = track.plugins[i];
+        slot.stateResource.reset();
+        const PluginProcessorBank::StateBlob* transient = nullptr;
+        if (transientStates != nullptr) {
+            const auto found = std::find_if(transientStates->begin(), transientStates->end(),
+                [&slot](const PluginProcessorBank::StateBlob& state) {
+                    return state.slotId == slot.id;
+                });
+            if (found != transientStates->end()) transient = &*found;
+        }
+        std::vector<uint8_t> state;
+        if (transient != nullptr) {
+            state = transient->data;
+        } else if (resources != nullptr && slot.stateResource.has_value()) {
+            std::string stateError;
+            if (!resources->extractFile(*slot.stateResource, state, stateError,
+                                        kMaximumStateBytesPerSlot)) {
+                // A missing/corrupt state should not stop the audio graph from
+                // opening. The child will load the plug-in's safe defaults.
+                state.clear();
+            }
+        }
+        if (state.size() > kMaximumStateBytesPerSlot
+            || totalStateBytes + state.size() > kMaximumStateBytesPerBank) {
+            error = "Plug-in state exceeds the bounded live-host snapshot budget";
+            projectDirectory.deleteRecursively();
+            return false;
+        }
+        if (!state.empty()) {
+            const std::string resource = "Plugins/slot-" + std::to_string(i) + ".state";
+            slot.stateResource = resource;
+            totalStateBytes += state.size();
+            extraFiles.push_back({resource, std::move(state)});
+        }
+    }
+    snapshot.tracks.push_back(std::move(track));
+
+    ProjectLoader writer;
+    writer.newProject(snapshot.name);
+    if (!writer.saveAsWithExtras(projectDirectory.getFullPathName().toStdString(),
+                                 extraFiles, error, &snapshot)) {
+        projectDirectory.deleteRecursively();
+        return false;
+    }
+    return true;
+}
+
+juce::File pluginHostExecutable() {
+    const auto executableName =
+#if defined(_WIN32)
+        "resostage-plugin-host.exe";
+#else
+        "resostage-plugin-host";
+#endif
+    return juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+        .getSiblingFile(executableName);
 }
 
 } // namespace
@@ -99,8 +220,14 @@ PluginPlayHead::getPosition() const {
 
 struct PluginProcessorBank::Node {
     ~Node() {
-        if (instance != nullptr)
-            instance->releaseResources();
+        if (instance != nullptr) {
+            try {
+                instance->releaseResources();
+            } catch (...) {
+                // A vendor throwing during teardown must not escape this
+                // noexcept destructor and terminate the Core process.
+            }
+        }
     }
 
     std::string slotId;
@@ -124,14 +251,34 @@ struct PluginProcessorBank::Node {
 };
 
 struct PluginProcessorBank::StripChain {
-    explicit StripChain(int maximumBlockSize)
-        : audio(2, std::max(1, maximumBlockSize)) {
+    explicit StripChain(int maxBlockSize)
+        : audio(2, std::max(1, maxBlockSize)) {
         midi.ensureSize(4096);
     }
 
     std::vector<std::shared_ptr<Node>> nodes;
+    struct HostedProcess {
+        juce::File projectDirectory;
+        std::unique_ptr<PluginHostProcess> process;
+        ~HostedProcess() {
+            process.reset();
+            if (projectDirectory.isDirectory())
+                projectDirectory.deleteRecursively();
+        }
+    };
+    std::shared_ptr<HostedProcess> hostedProcess;
+    std::string stripId;
+    double sampleRate = 48000.0;
+    int sharedBlockCapacity = 512;
+    PluginTransportState transport{};
+    std::atomic<uint32_t>* activePluginIndexTelemetry = nullptr;
+    bool hostFailed = false;
+    uint64_t lastRemoteStateChangeCounter = 0;
+    uint64_t lastRemoteLatencyChangeCounter = 0;
     juce::AudioBuffer<float> audio;
     juce::MidiBuffer midi;
+    int processorLatencySamples = 0;
+    int pipelineLatencySamples = 0;
     int latencySamples = 0;
     double tailSeconds = 0.0;
 };
@@ -234,8 +381,62 @@ PluginProcessorBank::~PluginProcessorBank() {
     for (auto& chain : chains)
         if (chain != nullptr)
             for (auto& node : chain->nodes)
-                if (node->instance != nullptr)
-                    node->instance->removeListener(this);
+                if (node->instance != nullptr) {
+                    try {
+                        node->instance->removeListener(this);
+                    } catch (...) {
+                        // Vendor teardown must not escape a noexcept bank
+                        // destructor and terminate Core.
+                    }
+                }
+}
+
+void PluginProcessorBank::publishTransport(
+    const PluginTransportState& state) noexcept {
+    playHead->publish(state);
+    for (auto& chain : chains)
+        if (chain != nullptr)
+            chain->transport = state;
+}
+
+void PluginProcessorBank::setActivePluginIndexTelemetry(
+    std::atomic<uint32_t>* activeIndex) noexcept {
+    activePluginIndexTelemetry = activeIndex;
+    for (auto& chain : chains)
+        if (chain != nullptr)
+            chain->activePluginIndexTelemetry = activeIndex;
+}
+
+bool PluginProcessorBank::consumeStateChange() noexcept {
+    bool changed = stateChangePending.exchange(false, std::memory_order_acq_rel);
+    for (auto& chain : chains) {
+        if (chain == nullptr || chain->hostedProcess == nullptr
+            || chain->hostedProcess->process == nullptr)
+            continue;
+        const uint64_t remoteChanges =
+            chain->hostedProcess->process->stateChangeCounter();
+        if (remoteChanges != chain->lastRemoteStateChangeCounter) {
+            chain->lastRemoteStateChangeCounter = remoteChanges;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+bool PluginProcessorBank::consumeLatencyChange() noexcept {
+    bool changed = latencyChangePending.exchange(false, std::memory_order_acq_rel);
+    for (auto& chain : chains) {
+        if (chain == nullptr || chain->hostedProcess == nullptr
+            || chain->hostedProcess->process == nullptr)
+            continue;
+        const uint64_t remoteChanges =
+            chain->hostedProcess->process->latencyChangeCounter();
+        if (remoteChanges != chain->lastRemoteLatencyChangeCounter) {
+            chain->lastRemoteLatencyChangeCounter = remoteChanges;
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 void PluginProcessorBank::audioProcessorChanged(
@@ -262,6 +463,59 @@ PluginProcessorBank::StateSnapshot PluginProcessorBank::snapshotStates() {
     for (auto& chain : chains) {
         if (chain == nullptr)
             continue;
+        if (chain->hostedProcess != nullptr) {
+            const bool captured = chain->hostedProcess->process != nullptr
+                && chain->hostedProcess->process->requestStateSnapshot();
+            if (!captured) {
+                snapshot.warnings.push_back(
+                    "Could not capture state from isolated host for strip "
+                    + chain->stripId);
+                continue;
+            }
+            const auto stateDirectory = chain->hostedProcess->projectDirectory
+                .getChildFile("LiveState");
+            for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+                const auto& node = chain->nodes[slotIndex];
+                if (node == nullptr)
+                    continue;
+                const auto file = stateDirectory.getChildFile(
+                    "slot-" + juce::String(static_cast<juce::int64>(slotIndex))
+                    + ".state");
+                if (!file.existsAsFile()) {
+                    snapshot.warnings.push_back(
+                        "Isolated host did not provide state for slot " + node->slotId);
+                    continue;
+                }
+                const int64_t fileBytes = file.getSize();
+                if (fileBytes < 0
+                    || static_cast<uint64_t>(fileBytes) > kMaximumStateBytesPerSlot
+                    || totalBytes + static_cast<uint64_t>(fileBytes)
+                        > kMaximumStateBytesPerBank) {
+                    snapshot.warnings.push_back(
+                        "Plug-in state limit exceeded for slot " + node->slotId);
+                    continue;
+                }
+                auto stream = file.createInputStream();
+                if (stream == nullptr) {
+                    snapshot.warnings.push_back(
+                        "Could not read state for plug-in slot " + node->slotId);
+                    continue;
+                }
+                StateBlob blob;
+                blob.slotId = node->slotId;
+                blob.data.resize(static_cast<size_t>(fileBytes));
+                if (fileBytes > 0
+                    && stream->read(blob.data.data(), static_cast<int>(fileBytes))
+                        != static_cast<int>(fileBytes)) {
+                    snapshot.warnings.push_back(
+                        "Plug-in state snapshot was truncated for slot " + node->slotId);
+                    continue;
+                }
+                totalBytes += static_cast<size_t>(fileBytes);
+                snapshot.blobs.push_back(std::move(blob));
+            }
+            continue;
+        }
         for (auto& node : chain->nodes) {
             if (node == nullptr || node->instance == nullptr)
                 continue;
@@ -320,6 +574,15 @@ std::vector<uint32_t> PluginProcessorBank::snapshotStripLatencies() const {
         const auto& chain = chains[strip];
         if (chain == nullptr)
             continue;
+        if (chain->hostedProcess != nullptr
+            && chain->hostedProcess->process != nullptr) {
+            const uint64_t total = static_cast<uint64_t>(
+                chain->hostedProcess->process->processorLatencySamples())
+                + static_cast<uint32_t>(std::max(0, chain->pipelineLatencySamples));
+            latencies[strip] = static_cast<uint32_t>(std::min<uint64_t>(
+                total, std::numeric_limits<uint32_t>::max()));
+            continue;
+        }
         uint64_t total = 0;
         for (const auto& node : chain->nodes)
             if (node->instance != nullptr)
@@ -329,6 +592,54 @@ std::vector<uint32_t> PluginProcessorBank::snapshotStripLatencies() const {
             total, std::numeric_limits<uint32_t>::max()));
     }
     return latencies;
+}
+
+int PluginProcessorBank::snapshotMaximumProcessorLatency() const noexcept {
+    int maximum = 0;
+    for (const auto& chain : chains) {
+        if (chain == nullptr)
+            continue;
+        uint64_t total = 0;
+        if (chain->hostedProcess != nullptr
+            && chain->hostedProcess->process != nullptr) {
+            total = chain->hostedProcess->process->processorLatencySamples();
+        } else {
+            for (const auto& node : chain->nodes) {
+                if (node == nullptr || node->instance == nullptr)
+                    continue;
+                try {
+                    total += static_cast<uint32_t>(std::max(
+                        0, node->instance->getLatencySamples()));
+                } catch (...) {
+                    // A bad latency report is treated as zero for PDC; the
+                    // separate processor failure boundary remains unchanged.
+                }
+            }
+        }
+        maximum = std::max(maximum, static_cast<int>(std::min<uint64_t>(
+            total, static_cast<uint64_t>(INT_MAX))));
+    }
+    return maximum;
+}
+
+std::vector<std::string> PluginProcessorBank::failedHostStripIds() const {
+    std::vector<std::string> failed;
+    for (const auto& chain : chains) {
+        if (chain == nullptr || chain->nodes.empty())
+            continue;
+        const bool slotFailed = std::any_of(chain->nodes.begin(), chain->nodes.end(),
+            [](const std::shared_ptr<Node>& node) {
+                return node != nullptr && node->loadState == "failed";
+            });
+        const bool dead = slotFailed || chain->hostFailed
+            || chain->hostedProcess == nullptr
+            || chain->hostedProcess->process == nullptr
+            || !chain->hostedProcess->process->isRunning()
+            || !chain->hostedProcess->process->isReady();
+        if (dead)
+            failed.push_back(chain->stripId);
+    }
+    return failed;
 }
 
 bool PluginProcessorBank::stripHasInstrument(size_t stripIndex) const noexcept {
@@ -369,11 +680,65 @@ void PluginProcessorBank::injectAllNotesOff() noexcept {
 void PluginProcessorBank::processChain(void* context, float* left, float* right,
                                        int numSamples) noexcept {
     auto& chain = *static_cast<StripChain*>(context);
+    if (chain.hostedProcess != nullptr
+        && chain.hostedProcess->process != nullptr) {
+        std::array<plugin_host::MidiEvent,
+                   plugin_host::kMaximumMidiEventsPerBlock> midiEvents{};
+        uint32_t midiEventCount = 0;
+        juce::MidiBuffer::Iterator iterator(chain.midi);
+        juce::MidiMessage message;
+        int samplePosition = 0;
+        while (midiEventCount < midiEvents.size()
+               && iterator.getNextEvent(message, samplePosition)) {
+            const int byteCount = message.getRawDataSize();
+            if (byteCount <= 0
+                || byteCount > static_cast<int>(plugin_host::kMaximumMidiEventBytes)
+                || samplePosition < 0 || samplePosition >= numSamples)
+                continue;
+            auto& event = midiEvents[midiEventCount++];
+            event.sampleOffset = static_cast<uint32_t>(samplePosition);
+            event.size = static_cast<uint8_t>(byteCount);
+            std::copy_n(message.getRawData(), byteCount, event.data);
+        }
+
+        plugin_host::TransportSnapshot transport;
+        transport.sample = chain.transport.sample;
+        transport.loopStartSample = chain.transport.loopStartSample;
+        transport.loopEndSample = chain.transport.loopEndSample;
+        transport.hostTimeNanos = chain.transport.hostTimeNanos;
+        transport.sampleRate = chain.transport.sampleRate;
+        transport.bpm = chain.transport.bpm;
+        transport.numerator = chain.transport.numerator;
+        transport.denominator = chain.transport.denominator;
+        transport.playing = chain.transport.playing ? 1 : 0;
+        transport.recording = chain.transport.recording ? 1 : 0;
+        transport.looping = chain.transport.looping ? 1 : 0;
+
+        const bool instrumentChain = std::any_of(
+            chain.nodes.begin(), chain.nodes.end(),
+            [](const std::shared_ptr<Node>& node) {
+                return node != nullptr && node->instrument;
+            });
+        (void)chain.hostedProcess->process->processBlock(
+            left, right, static_cast<uint32_t>(numSamples), midiEvents.data(),
+            midiEventCount, nullptr, 0, transport, instrumentChain);
+        chain.midi.clear();
+        if (chain.activePluginIndexTelemetry != nullptr)
+            chain.activePluginIndexTelemetry->store(
+                std::numeric_limits<uint32_t>::max(), std::memory_order_release);
+        return;
+    }
+
     float* stereoChannels[] = {left, right};
 
     const bool hasMidi = !chain.midi.isEmpty();
 
+    uint32_t nodeIndex = 0;
     for (auto& node : chain.nodes) {
+        if (chain.activePluginIndexTelemetry != nullptr)
+            chain.activePluginIndexTelemetry->store(nodeIndex,
+                                                     std::memory_order_release);
+        ++nodeIndex;
         if (node->missingInstrument
             || (node->instrument && node->faulted.load(std::memory_order_relaxed))) {
             chain.audio.setDataToReferTo(stereoChannels, 2, numSamples);
@@ -466,9 +831,16 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
             node->powerTracker.processBlockRealtime(left, right, numSamples, hasInput);
         } catch (...) {
             node->faulted.store(true, std::memory_order_relaxed);
+            // A vendor may have written only part of the output before
+            // throwing. Do not forward a partially corrupted audio block.
+            std::fill(left, left + numSamples, 0.0f);
+            std::fill(right, right + numSamples, 0.0f);
         }
         node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
     }
+    if (chain.activePluginIndexTelemetry != nullptr)
+        chain.activePluginIndexTelemetry->store(
+            std::numeric_limits<uint32_t>::max(), std::memory_order_release);
     // Clear strip MIDI buffer after all nodes in the strip have processed the block
     chain.midi.clear();
 }
@@ -477,9 +849,13 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     const Project& project, const MixGraph& graph, const ProjectLoader* resources,
     const juce::File& registryFile, double sampleRate, int maximumBlockSize,
     bool nonRealtime, const PluginProcessorBank* previousBank,
-    const std::vector<StateBlob>* transientStates) {
+    const std::vector<StateBlob>* transientStates,
+    ExecutionMode executionMode,
+    int hostedPipelineLatencySamples) {
     BuildResult result;
     auto bank = std::shared_ptr<PluginProcessorBank>(new PluginProcessorBank());
+    if (previousBank != nullptr)
+        bank->playHead = previousBank->playHead;
     bank->chains.resize(graph.strips.size());
     bank->processorEntries.resize(graph.strips.size());
     std::vector<uint32_t> stripProcessorLatencies(graph.strips.size(), 0);
@@ -493,11 +869,218 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     juce::addDefaultFormatsToManager(formats);
 
     size_t slotCount = 0;
+    size_t isolatedChainCount = 0;
     size_t loadedStateBytes = 0;
     for (size_t stripIndex = 0; stripIndex < graph.strips.size(); ++stripIndex) {
         const auto* slots = slotsForStrip(project, graph.strips[stripIndex]);
         if (slots == nullptr || slots->empty()) continue;
         auto chain = std::make_unique<StripChain>(maximumBlockSize);
+        chain->stripId = graph.strips[stripIndex].id;
+        chain->sampleRate = sampleRate;
+        chain->sharedBlockCapacity = maximumBlockSize;
+
+        if (executionMode == ExecutionMode::IsolatedProcess) {
+            const StripChain* reusableChain = nullptr;
+            if (previousBank != nullptr) {
+                for (const auto& candidate : previousBank->chains) {
+                    if (candidate == nullptr || candidate->hostedProcess == nullptr
+                        || candidate->hostedProcess->process == nullptr
+                        || !candidate->hostedProcess->process->isRunning()
+                        || !candidate->hostedProcess->process->isReady()
+                        || std::abs(candidate->sampleRate - sampleRate) >= 1.0e-6
+                        || candidate->sharedBlockCapacity != maximumBlockSize
+                        || candidate->stripId != chain->stripId
+                        || candidate->nodes.size() != slots->size())
+                        continue;
+                    bool identical = true;
+                    for (size_t index = 0; index < slots->size(); ++index) {
+                        const auto& slot = (*slots)[index];
+                        const auto& node = candidate->nodes[index];
+                        identical = identical && node != nullptr
+                            && node->loadState == "loaded"
+                            && !node->faulted.load(std::memory_order_acquire)
+                            && node->slotId == slot.id
+                            && node->pluginIdentifier == slot.plugin.identifier
+                            && node->instrument == slot.plugin.instrument
+                            && node->bypassed.load(std::memory_order_acquire)
+                                == slot.bypassed;
+                    }
+                    if (identical) {
+                        reusableChain = candidate.get();
+                        break;
+                    }
+                }
+            }
+
+            if (reusableChain != nullptr) {
+                chain->nodes = reusableChain->nodes;
+                chain->hostedProcess = reusableChain->hostedProcess;
+                chain->processorLatencySamples = static_cast<int>(std::min<uint32_t>(
+                    chain->hostedProcess->process->processorLatencySamples(),
+                    static_cast<uint32_t>(INT_MAX)));
+                chain->pipelineLatencySamples = std::max(
+                    0, hostedPipelineLatencySamples);
+                chain->latencySamples = static_cast<int>(std::min<int64_t>(
+                    static_cast<int64_t>(chain->processorLatencySamples)
+                        + chain->pipelineLatencySamples,
+                    INT_MAX));
+                chain->tailSeconds = reusableChain->tailSeconds;
+            } else {
+                ++isolatedChainCount;
+                std::vector<StateBlob> liveChainStates;
+                const std::vector<StateBlob>* chainStates = transientStates;
+                if (chainStates == nullptr && previousBank != nullptr) {
+                    const auto previousChain = std::find_if(
+                        previousBank->chains.begin(), previousBank->chains.end(),
+                        [&chain](const auto& candidate) {
+                            return candidate != nullptr
+                                && candidate->stripId == chain->stripId
+                                && candidate->hostedProcess != nullptr
+                                && candidate->hostedProcess->process != nullptr;
+                        });
+                    if (previousChain != previousBank->chains.end()) {
+                        const auto& old = **previousChain;
+                        if (old.hostedProcess->process->requestStateSnapshot()) {
+                            const auto directory = old.hostedProcess->projectDirectory
+                                .getChildFile("LiveState");
+                            size_t capturedBytes = 0;
+                            for (size_t index = 0; index < old.nodes.size(); ++index) {
+                                const auto& oldNode = old.nodes[index];
+                                if (oldNode == nullptr)
+                                    continue;
+                                const auto file = directory.getChildFile(
+                                    "slot-" + juce::String(static_cast<juce::int64>(index))
+                                    + ".state");
+                                const int64_t bytes = file.getSize();
+                                if (!file.existsAsFile() || bytes < 0
+                                    || static_cast<uint64_t>(bytes)
+                                        > kMaximumStateBytesPerSlot
+                                    || capturedBytes + static_cast<size_t>(bytes)
+                                        > kMaximumStateBytesPerBank)
+                                    continue;
+                                auto stream = file.createInputStream();
+                                if (stream == nullptr)
+                                    continue;
+                                StateBlob blob;
+                                blob.slotId = oldNode->slotId;
+                                blob.data.resize(static_cast<size_t>(bytes));
+                                if (bytes > 0
+                                    && stream->read(blob.data.data(),
+                                        static_cast<int>(bytes)) != static_cast<int>(bytes))
+                                    continue;
+                                capturedBytes += static_cast<size_t>(bytes);
+                                liveChainStates.push_back(std::move(blob));
+                            }
+                            if (!liveChainStates.empty())
+                                chainStates = &liveChainStates;
+                        }
+                    }
+                }
+                for (const auto& slot : *slots) {
+                    if (++slotCount > kMaximumSlotsPerBank) {
+                        result.warnings.push_back(
+                            "Plug-in bank exceeds 128 slots; remaining inserts were skipped");
+                        break;
+                    }
+                    auto node = std::make_shared<Node>();
+                    node->slotId = slot.id;
+                    node->pluginIdentifier = slot.plugin.identifier;
+                    node->bypassed.store(slot.bypassed, std::memory_order_relaxed);
+                    node->instrument = slot.plugin.instrument;
+                    node->loadState = "loading";
+                    PluginPowerFlags flags;
+                    flags.keepAwake = slot.keepAwake;
+                    flags.isInstrument = slot.plugin.instrument;
+                    node->powerTracker.prepare(slot.id, sampleRate, 0.0, flags);
+                    chain->nodes.push_back(std::move(node));
+                }
+
+                std::string hostError;
+                if (isolatedChainCount <= kMaximumIsolatedChains
+                    && !chain->nodes.empty()) {
+                    auto hosted = std::make_shared<StripChain::HostedProcess>();
+                    if (createPrivateHostSnapshot(graph.strips[stripIndex], *slots,
+                            resources, chainStates, sampleRate,
+                            hosted->projectDirectory, hostError)) {
+                        hosted->process = std::make_unique<PluginHostProcess>();
+                        const uint64_t hostGeneration =
+                            nextPluginHostGeneration.fetch_add(1, std::memory_order_relaxed);
+                        if (hosted->process->start(pluginHostExecutable(),
+                                hostGeneration,
+                                static_cast<uint32_t>(maximumBlockSize), hostError,
+                                sampleRate, hosted->projectDirectory,
+                                pluginRegistryFile())) {
+                            chain->hostedProcess = std::move(hosted);
+                            chain->processorLatencySamples = static_cast<int>(
+                                std::min<uint32_t>(
+                                    chain->hostedProcess->process
+                                        ->processorLatencySamples(),
+                                    static_cast<uint32_t>(INT_MAX)));
+                            chain->pipelineLatencySamples = std::max(
+                                0, hostedPipelineLatencySamples);
+                            chain->latencySamples = static_cast<int>(std::min<int64_t>(
+                                static_cast<int64_t>(chain->processorLatencySamples)
+                                    + chain->pipelineLatencySamples,
+                                INT_MAX));
+                            const double hostTail = chain->hostedProcess->process
+                                ->processorTailSeconds();
+                            chain->tailSeconds = std::isfinite(hostTail)
+                                ? std::max(0.0, hostTail) : 0.0;
+                            for (size_t i = 0; i < chain->nodes.size(); ++i) {
+                                auto& node = chain->nodes[i];
+                                switch (chain->hostedProcess->process->pluginSlotStatus(i)) {
+                                    case plugin_host::PluginSlotStatus::Loaded:
+                                        node->loadState = "loaded";
+                                        break;
+                                    case plugin_host::PluginSlotStatus::Missing:
+                                        node->loadState = "missing";
+                                        node->missingInstrument = node->instrument;
+                                        node->loadError = "Plug-in is not present in the isolated host catalog";
+                                        break;
+                                    case plugin_host::PluginSlotStatus::Failed:
+                                        node->loadState = "failed";
+                                        node->faulted.store(true, std::memory_order_relaxed);
+                                        node->missingInstrument = node->instrument;
+                                        node->loadError = "Plug-in failed to initialize in the isolated host";
+                                        break;
+                                    case plugin_host::PluginSlotStatus::Unknown:
+                                        node->loadState = "failed";
+                                        node->faulted.store(true, std::memory_order_relaxed);
+                                        node->missingInstrument = node->instrument;
+                                        node->loadError = "Isolated host did not report plug-in load status";
+                                        break;
+                                }
+                            }
+                        }
+                    }
+                } else if (isolatedChainCount > kMaximumIsolatedChains) {
+                    hostError = "Maximum of 32 isolated live plug-in chains reached";
+                }
+
+                if (chain->hostedProcess == nullptr) {
+                    chain->hostFailed = true;
+                    result.warnings.push_back("Could not start isolated plug-in chain "
+                        + graph.strips[stripIndex].name + ": " + hostError);
+                    for (auto& node : chain->nodes) {
+                        node->faulted.store(true, std::memory_order_relaxed);
+                        node->missingInstrument = node->instrument;
+                        node->loadState = "failed";
+                        node->loadError = hostError;
+                    }
+                }
+            }
+            if (!chain->nodes.empty())
+                bank->hasAnyPlugins = true;
+            bank->maximumLatencySamples = std::max(
+                bank->maximumLatencySamples, chain->latencySamples);
+            bank->processorEntries[stripIndex] = {chain.get(), processChain};
+            stripProcessorLatencies[stripIndex] =
+                static_cast<uint32_t>(chain->latencySamples);
+            stripProcessorTails[stripIndex] = chain->tailSeconds;
+            bank->chains[stripIndex] = std::move(chain);
+            continue;
+        }
+
         for (const auto& slot : *slots) {
             if (++slotCount > kMaximumSlotsPerBank) {
                 result.warnings.push_back("Plug-in bank exceeds 128 slots; remaining inserts were skipped");
@@ -525,16 +1108,23 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             if (reusableNode != nullptr) {
                 reusableNode->bypassed.store(slot.bypassed,
                                               std::memory_order_relaxed);
-                chain->latencySamples = static_cast<int>(std::min<uint64_t>(
-                    static_cast<uint64_t>(chain->latencySamples)
-                        + static_cast<uint32_t>(reusableNode->instance != nullptr
-                            ? std::max(0, reusableNode->instance->getLatencySamples())
-                            : 0),
-                    static_cast<uint64_t>(INT_MAX)));
-                if (reusableNode->instance != nullptr) {
-                    const double tail = reusableNode->instance->getTailLengthSeconds();
-                    if (std::isfinite(tail) && tail > 0.0)
-                        chain->tailSeconds += tail;
+                try {
+                    chain->latencySamples = static_cast<int>(std::min<uint64_t>(
+                        static_cast<uint64_t>(chain->latencySamples)
+                            + static_cast<uint32_t>(reusableNode->instance != nullptr
+                                ? std::max(0, reusableNode->instance->getLatencySamples())
+                                : 0),
+                        static_cast<uint64_t>(INT_MAX)));
+                    if (reusableNode->instance != nullptr) {
+                        const double tail = reusableNode->instance->getTailLengthSeconds();
+                        if (std::isfinite(tail) && tail > 0.0)
+                            chain->tailSeconds += tail;
+                    }
+                } catch (...) {
+                    reusableNode->faulted.store(true, std::memory_order_relaxed);
+                    result.warnings.push_back(
+                        "Reused plug-in failed while querying latency/tail: "
+                        + slot.plugin.name);
                 }
                 chain->nodes.push_back(std::move(reusableNode));
                 continue;
@@ -560,74 +1150,82 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 continue;
             }
 
-            juce::String error;
-            node->instance = formats.createPluginInstance(
-                *description, sampleRate, maximumBlockSize, error);
-            if (node->instance == nullptr) {
-                node->missingInstrument = slot.plugin.instrument;
-                node->loadState = "failed";
-                node->loadError = error.isNotEmpty()
-                    ? error.toStdString() : "JUCE could not create the plug-in instance";
-                node->powerTracker.prepare(slot.id, sampleRate, 0.0, pflags);
-                result.warnings.push_back("Could not create " + slot.plugin.name + ": "
-                                          + error.toStdString());
-                chain->nodes.push_back(std::move(node));
-                continue;
-            }
-            node->instance->setPlayHead(&bank->playHead);
-            node->instance->setNonRealtime(nonRealtime);
-            node->instance->setPlayConfigDetails(slot.plugin.instrument ? 0 : 2, 2,
-                                                  sampleRate, maximumBlockSize);
-            node->instance->prepareToPlay(sampleRate, maximumBlockSize);
-            node->loadState = "loaded";
-
-            const int ins = node->instance->getTotalNumInputChannels();
-            const int outs = node->instance->getTotalNumOutputChannels();
-            node->requiredChannels = std::max(2, std::max(ins, outs));
-            if (node->requiredChannels > 2) {
-                node->buffer.setSize(node->requiredChannels, std::max(512, maximumBlockSize));
-                node->buffer.clear();
-            }
-
-            const StateBlob* transientState = nullptr;
-            if (transientStates != nullptr) {
-                const auto saved = std::find_if(
-                    transientStates->begin(), transientStates->end(),
-                    [&slot](const StateBlob& state) { return state.slotId == slot.id; });
-                if (saved != transientStates->end()) transientState = &*saved;
-            }
-            if (transientState != nullptr) {
-                node->instance->setStateInformation(
-                    transientState->data.data(),
-                    static_cast<int>(transientState->data.size()));
-            } else if (resources != nullptr && slot.stateResource.has_value()) {
-                std::vector<uint8_t> state;
-                std::string stateError;
-                if (resources->extractFile(*slot.stateResource, state, stateError)) {
-                    if (state.size() <= kMaximumStateBytesPerSlot
-                        && loadedStateBytes + state.size() <= kMaximumStateBytesPerBank) {
-                        node->instance->setStateInformation(
-                            state.data(), static_cast<int>(state.size()));
-                        loadedStateBytes += state.size();
-                    } else {
-                        result.warnings.push_back("Plug-in state limit exceeded: " + slot.plugin.name);
-                    }
-                } else {
-                    result.warnings.push_back("Missing plug-in state: " + slot.plugin.name);
+            try {
+                juce::String error;
+                node->instance = formats.createPluginInstance(
+                    *description, sampleRate, maximumBlockSize, error);
+                if (node->instance == nullptr) {
+                    node->loadError = error.isNotEmpty()
+                        ? error.toStdString() : "JUCE could not create the plug-in instance";
+                    throw std::runtime_error(node->loadError);
                 }
-            }
-            const int reportedLatency =
-                std::max(0, node->instance->getLatencySamples());
-            const uint64_t accumulatedLatency =
-                static_cast<uint64_t>(chain->latencySamples)
-                + static_cast<uint32_t>(reportedLatency);
-            chain->latencySamples = static_cast<int>(std::min<uint64_t>(
-                accumulatedLatency, static_cast<uint64_t>(INT_MAX)));
-            const double reportedTail = node->instance->getTailLengthSeconds();
-            if (std::isfinite(reportedTail) && reportedTail > 0.0)
-                chain->tailSeconds += reportedTail;
+                node->instance->setPlayHead(bank->playHead.get());
+                node->instance->setNonRealtime(nonRealtime);
+                node->instance->setPlayConfigDetails(slot.plugin.instrument ? 0 : 2, 2,
+                                                      sampleRate, maximumBlockSize);
+                node->instance->prepareToPlay(sampleRate, maximumBlockSize);
 
-            node->powerTracker.prepare(slot.id, sampleRate, reportedTail, pflags);
+                const int ins = node->instance->getTotalNumInputChannels();
+                const int outs = node->instance->getTotalNumOutputChannels();
+                node->requiredChannels = std::max(2, std::max(ins, outs));
+                if (node->requiredChannels > 2) {
+                    node->buffer.setSize(node->requiredChannels, std::max(512, maximumBlockSize));
+                    node->buffer.clear();
+                }
+
+                const StateBlob* transientState = nullptr;
+                if (transientStates != nullptr) {
+                    const auto saved = std::find_if(
+                        transientStates->begin(), transientStates->end(),
+                        [&slot](const StateBlob& state) { return state.slotId == slot.id; });
+                    if (saved != transientStates->end()) transientState = &*saved;
+                }
+                if (transientState != nullptr) {
+                    node->instance->setStateInformation(
+                        transientState->data.data(),
+                        static_cast<int>(transientState->data.size()));
+                } else if (resources != nullptr && slot.stateResource.has_value()) {
+                    std::vector<uint8_t> state;
+                    std::string stateError;
+                    if (resources->extractFile(*slot.stateResource, state, stateError,
+                                               kMaximumStateBytesPerSlot)) {
+                        if (state.size() <= kMaximumStateBytesPerSlot
+                            && loadedStateBytes + state.size() <= kMaximumStateBytesPerBank) {
+                            node->instance->setStateInformation(
+                                state.data(), static_cast<int>(state.size()));
+                            loadedStateBytes += state.size();
+                        } else {
+                            result.warnings.push_back("Plug-in state limit exceeded: " + slot.plugin.name);
+                        }
+                    } else {
+                        result.warnings.push_back("Missing plug-in state: " + slot.plugin.name);
+                    }
+                }
+                const int reportedLatency =
+                    std::max(0, node->instance->getLatencySamples());
+                const uint64_t accumulatedLatency =
+                    static_cast<uint64_t>(chain->latencySamples)
+                    + static_cast<uint32_t>(reportedLatency);
+                chain->latencySamples = static_cast<int>(std::min<uint64_t>(
+                    accumulatedLatency, static_cast<uint64_t>(INT_MAX)));
+                const double reportedTail = node->instance->getTailLengthSeconds();
+                if (std::isfinite(reportedTail) && reportedTail > 0.0)
+                    chain->tailSeconds += reportedTail;
+                node->powerTracker.prepare(slot.id, sampleRate, reportedTail, pflags);
+                node->loadState = "loaded";
+            } catch (const std::exception& exception) {
+                node->loadState = "failed";
+                node->missingInstrument = slot.plugin.instrument;
+                node->faulted.store(true, std::memory_order_relaxed);
+                node->loadError = exception.what();
+                result.warnings.push_back("Could not prepare " + slot.plugin.name + ": " + node->loadError);
+            } catch (...) {
+                node->loadState = "failed";
+                node->missingInstrument = slot.plugin.instrument;
+                node->faulted.store(true, std::memory_order_relaxed);
+                node->loadError = "Plug-in threw during construction, preparation, or state restore";
+                result.warnings.push_back("Could not prepare " + slot.plugin.name);
+            }
 
             chain->nodes.push_back(std::move(node));
         }
@@ -683,7 +1281,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         initialTransport.numerator = song.timeSignature.numerator;
         initialTransport.denominator = song.timeSignature.denominator;
     }
-    bank->playHead.publish(initialTransport);
+    bank->playHead->publish(initialTransport);
 
     result.bank = std::move(bank);
     return result;
@@ -695,12 +1293,59 @@ PluginProcessorBank::createEditor(const std::string& slotId) {
     for (auto& chain : chains)
         if (chain != nullptr)
             for (auto& node : chain->nodes)
-                if (node->slotId == slotId && node->instance != nullptr
-                    && node->instance->hasEditor()) {
-                    return std::unique_ptr<juce::AudioProcessorEditor>(
-                        node->instance->createEditorIfNeeded());
+                if (node->slotId == slotId && node->instance != nullptr) {
+                    try {
+                        if (node->instance->hasEditor())
+                            return std::unique_ptr<juce::AudioProcessorEditor>(
+                                node->instance->createEditorIfNeeded());
+                    } catch (...) {
+                        node->faulted.store(true, std::memory_order_relaxed);
+                        return {};
+                    }
                 }
     return {};
+}
+
+bool PluginProcessorBank::openHostedEditor(const std::string& slotId) {
+    for (const auto& chain : chains) {
+        if (chain == nullptr || chain->hostedProcess == nullptr
+            || chain->hostedProcess->process == nullptr)
+            continue;
+        for (size_t i = 0; i < chain->nodes.size(); ++i) {
+            if (chain->nodes[i] != nullptr && chain->nodes[i]->slotId == slotId
+                && i <= std::numeric_limits<uint32_t>::max())
+                return chain->hostedProcess->process->requestOpenEditor(
+                    static_cast<uint32_t>(i));
+        }
+    }
+    return false;
+}
+
+bool PluginProcessorBank::closeHostedEditor(const std::string& slotId) {
+    for (const auto& chain : chains) {
+        if (chain == nullptr || chain->hostedProcess == nullptr
+            || chain->hostedProcess->process == nullptr)
+            continue;
+        for (size_t i = 0; i < chain->nodes.size(); ++i) {
+            if (chain->nodes[i] != nullptr && chain->nodes[i]->slotId == slotId
+                && i <= std::numeric_limits<uint32_t>::max())
+                return chain->hostedProcess->process->requestCloseEditor(
+                    static_cast<uint32_t>(i));
+        }
+    }
+    return false;
+}
+
+bool PluginProcessorBank::closeAllHostedEditors() {
+    bool requested = false;
+    for (const auto& chain : chains) {
+        if (chain == nullptr || chain->hostedProcess == nullptr
+            || chain->hostedProcess->process == nullptr)
+            continue;
+        requested = chain->hostedProcess->process->requestCloseAllEditors()
+            || requested;
+    }
+    return requested;
 }
 
 void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex,
@@ -710,6 +1355,19 @@ void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex
     auto& nodes = chains[stripIndex]->nodes;
     if (slotIndex >= nodes.size() || nodes[slotIndex] == nullptr)
         return;
+    auto& chain = *chains[stripIndex];
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr) {
+        if (slotIndex > std::numeric_limits<uint16_t>::max())
+            return;
+        plugin_host::ParameterEvent event;
+        event.slotIndex = static_cast<uint16_t>(slotIndex);
+        event.parameterIndex = paramIndex;
+        event.normalizedValue = std::clamp(value, 0.0f, 1.0f);
+        // A full bounded control queue drops this update and records a health
+        // counter; it is not evidence that the vendor processor faulted.
+        (void)chain.hostedProcess->process->enqueueParameterEvent(event);
+        return;
+    }
     auto* instance = nodes[slotIndex]->instance.get();
     if (instance == nullptr)
         return;
@@ -721,13 +1379,22 @@ void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex
         node.activeCalls.fetch_sub(1, std::memory_order_acq_rel);
         return;
     }
-    const auto& params = instance->getParameters();
-    if (paramIndex >= 0 && paramIndex < params.size()) {
-        if (auto* param = params[paramIndex]) {
-            hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
-            param->setValue(std::clamp(value, 0.0f, 1.0f));
-            hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+    try {
+        const auto& params = instance->getParameters();
+        if (paramIndex >= 0 && paramIndex < params.size()) {
+            if (auto* param = params[paramIndex]) {
+                hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
+                try {
+                    param->setValue(std::clamp(value, 0.0f, 1.0f));
+                } catch (...) {
+                    hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+                    throw;
+                }
+                hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+            }
         }
+    } catch (...) {
+        node.faulted.store(true, std::memory_order_relaxed);
     }
     node.activeCalls.fetch_sub(1, std::memory_order_acq_rel);
 }
@@ -737,8 +1404,21 @@ bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
     for (const auto& chain : chains) {
         if (chain == nullptr)
             continue;
-        for (const auto& node : chain->nodes) {
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
             if (node != nullptr && node->slotId == slotId) {
+                if (chain->hostedProcess != nullptr
+                    && chain->hostedProcess->process != nullptr) {
+                    if (slotIndex > std::numeric_limits<uint16_t>::max())
+                        return false;
+                    plugin_host::ParameterEvent event;
+                    event.slotIndex = static_cast<uint16_t>(slotIndex);
+                    event.parameterIndex = paramIndex;
+                    event.normalizedValue = std::clamp(value, 0.0f, 1.0f);
+                    const bool queued = chain->hostedProcess->process
+                        ->enqueueParameterEvent(event);
+                    return queued;
+                }
                 if (node->instance != nullptr) {
                     if (node->stateCaptureRequested.load(std::memory_order_acquire))
                         return false;
@@ -747,16 +1427,27 @@ bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
                         node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
                         return false;
                     }
-                    const auto& params = node->instance->getParameters();
-                    if (paramIndex >= 0 && paramIndex < params.size()) {
-                        if (auto* param = params[paramIndex]) {
-                            hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
-                            param->setValue(std::clamp(value, 0.0f, 1.0f));
-                            hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+                    bool succeeded = true;
+                    try {
+                        const auto& params = node->instance->getParameters();
+                        if (paramIndex >= 0 && paramIndex < params.size()) {
+                            if (auto* param = params[paramIndex]) {
+                                hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
+                                try {
+                                    param->setValue(std::clamp(value, 0.0f, 1.0f));
+                                } catch (...) {
+                                    hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+                                    throw;
+                                }
+                                hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+                            }
                         }
+                    } catch (...) {
+                        node->faulted.store(true, std::memory_order_relaxed);
+                        succeeded = false;
                     }
                     node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
-                    return true;
+                    return succeeded;
                 }
             }
         }
@@ -769,8 +1460,20 @@ bool PluginProcessorBank::setSlotBypassed(const std::string& slotId,
     for (const auto& chain : chains) {
         if (chain == nullptr)
             continue;
-        for (const auto& node : chain->nodes) {
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
             if (node != nullptr && node->slotId == slotId) {
+                if (chain->hostedProcess != nullptr
+                    && chain->hostedProcess->process != nullptr) {
+                    if (slotIndex > std::numeric_limits<uint16_t>::max())
+                        return false;
+                    plugin_host::ParameterEvent event;
+                    event.slotIndex = static_cast<uint16_t>(slotIndex);
+                    event.parameterIndex = -2; // bounded bypass control command
+                    event.normalizedValue = bypassed ? 1.0f : 0.0f;
+                    if (!chain->hostedProcess->process->enqueueParameterEvent(event))
+                        return false;
+                }
                 node->bypassed.store(bypassed, std::memory_order_release);
                 return true;
             }
@@ -796,6 +1499,10 @@ std::string PluginProcessorBank::getSlotLoadState(const std::string& slotId) con
         if (chain == nullptr) continue;
         for (const auto& node : chain->nodes) {
             if (node == nullptr || node->slotId != slotId) continue;
+            if (chain->hostedProcess != nullptr
+                && (chain->hostedProcess->process == nullptr
+                    || !chain->hostedProcess->process->isRunning()))
+                return "failed";
             if (node->faulted.load(std::memory_order_relaxed)) return "failed";
             return node->loadState;
         }
@@ -808,6 +1515,10 @@ std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) con
         if (chain == nullptr) continue;
         for (const auto& node : chain->nodes) {
             if (node == nullptr || node->slotId != slotId) continue;
+            if (chain->hostedProcess != nullptr
+                && (chain->hostedProcess->process == nullptr
+                    || !chain->hostedProcess->process->isRunning()))
+                return "Isolated plug-in host exited; chain audio is temporarily unavailable";
             if (node->faulted.load(std::memory_order_relaxed))
                 return "Plug-in raised an exception while processing audio";
             return node->loadError;

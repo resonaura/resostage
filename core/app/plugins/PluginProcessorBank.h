@@ -83,7 +83,8 @@ private:
 };
 
 /**
- * Immutable strip-indexed bank of stateful JUCE processors.
+ * Immutable strip-indexed bank of graph-facing processors. Live mode uses an
+ * isolated helper per chain; offline mode owns the JUCE processors directly.
  *
  * Build and destroy this object away from the audio callback. process() is
  * reached only through MixProcessorView's pre-bound function/context pairs;
@@ -91,6 +92,11 @@ private:
  */
 class PluginProcessorBank final : private juce::AudioProcessorListener {
 public:
+    enum class ExecutionMode : uint8_t {
+        InProcess,
+        IsolatedProcess,
+    };
+
     struct StateBlob {
         std::string slotId;
         std::vector<uint8_t> data;
@@ -113,7 +119,9 @@ public:
                              double sampleRate, int maximumBlockSize,
                              bool nonRealtime,
                              const PluginProcessorBank* previousBank = nullptr,
-                             const std::vector<StateBlob>* transientStates = nullptr);
+                             const std::vector<StateBlob>* transientStates = nullptr,
+                             ExecutionMode executionMode = ExecutionMode::InProcess,
+                             int hostedPipelineLatencySamples = 0);
 
     ~PluginProcessorBank() override;
     PluginProcessorBank(const PluginProcessorBank&) = delete;
@@ -126,20 +134,19 @@ public:
             delayBank->applyTo(view);
         return view;
     }
-    void publishTransport(const PluginTransportState& state) noexcept {
-        playHead.publish(state);
-    }
+    void publishTransport(const PluginTransportState& state) noexcept;
+    void setActivePluginIndexTelemetry(std::atomic<uint32_t>* activeIndex) noexcept;
     int latencySamples() const noexcept { return maximumLatencySamples; }
     double tailSeconds() const noexcept { return maximumTailSeconds; }
     bool hasPlugins() const noexcept { return hasAnyPlugins; }
     /** Worker-thread refresh used after a JUCE latency-change notification. */
     std::vector<uint32_t> snapshotStripLatencies() const;
-    bool consumeLatencyChange() noexcept {
-        return latencyChangePending.exchange(false, std::memory_order_acq_rel);
-    }
-    bool consumeStateChange() noexcept {
-        return stateChangePending.exchange(false, std::memory_order_acq_rel);
-    }
+    /** Allocation-free latency refresh for the single-chain helper host. */
+    int snapshotMaximumProcessorLatency() const noexcept;
+    /** Message-thread health query; never used by the audio callback. */
+    std::vector<std::string> failedHostStripIds() const;
+    bool consumeLatencyChange() noexcept;
+    bool consumeStateChange() noexcept;
     /**
      * Captures opaque vendor state away from the audio thread. Each processor
      * is bypassed independently while its blob is read; the callback never
@@ -149,6 +156,9 @@ public:
     /** Creates a vendor editor on the JUCE message thread for one live slot. */
     std::unique_ptr<juce::AudioProcessorEditor> createEditor(
         const std::string& slotId);
+    bool openHostedEditor(const std::string& slotId);
+    bool closeHostedEditor(const std::string& slotId);
+    bool closeAllHostedEditors();
 
     /** Audio-thread hooks for routing block MIDI messages to instrument strips. */
     bool stripHasInstrument(size_t stripIndex) const noexcept;
@@ -195,7 +205,9 @@ private:
         juce::AudioProcessor*,
         const juce::AudioProcessorListener::ChangeDetails& details) override;
 
-    PluginPlayHead playHead;
+    // Reused nodes retain JUCE's raw AudioPlayHead pointer. Banks sharing a
+    // node must therefore share this playhead's lifetime as well.
+    std::shared_ptr<PluginPlayHead> playHead = std::make_shared<PluginPlayHead>();
     std::vector<std::unique_ptr<StripChain>> chains;
     std::vector<MixStripProcessor> processorEntries;
     std::vector<uint32_t> stripProcessorLatencySamples;
@@ -208,6 +220,7 @@ private:
     // JUCE parameter notifications are normally synchronous with setValue().
     std::atomic<uint32_t> hostParameterWrites{0};
     std::atomic<bool> stateSerializationInProgress{false};
+    std::atomic<uint32_t>* activePluginIndexTelemetry = nullptr;
 };
 
 } // namespace resostage

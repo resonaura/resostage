@@ -11,6 +11,9 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
   intent: MidiExportIntent;
   onClose: () => void;
 }) {
+  // Partial structural state can arrive briefly while Core is opening a project.
+  const songs = Array.isArray(state.songs) ? state.songs : [];
+  const projectTracks = Array.isArray(state.tracks) ? state.tracks : [];
   const defaultSong = intent.songIndex ?? Math.max(0, state.songIndex);
   const [selectedSongs, setSelectedSongs] = useState<Set<number>>(() => new Set([defaultSong]));
   const [fromProjectStart, setFromProjectStart] = useState(true);
@@ -27,31 +30,32 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
     }
   }, [open, state.songIndex, intent.songIndex]);
 
-  const exportSongIndices = intent.kind === "region" && intent.songIndex !== undefined
-    ? [intent.songIndex]
-    : [...selectedSongs].sort((a, b) => a - b);
+  const exportSongIndices = useMemo(
+    () => intent.kind === "region" && intent.songIndex !== undefined
+      ? [intent.songIndex]
+      : [...selectedSongs].sort((a, b) => a - b),
+    [intent.kind, intent.songIndex, selectedSongs],
+  );
   const exportSelectionKey = exportSongIndices.join(",");
   useEffect(() => setLossAccepted(false), [format, exportSelectionKey, intent.kind, intent.regionId, intent.trackId]);
-  const exportTrackName = intent.kind === "track"
-    ? state.tracks.find((track) => track.id === intent.trackId)?.name
-    : undefined;
   const exportTracks = useMemo(() => {
     const tracks = new Map<string, MidiExportTrack>();
+    const trackNames = new Map(projectTracks.map((track) => [track.id, track.name]));
     for (const songIndex of exportSongIndices) {
-      const song = state.songs[songIndex];
+      const song = songs[songIndex];
       if (!song) continue;
       for (const region of song.midiRegions ?? []) {
         if (intent.kind === "region" && region.id !== intent.regionId) continue;
         if (intent.kind === "region" && intent.trackId && region.trackId !== intent.trackId) continue;
-        const name = song.tracks.find((track) => track.id === region.trackId)?.name ?? region.trackId;
-        if (exportTrackName && name !== exportTrackName) continue;
-        const entry = tracks.get(name) ?? { name, regions: [] };
+        if (intent.kind === "track" && region.trackId !== intent.trackId) continue;
+        const name = trackNames.get(region.trackId) ?? region.trackId;
+        const entry = tracks.get(region.trackId) ?? { name, regions: [] };
         entry.regions.push(region);
-        tracks.set(name, entry);
+        tracks.set(region.trackId, entry);
       }
     }
     return [...tracks.values()];
-  }, [exportSelectionKey, state.songs, intent.kind, intent.regionId, intent.trackId, exportTrackName]);
+  }, [exportSongIndices, songs, projectTracks, intent.kind, intent.regionId, intent.trackId]);
   const lossReport = useMemo(() => analyzeMidi1ExportLoss(exportTracks), [exportTracks]);
   const hasMidi1Loss = lossReport.noteAttributes + lossReport.groups + lossReport.quantizedVelocities + lossReport.unsupportedUmpEvents > 0;
 
@@ -61,27 +65,25 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
         ? [intent.songIndex]
         : [...selectedSongs].sort((a, b) => a - b);
       if (!indices.length) throw new Error("Select at least one song");
-      const trackName = intent.kind === "track"
-        ? state.tracks.find((track) => track.id === intent.trackId)?.name
-        : undefined;
-      if (intent.kind === "track" && !trackName)
+      if (intent.kind === "track" && !projectTracks.some((track) => track.id === intent.trackId))
         throw new Error("The requested track is no longer available");
-      let songs = state.songs;
+      let exportSongs = songs;
       if (intent.kind === "region" && intent.regionId) {
-        songs = state.songs.map((song, index) => index === (intent.songIndex ?? state.songIndex)
+        exportSongs = songs.map((song, index) => index === (intent.songIndex ?? state.songIndex)
           ? { ...song, midiRegions: song.midiRegions?.filter((region) => region.id === intent.regionId) }
           : { ...song, midiRegions: [] });
       }
-      const bytes = writeSongsMidiFile(songs, {
+      const bytes = writeSongsMidiFile(exportSongs, {
         songIndices: indices,
-        trackNames: trackName ? new Set([trackName]) : undefined,
-        trackIds: intent.kind === "region" && intent.trackId ? new Set([intent.trackId]) : undefined,
+        tracks: projectTracks,
+        trackIds: (intent.kind === "track" || intent.kind === "region") && intent.trackId
+          ? new Set([intent.trackId]) : undefined,
         fromProjectStart, expandLoops, format,
       });
       const blob = new Blob([Uint8Array.from(bytes)], { type: "audio/midi" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
-      const label = intent.kind === "track" ? state.tracks.find((track) => track.id === intent.trackId)?.name : undefined;
+      const label = intent.kind === "track" ? projectTracks.find((track) => track.id === intent.trackId)?.name : undefined;
       anchor.href = url;
       anchor.download = `${(label || state.projectName || "ResoStage").replace(/[\\/:*?"<>|]/g, "_")}.${format === "midi2" ? "midi2" : "mid"}`;
       anchor.click();
@@ -125,7 +127,7 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
                 </label>
               </div>}
               <div className={`max-h-40 space-y-1 overflow-auto rounded-lg border border-default/20 p-2 ${intent.kind === "region" ? "opacity-60" : ""}`}>
-                {state.songs.map((song, index) => (
+                {songs.map((song, index) => (
                   <label key={index} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-default/15">
                     <input type="checkbox" disabled={intent.kind === "region"} checked={intent.kind === "region" ? index === intent.songIndex : selectedSongs.has(index)} onChange={(event) => {
                       setSelectedSongs((current) => {

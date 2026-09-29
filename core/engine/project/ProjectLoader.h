@@ -3,6 +3,7 @@
 #include "ProjectSchema.h"
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -54,6 +55,8 @@ public:
 
     ProjectLoader(const ProjectLoader&) = delete;
     ProjectLoader& operator=(const ProjectLoader&) = delete;
+    ProjectLoader(ProjectLoader&&) noexcept;
+    ProjectLoader& operator=(ProjectLoader&&) noexcept;
 
     // Opens the .rsnraset (ZIP) file and parses project.json. Returns false and
     // fills `error` on failure (bad zip, missing project.json, malformed JSON).
@@ -117,7 +120,10 @@ public:
     // archive into an in-memory buffer. Returns false if the archive isn't open
     // or the entry doesn't exist. Use for small metadata files; for audio stems
     // prefer openStream() so the whole file isn't materialized in RAM.
-    bool extractFile(const std::string& archivePath, std::vector<uint8_t>& outData, std::string& error) const;
+    bool extractFile(const std::string& archivePath,
+                     std::vector<uint8_t>& outData,
+                     std::string& error,
+                     uint64_t maximumBytes = std::numeric_limits<uint64_t>::max()) const;
 
     // Opens a streaming cursor for `archivePath`. Returns an invalid cursor
     // (isValid()==false) on failure.

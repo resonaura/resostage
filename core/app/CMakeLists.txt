@@ -77,6 +77,8 @@ target_sources(ResoStage PRIVATE
   platform/TrayIcon.cpp
   plugins/PluginCatalogService.cpp
   plugins/PluginProcessorBank.cpp
+  plugins/PluginHostSharedMemory.cpp
+  plugins/PluginHostProcess.cpp
   server/WebServer.cpp
   network/UdpDiscovery.cpp
 )
@@ -264,6 +266,53 @@ add_custom_command(TARGET ResoStage POST_BUILD
           $<TARGET_FILE:resostage_plugin_scanner>
           $<TARGET_FILE_DIR:ResoStage>/$<TARGET_FILE_NAME:resostage_plugin_scanner>
   COMMENT "Embedding crash-isolated plug-in scanner beside ResoStage Core"
+)
+
+# Live AU/VST3 instances execute in this child, never inside the device Core.
+juce_add_console_app(resostage_plugin_host PRODUCT_NAME "ResoStage Plug-in Host")
+target_sources(resostage_plugin_host PRIVATE
+  plugins/PluginHostMain.cpp
+  plugins/PluginHostProcess.cpp
+  plugins/PluginHostSharedMemory.cpp
+  plugins/PluginHostRuntime.cpp
+  plugins/PluginProcessorBank.cpp
+)
+target_compile_features(resostage_plugin_host PRIVATE cxx_std_23)
+target_include_directories(resostage_plugin_host PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/engine
+)
+target_compile_definitions(resostage_plugin_host PRIVATE
+  JUCE_USE_CURL=0
+  JUCE_PLUGINHOST_VST3=1
+  JUCE_PLUGINHOST_AU=$<BOOL:${APPLE}>
+)
+target_link_libraries(resostage_plugin_host PRIVATE
+  resostage_engine
+  juce::juce_audio_processors
+  juce::juce_core
+  juce::juce_data_structures
+  juce::juce_events
+  juce::juce_graphics
+  juce::juce_gui_basics
+  juce::juce_recommended_config_flags
+  juce::juce_recommended_warning_flags
+)
+if(APPLE)
+  target_link_libraries(resostage_plugin_host PRIVATE
+    "-framework AudioUnit"
+    "-framework CoreAudioKit"
+    "-framework CoreFoundation"
+    "-framework AppKit"
+  )
+endif()
+set_target_properties(resostage_plugin_host PROPERTIES OUTPUT_NAME "resostage-plugin-host")
+add_dependencies(ResoStage resostage_plugin_host)
+add_custom_command(TARGET ResoStage POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          $<TARGET_FILE:resostage_plugin_host>
+          $<TARGET_FILE_DIR:ResoStage>/$<TARGET_FILE_NAME:resostage_plugin_host>
+  COMMENT "Embedding out-of-process live plug-in host beside ResoStage Core"
 )
 
 set(KAISHAKU_SOURCES

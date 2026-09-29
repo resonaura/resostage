@@ -163,6 +163,7 @@ TEST_CASE("ProjectLoader tolerates missing optional sections") {
   "sends": [],
   "songs": []
 }
+
 )JSON";
     const std::string path = makeProjectArchive(minimalJson);
 
@@ -175,6 +176,40 @@ TEST_CASE("ProjectLoader tolerates missing optional sections") {
     CHECK(proj.sends.empty());
     CHECK(proj.songs.empty());
     CHECK(proj.midi.mappings.empty());
+}
+
+TEST_CASE("ProjectLoader bounds extracted resources and confines them to the project") {
+    namespace fs = std::filesystem;
+    const std::string path = makeProjectArchive(kFullProjectJson);
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(path, error));
+
+    std::vector<uint8_t> bytes;
+    CHECK_FALSE(loader.extractFile("Audio/dummy.wav", bytes, error, 4));
+    CHECK(bytes.empty());
+    CHECK(error.find("exceeds") != std::string::npos);
+
+    const fs::path container(path);
+    const fs::path outside = container.parent_path() / (container.filename().string() + "_outside");
+    {
+        std::ofstream file(outside, std::ios::binary);
+        REQUIRE(file.is_open());
+        file << "not project data";
+    }
+    const std::string traversal = "../" + outside.filename().string();
+    CHECK_FALSE(loader.extractFile(traversal, bytes, error));
+    CHECK(bytes.empty());
+
+    std::error_code ec;
+    const fs::path symlink = container / "Audio" / "outside-link";
+    fs::create_symlink(outside, symlink, ec);
+    if (!ec) {
+        CHECK_FALSE(loader.extractFile("Audio/outside-link", bytes, error));
+        CHECK(bytes.empty());
+        fs::remove(symlink, ec);
+    }
+    fs::remove(outside, ec);
 }
 
 TEST_CASE("ProjectLoader parses and round-trips a sends-only track") {
@@ -595,6 +630,35 @@ TEST_CASE("newProject creates an unsaved project that can be saved for the first
     CHECK(reopened.project().songs[0].bpm == doctest::Approx(128.0));
 
     std::remove(outPath.c_str());
+}
+
+TEST_CASE("a save loader keeps resources independent of the live loader") {
+    namespace fs = std::filesystem;
+    const std::string sourcePath = makeProjectArchive(kFullProjectJson);
+    const fs::path outPath = fs::path(sourcePath).parent_path()
+        / "resoset_private_save_loader_test.rsnraset";
+    std::error_code ec;
+    fs::remove_all(outPath, ec);
+
+    ProjectLoader live;
+    ProjectLoader saveSource;
+    std::string error;
+    REQUIRE(live.open(sourcePath, error));
+    Project snapshot = live.project();
+    snapshot.name = "Private Snapshot";
+    REQUIRE(saveSource.open(sourcePath, error));
+
+    // Async save may continue after the message thread closes/replaces its
+    // loader. The worker's copy must still see the original audio resources.
+    live.close();
+    live.newProject("Different live document");
+    REQUIRE(saveSource.saveAsWithExtras(outPath.string(), {}, error, &snapshot));
+
+    ProjectLoader reopened;
+    REQUIRE(reopened.open(outPath.string(), error));
+    CHECK(reopened.project().name == "Private Snapshot");
+    CHECK(fs::exists(outPath / "Audio" / "dummy.wav"));
+    fs::remove_all(outPath, ec);
 }
 
 TEST_CASE("jsonEscapeString escapes control characters") {

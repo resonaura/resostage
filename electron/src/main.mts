@@ -1634,13 +1634,11 @@ function buildRecentMenuItems(): MenuItemConstructorOptions[] {
     : [{ label: "No Recent Projects", enabled: false }];
 }
 
-function updateRecentMenuInPlace(): void {
-  const item = Menu.getApplicationMenu()?.getMenuItemById("open_recent");
-  if (!item) {
-    refreshMenu();
-    return;
-  }
-  item.submenu = Menu.buildFromTemplate(buildRecentMenuItems());
+function updateRecentMenu(): void {
+  // Electron exposes MenuItem.submenu as read-only after the native menu is
+  // built. Rebuild from the source MenuModel instead of mutating a live item.
+  // This path only runs when the visible recent-project list actually changes.
+  refreshMenu();
 }
 
 /** Shell-only Dev menu (not in backend MenuModel) — DevTools / reload / recover. */
@@ -2266,7 +2264,7 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
     }
     const recentProjectsChanged = JSON.stringify(prev.recentProjects) !==
       JSON.stringify(menuState.recentProjects);
-    if (recentProjectsChanged) updateRecentMenuInPlace();
+    if (recentProjectsChanged) updateRecentMenu();
 
     if (
       menuState.lastActionNonce !== prevNonce &&

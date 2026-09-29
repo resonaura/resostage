@@ -118,6 +118,7 @@ Thread ownership is part of the design, not an implementation detail.
 | LightEngine worker | High-priority fixed-rate cue/effect resolution. | Reads `MasterClock` and an immutable project snapshot; queues output to EventDispatcher. |
 | Offline render worker | Independent non-realtime render from a project snapshot. | Must not borrow mutable live state, stop transport, or enter the device callback. |
 | Plug-in scanner helper | Enumerates VST3 and platform AU binaries and atomically publishes a device-local registry/catalog. | Separate process launched by Core; a third-party crash cannot unwind through playback. Dead-man's-pedal quarantines the item active at failure. |
+| Live plug-in host helper | Owns the live AU/VST3 instances for one serial strip chain, its DSP, state capture, and editor windows. | Separate child per chain; fixed shared-memory audio slots and bounded control queue. Core's callback never waits for the child. A watchdog outside audio kills a stalled/dead helper; one automatic restart is allowed per strip/project epoch. This is crash containment, not an OS sandbox. |
 | Electron main | Core process orchestration, native UI, discovery, HTTP proxy, UDP validation. | Renderer receives only validated/coalesced data through preload IPC. |
 | React renderer | User interaction and visualization. | Treat all state as a view of Core, never as the real clock or show authority. |
 
@@ -323,23 +324,31 @@ Preserve these rules:
 - Strip plug-in chains run post-input-sum and pre-fader through the flat
   `MixProcessorView` hook. The renderer remains JUCE-free; application-owned
   live/offline processor banks publish one pre-bound function/context entry
-  per graph strip. Pre-fader sends include inserts but bypass fader/mute.
+  per graph strip. Live AU/VST3 instances are in `resostage-plugin-host`, one
+  helper per serial strip chain (bounded to 32 helpers); offline rendering
+  still uses a separate in-process bank. Pre-fader sends include inserts but
+  bypass fader/mute.
   Generator instruments are supported at track slot 0: during the audio
   callback, timeline MIDI events within the block are stamped with sample
   offsets and deposited into the strip's preallocated MIDI buffer before
   processing; the chain clears its MIDI buffer immediately after execution
-  without heap allocation. Project saves capture each live processor's opaque
-  vendor state on the save worker and store it as `Plugins/<slot>.state`; a
-  per-node atomic gate makes the callback bypass only that processor while its
-  state is read, so the audio thread never waits for serialization. User-originated
-  parameter and program notifications mark the project dirty; host automation is
-  suppressed from that dirty signal. Slot bypass is an atomic live-bank property:
-  toggling power immediately calls `processBlockBypassed`; any latest-wins
-  publication needed to supersede an in-flight stale snapshot reuses the same
-  vendor instance. Asynchronous bank publications for chain or
-  routing edits reuse processor nodes whose stable slot ID and plug-in identity
-  are unchanged; only added/replaced slots instantiate new vendor processors,
-  and removed processors retire off the audio callback after older snapshots drain.
+  without heap allocation. Live input is copied into versioned fixed-capacity
+  shared-memory slots and processed one callback later; Core applies that
+  nominal callback quantum plus reported plug-in latency through normal PDC.
+  If a result misses its deadline, effects retain their dry input and instrument
+  strips emit silence for that block. MIDI packets and host controls use bounded
+  queues; rejected control events increment a health counter without marking a
+  vendor processor faulted. Project saves request opaque vendor-state capture from the helper on
+  the save worker; plugin processing continues while each node's state is
+  captured, and Core copies capped state blobs back into `Plugins/<slot>.state`.
+  User-originated parameter/program changes mark the project dirty; host
+  automation is suppressed from that signal. Unchanged healthy chain helpers
+  are reused across same-project edits at the same sample rate and buffer
+  capacity. Dynamic plug-in latency notifications cross back through shared
+  atomic telemetry and trigger a non-realtime PDC rebuild without restarting a
+  healthy helper. Only changed/failed chains are rebuilt;
+  project-epoch changes invalidate all old helpers. Editor windows live inside
+  the corresponding helper.
   Intelligent power management (`PluginPowerManager`)
   monitors strip signal activity via preallocated envelope followers, automatically
   suspending processing during silence while preserving tail decay and waking up
@@ -347,6 +356,25 @@ Preserve these rules:
   provides dedicated AU/VST3 generator selection via categorized context menus grouped
   by manufacturer (with 'Open UI' and 'No Plug-in' removal options), and `pluginSlotAdd`
   atomically replaces existing slot 0 instruments or prepends them before existing audio insert FX.
+- A whole-document replacement has a monotonically increasing
+  `AudioEngine::projectEpoch`. Every published `MixGraph`, asynchronous
+  plug-in-bank request, and published bank carries that epoch; the callback
+  accepts a bank only when its epoch and processor layout match the graph.
+  Project replacement invalidates pending builds and never reuses vendor
+  instances from the previous document, even when track/slot IDs coincide.
+  Reopening the same logical project after Save or Import gates the callback
+  but preserves its epoch, so unchanged plug-in nodes and their runtime state
+  are reused instead of reloading the entire chain.
+  The replacement scope prevents callbacks (including stopped monitoring and
+  meters) from touching callback-owned vectors while they are cleared or
+  resized, then publishes the matching graph before resuming callbacks.
+  Ordinary same-document edits may reuse healthy chain helpers. A failed bank
+  build publishes no vendor bank for that generation; recoverable C++ exceptions
+  from a slot or builder cannot escape the worker thread. A native crash/hang in
+  a live helper is contained from Core and unrelated chains, but that helper
+  chain is lost until one automatic restart or explicit retry. Helpers run with
+  the user's permissions and are not an OS sandbox; offline render still loads
+  vendor code in its renderer process.
 - Dynamic curves and parameter automation use `AutomationEnvelope` with
   shape-preserving curvature matching `RegionFade` (`pow(t, 2^(-curve*2))`),
   supporting real-time bounded block evaluation without heap allocation. Real-time
@@ -674,10 +702,34 @@ and filtered so catalog size cannot create an unbounded component tree.
 
 VST3 is enabled on all supported desktop builds and AU on macOS. VST2 remains
 disabled; do not enable or ship it without separately verified legacy SDK and
-distribution rights. Discovery does not imply live processing: adding project
-slots, processor banks, state restore, PDC, and private offline instances must
-preserve the callback and snapshot invariants above and land with their schema
-and parity tests.
+distribution rights. Live project slots use an asynchronous `PluginProcessorBank`
+in Core as a graph-facing proxy; vendor instances execute in the packaged
+`resostage-plugin-host`, one process per serial strip chain (up to 32 chains).
+Offline renders use a separate in-process bank and never borrow live vendor
+instances. Same-project edits reuse unchanged healthy chain helpers, while a
+whole-project replacement invalidates the prior epoch and restores only the
+incoming project's state. Core exchanges audio through a versioned shared-memory
+protocol with three fixed audio slots, bounded MIDI packets, and a bounded MPMC
+parameter/bypass queue. The callback only copies into fixed storage, advances
+lock-free slot states, and sends a non-waiting wake signal; a late/missing effect
+block falls back to dry input, while instruments emit silence. PDC includes the
+nominal device callback quantum and plug-in-reported latency, not the larger
+preallocated buffer capacity. Runtime latency changes flow back to Core through
+shared atomic telemetry and trigger delay-plan rebuilding without recreating
+the host. Sample-rate or IPC-capacity changes require a fresh helper. A
+non-realtime watchdog kills a dead/stalled host;
+Core permits one automatic restart per chain/document and then requires an
+explicit retry. Native live plug-in faults are therefore contained to their
+helper chain, but helpers run with the user's permissions and are not OS
+sandboxes. Offline plug-in crashes remain outside this live-host guarantee.
+
+Project resource extraction rejects absolute paths, traversal, and symlinks
+that resolve outside the project container. Plug-in state resources are capped
+at 64 MiB per slot before allocation/read; never move that validation after
+materialization. This protects the loader boundary, not the vendor state parser:
+malformed state can still crash an in-process offline renderer. Live state
+restoration runs in the isolated chain helper, which contains native faults but
+is not a permission/security sandbox.
 
 ## 12. Electron and UI conventions
 
@@ -691,9 +743,11 @@ Application menus have one source of truth in `core/app/platform/MenuModel`.
 `MenuItemModel::children` is recursively serialized by the UI menu endpoint and
 recursively materialized by Electron; submenu placement, labels, and shortcut
 metadata belong in that model. High-rate undo/redo availability is applied to
-the existing native menu items in place, and Open Recent contents update
-inside their existing submenu. Menu-state updates must not rebuild the
-application menu for either kind of change.
+the existing native menu items in place. Electron exposes a built
+`MenuItem.submenu` as read-only, so changes to Open Recent rebuild the native
+menu from the current `MenuModel` rather than mutating the existing submenu.
+Menu-state updates must not rebuild the menu for action echoes or unchanged
+recent-project lists.
 
 `useLiveState.ts` merges two classes of data:
 
@@ -886,10 +940,11 @@ release code:
 - Windows x64: `build/win/x64/resostage.exe` with its sibling `core.exe` and
   Electron resources
 
-The assembled Core also carries `resostage-plugin-scanner` (or `.exe`) beside
-its executable. Do not move scanning back into Core or omit the helper from a
-platform adapter; missing helper means the catalog API reports a visible scan
-failure rather than falling back to unsafe in-process discovery.
+The assembled Core also carries `resostage-plugin-scanner` and
+`resostage-plugin-host` (with `.exe` suffix on Windows) beside its executable.
+Do not omit either helper from a platform adapter. Missing scanner means the
+catalog API reports a visible scan failure; missing live host makes affected
+plugin slots visibly fail closed rather than loading vendor code in Core.
 
 On Windows the executable is not standalone; keep the complete assembled
 directory together. On macOS the outer Electron application contains

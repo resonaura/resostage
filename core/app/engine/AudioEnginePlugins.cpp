@@ -32,7 +32,37 @@ void AudioEngine::stopPluginBankBuilder() {
     retiredPluginBanks.clear();
 }
 
-void AudioEngine::schedulePluginBankRebuild(bool forceRecreate) {
+void AudioEngine::beginProjectMutation() {
+    // The callback touches meters even on its stopped early-return path,
+    // before routingMutex. A sequentially consistent entry counter and flag
+    // make it impossible for an old callback to go uncounted while we replace
+    // ProjectLoader and callback-owned vectors. New callbacks emit silence.
+    projectTransitioning.store(true);
+    while (audioCallbacksInFlight.load() != 0)
+        std::this_thread::yield();
+}
+
+void AudioEngine::beginProjectReplacement() {
+    beginProjectMutation();
+    {
+        std::lock_guard lock(pluginBankMutex);
+        projectEpoch.fetch_add(1, std::memory_order_acq_rel);
+        pluginBankGeneration.fetch_add(1, std::memory_order_acq_rel);
+        pendingPluginBankBuild.reset();
+        recoveredPluginHostKeys.clear();
+        currentPluginLatencySamples.store(0, std::memory_order_relaxed);
+    }
+}
+
+void AudioEngine::endProjectReplacement() {
+    // Call only after a matching graph has been published (or a failed load
+    // has left the old graph invalid by epoch). No callback can then pair an
+    // old graph with the new mutable project.
+    projectTransitioning.store(false, std::memory_order_release);
+}
+
+void AudioEngine::schedulePluginBankRebuild(bool forceRecreate,
+                                            bool recoverFailedHosts) {
     if (!projectLoaded)
         return;
 
@@ -48,13 +78,16 @@ void AudioEngine::schedulePluginBankRebuild(bool forceRecreate) {
     request.generation = pluginBankGeneration.fetch_add(
                              1, std::memory_order_acq_rel)
                          + 1;
+    request.projectEpoch = projectEpoch.load(std::memory_order_acquire);
     request.project = loader.project();
     request.graph = std::move(graph);
     request.archivePath = loader.archivePath();
     request.sampleRate = currentSampleRate;
     request.maximumBlockSize =
         std::max({currentBlockSize, 512, mixRenderer.maxBlockSize()});
+    request.pipelineLatencySamples = std::max(1, currentBlockSize);
     request.forceRecreate = forceRecreate;
+    request.recoverFailedHosts = recoverFailedHosts;
 
     {
         std::lock_guard lock(pluginBankMutex);
@@ -73,25 +106,37 @@ void AudioEngine::notifyPluginChainsChanged() {
 void AudioEngine::servicePluginHostChanges() {
     const auto publication = std::atomic_load_explicit(
         &activePluginBank, std::memory_order_acquire);
-    if (publication != nullptr && publication->bank != nullptr) {
+    if (publication != nullptr
+        && publication->projectEpoch == projectEpoch.load(std::memory_order_acquire)
+        && publication->bank != nullptr) {
         if (publication->bank->consumeStateChange())
             markDirty();
         if (publication->bank->consumeLatencyChange())
             schedulePluginBankRebuild();
+        for (const auto& stripId : publication->bank->failedHostStripIds()) {
+            const std::string key = std::to_string(publication->projectEpoch)
+                + ":" + stripId;
+            if (recoveredPluginHostKeys.insert(key).second)
+                schedulePluginBankRebuild(false, true);
+        }
     }
 }
 
 std::shared_ptr<PluginProcessorBank> AudioEngine::activePluginProcessorBank() const {
     const auto publication = std::atomic_load_explicit(
         &activePluginBank, std::memory_order_acquire);
-    return publication != nullptr ? publication->bank : nullptr;
+    return publication != nullptr
+               && publication->projectEpoch == projectEpoch.load(std::memory_order_acquire)
+        ? publication->bank : nullptr;
 }
 
 bool AudioEngine::retryPluginSlot(const std::string& slotId) {
     const auto bank = activePluginProcessorBank();
     if (bank != nullptr && bank->getSlotLoadState(slotId) == "loaded")
         return false;
-    schedulePluginBankRebuild(true);
+    // Restart only the containing isolated chain. The builder reuses every
+    // healthy sibling chain and retries slots that reported load failure.
+    schedulePluginBankRebuild(false, true);
     return true;
 }
 
@@ -108,6 +153,7 @@ void AudioEngine::setPluginSlotBypassed(const std::string& slotId,
 void AudioEngine::runPluginBankBuilder() {
     for (;;) {
         PluginBankBuildRequest request;
+        try {
         {
             std::unique_lock lock(pluginBankMutex);
             pluginBankWake.wait(lock, [this] {
@@ -119,6 +165,15 @@ void AudioEngine::runPluginBankBuilder() {
             pendingPluginBankBuild.reset();
         }
 
+        // A document switch can invalidate a request before this worker even
+        // starts opening its resource archive. Do not instantiate stale vendor
+        // processors just to discard the result at publication time.
+        if (request.generation
+                != pluginBankGeneration.load(std::memory_order_acquire)
+            || request.projectEpoch
+                != projectEpoch.load(std::memory_order_acquire))
+            continue;
+
         ProjectLoader resourceLoader;
         const ProjectLoader* resources = nullptr;
         std::string openError;
@@ -127,15 +182,24 @@ void AudioEngine::runPluginBankBuilder() {
             resources = &resourceLoader;
         }
 
+        if (request.generation
+                != pluginBankGeneration.load(std::memory_order_acquire)
+            || request.projectEpoch
+                != projectEpoch.load(std::memory_order_acquire))
+            continue;
+
         PluginProcessorBank::BuildResult result;
         const auto current = std::atomic_load_explicit(
             &activePluginBank, std::memory_order_acquire);
-        const bool canReuseProcessors = !request.forceRecreate && current != nullptr
+        const bool canReuseProcessors = !request.forceRecreate
+            && !request.recoverFailedHosts && current != nullptr
+            && current->projectEpoch == request.projectEpoch
             && current->bank != nullptr
             && current->processorLayoutKey
                    == request.graph->processorLayoutKey
             && std::abs(current->sampleRate - request.sampleRate) < 1.0e-6
-            && current->maximumBlockSize == request.maximumBlockSize;
+            && current->maximumBlockSize == request.maximumBlockSize
+            && current->pipelineLatencySamples == request.pipelineLatencySamples;
         if (canReuseProcessors) {
             result.bank = current->bank;
             const auto currentLatencies =
@@ -145,33 +209,33 @@ void AudioEngine::runPluginBankBuilder() {
                 request.sampleRate, result.warnings);
         } else {
             std::vector<PluginProcessorBank::StateBlob> transientStates;
-            if (request.forceRecreate && current != nullptr && current->bank != nullptr)
+            if (request.forceRecreate && current != nullptr
+                && current->projectEpoch == request.projectEpoch
+                && current->bank != nullptr)
                 transientStates = current->bank->snapshotStates().blobs;
             result = PluginProcessorBank::build(
                 request.project, *request.graph, resources,
                 pluginRegistryFile(), request.sampleRate,
                 request.maximumBlockSize, /*nonRealtime=*/false,
                 request.forceRecreate || current == nullptr
+                    || current->projectEpoch != request.projectEpoch
                     ? nullptr : current->bank.get(),
-                request.forceRecreate ? &transientStates : nullptr);
+                request.forceRecreate ? &transientStates : nullptr,
+                PluginProcessorBank::ExecutionMode::IsolatedProcess,
+                request.pipelineLatencySamples);
         }
 
         for (const auto& warning : result.warnings) {
             std::fprintf(stderr, "[PluginBank] %s\n", warning.c_str());
         }
 
-        // A newer chain/device request arrived while vendor code was being
-        // constructed. Discard this result on the worker, never publish it.
-        if (request.generation
-            != pluginBankGeneration.load(std::memory_order_acquire)) {
-            continue;
-        }
-
         auto publication = std::make_shared<PublishedPluginBank>();
         publication->processorLayoutKey = request.graph->processorLayoutKey;
+        publication->projectEpoch = request.projectEpoch;
         publication->latencyLayoutKey = request.graph->latencyLayoutKey;
         publication->sampleRate = request.sampleRate;
         publication->maximumBlockSize = request.maximumBlockSize;
+        publication->pipelineLatencySamples = request.pipelineLatencySamples;
         publication->bank = std::move(result.bank);
         publication->delayBank = std::move(result.delayBank);
         const int publishedLatencySamples = publication->delayBank != nullptr
@@ -179,20 +243,65 @@ void AudioEngine::runPluginBankBuilder() {
             : (publication->bank != nullptr
                    ? publication->bank->latencySamples() : 0);
 
-        std::shared_ptr<const PublishedPluginBank> immutablePublication =
-            std::move(publication);
-        auto previous = std::atomic_exchange_explicit(
-            &activePluginBank, std::move(immutablePublication),
-            std::memory_order_acq_rel);
-        currentPluginLatencySamples.store(
-            publishedLatencySamples, std::memory_order_relaxed);
         {
             std::lock_guard lock(pluginBankMutex);
+            // Check and exchange under the same mutex used by document
+            // replacement. A late old build cannot restore stale latency
+            // after beginProjectReplacement() has set it to zero.
+            if (request.generation
+                    != pluginBankGeneration.load(std::memory_order_acquire)
+                || request.projectEpoch
+                    != projectEpoch.load(std::memory_order_acquire))
+                continue;
+            std::shared_ptr<const PublishedPluginBank> immutablePublication =
+                std::move(publication);
+            auto previous = std::atomic_exchange_explicit(
+                &activePluginBank, std::move(immutablePublication),
+                std::memory_order_acq_rel);
+            currentPluginLatencySamples.store(
+                publishedLatencySamples, std::memory_order_relaxed);
             if (previous != nullptr)
                 retiredPluginBanks.push_back(std::move(previous));
-            std::erase_if(retiredPluginBanks, [](const auto& retired) {
-                return retired.use_count() == 1;
-            });
+        }
+        // Only this worker mutates the retired list. Prune and run vendor
+        // destructors after dropping the control mutex; the callback pins any
+        // bank it is still using, so its last reference never dies on audio.
+        std::erase_if(retiredPluginBanks, [](const auto& retired) {
+            return retired.use_count() == 1;
+        });
+        } catch (const std::exception& error) {
+            std::fprintf(stderr, "[PluginBank] Build failed: %s\n", error.what());
+            // A third-party C++ exception must not escape the worker's thread
+            // entry point. Fail closed for this exact generation so an older
+            // same-layout bank cannot continue rendering by accident.
+            std::lock_guard lock(pluginBankMutex);
+            if (request.generation
+                    == pluginBankGeneration.load(std::memory_order_acquire)
+                && request.projectEpoch
+                    == projectEpoch.load(std::memory_order_acquire)) {
+                auto previous = std::atomic_exchange_explicit(
+                    &activePluginBank,
+                    std::shared_ptr<const PublishedPluginBank>{},
+                    std::memory_order_acq_rel);
+                currentPluginLatencySamples.store(0, std::memory_order_relaxed);
+                if (previous != nullptr)
+                    retiredPluginBanks.push_back(std::move(previous));
+            }
+        } catch (...) {
+            std::fprintf(stderr, "[PluginBank] Build failed with unknown exception\n");
+            std::lock_guard lock(pluginBankMutex);
+            if (request.generation
+                    == pluginBankGeneration.load(std::memory_order_acquire)
+                && request.projectEpoch
+                    == projectEpoch.load(std::memory_order_acquire)) {
+                auto previous = std::atomic_exchange_explicit(
+                    &activePluginBank,
+                    std::shared_ptr<const PublishedPluginBank>{},
+                    std::memory_order_acq_rel);
+                currentPluginLatencySamples.store(0, std::memory_order_relaxed);
+                if (previous != nullptr)
+                    retiredPluginBanks.push_back(std::move(previous));
+            }
         }
     }
 }

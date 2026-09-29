@@ -4,6 +4,7 @@
 #include "project/ProjectJson.h"
 #include "timing/TempoMap.h"
 #include "audio/graph/MixGraph.h"
+#include "midi/Midi2Compatibility.h"
 
 #include <cmath>
 #include <vector>
@@ -48,6 +49,45 @@ TEST_CASE("MidiNote and MidiRegion model integrity and defaults") {
     CHECK(region.loop);
     CHECK(region.loopLengthBeats == doctest::Approx(4.0));
     CHECK(region.notes.size() == 1);
+}
+
+TEST_CASE("MIDI 2.0 compatibility conversion keeps channel data bounded") {
+    MidiNote note;
+    note.velocity = 0.1f; // The preserved high-resolution field is authoritative.
+    note.midi2 = MidiNote::Midi2Data{4, 0x9234, 0x4567, 1, 0x1234};
+    CHECK(midi1NoteVelocity(note, true) == 0x9234 >> 9);
+    CHECK(midi1NoteVelocity(note, false) == 0x4567 >> 9);
+    note.midi2->velocity = 1;
+    CHECK(midi1NoteVelocity(note, true) == 1); // MIDI 1.0 zero would mean Note Off.
+
+    MidiUmpEvent cc;
+    cc.words = {0x40b20700u, 0x80000000u, 0, 0};
+    cc.wordCount = 2;
+    const auto converted = umpToMidi1ChannelControl(cc);
+    REQUIRE(converted.has_value());
+    CHECK(converted->status == 0xb2);
+    CHECK(converted->data1 == 7);
+    CHECK(converted->data2 == 64);
+    CHECK(converted->dataLength == 2);
+
+    MidiUmpEvent bend;
+    bend.words = {0x40e20000u, 0x80000000u, 0, 0};
+    bend.wordCount = 2;
+    const auto center = umpToMidi1ChannelControl(bend);
+    REQUIRE(center.has_value());
+    CHECK(center->status == 0xe2);
+    CHECK(center->data1 == 0);
+    CHECK(center->data2 == 64);
+
+    cc.words[0] = 0x40b20600u; // Data Entry is not a standalone MIDI 2.0 CC.
+    CHECK_FALSE(umpToMidi1ChannelControl(cc).has_value());
+
+    cc.wordCount = 1; // A truncated MIDI 2.0 UMP packet is never dispatched.
+    CHECK_FALSE(umpToMidi1ChannelControl(cc).has_value());
+    MidiUmpEvent perNote;
+    perNote.words = {0x40623c00u, 0x80000000u, 0, 0};
+    perNote.wordCount = 2;
+    CHECK_FALSE(umpToMidi1ChannelControl(perNote).has_value());
 }
 
 TEST_CASE("Sample-accurate note timing with constant tempo") {

@@ -156,6 +156,16 @@ export class LinuxBuildAdapter extends BuildAdapter {
       } catch {}
     }
 
+    const pluginHostDst = join(shellDir, "resostage-plugin-host");
+    const pluginHostRaw = findFileRecursively(BUILD_DIR, "resostage-plugin-host");
+    if (pluginHostRaw && existsSync(pluginHostRaw) && !statSync(pluginHostRaw).isDirectory()) {
+      rmSync(pluginHostDst, { force: true });
+      cpSync(pluginHostRaw, pluginHostDst);
+      try {
+        execFileSync("chmod", ["+x", pluginHostDst]);
+      } catch {}
+    }
+
     const kaishakuDst = join(shellDir, "kaishaku");
     const kaishakuRaw = findFileRecursively(BUILD_DIR, "kaishaku");
     if (kaishakuRaw && existsSync(kaishakuRaw) && !statSync(kaishakuRaw).isDirectory()) {

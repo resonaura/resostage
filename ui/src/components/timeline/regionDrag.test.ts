@@ -109,7 +109,6 @@ const ctx: RegionDragCtx = {
       click: false,
       clickBusId: "m",
       clickSends: [],
-      tracks: [],
       events: [],
     },
   ],

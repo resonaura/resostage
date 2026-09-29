@@ -92,20 +92,6 @@ export interface Click {
   plugins?: PluginSlotRow[];
 }
 
-export interface SongTrackRow {
-  id: string;
-  name: string;
-  /** Route target as a flat legacy string ("" = Sends Only, "audio::main" =
-   *  Main, else an ext-out target). Kept for back-compat reads. */
-  busId: string;
-  file: string;
-  gainDb: number;
-  pan: number;
-  mute: boolean;
-  solo: boolean;
-  sendsCount: number;
-}
-
 export interface SongEventRow {
   id: string;
   type: EventTypeWire;
@@ -392,7 +378,6 @@ export interface SongRow {
   clickBusId: string;
   clickGainDb?: number;
   clickSends: ClickSendRow[];
-  tracks: SongTrackRow[];
   regions?: RegionRow[];
   midiRegions?: MidiRegionRow[];
   automationLanes?: AutomationLaneRow[];

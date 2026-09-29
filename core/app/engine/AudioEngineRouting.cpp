@@ -254,13 +254,16 @@ void AudioEngine::publishRoutingSnapshot() {
     for (const auto& t : projTracks)
         newTrackIds.push_back(t.id);
 
-    auto graph = std::make_shared<const MixGraph>(buildMixGraph(loader.project(), outputs));
+    auto mutableGraph = std::make_shared<MixGraph>(buildMixGraph(loader.project(), outputs));
+    mutableGraph->projectEpoch = projectEpoch.load(std::memory_order_acquire);
+    std::shared_ptr<const MixGraph> graph = std::move(mutableGraph);
     const uint32_t clickStrip = graph->find("audio::click");
     std::vector<LoadedBus> rows = buildBusRows(*graph);
     const size_t needed = graph->strips.size() + 16;
     const size_t neededEdges = graph->edges.size() + 32;
     bool processorLayoutChanged = false;
     bool latencyLayoutChanged = false;
+    bool projectChanged = false;
 
     // ── Critical section: swap the prebuilt state in ────────────────────────
     {
@@ -280,6 +283,8 @@ void AudioEngine::publishRoutingSnapshot() {
             || publishedGraph->processorLayoutKey != graph->processorLayoutKey;
         latencyLayoutChanged = publishedGraph == nullptr
             || publishedGraph->latencyLayoutKey != graph->latencyLayoutKey;
+        projectChanged = publishedGraph == nullptr
+            || publishedGraph->projectEpoch != graph->projectEpoch;
         clickStripIndex = clickStrip;
         installBusRows(std::move(rows));
         // Sizing the renderer reallocates buffers the callback reads, so it
@@ -299,7 +304,7 @@ void AudioEngine::publishRoutingSnapshot() {
     // deliberately outside so the callback picks the new graph up even if it
     // is mid-block.
     routing.publish(std::move(graph));
-    if ((processorLayoutChanged || latencyLayoutChanged) && projectLoaded) {
+    if ((processorLayoutChanged || latencyLayoutChanged || projectChanged) && projectLoaded) {
         // The old bank is incompatible with this graph and the callback will
         // bypass it until the worker publishes the matching generation.
         currentPluginLatencySamples.store(0, std::memory_order_relaxed);

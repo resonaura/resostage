@@ -4,6 +4,7 @@
 #include "audio/graph/MixGraph.h"
 #include "audio/graph/MixRenderer.h"
 #include "audio/streaming/WavStreamDecoder.h"
+#include "midi/Midi2Compatibility.h"
 #include "project/ProjectLoader.h"
 #include "timing/TempoMap.h"
 #include "signalsmith-stretch/signalsmith-stretch.h"
@@ -171,7 +172,8 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
     if (processors == nullptr)
         return true;
     for (const auto& region : song.midiRegions) {
-        if (region.muted || (region.notes.empty() && region.events.empty()) || !std::isfinite(region.startBeats)
+        if (region.muted || (region.notes.empty() && region.events.empty() && region.umpEvents.empty())
+            || !std::isfinite(region.startBeats)
             || !std::isfinite(region.durationBeats) || region.durationBeats <= 0.0)
             continue;
         const TrackDef* targetTrack = nullptr;
@@ -220,14 +222,8 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
                     continue;
                 const uint8_t pitch = static_cast<uint8_t>(std::clamp(
                     static_cast<int>(note.pitch), 0, 127));
-                const float safeVelocity = std::isfinite(note.velocity)
-                    ? std::clamp(note.velocity, 0.0f, 1.0f) : 0.0f;
-                const float safeReleaseVelocity = std::isfinite(note.releaseVelocity)
-                    ? std::clamp(note.releaseVelocity, 0.0f, 1.0f) : 0.0f;
-                const uint8_t velocity = static_cast<uint8_t>(std::clamp(
-                    static_cast<int>(std::llround(safeVelocity * 127.0f)), 1, 127));
-                const uint8_t releaseVelocity = static_cast<uint8_t>(std::clamp(
-                    static_cast<int>(std::llround(safeReleaseVelocity * 127.0f)), 0, 127));
+                const uint8_t velocity = midi1NoteVelocity(note, true);
+                const uint8_t releaseVelocity = midi1NoteVelocity(note, false);
                 const uint8_t channel = static_cast<uint8_t>(std::clamp(static_cast<int>(note.channel), 0, 15));
                 OfflineMidiEvent noteOn;
                 noteOn.sample = effectiveOnSample;
@@ -264,6 +260,29 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
                 event.dataLength = static_cast<uint8_t>(message.data.size());
                 if (!message.data.empty()) event.data1 = message.data[0];
                 if (message.data.size() > 1) event.data2 = message.data[1];
+                event.raw = true;
+                events.push_back(event);
+                if (events.size() > kMaximumEvents) {
+                    error = "MIDI arrangement exceeds the offline render event limit";
+                    return false;
+                }
+            }
+            for (const auto& message : region.umpEvents) {
+                const auto compatible = umpToMidi1ChannelControl(message);
+                if (!compatible || !std::isfinite(message.beat)) continue;
+                const int64_t sample = tempoMap.beatsToSamples(
+                    iterationOffset + message.beat, sampleRate);
+                if (sample < renderStartSample || sample >= renderEndSample
+                    || sample < tempoMap.beatsToSamples(region.startBeats, sampleRate)
+                    || sample >= tempoMap.beatsToSamples(regionEndBeat, sampleRate))
+                    continue;
+                OfflineMidiEvent event;
+                event.sample = sample;
+                event.strip = strip;
+                event.status = compatible->status;
+                event.data1 = compatible->data1;
+                event.data2 = compatible->data2;
+                event.dataLength = compatible->dataLength;
                 event.raw = true;
                 events.push_back(event);
                 if (events.size() > kMaximumEvents) {

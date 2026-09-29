@@ -34,19 +34,24 @@
 
     struct PluginBankBuildRequest {
         uint64_t generation = 0;
+        uint64_t projectEpoch = 0;
         Project project;
         std::shared_ptr<const MixGraph> graph;
         std::string archivePath;
         double sampleRate = 48000.0;
         int maximumBlockSize = 512;
+        int pipelineLatencySamples = 512;
         bool forceRecreate = false;
+        bool recoverFailedHosts = false;
     };
 
     struct PublishedPluginBank {
         uint64_t processorLayoutKey = 0;
+        uint64_t projectEpoch = 0;
         uint64_t latencyLayoutKey = 0;
         double sampleRate = 48000.0;
         int maximumBlockSize = 512;
+        int pipelineLatencySamples = 512;
         std::shared_ptr<PluginProcessorBank> bank;
         std::shared_ptr<PluginDelayBank> delayBank;
     };
@@ -61,6 +66,16 @@
     std::optional<PluginBankBuildRequest> pendingPluginBankBuild;
     std::vector<std::shared_ptr<const PublishedPluginBank>> retiredPluginBanks;
     std::atomic<uint64_t> pluginBankGeneration{0};
+    // One automatic restart per failed strip/document. Further recovery is
+    // explicit so a crashing plug-in cannot create an unbounded respawn loop.
+    std::unordered_set<std::string> recoveredPluginHostKeys;
+    // Message-thread document replacements increment this epoch. The callback
+    // only reads it, and never accepts a graph/bank from another epoch.
+    std::atomic<uint64_t> projectEpoch{1};
+    std::atomic<bool> projectTransitioning{false};
+    // Includes stopped/tail callbacks that touch meters before routingMutex.
+    // A document replacement waits for this count after blocking new entries.
+    std::atomic<uint32_t> audioCallbacksInFlight{0};
     bool stopPluginBankWorker = false;
 
     // The metronome's strip in the graph. kNoStrip until a graph exists.
@@ -490,8 +505,24 @@
     void ensureScratchSizes();
     void startPluginBankBuilder();
     void stopPluginBankBuilder();
-    void schedulePluginBankRebuild(bool forceRecreate = false);
+    void schedulePluginBankRebuild(bool forceRecreate = false,
+                                   bool recoverFailedHosts = false);
     void runPluginBankBuilder();
+    void beginProjectReplacement();
+    void beginProjectMutation();
+    void endProjectReplacement();
+    struct ProjectReplacementScope {
+        explicit ProjectReplacementScope(AudioEngine& owner, bool newDocument = true) : engine(owner) {
+            if (newDocument)
+                engine.beginProjectReplacement();
+            else
+                engine.beginProjectMutation();
+        }
+        ~ProjectReplacementScope() { engine.endProjectReplacement(); }
+        ProjectReplacementScope(const ProjectReplacementScope&) = delete;
+        ProjectReplacementScope& operator=(const ProjectReplacementScope&) = delete;
+        AudioEngine& engine;
+    };
     // Derives the mixer's flat bus rail from a freshly built graph. Pure --
     // runs outside routingMutex on purpose (see publishRoutingSnapshot).
     std::vector<LoadedBus> buildBusRows(const MixGraph& graph) const;

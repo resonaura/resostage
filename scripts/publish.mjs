@@ -251,7 +251,9 @@ function resolveCodesignIdentity({
 }
 
 /**
- * Every Mach-O inside the bundle, deepest first.
+ * Every nested Mach-O inside the bundle, deepest first. The app's primary
+ * executable is sealed by signing its app bundle; sibling helper executables
+ * must be signed explicitly before that bundle is sealed.
  *
  * Order is the whole point: signing a container rewrites its seal over
  * whatever it contains, so a child signed afterwards invalidates the parent.
@@ -272,6 +274,15 @@ function machOTargetsDeepestFirst(bundle) {
     "-o",
     "-name",
     "*.node",
+    "-o",
+    "-name",
+    "resostage-plugin-scanner",
+    "-o",
+    "-name",
+    "resostage-plugin-host",
+    "-o",
+    "-name",
+    "kaishaku",
     ")",
   ]);
   const files = String(found.stdout || "")
