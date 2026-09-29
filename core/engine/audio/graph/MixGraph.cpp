@@ -257,10 +257,10 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         strip.channels = clampChannels(project.click.channels);
         strip.gainLinear = dbToGain(project.click.gainDb);
         strip.pan = clampPan(project.click.pan);
-        // "Metronome off" is a mute, not a separate concept -- so a disabled
-        // click still meters (you can see the beat you are about to unmute)
-        // and still feeds nothing, through the one audibility rule.
-        strip.mute = project.click.mute || !project.click.enabled;
+        // Enable controls whether the generator produces samples; mute remains
+        // an independent strip/routing state. Count-in may temporarily render
+        // the generator even while this project preference is off.
+        strip.mute = project.click.mute;
         strip.solo = project.click.solo;
         strip.soloSafe = project.click.soloSafe;
         return addStrip(std::move(strip));

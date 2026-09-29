@@ -878,6 +878,15 @@ export function AudioTrackLanes({
                 notes: midiContextMenu.region.notes.map((note) => ({
                   ...note,
                 })),
+                events: (midiContextMenu.region.events ?? []).map((event) => ({
+                  ...event,
+                  data: [...event.data],
+                })),
+                umpEvents: (midiContextMenu.region.umpEvents ?? []).map((event) => ({
+                  ...event,
+                  words: [...event.words],
+                })),
+                automationLanes: midiContextMenu.region.automationLanes,
               });
               setMidiContextMenu(null);
             }}

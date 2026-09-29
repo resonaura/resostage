@@ -1507,6 +1507,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                     const bool isArmed = tDef->recordArmed;
                     const bool acceptsMidiInput = isMidiInputTrack(tDef->kind);
                     const bool isMonitored = acceptsMidiInput && tDef->inputMonitoring;
+                    const bool liveNoteOn = msg.isNoteOn() && msg.getVelocity() > 0;
+                    const bool liveNoteOff = msg.isNoteOff()
+                        || (msg.isNoteOn() && msg.getVelocity() == 0);
+                    const int livePitch = liveNoteOn || liveNoteOff
+                        ? msg.getNoteNumber() : -1;
+                    const size_t liveChannel = static_cast<size_t>(
+                        std::clamp(msgChannel - 1, 0, 15));
+                    const bool ownsLiveNote = t < kMaxActiveMidiStrips
+                        && acceptsMidiInput && liveNoteOff
+                        && livePitch >= 0 && livePitch < 128
+                        && liveMidiNoteCounts[t][liveChannel]
+                            [static_cast<size_t>(livePitch)] != 0;
 
                     bool shouldDeliver = false;
                     if (pkt.targetTrackIndex >= 0) {
@@ -1519,12 +1531,24 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                             && (isArmed || isMonitored
                                 || static_cast<int>(t) == liveMidiFocus);
                     }
+                    // A note-off belongs to the strip that received its note-on,
+                    // even if focused/armed/monitor state changed in between.
+                    shouldDeliver = shouldDeliver || ownsLiveNote;
                     if (!shouldDeliver) continue;
 
-                    if (tDef->midiInputChannel == 0 || tDef->midiInputChannel == msgChannel) {
-                        if (acceptsMidiInput && (msg.isNoteOnOrOff())) {
-                            const bool noteOn = msg.isNoteOn() && msg.getVelocity() > 0;
-                            updateActiveMidiNote(t, msg.getNoteNumber(), noteOn);
+                    if (ownsLiveNote || tDef->midiInputChannel == 0
+                        || tDef->midiInputChannel == msgChannel) {
+                        if (t < kMaxActiveMidiStrips && acceptsMidiInput
+                            && msg.isNoteOnOrOff()) {
+                            const size_t pitch = static_cast<size_t>(msg.getNoteNumber());
+                            auto& count = liveMidiNoteCounts[t][liveChannel][pitch];
+                            if (liveNoteOn) {
+                                if (count < std::numeric_limits<uint8_t>::max()) ++count;
+                                updateActiveMidiNote(t, static_cast<int>(pitch), true);
+                            } else if (liveNoteOff && count != 0) {
+                                --count;
+                                updateActiveMidiNote(t, static_cast<int>(pitch), false);
+                            }
                         }
                         if (compatiblePluginBank != nullptr) {
                             compatiblePluginBank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
@@ -1564,6 +1588,21 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                         }
 
                         if (midiCaptureActive && isArmed) {
+                            if (msg.isController()
+                                && msg.getControllerNumber() == 64) {
+                                for (auto& session : activeMidiRecordSessions) {
+                                    if (session.trackId != tDef->id
+                                        || session.recordedEventCount >= TrackMidiRecordSession::kMaxSessionRecordedEvents)
+                                        continue;
+                                    auto& event = session.recordedEvents[session.recordedEventCount++];
+                                    event.sample = midiCaptureSample;
+                                    event.status = static_cast<uint8_t>(msg.getRawData()[0]);
+                                    event.data1 = 64;
+                                    event.data2 = static_cast<uint8_t>(msg.getControllerValue());
+                                    event.dataLength = 2;
+                                    break;
+                                }
+                            }
                             const bool isNoteOnMsg = msg.isNoteOn() && msg.getVelocity() > 0;
                             const bool isNoteOffMsg = msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0);
                             if (isNoteOnMsg) {
@@ -2355,24 +2394,44 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     }
 
     // Built-in click: sample-locked to the song playhead so strong (bar 1) /
-    // weak beats follow the current song's BPM + time signature. Rendered
-    // unconditionally, even when the metronome is off -- "off" is a mute on
-    // its strip, so the meter still shows the beat you are about to unmute
-    // while nothing reaches a bus.
+    // weak beats follow the current song's BPM + time signature. The project
+    // preference gates generation, not strip mute/routing; recording count-in
+    // temporarily overrides it and stops exactly at the capture boundary.
     if (clickStripIndex != MixGraph::kNoStrip) {
         float* dstL = mixRenderer.sourceChannel(clickStripIndex, 0);
         float* dstR = mixRenderer.sourceChannel(clickStripIndex, 1);
-        if (isPlaying) {
-            const int clickSamples =
-                std::min(numSamples, static_cast<int>(clickScratch.size()));
-            clickGenerator.render(clickScratch.data(), clickSamples, playheadSample);
-            if (dstL != nullptr && dstR != nullptr) {
-                std::copy_n(clickScratch.data(), clickSamples, dstL);
-                std::copy_n(clickScratch.data(), clickSamples, dstR);
+        if (dstL != nullptr && dstR != nullptr) {
+            const int clickSamples = std::min(
+                numSamples, static_cast<int>(clickScratch.size()));
+            const bool countInActive =
+                isRecordingState.load(std::memory_order_relaxed)
+                && playheadSample < recordStartSamplePos.load(
+                    std::memory_order_relaxed);
+            const int countInSamples = countInActive
+                ? static_cast<int>(std::clamp<int64_t>(
+                    recordStartSamplePos.load(std::memory_order_relaxed)
+                        - playheadSample,
+                    0, clickSamples))
+                : 0;
+            const int generatedSamples = !isPlaying
+                ? 0
+                : proj.click.enabled ? clickSamples : countInSamples;
+            if (generatedSamples > 0) {
+                clickGenerator.render(clickScratch.data(), generatedSamples,
+                                     playheadSample);
+                if (generatedSamples < clickSamples) {
+                    std::fill(clickScratch.begin() + generatedSamples,
+                              clickScratch.begin() + clickSamples, 0.0f);
+                }
+            } else {
+                std::fill_n(clickScratch.data(), clickSamples, 0.0f);
             }
-        } else if (dstL != nullptr && dstR != nullptr) {
-            std::fill_n(dstL, numSamples, 0.0f);
-            std::fill_n(dstR, numSamples, 0.0f);
+            std::copy_n(clickScratch.data(), clickSamples, dstL);
+            std::copy_n(clickScratch.data(), clickSamples, dstR);
+            if (clickSamples < numSamples) {
+                std::fill_n(dstL + clickSamples, numSamples - clickSamples, 0.0f);
+                std::fill_n(dstR + clickSamples, numSamples - clickSamples, 0.0f);
+            }
         }
     }
 

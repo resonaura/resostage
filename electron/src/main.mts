@@ -966,8 +966,12 @@ function openKeyboardWindow(): void {
     mainWindow?.webContents.send("keyboard-window:state-changed", true);
   });
 
-  keyboardWindow.on("close", () => {
+  keyboardWindow.on("close", (event) => {
     if (!isQuitting) {
+      // Keep the renderer alive between opens. Destroying it forced a full
+      // React boot on every toggle and exposed the native black background.
+      event.preventDefault();
+      keyboardWindow?.hide();
       mainWindow?.webContents.send("keyboard-window:state-changed", false);
     }
   });
@@ -984,8 +988,8 @@ function openKeyboardWindow(): void {
 
 function closeKeyboardWindow(): void {
   if (keyboardWindow && !keyboardWindow.isDestroyed()) {
-    keyboardWindow.close();
-    keyboardWindow = null;
+    keyboardWindow.hide();
+    mainWindow?.webContents.send("keyboard-window:state-changed", false);
   }
 }
 

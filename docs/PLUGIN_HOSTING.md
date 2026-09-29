@@ -10,7 +10,7 @@ the resulting catalog and quarantine count.
 Enumerating a plug-in loads vendor code. A malformed binary can crash, hang,
 allocate heavily, or initialize hardware before ResoStage has created a DSP
 instance. The live Core therefore launches the packaged
-`resostage-plugin-scanner` helper. A helper crash cannot stop audio, lighting,
+platform-branded plug-in scanner helper. A helper crash cannot stop audio, lighting,
 or remote control. JUCE's dead-man's-pedal records the item being inspected;
 the next scan quarantines it and proceeds with the remaining candidates.
 Core also enforces a 60-second no-progress watchdog, so a plug-in that hangs
@@ -39,7 +39,7 @@ does not change at frame rate.
 
 Core owns routing and publishes a graph-facing asynchronous
 `PluginProcessorBank`; actual live AU/VST3 instances run in the packaged
-`resostage-plugin-host`, one helper per serial strip chain (up to 32). Empty
+platform-branded plug-in host, one helper per serial strip chain (up to 32). Empty
 chains do not launch helpers. Same-project rebuilds reuse unchanged healthy
 helpers, while whole-project replacement invalidates all prior helpers by
 project epoch. Native plug-in editors run in their owning helper. State capture
@@ -50,7 +50,7 @@ in-process bank and do not share live instances.
 Audio crosses a versioned shared-memory ABI with three ownership-tracked audio
 slots, a fixed-capacity audio plane, and a bounded MIDI/control protocol. The
 Core callback never waits for the host or does process/filesystem work. The
-one-callback pipe is included in PDC using the nominal device block size plus
+two-callback pipe is included in PDC using nominal device block quanta plus
 reported plug-in latency. If a response is missing, effects fall back to their
 dry input and instruments output silence for that block. A non-realtime
 watchdog detects dead/stalled helpers and allows one automatic restart per

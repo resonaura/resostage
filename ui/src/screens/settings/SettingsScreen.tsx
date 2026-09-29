@@ -427,7 +427,7 @@ function AudioTab({ state }: { state: WebUiState }) {
             onChange={(value) => void settingsApi.setCountInBars(Number(value))}
           />
           <div className="mt-1 text-xs text-foreground/45">
-            Uses the active song's tempo, meter, and click routing; enable the metronome to hear the count. Saved on this device.
+            Uses the active song's tempo and meter and follows click-strip routing. The count-in remains audible while the global metronome toggle is off. Saved on this device.
           </div>
         </Field>
       </Section>

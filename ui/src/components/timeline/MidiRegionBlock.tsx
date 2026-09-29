@@ -199,8 +199,54 @@ export function MidiRegionBlock({
           }
         }
         return [...bins.entries()];
-      })()
+    })()
     : [];
+  const sustainIntervals = (() => {
+    const sustainEvents = (midiRegion.events ?? []).filter((event) =>
+      (event.status & 0xf0) === 0xb0 && event.data[0] === 64 && event.data.length > 1,
+    );
+    if (sustainEvents.length === 0) return [] as Array<{ start: number; end: number }>;
+
+    const repeatLength = effectiveLoop ? loopLength : 0;
+    const firstIteration = repeatLength > 0
+      ? Math.floor(effectiveClipOffsetBeats / repeatLength) - 1
+      : 0;
+    const lastIteration = repeatLength > 0
+      ? Math.ceil((effectiveDurationBeats + effectiveClipOffsetBeats) / repeatLength)
+      : 0;
+    const expanded: Array<{ beat: number; channel: number; down: boolean }> = [];
+    for (let iteration = firstIteration; iteration <= lastIteration && expanded.length < 10_000; iteration += 1) {
+      const offset = repeatLength > 0 ? iteration * repeatLength - effectiveClipOffsetBeats : -effectiveClipOffsetBeats;
+      for (const event of sustainEvents) {
+        const beat = event.beat + offset;
+        if (beat >= effectiveDurationBeats) continue;
+        expanded.push({
+          beat,
+          channel: event.status & 0x0f,
+          down: event.data[1] >= 64,
+        });
+        if (expanded.length >= 10_000) break;
+      }
+    }
+    expanded.sort((left, right) => left.beat - right.beat);
+
+    const channels = new Set(expanded.map((event) => event.channel));
+    const intervals: Array<{ start: number; end: number }> = [];
+    for (const channel of channels) {
+      const events = expanded.filter((event) => event.channel === channel);
+      const beforeStart = events.filter((event) => event.beat <= 0);
+      let down = beforeStart.at(-1)?.down ?? false;
+      let start = 0;
+      for (const event of events) {
+        if (event.beat <= 0 || event.down === down) continue;
+        if (down) intervals.push({ start, end: event.beat });
+        else start = event.beat;
+        down = event.down;
+      }
+      if (down) intervals.push({ start, end: effectiveDurationBeats });
+    }
+    return intervals.filter((interval) => interval.end > interval.start);
+  })();
 
   const handlePointerDown = (e: React.PointerEvent, mode: RegionDragMode) => {
     if (readOnly) return;
@@ -329,6 +375,23 @@ export function MidiRegionBlock({
                 />
               );
             })}
+        {sustainIntervals.map((interval, index) => {
+          const start = Math.max(0, interval.start);
+          const end = Math.min(effectiveDurationBeats, interval.end);
+          if (end <= start) return null;
+          return (
+            <span
+              key={`sustain-${index}`}
+              className="absolute bottom-px h-[2px] rounded-none"
+              style={{
+                left: `${(start / effectiveDurationBeats) * 100}%`,
+                width: `${Math.max((1 / previewWidthPx) * 100, ((end - start) / effectiveDurationBeats) * 100)}%`,
+                backgroundColor: rowColor,
+              }}
+              title="Sustain pedal held"
+            />
+          );
+        })}
       </div>}
 
       {/* Same loop-boundary language as audio regions: triangles at both

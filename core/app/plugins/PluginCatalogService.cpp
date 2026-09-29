@@ -94,14 +94,14 @@ PluginCatalogService::~PluginCatalogService() {
 juce::File PluginCatalogService::findHelperExecutable() {
     const auto app = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
 #if JUCE_WINDOWS
-    return app.getSiblingFile("resostage-plugin-scanner.exe");
+    return app.getSiblingFile("pluginscan.exe");
 #elif JUCE_MAC
     // JUCE returns the outer .app bundle here, while Windows/Linux return the
     // executable itself. The helper is embedded beside the bundle executable.
     if (app.isDirectory())
         return app.getChildFile("Contents").getChildFile("MacOS")
-                  .getChildFile("resostage-plugin-scanner");
-    return app.getSiblingFile("resostage-plugin-scanner");
+                  .getChildFile("ResoStage Plugin Scanner");
+    return app.getSiblingFile("ResoStage Plugin Scanner");
 #else
     return app.getSiblingFile("resostage-plugin-scanner");
 #endif

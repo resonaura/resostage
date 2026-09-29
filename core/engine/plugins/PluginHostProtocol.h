@@ -14,7 +14,7 @@ namespace resostage::plugin_host {
 // header free of JUCE, STL containers, pointers, and platform handles: the
 // mapped area is a byte-level process boundary, not a shared object graph.
 inline constexpr uint32_t kMagic = 0x52535048; // "RSPH"
-inline constexpr uint32_t kProtocolVersion = 3;
+inline constexpr uint32_t kProtocolVersion = 5;
 inline constexpr size_t kSlotCount = 3;
 inline constexpr uint32_t kMaximumBlockSamples = 8192;
 inline constexpr uint32_t kMaximumMidiEventsPerBlock = 512;
@@ -152,7 +152,13 @@ struct alignas(64) SharedArea {
     // Core adds the nominal device callback quantum (not buffer capacity) to
     // this value for the asynchronous host pipe.
     std::atomic<uint32_t> processorLatencySamples{0};
-    uint32_t reservedHeader = 0;
+    // Binary wake edge: multiple queued blocks coalesce into one OS wake so
+    // a delayed helper cannot accumulate a semaphore backlog and spin after
+    // it has drained the currently available slots.
+    std::atomic<uint32_t> wakePending{0};
+    // Control events use a separate OS wake so parameter/state work never
+    // wakes the audio worker and idle command workers never need to poll.
+    std::atomic<uint32_t> controlWakePending{0};
     double processorTailSeconds = 0.0;
     uint32_t pluginSlotCount = 0;
     std::array<uint8_t, kMaximumPluginSlotsPerChain> pluginSlotStatuses{};

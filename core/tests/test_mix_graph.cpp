@@ -421,14 +421,14 @@ TEST_CASE("outputLaneId / outputLaneChannel round-trip and reject junk") {
     CHECK(outputLaneChannel("") == -1);
 }
 
-TEST_CASE("buildMixGraph: a disabled metronome is simply a muted strip") {
+TEST_CASE("buildMixGraph: click enablement does not mutate its strip mute state") {
     Project p = makeProject();
     p.click.enabled = false;
 
     const MixGraph g = buildMixGraph(p, outputs16());
     const MixStrip& click = stripFor(g, "audio::click");
-    CHECK(click.mute);
-    CHECK_FALSE(click.audible);
+    CHECK_FALSE(click.mute);
+    CHECK(click.audible);
     CHECK(click.soloGroup == SoloGroup::Sources);
 }
 

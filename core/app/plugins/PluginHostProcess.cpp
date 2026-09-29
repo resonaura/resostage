@@ -192,7 +192,7 @@ bool PluginHostProcess::enqueueParameterEvent(
         return false;
     const bool enqueued = plugin_host::tryEnqueueControl(*area, event);
     if (enqueued)
-        (void)sharedMemory.signalWake();
+        (void)sharedMemory.signalControlWake();
     return enqueued;
 }
 
@@ -231,7 +231,7 @@ bool PluginHostProcess::requestCommand(
     area->commandSlotIndex.store(slotIndex, std::memory_order_relaxed);
     area->command.store(static_cast<uint32_t>(command), std::memory_order_relaxed);
     area->commandRequest.store(request, std::memory_order_release);
-    if (!sharedMemory.signalWake())
+    if (!sharedMemory.signalControlWake())
         return false;
 
     const auto deadline = std::chrono::steady_clock::now()

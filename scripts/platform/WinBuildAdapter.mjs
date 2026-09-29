@@ -239,28 +239,24 @@ export class WinBuildAdapter extends BuildAdapter {
     }
 
     const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
-    const coreDstShort = join(shellDir, "core.exe");
     if (existsSync(coreDst)) rmSync(coreDst, { force: true });
-    if (existsSync(coreDstShort)) rmSync(coreDstShort, { force: true });
     if (rawCore && existsSync(rawCore)) {
       cpSync(rawCore, coreDst);
-      cpSync(rawCore, coreDstShort);
       const coreIco = join(ROOT, "icons", "core.ico");
       this.patchWindowsExeMetadata(coreDst, existsSync(coreIco) ? coreIco : null, "core.exe");
-      this.patchWindowsExeMetadata(coreDstShort, existsSync(coreIco) ? coreIco : null, "core.exe");
     }
 
-    const scannerDst = join(shellDir, "resostage-plugin-scanner.exe");
-    const scannerRaw = findFileRecursively(BUILD_DIR, "resostage-plugin-scanner.exe");
+    const scannerDst = join(shellDir, "pluginscan.exe");
+    const scannerRaw = findFileRecursively(BUILD_DIR, "pluginscan.exe");
     if (scannerRaw && existsSync(scannerRaw)) {
       rmSync(scannerDst, { force: true });
       cpSync(scannerRaw, scannerDst);
     }
 
-    const pluginHostDst = join(shellDir, "resostage-plugin-host.exe");
+    const pluginHostDst = join(shellDir, "pluginhost.exe");
     const pluginHostRaw = join(
       BUILD_DIR, "app", "resostage_plugin_host_artefacts", BUILD_TYPE,
-      "resostage-plugin-host.exe",
+      "pluginhost.exe",
     );
     if (!existsSync(pluginHostRaw)) {
       throw new Error("Live plug-in host executable is missing from the native build");
@@ -274,7 +270,7 @@ export class WinBuildAdapter extends BuildAdapter {
     if (!existsSync(hostIco) || !this.patchWindowsExeMetadata(
       pluginHostDst,
       hostIco,
-      "resostage-plugin-host.exe",
+      "pluginhost.exe",
       "ResoStage Isolated Live Plug-in Host",
     )) {
       throw new Error(`Could not brand live plug-in host: ${pluginHostDst}`);

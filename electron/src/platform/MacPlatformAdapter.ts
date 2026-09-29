@@ -59,6 +59,23 @@ export class MacPlatformAdapter extends PlatformAdapter {
     const candidates = [
       path.join(
         process.resourcesPath,
+        "ResoStage Core.app",
+        "Contents",
+        "Resources",
+        "ResoStage Kaishaku.app",
+        "Contents",
+        "MacOS",
+        "ResoStage Kaishaku",
+      ),
+      path.join(
+        process.resourcesPath,
+        "ResoStage Core.app",
+        "Contents",
+        "Resources",
+        "kaishaku",
+      ),
+      path.join(
+        process.resourcesPath,
         "ResoStage Kaishaku.app",
         "Contents",
         "MacOS",

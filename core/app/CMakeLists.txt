@@ -259,7 +259,13 @@ if(APPLE)
     "-framework CoreAudioKit"
   )
 endif()
-set_target_properties(resostage_plugin_scanner PROPERTIES OUTPUT_NAME "resostage-plugin-scanner")
+if(APPLE)
+  set_target_properties(resostage_plugin_scanner PROPERTIES OUTPUT_NAME "ResoStage Plugin Scanner")
+elseif(WIN32 OR MINGW)
+  set_target_properties(resostage_plugin_scanner PROPERTIES OUTPUT_NAME "pluginscan")
+else()
+  set_target_properties(resostage_plugin_scanner PROPERTIES OUTPUT_NAME "resostage-plugin-scanner")
+endif()
 add_dependencies(ResoStage resostage_plugin_scanner)
 add_custom_command(TARGET ResoStage POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -306,7 +312,13 @@ if(APPLE)
     "-framework AppKit"
   )
 endif()
-set_target_properties(resostage_plugin_host PROPERTIES OUTPUT_NAME "resostage-plugin-host")
+if(APPLE)
+  set_target_properties(resostage_plugin_host PROPERTIES OUTPUT_NAME "ResoStage Plug-in Host")
+elseif(WIN32 OR MINGW)
+  set_target_properties(resostage_plugin_host PROPERTIES OUTPUT_NAME "pluginhost")
+else()
+  set_target_properties(resostage_plugin_host PROPERTIES OUTPUT_NAME "resostage-plugin-host")
+endif()
 add_dependencies(ResoStage resostage_plugin_host)
 add_custom_command(TARGET ResoStage POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different

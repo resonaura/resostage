@@ -288,6 +288,9 @@ Preserve these rules:
 
 - Tracks, metronome, send buses, main, and physical outputs use the same graph
   model and renderer.
+- The project's metronome enable preference gates click sample generation, not
+  the click strip's mute/routing state. Record count-in temporarily generates
+  the click even when that preference is off, ending at the capture boundary.
 - A track stream is consumed only once per callback even if it feeds several
   buses. Fan-out happens after the source block is in scratch memory.
 - Track/click solo is one group; send-bus solo is a separate group. Do not
@@ -339,8 +342,8 @@ Preserve these rules:
 - Strip plug-in chains run post-input-sum and pre-fader through the flat
   `MixProcessorView` hook. The renderer remains JUCE-free; application-owned
   live/offline processor banks publish one pre-bound function/context entry
-  per graph strip. Live AU/VST3 instances are in `resostage-plugin-host`, one
-  helper per serial strip chain (bounded to 32 helpers); offline rendering
+  per graph strip. Live AU/VST3 instances are in the platform-branded plug-in
+  host, one helper per serial strip chain (bounded to 32 helpers); offline rendering
   still uses a separate in-process bank. Pre-fader sends include inserts but
   bypass fader/mute.
   Generator instruments are supported at track slot 0: during the audio
@@ -352,10 +355,13 @@ Preserve these rules:
   bounded helper scheduling jitter; Core applies those nominal quanta plus
   reported plug-in latency through normal PDC. The helper DSP worker receives
   a platform best-effort priority above UI/background work but below the
-  device's real-time audio callback. On macOS, named-semaphore wake polling is
-  adaptive: idle chains use a low poll rate, while active block streams use a
-  short higher-rate window so small device buffers do not lose most of their
-  deadline to helper wake latency.
+  device's real-time audio callback. The helper's DSP worker blocks on a
+  process-shared semaphore/event rather than polling. Audio and non-realtime
+  control workers have separate coalesced binary wake edges: audio submissions
+  cannot create stale semaphore tokens, and parameter/state work does not wake
+  the audio worker. Shutdown signals both workers before joining. Parent death
+  is handled by an independent watchdog, so idle helpers consume negligible
+  wake-loop CPU without sacrificing request latency.
   If a result misses its deadline, effects retain their dry input and instrument
   strips emit silence for that block. MIDI packets and host controls use bounded
   queues; rejected control events increment a health counter without marking a
@@ -444,7 +450,11 @@ Preserve these rules:
   `I` is an independent per-track live-input subscription: several audio and MIDI/instrument tracks may monitor simultaneously. Software-instrument tracks also audition incoming MIDI by ephemeral controller focus without being armed, while `R` is still required to capture audio or MIDI. The global Record action auto-arms the focused recordable track when no track is armed. Audio tracks with `No Input`, plus folder, lighting, and bus-timeline rows, cannot be armed or monitored.
   Hardware MIDI input is opt-in: an empty device preference opens no input on
   startup. The selected source is persisted in device settings and published
-  back to controllers; choosing “All Inputs” is an explicit action.
+  back to controllers; choosing “All Inputs” is an explicit action. Live MIDI
+  note ownership is callback-owned and bounded by strip/channel/pitch, so
+  note-offs still reach their original strip if focus, arm, monitor, or channel
+  filtering changes while a key is held. Stop and seek clear this ownership
+  alongside active-note counters.
 - If graph or block dimensions exceed prepared capacity, silence is safer
   than allocating or writing out of bounds.
 - Offline render must use the production graph and renderer. A second mixing
@@ -730,8 +740,8 @@ request from the Settings screen, never on application startup, so background
 scanning never competes with audio device startup or project load. Native
 plug-in editor windows are managed on the message thread via
 `POST /api/v1/plugins/slot/editor`. `PluginCatalogService` never loads a
-third-party binary in Core: it launches the packaged `resostage-plugin-scanner`
-executable, which uses JUCE's VST3/AU format scanners and writes
+third-party binary in Core: it launches the packaged platform-branded plug-in
+scanner executable, which uses JUCE's VST3/AU format scanners and writes
 `known-plugins.xml`, a bounded JSON catalog, scan status, and dead-man's-pedal
 under the device-local ResoStage application-data directory. Registry and
 catalog replacements are atomic and checkpointed after each successfully
@@ -754,7 +764,7 @@ VST3 is enabled on all supported desktop builds and AU on macOS. VST2 remains
 disabled; do not enable or ship it without separately verified legacy SDK and
 distribution rights. Live project slots use an asynchronous `PluginProcessorBank`
 in Core as a graph-facing proxy; vendor instances execute in the packaged
-`resostage-plugin-host`, one process per serial strip chain (up to 32 chains).
+platform-branded plug-in host, one process per serial strip chain (up to 32 chains).
 Offline renders use a separate in-process bank and never borrow live vendor
 instances. Same-project edits reuse unchanged healthy chain helpers, while a
 whole-project replacement invalidates the prior epoch and restores only the
@@ -990,14 +1000,19 @@ release code:
 - Windows x64: `build/win/x64/resostage.exe` with its sibling `core.exe` and
   Electron resources
 
-The assembled Core carries `resostage-plugin-scanner` beside its executable.
-On Windows and Linux it also carries `resostage-plugin-host` beside the Core
-executable (`.exe` suffix on Windows). On macOS the live host is a separately
-identified `Contents/Helpers/ResoStage Plug-in Host.app` inside the Core bundle;
-Core launches its `Contents/MacOS/resostage-plugin-host` executable. Raw CMake
-Core builds may still launch the sibling unbundled host. Keep the nested app's
+The assembled Core carries a scanner beside its executable. Windows helper
+names are `pluginscan.exe` and `pluginhost.exe`; the app entry points are
+`resostage.exe` and `core.exe`. Linux retains `resostage-plugin-scanner` and
+`resostage-plugin-host`. On macOS the scanner executable is `ResoStage Plugin
+Scanner`; the live host is a separately identified
+`Contents/Helpers/ResoStage Plug-in Host.app` inside the Core bundle, with a
+matching `ResoStage Plug-in Host` executable. Raw CMake Core builds may still
+launch the sibling unbundled host. Keep the nested app's
 icon, version, and bundle identifier intact for OS process attribution and
-bottom-up code signing. Do not omit either helper from a platform adapter.
+bottom-up code signing. The packaged Kaishaku execution helper is stored once
+under `ResoStage Core.app/Contents/Resources` (branded app bundle preferred,
+raw binary fallback); Electron and Core resolve the same copy. Do not omit
+either plug-in helper from a platform adapter.
 Missing scanner means the catalog API reports a visible scan failure; missing
 live host makes affected plugin slots visibly fail closed rather than loading
 vendor code in Core.

@@ -171,6 +171,12 @@ export class HotkeyManager {
 
   dispatchAction(action: string, event?: KeyboardEvent): boolean {
     if (this.keyCaptureTokens.size > 0) return false;
+    // Electron delivers native accelerators here without a DOM KeyboardEvent.
+    // The browser keydown filter therefore cannot protect Musical Typing from
+    // song navigation on that path. Keep these two global navigation actions
+    // reserved while the virtual keyboard is open, regardless of origin.
+    if (this.musicalTypingActive && (action === "prev" || action === "next"))
+      return false;
     const actionHandlers = this.handlers.get(action);
     if (!actionHandlers?.size) return false;
     for (const handler of [...actionHandlers]) {

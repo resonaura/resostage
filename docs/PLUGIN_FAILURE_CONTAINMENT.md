@@ -7,8 +7,8 @@ still execute plug-ins in the renderer process.
 
 ## Process layout
 
-- `resostage-plugin-scanner` remains responsible only for plug-in discovery.
-- Core launches the packaged `resostage-plugin-host` for each non-empty live
+- A platform-branded plug-in scanner remains responsible only for discovery.
+- Core launches the packaged platform-branded plug-in host for each non-empty live
   serial strip chain (at most 32 helpers). A helper owns its plug-in instances,
   state restoration/capture, DSP execution, and editor windows. Empty chains
   do not start a helper.
@@ -28,14 +28,16 @@ into shared memory. Each slot is an explicit ownership sequence
 layout are validated on both sides. Audio is planar float. Each block carries a
 bounded transport snapshot and up to 512 MIDI 1.0 packets of at most 16 bytes;
 larger MIDI/SysEx packets are not forwarded. Parameter and bypass changes use a
-separate bounded MPMC queue. Commands for state capture and editor lifecycle
-are non-audio operations.
+separate bounded MPMC queue. Audio and control workers use separate coalesced
+binary wake edges, preventing stale semaphore tokens and avoiding parameter
+traffic waking the audio worker. Commands for state capture and editor
+lifecycle are non-audio operations.
 
 The device callback never waits for a host, takes no process-control lock,
 allocates no memory, and performs no filesystem or child-process work. It copies
 into fixed arrays, advances lock-free slot state, and sends a non-waiting wake
-signal. The asynchronous host has a one-callback pipeline; PDC includes the
-nominal device callback quantum plus the plug-in-reported latency, not the
+signal. The asynchronous host has a two-callback pipeline; PDC includes the
+same nominal device callback quanta plus plug-in-reported latency, not the
 larger preallocated buffer capacity. If an effect response is late, that block
 keeps its dry signal; if an instrument response is late, that block is silent.
 Health counters record missed input/output blocks and rejected control events.

@@ -174,13 +174,15 @@ juce::File pluginHostExecutable() {
         .getChildFile("ResoStage Plug-in Host.app")
         .getChildFile("Contents")
         .getChildFile("MacOS")
-        .getChildFile("resostage-plugin-host");
+        .getChildFile("ResoStage Plug-in Host");
     if (bundledHost.existsAsFile())
         return bundledHost;
 #endif
     const auto executableName =
 #if defined(_WIN32)
-        "resostage-plugin-host.exe";
+        "pluginhost.exe";
+#elif defined(__APPLE__)
+        "ResoStage Plug-in Host";
 #else
         "resostage-plugin-host";
 #endif

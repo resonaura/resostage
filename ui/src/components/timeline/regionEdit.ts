@@ -31,6 +31,8 @@ export function resolveSelectedRegions(
         muted: Boolean(r.muted),
         color: r.color,
         notes: r.notes.map((note) => ({ ...note })),
+        events: (r.events ?? []).map((event) => ({ ...event, data: [...event.data] })),
+        umpEvents: (r.umpEvents ?? []).map((event) => ({ ...event, words: [...event.words] })),
         automationLanes: r.automationLanes?.map((lane) => ({
           ...lane,
           target: { ...lane.target },
@@ -93,6 +95,8 @@ export async function addRegionEntries(
         muted: r.muted,
         color: r.color,
         notes: r.notes.map((note) => ({ ...note })),
+        events: r.events?.map((event) => ({ ...event, data: [...event.data] })),
+        umpEvents: r.umpEvents?.map((event) => ({ ...event, words: [...event.words] })),
         automationLanes: r.automationLanes,
         gestureId,
       });
@@ -199,6 +203,8 @@ export async function splitRegionsAtPlayhead(
         // Both halves reference the same note source. clipOffsetBeats makes
         // the right half start at the cut without losing tails or loop data.
         notes: r.notes.map((note: MidiNoteRow) => ({ ...note })),
+        events: (r.events ?? []).map((event) => ({ ...event, data: [...event.data] })),
+        umpEvents: (r.umpEvents ?? []).map((event) => ({ ...event, words: [...event.words] })),
         automationLanes: r.automationLanes,
         gestureId,
       });

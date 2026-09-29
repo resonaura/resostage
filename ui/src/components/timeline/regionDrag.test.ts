@@ -330,11 +330,13 @@ describe("Unified MIDI Region Dragging", () => {
 
   it("trims MIDI start with beat quantization", () => {
     const s = midiSession();
+    s.origSourceOffset = 0.5;
     s.mode = "trimStart";
     // Dragging right by 10px (1s @ 10px/s) -> +2 beats start, -2 beats duration
     const g = computeRegionDragGeom(s, ctx, 110, 50);
     expect(g.start).toBeCloseTo(3, 4); // 6 beats = 3s
     expect(g.duration).toBeCloseTo(3, 4); // 6 beats = 3s
+    expect(g.sourceOffset).toBeCloseTo(1.5, 4); // advance source by 2 beats
   });
 
   it("trims MIDI end with beat quantization", () => {

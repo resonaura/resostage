@@ -39,8 +39,12 @@ public:
 
     /** Non-waiting wake from Core to the helper after publishing a request. */
     bool signalWake() noexcept;
-    /** Worker-only wait with a finite timeout; never call from an audio callback. */
-    bool waitForWake(uint32_t timeoutMilliseconds) noexcept;
+    /** Blocks the helper worker until signalled; never call from an audio callback. */
+    bool waitForWake() noexcept;
+    /** Coalesced wake for non-audio control work. */
+    bool signalControlWake() noexcept;
+    /** Blocks the helper's non-realtime command worker until signalled. */
+    bool waitForControlWake() noexcept;
 
 private:
     struct Impl;

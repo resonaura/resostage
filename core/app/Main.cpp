@@ -244,6 +244,15 @@ public:
         juce::File kaishakuExe = exeDir.getChildFile("kaishaku");
         if (!kaishakuExe.existsAsFile())
             kaishakuExe = exeDir.getChildFile("Resources").getChildFile("kaishaku");
+#if JUCE_MAC
+        if (!kaishakuExe.existsAsFile())
+            kaishakuExe = exeDir.getParentDirectory().getChildFile("Resources")
+                .getChildFile("kaishaku");
+        if (!kaishakuExe.existsAsFile())
+            kaishakuExe = exeDir.getParentDirectory().getChildFile("Resources")
+                .getChildFile("ResoStage Kaishaku.app").getChildFile("Contents")
+                .getChildFile("MacOS").getChildFile("ResoStage Kaishaku");
+#endif
 
         if (kaishakuExe.existsAsFile()) {
             auto selfPid = getCurrentProcessId();

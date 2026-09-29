@@ -997,6 +997,17 @@ void AudioEngine::stopRecording() {
     Project& proj = loader.project();
     SongDef& song = proj.songs[currentSong];
 
+    bool hasRecordedContent = std::any_of(recordedAudio.begin(), recordedAudio.end(),
+        [](const RecordedAudioTrackResult& result) { return result.recordedFrames > 0; });
+    for (const auto& session : activeMidiRecordSessions) {
+        hasRecordedContent = hasRecordedContent || session.recordedNoteCount > 0
+            || session.recordedEventCount > 0
+            || std::any_of(session.activeNotes.begin(), session.activeNotes.end(),
+                [](const ActiveRecordedMidiNote& note) { return note.active; });
+    }
+    if (hasRecordedContent)
+        projectHistory.beginEdit(proj, "", "Record");
+
     const double sr = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
     const int64_t startSample = recordStartSamplePos.load(std::memory_order_acquire);
     const double recordStartSeconds = static_cast<double>(startSample) / sr;
@@ -1057,7 +1068,27 @@ void AudioEngine::stopRecording() {
             }
         }
 
-        if (session.recordedNoteCount > 0) {
+        if (session.recordedNoteCount > 0 || session.recordedEventCount > 0) {
+            const auto appendRecordedEvents = [&](MidiRegion& region) {
+                for (size_t i = 0; i < session.recordedEventCount; ++i) {
+                    const auto& recorded = session.recordedEvents[i];
+                    const double absoluteBeat = (static_cast<double>(recorded.sample) / sr * bpm) / 60.0;
+                    double regionBeat = absoluteBeat - region.startBeats + region.clipOffsetBeats;
+                    if (region.loop && region.loopLengthBeats > 0.0) {
+                        regionBeat = std::fmod(regionBeat, region.loopLengthBeats);
+                        if (regionBeat < 0.0) regionBeat += region.loopLengthBeats;
+                    }
+                    if (regionBeat < 0.0) continue;
+                    MidiClipEvent event;
+                    event.beat = regionBeat;
+                    event.status = recorded.status;
+                    event.data = { recorded.data1, recorded.data2 };
+                    region.events.push_back(std::move(event));
+                }
+                std::stable_sort(region.events.begin(), region.events.end(),
+                    [](const MidiClipEvent& a, const MidiClipEvent& b) { return a.beat < b.beat; });
+            };
+
             // Find existing MIDI region on this track containing recordStartBeats (Logic Pro Merge behavior)
             MidiRegion* targetRegion = nullptr;
             for (auto& mr : song.midiRegions) {
@@ -1085,6 +1116,7 @@ void AudioEngine::stopRecording() {
                           [](const MidiNote& a, const MidiNote& b) {
                               return a.startBeats < b.startBeats;
                           });
+                appendRecordedEvents(*targetRegion);
                 const double rEndSec = ((targetRegion->startBeats + targetRegion->durationBeats) * 60.0) / bpm;
                 maxRecEndSec = std::max(maxRecEndSec, rEndSec);
                 projectModified = true;
@@ -1106,6 +1138,7 @@ void AudioEngine::stopRecording() {
                     }
                     mr.notes.push_back(note);
                 }
+                appendRecordedEvents(mr);
                 std::sort(mr.notes.begin(), mr.notes.end(),
                           [](const MidiNote& a, const MidiNote& b) {
                               return a.startBeats < b.startBeats;
@@ -1139,6 +1172,8 @@ void AudioEngine::stopRecording() {
     }
 
     if (projectModified) {
+        if (hasRecordedContent)
+            projectHistory.commitEdit(proj);
         markDirty();
         std::string err;
         (void)selectSong(currentSong, err, false, /*forceRestage=*/true);
@@ -1262,6 +1297,8 @@ void AudioEngine::updateActiveMidiNote(size_t strip, int pitch, bool noteOn) {
 
 void AudioEngine::clearActiveMidiNotes(uint64_t targetHostTimeNanos) {
     for (auto& track : activeMidiNoteCounts) track.fill(0);
+    for (auto& track : liveMidiNoteCounts)
+        for (auto& channel : track) channel.fill(0);
     uint16_t activeExternalChannels = activeExternalMidiChannelMask;
     const size_t trackCount = std::min(trackIdByIndex.size(), kMaxActiveMidiStrips);
     for (size_t strip = 0; strip < sequencedMidiNoteCounts.size(); ++strip) {

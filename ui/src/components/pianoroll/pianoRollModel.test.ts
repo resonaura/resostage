@@ -13,6 +13,7 @@ import {
   editControllerPoint,
   MAX_CONTROLLER_POINTS,
   paintBrushNote,
+  resolveDrawNoteDuration,
   sliceNote,
 } from "./pianoRollModel";
 import type { MidiNoteRow } from "../../lib/state/types";
@@ -34,6 +35,18 @@ describe("Piano Roll canvas geometry", () => {
         pixelsPerPitch,
       ),
     ).toBe(renderedPitch);
+  });
+
+  it("keeps the last selected duration on pencil click and uses the drag span", () => {
+    expect(resolveDrawNoteDuration(2, 2, 0.25, 1.5)).toBe(1.5);
+    expect(resolveDrawNoteDuration(2, 2.01, 0.25, 1.5, 0.05)).toBe(1.5);
+    expect(resolveDrawNoteDuration(2, 3.13, 0.25, 1.5)).toBe(1.25);
+    expect(resolveDrawNoteDuration(3.13, 2, 0.25, 1.5)).toBe(1.25);
+  });
+
+  it("uses a small but valid freehand span when snapping is disabled", () => {
+    expect(resolveDrawNoteDuration(4, 4.01, 0, 1, 0.001)).toBe(0.125);
+    expect(resolveDrawNoteDuration(4, 4.75, 0, 1)).toBe(0.75);
   });
 });
 

@@ -209,8 +209,18 @@ TEST_CASE("plug-in host shared memory opens a second process view and signals it
     owner.area()->hostState.store(static_cast<uint32_t>(HostState::Ready),
                                   std::memory_order_release);
     CHECK(owner.signalWake());
-    CHECK(peer.waitForWake(50));
-    CHECK_FALSE(peer.waitForWake(1));
+    CHECK(owner.signalWake()); // binary edge: repeated requests coalesce
+    CHECK(owner.area()->wakePending.load(std::memory_order_acquire) == 1);
+    CHECK(peer.waitForWake());
+    CHECK(owner.area()->wakePending.load(std::memory_order_acquire) == 0);
+    CHECK(owner.signalWake()); // a later edge still wakes the worker
+    CHECK(peer.waitForWake());
+
+    CHECK(owner.signalControlWake());
+    CHECK(owner.signalControlWake());
+    CHECK(owner.area()->controlWakePending.load(std::memory_order_acquire) == 1);
+    CHECK(peer.waitForControlWake());
+    CHECK(owner.area()->controlWakePending.load(std::memory_order_acquire) == 0);
 
     CHECK_FALSE(peer.open(name, 98, 512, error));
     CHECK(peer.area() == nullptr);

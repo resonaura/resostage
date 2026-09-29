@@ -652,16 +652,17 @@ export function VirtualMidiKeyboard({
 
   // Mouse handlers for on-screen piano keys
   const handleKeyMouseDown = (note: number) => {
+    if (mouseDownNotesRef.current.has(note)) return;
     mouseDownNotesRef.current.add(note);
     triggerNoteOn(note, velocity);
   };
 
   const handleKeyMouseUp = (note: number) => {
-    mouseDownNotesRef.current.delete(note);
+    if (!mouseDownNotesRef.current.delete(note)) return;
     triggerNoteOff(note);
   };
 
-  const handleKeyMouseEnter = (note: number, e: React.MouseEvent) => {
+  const handleKeyMouseEnter = (note: number, e: React.PointerEvent) => {
     if (e.buttons === 1 && !mouseDownNotesRef.current.has(note)) {
       mouseDownNotesRef.current.add(note);
       triggerNoteOn(note, velocity);
@@ -674,6 +675,24 @@ export function VirtualMidiKeyboard({
       triggerNoteOff(note);
     }
   };
+
+  const releaseMouseNotes = useCallback(() => {
+    const held = [...mouseDownNotesRef.current];
+    mouseDownNotesRef.current.clear();
+    held.forEach((note) => triggerNoteOff(note));
+  }, [triggerNoteOff]);
+
+  // Do not capture the pointer on each key: that would break glissando. This
+  // window-level release handles mouse/touch lifts that happen off the keys.
+  useEffect(() => {
+    window.addEventListener("pointerup", releaseMouseNotes, true);
+    window.addEventListener("pointercancel", releaseMouseNotes, true);
+    return () => {
+      window.removeEventListener("pointerup", releaseMouseNotes, true);
+      window.removeEventListener("pointercancel", releaseMouseNotes, true);
+      releaseMouseNotes();
+    };
+  }, [releaseMouseNotes]);
 
   if (!isOpen && !standalone) return null;
 
@@ -926,50 +945,39 @@ export function VirtualMidiKeyboard({
               <button
                 key={k.note}
                 type="button"
-                onMouseDown={() => handleKeyMouseDown(k.note)}
-                onMouseUp={() => handleKeyMouseUp(k.note)}
-                onMouseEnter={(e) => handleKeyMouseEnter(k.note, e)}
-                onMouseLeave={() => handleKeyMouseLeave(k.note)}
+                onPointerDown={(e) => {
+                  if (e.button === 0) handleKeyMouseDown(k.note);
+                }}
+                onPointerUp={() => handleKeyMouseUp(k.note)}
+                onPointerEnter={(e) => handleKeyMouseEnter(k.note, e)}
+                onPointerLeave={() => handleKeyMouseLeave(k.note)}
                 style={
                   isPressed
                     ? {
                         backgroundColor: activeTrackColor,
                         borderColor: activeTrackColor,
-                        boxShadow: `0 0 14px ${activeTrackColor}`,
                       }
                     : undefined
                 }
-                className={`relative flex-1 h-full mx-px rounded-b-md border transition-colors duration-75 flex flex-col justify-between items-center pb-1.5 pt-1 cursor-pointer select-none ${
+                className={`relative flex-1 h-full mx-px rounded-b-[2px] border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none ${
                   isPressed
                     ? "text-white! z-0"
-                    : isC
-                      ? "bg-neutral-100 text-neutral-900 border-neutral-300 hover:bg-neutral-50 shadow-sm"
-                      : "bg-neutral-200 text-neutral-800 border-neutral-300 hover:bg-neutral-100 shadow-sm"
+                    : "bg-[#f7f7f5] text-[#171717] border-[#393939] hover:bg-white"
                 }`}
               >
                 {/* Upper key badge */}
-                <span
-                  className={`text-[9px] font-bold font-mono px-1 rounded ${
-                    isPressed
-                      ? "bg-black/20 text-white"
-                      : "bg-neutral-300/80 text-neutral-700"
-                  }`}
-                >
-                  {k.badge || ""}
-                </span>
+                {k.badge && <span className={`text-[8px] font-mono leading-none ${isPressed ? "text-white/80" : "text-[#171717]/45"}`}>{k.badge}</span>}
 
                 {/* Bottom note name */}
-                <span
+                {isC && <span
                   className={`text-[9px] font-mono font-semibold ${
                     isPressed
                       ? "text-white font-bold"
-                      : isC
-                        ? "text-accent font-bold"
-                        : "text-neutral-500"
+                      : "text-[#171717]"
                   }`}
                 >
                   {k.name}
-                </span>
+                </span>}
               </button>
             );
           })}
@@ -986,10 +994,12 @@ export function VirtualMidiKeyboard({
             <button
               key={k.note}
               type="button"
-              onMouseDown={() => handleKeyMouseDown(k.note)}
-              onMouseUp={() => handleKeyMouseUp(k.note)}
-              onMouseEnter={(e) => handleKeyMouseEnter(k.note, e)}
-              onMouseLeave={() => handleKeyMouseLeave(k.note)}
+              onPointerDown={(e) => {
+                if (e.button === 0) handleKeyMouseDown(k.note);
+              }}
+              onPointerUp={() => handleKeyMouseUp(k.note)}
+              onPointerEnter={(e) => handleKeyMouseEnter(k.note, e)}
+              onPointerLeave={() => handleKeyMouseLeave(k.note)}
               style={{
                 left: `calc(${leftPercent}% - 0.75rem)`,
                 width: "1.5rem",
@@ -997,34 +1007,16 @@ export function VirtualMidiKeyboard({
                   ? {
                       backgroundColor: activeTrackColor,
                       borderColor: activeTrackColor,
-                      boxShadow: `0 0 14px ${activeTrackColor}`,
                     }
                   : {}),
               }}
-              className={`absolute top-1 h-[60%] rounded-b-sm border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none z-10 ${
+              className={`absolute top-1 h-[60%] rounded-b-[2px] border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none z-10 ${
                 isPressed
                   ? "text-white!"
-                  : "bg-surface-secondary text-foreground/85 border-default/45 hover:bg-surface-tertiary shadow-md"
+                  : "bg-[#171717] text-[#f7f7f5]/85 border-[#393939] hover:bg-[#242424]"
               }`}
-            >
-              <span
-                className={`text-[8px] font-bold font-mono px-0.5 rounded ${
-                  isPressed
-                    ? "bg-black/20 text-white"
-                    : "bg-background/80 text-foreground/60"
-                }`}
               >
-                {k.badge || ""}
-              </span>
-              <span
-                className={`text-[8px] font-mono leading-none ${
-                  isPressed
-                    ? "text-white font-bold"
-                    : "text-foreground/60"
-                }`}
-              >
-                {k.name.replace(/^[A-G]/, "")}
-              </span>
+              {k.badge && <span className={`text-[7px] font-mono leading-none ${isPressed ? "text-white/80" : "text-[#f7f7f5]/45"}`}>{k.badge}</span>}
             </button>
           );
         })}

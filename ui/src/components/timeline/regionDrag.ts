@@ -359,6 +359,11 @@ export function computeRegionDragGeom(
         ...baseRegionGeom(rd),
         start: (snappedBeats * 60) / bpm,
         duration: Math.max(0.05, (nextDurBeats * 60) / bpm),
+        // Like trimming an audio region, trimming from the left reveals a
+        // later point in the source. For MIDI that source position is the
+        // pattern clip offset; leaving it fixed restarts the pattern at its
+        // original first note instead of continuing from the trimmed point.
+        sourceOffset: (rd.origSourceOffset ?? 0) + (deltaBeats * 60) / bpm,
       };
     }
 

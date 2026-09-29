@@ -1,13 +1,14 @@
 import { Popover, Separator, Toolbar, Tooltip } from "@heroui/react";
 import {
   Circle,
+  Footprints,
   Pause,
   Play,
   SkipBack,
   SkipForward,
   Square,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontIcon } from "../common/FontIcon";
 import { patchClickFields } from "../../screens/mixer/mixerUtils";
 import { transport } from "../../lib/state/api";
@@ -37,6 +38,42 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
   const [draftBpm, setDraftBpm] = useState("");
   const [draftNumerator, setDraftNumerator] = useState("");
   const [draftDenominator, setDraftDenominator] = useState("");
+  const tapTimesRef = useRef<number[]>([]);
+  const [tapTempoBpm, setTapTempoBpm] = useState<number | null>(null);
+
+  useEffect(() => {
+    tapTimesRef.current = [];
+    setTapTempoBpm(null);
+  }, [state.songIndex]);
+
+  useEffect(() => {
+    if (tapTempoBpm !== null && Math.abs(tapTempoBpm - bpm) < 0.05)
+      setTapTempoBpm(null);
+  }, [bpm, tapTempoBpm]);
+
+  const tapTempo = () => {
+    if (!song) return;
+    const now = performance.now();
+    const previous = tapTimesRef.current.at(-1);
+    if (previous !== undefined && now - previous > 2000)
+      tapTimesRef.current = [];
+    tapTimesRef.current.push(now);
+    tapTimesRef.current = tapTimesRef.current.slice(-6);
+    if (tapTimesRef.current.length < 2) return;
+
+    const intervals = tapTimesRef.current.slice(1)
+      .map((time, index) => time - tapTimesRef.current[index])
+      .filter((interval) => interval >= 150 && interval <= 3000)
+      .sort((a, b) => a - b);
+    if (intervals.length === 0) return;
+    const middle = Math.floor(intervals.length / 2);
+    const median = intervals.length % 2 === 0
+      ? (intervals[middle - 1] + intervals[middle]) / 2
+      : intervals[middle];
+    const nextBpm = Math.round(Math.max(20, Math.min(400, 60_000 / median)) * 10) / 10;
+    setTapTempoBpm(nextBpm);
+    patchClickFields(state, { bpm: nextBpm });
+  };
 
   const openMeter = (open: boolean) => {
     if (open) {
@@ -203,7 +240,9 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
           aria-label="Edit song tempo and time signature"
         >
           <span className="font-mono text-[11px] font-semibold tabular-nums leading-tight text-foreground/85">
-            {Number.isInteger(bpm) ? bpm : bpm.toFixed(1)} BPM
+            {Number.isInteger(tapTempoBpm ?? bpm)
+              ? (tapTempoBpm ?? bpm)
+              : (tapTempoBpm ?? bpm).toFixed(1)} BPM
           </span>
           <span className="font-mono text-[10px] tabular-nums leading-tight text-foreground/50">
             {tsNum}/{tsDen}
@@ -237,6 +276,21 @@ export function GlobalTransportBar({ state }: { state: WebUiState }) {
           </Popover.Dialog>
         </Popover.Content>
       </Popover>
+      <Tooltip>
+        <ToggleButton
+          isIconOnly
+          size="sm"
+          isSelected={false}
+          isDisabled={!song}
+          onPress={tapTempo}
+          aria-label="Tap Tempo"
+          variant="ghost"
+          className="h-7 w-7 min-w-7 text-foreground/70 hover:text-accent disabled:opacity-40"
+        >
+          <Footprints size={15} aria-hidden="true" />
+        </ToggleButton>
+        <Tooltip.Content>Tap Tempo · tap in time to set the song BPM</Tooltip.Content>
+      </Tooltip>
       <Separator orientation="vertical" />
       {/* Metronome toggle */}
       <div className="pl-1">

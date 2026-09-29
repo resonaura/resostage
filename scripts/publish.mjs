@@ -282,6 +282,12 @@ function machOTargetsDeepestFirst(bundle) {
     "resostage-plugin-host",
     "-o",
     "-name",
+    "ResoStage Plugin Scanner",
+    "-o",
+    "-name",
+    "ResoStage Plug-in Host",
+    "-o",
+    "-name",
     "kaishaku",
     ")",
   ]);

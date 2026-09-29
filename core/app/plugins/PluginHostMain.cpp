@@ -298,6 +298,7 @@ public:
         if (audioWorker.joinable())
             audioWorker.join();
         stopCommandWorker.store(true, std::memory_order_release);
+        (void)sharedMemory.signalControlWake();
         if (commandWorker.joinable())
             commandWorker.join();
         if (runtime != nullptr) {
@@ -329,12 +330,19 @@ private:
     void runCommandWorker(resostage::plugin_host::SharedArea& area) {
         uint64_t lastRequest = 0;
         while (!stopCommandWorker.load(std::memory_order_acquire)) {
+            if (area.hostState.load(std::memory_order_acquire)
+                != static_cast<uint32_t>(resostage::plugin_host::HostState::Ready))
+                break;
+            (void)sharedMemory.waitForControlWake();
+            if (stopCommandWorker.load(std::memory_order_acquire)
+                || area.hostState.load(std::memory_order_acquire)
+                    != static_cast<uint32_t>(resostage::plugin_host::HostState::Ready))
+                break;
+
             resostage::plugin_host::ParameterEvent controlEvent;
-            bool consumedControl = false;
-            for (unsigned i = 0; i < 32
+            for (unsigned i = 0; i < resostage::plugin_host::kControlEventQueueCapacity
                  && resostage::plugin_host::tryDequeueControl(area, controlEvent);
                  ++i) {
-                consumedControl = true;
                 if (runtime != nullptr)
                     runtime->applyControlEvent(controlEvent);
             }
@@ -357,8 +365,6 @@ private:
                 area.command.store(
                     static_cast<uint32_t>(resostage::plugin_host::HostCommand::None),
                     std::memory_order_release);
-            } else if (!consumedControl) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
             }
         }
     }
@@ -371,7 +377,7 @@ private:
             if (area.hostState.load(std::memory_order_acquire)
                 != static_cast<uint32_t>(resostage::plugin_host::HostState::Ready))
                 break;
-            (void)sharedMemory.waitForWake(250);
+            (void)sharedMemory.waitForWake();
             if (!parentAlive(parentProcessId))
                 break;
 

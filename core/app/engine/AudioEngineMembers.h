@@ -654,11 +654,21 @@
 
     struct TrackMidiRecordSession {
         static constexpr size_t kMaxSessionRecordedNotes = 4096;
+        static constexpr size_t kMaxSessionRecordedEvents = 4096;
+        struct RecordedEvent {
+            int64_t sample = 0;
+            uint8_t status = 0;
+            uint8_t data1 = 0;
+            uint8_t data2 = 0;
+            uint8_t dataLength = 0;
+        };
         std::string trackId;
         int inputChannel = 0; // 0 = omni, 1..16
         std::array<ActiveRecordedMidiNote, 128> activeNotes{};
         std::array<MidiNote, kMaxSessionRecordedNotes> recordedNotes{};
         size_t recordedNoteCount = 0;
+        std::array<RecordedEvent, kMaxSessionRecordedEvents> recordedEvents{};
+        size_t recordedEventCount = 0;
         uint64_t nextNoteId = 1;
     };
     std::vector<TrackMidiRecordSession> activeMidiRecordSessions;
@@ -694,6 +704,11 @@
         std::array<std::array<uint64_t, 2>, kMaxActiveMidiStrips> masks{};
     };
     std::array<std::array<uint8_t, 128>, kMaxActiveMidiStrips> activeMidiNoteCounts{};
+    // Keep ownership of held live-input notes per strip/channel/pitch so a
+    // note-off still reaches its original destination after focus or monitor
+    // routing changes. This is callback-owned bounded state.
+    std::array<std::array<std::array<uint8_t, 128>, 16>,
+               kMaxActiveMidiStrips> liveMidiNoteCounts{};
     // Subset of the active counts created by timeline MIDI regions. Kept
     // separate from live input so a project-cycle wrap can release notes that
     // extend beyond the right locator without sending All Notes Off and

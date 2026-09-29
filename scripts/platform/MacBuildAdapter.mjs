@@ -215,7 +215,7 @@ export class MacBuildAdapter extends BuildAdapter {
 
     const hostRaw = join(
       BUILD_DIR, "app", "resostage_plugin_host_artefacts", BUILD_TYPE,
-      "resostage-plugin-host",
+      "ResoStage Plug-in Host",
     );
     if (!existsSync(hostRaw)) {
       throw new Error("Live plug-in host executable is missing from the native build");
@@ -233,10 +233,18 @@ export class MacBuildAdapter extends BuildAdapter {
     if (!existsSync(hostIcon)) {
       throw new Error(`Live plug-in host icon is missing: ${hostIcon}`);
     }
-    cpSync(hostRaw, join(hostMacOS, "resostage-plugin-host"));
+    cpSync(hostRaw, join(hostMacOS, "ResoStage Plug-in Host"));
     // Raw CMake copies a sibling helper beside Core's executable. The
     // shipping bundle launches the branded nested app instead.
+    rmSync(join(coreDst, "Contents", "MacOS", "ResoStage Plug-in Host"), {
+      force: true,
+    });
+    // CMake does not delete artifacts left by an older OUTPUT_NAME, so a
+    // reused build directory can carry stale lowercase siblings into the app.
     rmSync(join(coreDst, "Contents", "MacOS", "resostage-plugin-host"), {
+      force: true,
+    });
+    rmSync(join(coreDst, "Contents", "MacOS", "resostage-plugin-scanner"), {
       force: true,
     });
     cpSync(hostIcon, join(hostResources, "AppIcon.icns"));
@@ -250,7 +258,7 @@ export class MacBuildAdapter extends BuildAdapter {
   <key>CFBundleIdentifier</key><string>com.resonaura.resostage.pluginhost</string>
   <key>CFBundleName</key><string>ResoStage Plug-in Host</string>
   <key>CFBundleDisplayName</key><string>ResoStage Plug-in Host</string>
-  <key>CFBundleExecutable</key><string>resostage-plugin-host</string>
+  <key>CFBundleExecutable</key><string>ResoStage Plug-in Host</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleIconFile</key><string>AppIcon.icns</string>
   <key>CFBundleShortVersionString</key><string>${version}</string>
@@ -273,36 +281,31 @@ export class MacBuildAdapter extends BuildAdapter {
     if (kaishakuRaw && existsSync(kaishakuRaw)) {
       if (kaishakuRaw.endsWith(".app")) {
         const targetAppName = "ResoStage Kaishaku.app";
-        const kaishakuDst1 = join(resources, targetAppName);
-        rmSync(kaishakuDst1, { recursive: true, force: true });
-        cpSync(kaishakuRaw, kaishakuDst1, { recursive: true });
-
-        const kaishakuDst2 = join(
+        // Core and Electron both locate the one helper bundled inside Core;
+        // duplicating this GUI app in the outer shell doubled packaged size
+        // and made Finder show two indistinguishable applications.
+        const kaishakuDst = join(
           coreDst,
           "Contents",
           "Resources",
           targetAppName,
         );
-        rmSync(kaishakuDst2, { recursive: true, force: true });
-        cpSync(kaishakuRaw, kaishakuDst2, { recursive: true });
+        rmSync(kaishakuDst, { recursive: true, force: true });
+        cpSync(kaishakuRaw, kaishakuDst, { recursive: true });
 
         // Clean up legacy kaishaku.app if present
         const legacy1 = join(resources, "kaishaku.app");
         const legacy2 = join(coreDst, "Contents", "Resources", "kaishaku.app");
-        if (existsSync(legacy1))
-          rmSync(legacy1, { recursive: true, force: true });
+        if (existsSync(legacy1)) rmSync(legacy1, { recursive: true, force: true });
         if (existsSync(legacy2))
           rmSync(legacy2, { recursive: true, force: true });
 
         // Copy icon into ResoStage Kaishaku.app if present
         const kaishakuIcns = join(ROOT, "icons", "kaishaku.icns");
         if (existsSync(kaishakuIcns)) {
-          const res1 = join(kaishakuDst1, "Contents", "Resources");
-          const res2 = join(kaishakuDst2, "Contents", "Resources");
-          mkdirSync(res1, { recursive: true });
-          mkdirSync(res2, { recursive: true });
-          cpSync(kaishakuIcns, join(res1, "AppIcon.icns"), { force: true });
-          cpSync(kaishakuIcns, join(res2, "AppIcon.icns"), { force: true });
+          const appResources = join(kaishakuDst, "Contents", "Resources");
+          mkdirSync(appResources, { recursive: true });
+          cpSync(kaishakuIcns, join(appResources, "AppIcon.icns"), { force: true });
         }
 
         try {
@@ -311,36 +314,19 @@ export class MacBuildAdapter extends BuildAdapter {
             "--deep",
             "--sign",
             "-",
-            kaishakuDst1,
-          ]);
-          execFileSync("codesign", [
-            "--force",
-            "--deep",
-            "--sign",
-            "-",
-            kaishakuDst2,
+            kaishakuDst,
           ]);
         } catch {}
       } else {
-        const kaishakuDst1 = join(resources, "kaishaku");
-        rmSync(kaishakuDst1, { force: true });
-        cpSync(kaishakuRaw, kaishakuDst1);
-
-        const kaishakuDst2 = join(coreDst, "Contents", "MacOS", "kaishaku");
-        rmSync(kaishakuDst2, { force: true });
-        cpSync(kaishakuRaw, kaishakuDst2);
-
-        const kaishakuDst3 = join(shellBundle, "Contents", "MacOS", "kaishaku");
-        rmSync(kaishakuDst3, { force: true });
-        cpSync(kaishakuRaw, kaishakuDst3);
+        const kaishakuDst = join(coreDst, "Contents", "Resources", "kaishaku");
+        rmSync(kaishakuDst, { force: true });
+        cpSync(kaishakuRaw, kaishakuDst);
 
         try {
-          execFileSync("chmod", ["+x", kaishakuDst1]);
-          execFileSync("chmod", ["+x", kaishakuDst2]);
-          execFileSync("chmod", ["+x", kaishakuDst3]);
+          execFileSync("chmod", ["+x", kaishakuDst]);
         } catch {}
       }
-      log(`Bundled kaishaku executioner into shell resources and Core.app`);
+      log(`Bundled one Kaishaku executioner inside Core.app for Core and shell reuse`);
     } else {
       log(`Warning: kaishaku raw binary not found in ${BUILD_DIR}`);
     }

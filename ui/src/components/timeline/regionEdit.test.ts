@@ -33,6 +33,11 @@ const midiSong = {
           probability: 1,
         },
       ],
+      events: [
+        { beat: 1, status: 0xb0, data: [64, 127] },
+        { beat: 3, status: 0xb0, data: [64, 0] },
+      ],
+      umpEvents: [{ beat: 2, words: [0x40903c80, 0, 0, 0], wordCount: 1 }],
       automationLanes: [],
     },
   ],
@@ -57,6 +62,8 @@ describe("MIDI region timeline editing", () => {
     if (entry.kind !== "midi") throw new Error("expected MIDI clipboard entry");
     expect(entry.notes).toEqual(midiSong.midiRegions![0].notes);
     expect(entry.notes).not.toBe(midiSong.midiRegions![0].notes);
+    expect(entry.events).toEqual(midiSong.midiRegions![0].events);
+    expect(entry.umpEvents).toEqual(midiSong.midiRegions![0].umpEvents);
   });
 
   it("splits by changing the source offset while retaining notes and loop data", async () => {
@@ -87,6 +94,8 @@ describe("MIDI region timeline editing", () => {
         loop: true,
         loopLengthBeats: 4,
         notes: midiSong.midiRegions![0].notes,
+        events: midiSong.midiRegions![0].events,
+        umpEvents: midiSong.midiRegions![0].umpEvents,
       }),
     );
   });

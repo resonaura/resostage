@@ -39,6 +39,8 @@ export interface MidiRegionClipboardEntry {
   muted: boolean;
   color?: string;
   notes: MidiRegionRow["notes"];
+  events?: MidiRegionRow["events"];
+  umpEvents?: MidiRegionRow["umpEvents"];
   automationLanes?: MidiRegionRow["automationLanes"];
 }
 

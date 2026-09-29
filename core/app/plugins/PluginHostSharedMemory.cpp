@@ -1,10 +1,8 @@
 #include "PluginHostSharedMemory.h"
 
 #include <cerrno>
-#include <chrono>
 #include <cstring>
 #include <new>
-#include <thread>
 #include <utility>
 
 #if defined(_WIN32)
@@ -20,7 +18,6 @@
 #include <semaphore.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
 #endif
 
@@ -40,6 +37,17 @@ std::string wakeName(const std::string& name) {
 #endif
 }
 
+std::string controlWakeName(const std::string& name) {
+#if defined(_WIN32)
+    return name + "-control";
+#else
+    const size_t separator = name.find('-');
+    return "/rswc-" + (separator == std::string::npos
+        ? name.substr(name.find_last_of('/') + 1)
+        : name.substr(separator + 1));
+#endif
+}
+
 } // namespace
 
 struct PluginHostSharedMemory::Impl {
@@ -50,12 +58,11 @@ struct PluginHostSharedMemory::Impl {
 #if defined(_WIN32)
     HANDLE mapping = nullptr;
     HANDLE wakeEvent = nullptr;
+    HANDLE controlWakeEvent = nullptr;
 #else
     int descriptor = -1;
     sem_t* wakeSemaphore = SEM_FAILED;
-#if defined(__APPLE__)
-    std::chrono::steady_clock::time_point hotWakeUntil{};
-#endif
+    sem_t* controlWakeSemaphore = SEM_FAILED;
 #endif
 
     void close() noexcept {
@@ -63,6 +70,10 @@ struct PluginHostSharedMemory::Impl {
         if (wakeEvent != nullptr) {
             CloseHandle(wakeEvent);
             wakeEvent = nullptr;
+        }
+        if (controlWakeEvent != nullptr) {
+            CloseHandle(controlWakeEvent);
+            controlWakeEvent = nullptr;
         }
         if (shared != nullptr) {
             UnmapViewOfFile(shared);
@@ -77,6 +88,10 @@ struct PluginHostSharedMemory::Impl {
             sem_close(wakeSemaphore);
             wakeSemaphore = SEM_FAILED;
         }
+        if (controlWakeSemaphore != SEM_FAILED) {
+            sem_close(controlWakeSemaphore);
+            controlWakeSemaphore = SEM_FAILED;
+        }
         if (shared != nullptr) {
             munmap(shared, sizeof(plugin_host::SharedArea));
             shared = nullptr;
@@ -87,6 +102,7 @@ struct PluginHostSharedMemory::Impl {
         }
         if (owner && !mappingName.empty()) {
             sem_unlink(wakeName(mappingName).c_str());
+            sem_unlink(controlWakeName(mappingName).c_str());
             shm_unlink(mappingName.c_str());
         }
 #endif
@@ -127,7 +143,10 @@ bool PluginHostSharedMemory::create(const std::string& name, uint64_t generation
         impl->mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(plugin_host::SharedArea)));
     SetLastError(ERROR_SUCCESS);
     impl->wakeEvent = CreateEventA(nullptr, FALSE, FALSE, wakeName(name).c_str());
+    impl->controlWakeEvent = CreateEventA(nullptr, FALSE, FALSE,
+                                          controlWakeName(name).c_str());
     if (impl->shared == nullptr || impl->wakeEvent == nullptr
+        || impl->controlWakeEvent == nullptr
         || GetLastError() == ERROR_ALREADY_EXISTS) {
         error = "Could not initialize plug-in host shared-memory handles";
         impl->close();
@@ -139,7 +158,8 @@ bool PluginHostSharedMemory::create(const std::string& name, uint64_t generation
         return false;
     }
 #if defined(__APPLE__)
-    if (name.size() > 30 || wakeName(name).size() > 30) {
+    if (name.size() > 30 || wakeName(name).size() > 30
+        || controlWakeName(name).size() > 30) {
         error = "macOS plug-in host shared-memory names must not exceed 30 bytes";
         return false;
     }
@@ -173,6 +193,14 @@ bool PluginHostSharedMemory::create(const std::string& name, uint64_t generation
                                    0600, 0);
     if (impl->wakeSemaphore == SEM_FAILED) {
         error = "Could not create plug-in host wake semaphore: "
+                + std::string(std::strerror(errno));
+        impl->close();
+        return false;
+    }
+    impl->controlWakeSemaphore = sem_open(controlWakeName(name).c_str(),
+        O_CREAT | O_EXCL, 0600, 0);
+    if (impl->controlWakeSemaphore == SEM_FAILED) {
+        error = "Could not create plug-in host control semaphore: "
                 + std::string(std::strerror(errno));
         impl->close();
         return false;
@@ -218,7 +246,10 @@ bool PluginHostSharedMemory::open(const std::string& name, uint64_t generation,
     }
     impl->wakeEvent = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE,
                                  wakeName(name).c_str());
-    if (impl->shared == nullptr || impl->wakeEvent == nullptr) {
+    impl->controlWakeEvent = OpenEventA(SYNCHRONIZE | EVENT_MODIFY_STATE, FALSE,
+                                        controlWakeName(name).c_str());
+    if (impl->shared == nullptr || impl->wakeEvent == nullptr
+        || impl->controlWakeEvent == nullptr) {
         error = "Could not open plug-in host shared-memory handles";
         impl->close();
         return false;
@@ -230,7 +261,8 @@ bool PluginHostSharedMemory::open(const std::string& name, uint64_t generation,
         return false;
     }
 #if defined(__APPLE__)
-    if (name.size() > 30 || wakeName(name).size() > 30) {
+    if (name.size() > 30 || wakeName(name).size() > 30
+        || controlWakeName(name).size() > 30) {
         error = "macOS plug-in host shared-memory names must not exceed 30 bytes";
         impl->mappingName.clear();
         return false;
@@ -270,6 +302,13 @@ bool PluginHostSharedMemory::open(const std::string& name, uint64_t generation,
         impl->close();
         return false;
     }
+    impl->controlWakeSemaphore = sem_open(controlWakeName(name).c_str(), 0);
+    if (impl->controlWakeSemaphore == SEM_FAILED) {
+        error = "Could not open plug-in host control semaphore: "
+                + std::string(std::strerror(errno));
+        impl->close();
+        return false;
+    }
 #endif
 
     if (!plugin_host::validate(*impl->shared, generation, maximumBlockSamples,
@@ -298,64 +337,90 @@ bool PluginHostSharedMemory::isOwner() const noexcept {
 }
 
 bool PluginHostSharedMemory::signalWake() noexcept {
+    if (impl->shared == nullptr)
+        return false;
+    uint32_t expected = 0;
+    if (!impl->shared->wakePending.compare_exchange_strong(
+            expected, 1, std::memory_order_acq_rel, std::memory_order_relaxed)) {
+        return true; // a wake is already pending; the worker drains all slots
+    }
 #if defined(_WIN32)
-    return impl->wakeEvent != nullptr && SetEvent(impl->wakeEvent) != 0;
+    const bool signalled = impl->wakeEvent != nullptr && SetEvent(impl->wakeEvent) != 0;
 #else
-    return impl->wakeSemaphore != SEM_FAILED && sem_post(impl->wakeSemaphore) == 0;
+    const bool signalled = impl->wakeSemaphore != SEM_FAILED
+        && sem_post(impl->wakeSemaphore) == 0;
 #endif
+    if (!signalled)
+        impl->shared->wakePending.store(0, std::memory_order_release);
+    return signalled;
 }
 
-bool PluginHostSharedMemory::waitForWake(uint32_t timeoutMilliseconds) noexcept {
+bool PluginHostSharedMemory::waitForWake() noexcept {
 #if defined(_WIN32)
     if (impl->wakeEvent == nullptr)
         return false;
-    return WaitForSingleObject(impl->wakeEvent, timeoutMilliseconds) == WAIT_OBJECT_0;
+    const bool signalled = WaitForSingleObject(impl->wakeEvent, INFINITE) == WAIT_OBJECT_0;
+    if (signalled && impl->shared != nullptr)
+        impl->shared->wakePending.store(0, std::memory_order_release);
+    return signalled;
 #else
     if (impl->wakeSemaphore == SEM_FAILED)
         return false;
-#if defined(__APPLE__)
-    // Darwin does not expose sem_timedwait for named POSIX semaphores. The
-    // semaphore remains the primary wake path. In idle, poll at a low rate so
-    // each isolated chain does not burn CPU; after a wake, poll more quickly
-    // for a short window because real-time audio blocks keep arriving. That
-    // avoids paying a full millisecond of wake latency at small device buffers.
-    const auto deadline = std::chrono::steady_clock::now()
-        + std::chrono::milliseconds(timeoutMilliseconds);
     do {
-        if (sem_trywait(impl->wakeSemaphore) == 0)
-        {
-            impl->hotWakeUntil = std::chrono::steady_clock::now()
-                + std::chrono::milliseconds(40);
+        // Audio requests and shutdown both post this process-shared semaphore.
+        // Blocking here avoids the old macOS 250-us polling loop, which spent
+        // worker CPU while adding scheduler-dependent wake latency. Parent
+        // death is handled by the independent helper watchdog.
+        if (sem_wait(impl->wakeSemaphore) == 0) {
+            if (impl->shared != nullptr)
+                impl->shared->wakePending.store(0, std::memory_order_release);
             return true;
         }
-        if (errno == EINTR)
-            continue;
-        const auto now = std::chrono::steady_clock::now();
-        if (errno != EAGAIN || now >= deadline)
-            return false;
-        const auto pollInterval = now < impl->hotWakeUntil
-            ? std::chrono::microseconds(250)
-            : std::chrono::milliseconds(1);
-        std::this_thread::sleep_for(std::min(
-            pollInterval,
-            std::chrono::duration_cast<decltype(pollInterval)>(deadline - now)));
     } while (true);
-#else
-    struct timespec deadline {};
-    if (clock_gettime(CLOCK_REALTIME, &deadline) != 0)
+#endif
+    return false;
+}
+
+bool PluginHostSharedMemory::signalControlWake() noexcept {
+    if (impl->shared == nullptr)
         return false;
-    deadline.tv_sec += static_cast<time_t>(timeoutMilliseconds / 1000);
-    deadline.tv_nsec += static_cast<long>((timeoutMilliseconds % 1000) * 1000000);
-    if (deadline.tv_nsec >= 1000000000L) {
-        ++deadline.tv_sec;
-        deadline.tv_nsec -= 1000000000L;
-    }
+    uint32_t expected = 0;
+    if (!impl->shared->controlWakePending.compare_exchange_strong(
+            expected, 1, std::memory_order_acq_rel, std::memory_order_relaxed))
+        return true;
+#if defined(_WIN32)
+    const bool signalled = impl->controlWakeEvent != nullptr
+        && SetEvent(impl->controlWakeEvent) != 0;
+#else
+    const bool signalled = impl->controlWakeSemaphore != SEM_FAILED
+        && sem_post(impl->controlWakeSemaphore) == 0;
+#endif
+    if (!signalled)
+        impl->shared->controlWakePending.store(0, std::memory_order_release);
+    return signalled;
+}
+
+bool PluginHostSharedMemory::waitForControlWake() noexcept {
+#if defined(_WIN32)
+    if (impl->controlWakeEvent == nullptr)
+        return false;
+    const bool signalled = WaitForSingleObject(impl->controlWakeEvent, INFINITE)
+        == WAIT_OBJECT_0;
+    if (signalled && impl->shared != nullptr)
+        impl->shared->controlWakePending.store(0, std::memory_order_release);
+    return signalled;
+#else
+    if (impl->controlWakeSemaphore == SEM_FAILED)
+        return false;
     int result;
     do {
-        result = sem_timedwait(impl->wakeSemaphore, &deadline);
+        result = sem_wait(impl->controlWakeSemaphore);
     } while (result != 0 && errno == EINTR);
-    return result == 0;
-#endif
+    if (result != 0)
+        return false;
+    if (impl->shared != nullptr)
+        impl->shared->controlWakePending.store(0, std::memory_order_release);
+    return true;
 #endif
 }
 

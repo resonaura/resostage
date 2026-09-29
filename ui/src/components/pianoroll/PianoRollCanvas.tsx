@@ -13,6 +13,7 @@ import {
   editControllerPoint,
   generateNoteId,
   paintBrushNote,
+  resolveDrawNoteDuration,
   sliceNote,
 } from "./pianoRollModel";
 import {
@@ -158,6 +159,8 @@ export function PianoRollCanvas({
   const currentThemeVersion = useThemeVersion();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
 
   const spatialIndex = useRef(new SpatialNoteIndex(4.0, 12));
   const draggingRef = useRef<DraggingState | null>(null);
@@ -357,7 +360,8 @@ export function PianoRollCanvas({
       if (
         !dragging ||
         !canvas ||
-        (dragging.type !== "move" && dragging.type !== "resize")
+        (dragging.type !== "move" && dragging.type !== "resize"
+          && dragging.type !== "draw")
       ) {
         autoScrollRafRef.current = null;
         return;
@@ -428,6 +432,34 @@ export function PianoRollCanvas({
             scrollPitch: nextPitch,
           };
         });
+
+        if (dragging.type === "draw") {
+          const liveViewport = viewportRef.current;
+          const pointerBeat = liveViewport.scrollBeats
+            + (x - liveViewport.keyWidth) / liveViewport.pixelsPerBeat;
+          const initialNote = dragging.initialNotesSnapshot.values()
+            .next().value as MidiNoteRow | undefined;
+          if (initialNote) {
+            const duration = resolveDrawNoteDuration(
+              dragging.startBeat,
+              pointerBeat,
+              snap,
+              initialNote.durationBeats,
+              3 / liveViewport.pixelsPerBeat,
+            );
+            const startBeat = sourceBeatAt(snapBeat(
+              Math.max(0, Math.min(dragging.startBeat, pointerBeat)),
+            ));
+            const baseNotes = pendingCommitRef.current ?? notesToRender;
+            const updated = baseNotes.map((note) =>
+              dragging.targetNoteIds?.has(note.id)
+                ? { ...note, startBeats: startBeat, durationBeats: duration }
+                : note,
+            );
+            pendingCommitRef.current = updated;
+            setLocalNotes(updated);
+          }
+        }
       }
 
       autoScrollRafRef.current = requestAnimationFrame(tick);
@@ -436,6 +468,10 @@ export function PianoRollCanvas({
     autoScrollRafRef.current = requestAnimationFrame(tick);
   }, [
     onViewportChange,
+    notesToRender,
+    snap,
+    snapBeat,
+    sourceBeatAt,
     stopAutoScroll,
     viewport.keyWidth,
     viewport.velocityLaneHeight,
@@ -988,6 +1024,71 @@ export function PianoRollCanvas({
         }
         ctx.restore();
       }
+
+      // Sustain is stored as ordinary MIDI CC64 events (not an automation
+      // approximation). Show each down/up interval as a compact step trace.
+      if (bottomLane === "cc64" && (region.events?.length ?? 0) > 0) {
+        const sustainEvents = (region.events ?? [])
+          .filter((event) => (event.status & 0xf0) === 0xb0 && event.data[0] === 64 && event.data.length > 1)
+          .sort((left, right) => left.beat - right.beat);
+        if (sustainEvents.length > 0) {
+          const repeatLength = region.loop && region.loopLengthBeats > 0
+            ? region.loopLengthBeats
+            : 0;
+          const firstRepeat = repeatLength > 0
+            ? Math.max(0, Math.floor((minBeat + region.clipOffsetBeats) / repeatLength) - 1)
+            : 0;
+          const lastRepeat = repeatLength > 0
+            ? Math.min(
+                Math.ceil(region.durationBeats / repeatLength),
+                Math.ceil((maxBeat + region.clipOffsetBeats) / repeatLength),
+              )
+            : 0;
+          const baselineY = controllerYFromValue(0, gridBottom, height, false);
+          const downY = controllerYFromValue(127, gridBottom, height, false);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(viewport.keyWidth, laneY, width - viewport.keyWidth, height - laneY);
+          ctx.clip();
+          ctx.strokeStyle = theme.accent;
+          ctx.fillStyle = theme.accent;
+          ctx.lineWidth = 2;
+          for (let repeat = firstRepeat, work = 0; repeat <= lastRepeat && work < 12_000; repeat += 1) {
+            const offset = repeatLength > 0 ? repeat * repeatLength - region.clipOffsetBeats : 0;
+            const mapped = sustainEvents
+              .map((event) => ({ beat: event.beat + offset, down: event.data[1] >= 64 }))
+              .filter((event) => event.beat >= 0 && event.beat < region.durationBeats
+                && event.beat >= minBeat - 1 && event.beat <= maxBeat + 1);
+            let down = false;
+            let downStart = 0;
+            for (const event of mapped) {
+              work += 1;
+              if (event.down === down) continue;
+              const x = beatToX(event.beat);
+              if (down) {
+                ctx.beginPath();
+                ctx.moveTo(beatToX(downStart), downY);
+                ctx.lineTo(x, downY);
+                ctx.stroke();
+              }
+              ctx.beginPath();
+              ctx.moveTo(x, baselineY);
+              ctx.lineTo(x, downY);
+              ctx.stroke();
+              down = event.down;
+              if (down) downStart = event.beat;
+            }
+            if (down) {
+              const endBeat = Math.min(region.durationBeats, (repeat + 1) * repeatLength - region.clipOffsetBeats);
+              ctx.beginPath();
+              ctx.moveTo(beatToX(downStart), downY);
+              ctx.lineTo(beatToX(Math.min(endBeat, maxBeat + 1)), downY);
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+        }
+      }
     }
 
     ctx.restore();
@@ -1263,20 +1364,6 @@ export function PianoRollCanvas({
           Math.max(0.08, 8 / viewport.pixelsPerBeat),
         );
         const workingNotes = notesToRender.map((note) => ({ ...note }));
-        if (hit && e.detail >= 2) {
-          const target = workingNotes.find((note) => note.id === hit.id);
-          if (target && target.velocity !== DEFAULT_NOTE_VELOCITY) {
-            target.velocity = DEFAULT_NOTE_VELOCITY;
-            setLocalNotes(workingNotes);
-            pendingCommitRef.current = workingNotes;
-            onNotesChange(workingNotes);
-          }
-          velocityPaintRef.current = null;
-          draggingRef.current = null;
-          canvas.releasePointerCapture(e.pointerId);
-          render();
-          return;
-        }
         if (hit) {
           const vel = Math.max(
             0.01,
@@ -1517,7 +1604,7 @@ export function PianoRollCanvas({
         initialMap.set(newNote.id, { ...newNote });
 
         draggingRef.current = {
-          type: "resize",
+          type: "draw",
           startPointerX: x,
           startPointerY: y,
           startBeat: timelineBeat,
@@ -1715,6 +1802,27 @@ export function PianoRollCanvas({
 
       setLocalNotes(updated);
       render();
+    } else if (dragging.type === "draw") {
+      const pointerBeat = xToBeat(x);
+      const initialNote = dragging.initialNotesSnapshot.values().next().value as MidiNoteRow | undefined;
+      if (!initialNote) return;
+      const duration = resolveDrawNoteDuration(
+        dragging.startBeat,
+        pointerBeat,
+        snap,
+        initialNote.durationBeats,
+        3 / viewport.pixelsPerBeat,
+      );
+      const startBeat = sourceBeatAt(snapBeat(
+        Math.max(0, Math.min(dragging.startBeat, pointerBeat)),
+      ));
+      const updated = notesToRender.map((note) =>
+        dragging.targetNoteIds?.has(note.id)
+          ? { ...note, startBeats: startBeat, durationBeats: duration }
+          : note,
+      );
+      setLocalNotes(updated);
+      render();
     } else if (dragging.type === "resize") {
       canvas.style.cursor = "ew-resize";
       const deltaBeats = xToBeat(x) - dragging.startBeat;
@@ -1785,7 +1893,7 @@ export function PianoRollCanvas({
         ? velocityPaintRef.current?.notes ?? null
         : localNotes ?? pendingCommitRef.current;
       if (
-        (dragging.type === "move" || dragging.type === "resize" || dragging.type === "velocity" || dragging.type === "brush") &&
+        (dragging.type === "move" || dragging.type === "resize" || dragging.type === "draw" || dragging.type === "velocity" || dragging.type === "brush") &&
         finalNotes
       ) {
         pendingCommitRef.current = finalNotes;
@@ -1834,6 +1942,34 @@ export function PianoRollCanvas({
     draggingRef.current = null;
     velocityPaintRef.current = null;
     lastDragDetentRef.current = null;
+    render();
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (bottomLane !== "velocity") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (y < rect.height - viewport.velocityLaneHeight) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    const hit = spatialIndex.current.hitTestStart(
+      sourceBeatAt(xToBeat(x)),
+      Math.max(0.08, 8 / viewport.pixelsPerBeat),
+    );
+    if (!hit) return;
+    const updated = notesToRender.map((note) =>
+      note.id === hit.id ? { ...note, velocity: DEFAULT_NOTE_VELOCITY } : note,
+    );
+    setLocalNotes(updated);
+    pendingCommitRef.current = updated;
+    onNotesChange(updated);
+    onSelectionChange(new Set([hit.id]));
+    velocityPaintRef.current = null;
+    draggingRef.current = null;
     render();
   };
 
@@ -1894,6 +2030,7 @@ export function PianoRollCanvas({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerCancel}
+        onDoubleClick={handleDoubleClick}
         className="block h-full w-full touch-none"
       />
       {playheadBeats !== undefined && (

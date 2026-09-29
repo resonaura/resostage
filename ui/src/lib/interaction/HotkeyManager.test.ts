@@ -68,6 +68,26 @@ describe("HotkeyManager", () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
+  it("blocks previous/next song actions forwarded by Electron while typing MIDI", () => {
+    const hotkeys = manager();
+    const previous = vi.fn();
+    const next = vi.fn();
+    hotkeys.registerActionHandler("prev", previous);
+    hotkeys.registerActionHandler("next", next);
+    hotkeys.setMusicalTypingActive(true);
+
+    expect(hotkeys.dispatchAction("prev")).toBe(false);
+    expect(hotkeys.dispatchAction("next")).toBe(false);
+    expect(previous).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+
+    hotkeys.setMusicalTypingActive(false);
+    expect(hotkeys.dispatchAction("prev")).toBe(true);
+    expect(hotkeys.dispatchAction("next")).toBe(true);
+    expect(previous).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it("suspends dispatch while the settings UI captures a key", () => {
     const hotkeys = manager();
     const handler = vi.fn();

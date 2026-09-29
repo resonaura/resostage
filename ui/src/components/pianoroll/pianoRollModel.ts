@@ -45,6 +45,30 @@ export function canvasYToPitch(
 }
 
 /**
+ * Resolve the musical length of a pencil drag. A click keeps the remembered
+ * single-note duration; once the pointer moves, the dragged span (rather than
+ * the remembered duration plus the span) becomes the note length.
+ */
+export function resolveDrawNoteDuration(
+  anchorBeat: number,
+  pointerBeat: number,
+  snap: number,
+  clickDuration: number,
+  dragThresholdBeats = 0.02,
+): number {
+  const delta = Math.abs(pointerBeat - anchorBeat);
+  if (delta < Math.max(1e-6, dragThresholdBeats))
+    return Math.max(0.125, clickDuration);
+
+  if (snap > 0) {
+    const start = Math.round(Math.min(anchorBeat, pointerBeat) / snap) * snap;
+    const end = Math.round(Math.max(anchorBeat, pointerBeat) / snap) * snap;
+    return Math.max(snap, end - start);
+  }
+  return Math.max(0.125, delta);
+}
+
+/**
  * Split a note at `cutBeat` into two consecutive notes.
  * Returns null if `cutBeat` is outside the note body.
  */
