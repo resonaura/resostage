@@ -33,6 +33,42 @@ describe("plugin groups", () => {
     expect(groups[0].plugins.map(({ name }) => name)).toEqual(["Alpha", "Zeta"]);
   });
 
+  it("deduplicates instrument formats case-insensitively and prefers AU", () => {
+    const groups = groupInstruments([
+      plugin({
+        id: "synth-vst3",
+        name: "Studio Keys",
+        manufacturer: "Acme Audio",
+        format: "VST3",
+        instrument: true,
+      }),
+      plugin({
+        id: "synth-au",
+        name: " studio keys ",
+        manufacturer: " ACME AUDIO ",
+        format: "AudioUnit",
+        instrument: true,
+      }),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].plugins.map(({ id }) => id)).toEqual(["synth-au"]);
+  });
+
+  it("returns no instrument groups when no enabled instrument is available", () => {
+    expect(
+      groupInstruments([
+        plugin({ id: "effect", name: "Effect", instrument: false }),
+        plugin({
+          id: "disabled",
+          name: "Disabled",
+          instrument: true,
+          enabled: false,
+        }),
+      ]),
+    ).toEqual([]);
+  });
+
   it("groups only audio effects by display category", () => {
     const groups = groupEffects([
       plugin({ id: "eq", name: "Equalizer", category: "Fx|EQ" }),

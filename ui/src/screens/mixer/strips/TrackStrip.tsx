@@ -1,9 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   ContextMenu,
-  ContextMenuDivider,
   ContextMenuItem,
-  ContextMenuSubmenu,
 } from "../../../components/common/ContextMenu";
 import {
   mixer,
@@ -23,7 +21,7 @@ import {
   type SettingsState,
   type TrackRow,
 } from "../../../lib/state/types";
-import { groupInstruments } from "../plugins/logic/pluginGroups";
+import { InstrumentContextMenu } from "../plugins/InstrumentContextMenu";
 import { ChannelStrip } from "./ChannelStrip";
 import { colorForIndex } from "../logic/constants";
 import { getTrackInputOptions, getTrackInputState } from "../logic/trackInputs";
@@ -114,11 +112,6 @@ function TrackStripInner({
     x: number;
     y: number;
   } | null>(null);
-  const instrumentGroups = useMemo(
-    () => (isInstrument ? groupInstruments(pluginCatalog) : []),
-    [isInstrument, pluginCatalog],
-  );
-
   const inputOptions = getTrackInputOptions({
     isMono,
     inputChannelNames: settings?.inputChannelNames,
@@ -300,75 +293,15 @@ function TrackStripInner({
         </ContextMenu>
       )}
 
-      {instrumentMenu && (
-        <ContextMenu
-          x={instrumentMenu.x}
-          y={instrumentMenu.y}
-          width={220}
-          onClose={() => setInstrumentMenu(null)}
-        >
-          {instrumentSlot && (
-            <>
-              <ContextMenuItem
-                onClick={() => {
-                  void pluginChains.openEditor(t.id, instrumentSlot.id);
-                  setInstrumentMenu(null);
-                }}
-              >
-                Open {instrumentName}
-              </ContextMenuItem>
-              {(instrumentSlot.loadState === "failed" ||
-                instrumentSlot.loadState === "missing") && (
-                <ContextMenuItem
-                  onClick={() => {
-                    void pluginChains.retry(t.id, instrumentSlot.id);
-                    setInstrumentMenu(null);
-                  }}
-                >
-                  Retry loading
-                </ContextMenuItem>
-              )}
-              <ContextMenuItem
-                danger
-                onClick={() => {
-                  void pluginChains.remove(t.id, instrumentSlot.id);
-                  setInstrumentMenu(null);
-                }}
-              >
-                No Plug-in
-              </ContextMenuItem>
-              <ContextMenuDivider />
-            </>
-          )}
-
-          {instrumentGroups.length === 0 ? (
-            <ContextMenuItem disabled onClick={() => {}}>
-              No instruments scanned · see Settings
-            </ContextMenuItem>
-          ) : (
-            instrumentGroups.map((group) => (
-              <ContextMenuSubmenu key={group.name} label={group.name}>
-                {group.plugins.map((plugin) => (
-                  <ContextMenuItem
-                    key={plugin.id}
-                    checked={instrumentSlot?.pluginId === plugin.id}
-                    onClick={() => {
-                      if (instrumentSlot)
-                        void pluginChains.replace(t.id, instrumentSlot.id, plugin.id);
-                      else
-                        void pluginChains.add(t.id, plugin.id);
-                      setInstrumentMenu(null);
-                    }}
-                  >
-                    {plugin.name}
-                    {plugin.format ? ` (${plugin.format})` : ""}
-                  </ContextMenuItem>
-                ))}
-              </ContextMenuSubmenu>
-            ))
-          )}
-        </ContextMenu>
-      )}
+      <InstrumentContextMenu
+        trackId={t.id}
+        isInstrument={isInstrument}
+        slot={instrumentSlot}
+        name={instrumentName}
+        catalog={pluginCatalog}
+        position={instrumentMenu}
+        onClose={() => setInstrumentMenu(null)}
+      />
     </>
   );
 }
