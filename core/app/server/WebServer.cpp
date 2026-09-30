@@ -752,12 +752,6 @@ void WebServer::serviceLoop() {
     }
 }
 
-void WebServer::setTargetTelemetryHz(int hz) {
-    const int clamped = std::clamp(hz, kTelemetryMinHz, kTelemetryHz);
-    targetTelemetryHz_.store(clamped, std::memory_order_relaxed);
-    effectiveTelemetryHz_.store(clamped, std::memory_order_relaxed);
-}
-
 void WebServer::publishState(const WebUiState& next) {
     {
         std::lock_guard<std::mutex> lock(stateMutex);
@@ -939,23 +933,6 @@ void WebServer::onClientClosed() {
 
 void WebServer::broadcastWritable() {
     // Unused for now -- per-session timers drive telemetry.
-}
-
-void WebServer::registerUdpSubscriber(const std::string& ip, int port) {
-    if (ip.empty() || port <= 0 || port > 65535)
-        return;
-    // libwebsockets may report an IPv4 peer through an IPv6-mapped address.
-    // DatagramSocket's IPv4 write expects the dotted quad.
-    const std::string normalizedIp = ip.rfind("::ffff:", 0) == 0 ? ip.substr(7) : ip;
-    const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
-    std::lock_guard<std::mutex> lock(udpSubscribersMutex_);
-    for (auto& s : udpSubscribers_) {
-        if (s.ip == normalizedIp && s.port == port) {
-            s.lastSeenSec = nowSec;
-            return;
-        }
-    }
-    udpSubscribers_.push_back({normalizedIp, port, nowSec});
 }
 
 } // namespace resostage
