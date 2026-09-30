@@ -50,6 +50,7 @@ juce_add_gui_app(ResoStage
 target_sources(ResoStage PRIVATE
   Main.cpp
   main/MainComponent.cpp
+  main/render/MainComponentRender.cpp
   main/commands/MainComponentWebCommands.cpp
   main/state/MainComponentWebState.cpp
   main/MainComponentBuilder.cpp
