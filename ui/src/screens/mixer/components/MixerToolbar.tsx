@@ -1,4 +1,6 @@
-export type MixerDensity = "narrow" | "standard" | "wide";
+import type { MixerDensity } from "../logic/constants";
+
+export type { MixerDensity } from "../logic/constants";
 
 export function MixerToolbar({
   trackCount,

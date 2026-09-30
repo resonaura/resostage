@@ -1,5 +1,7 @@
 import { getTrackColor } from "../../../lib/theme";
 
+export type MixerDensity = "narrow" | "standard" | "wide";
+
 // Re-export mixer role colours so strip files can import from one place.
 export {
   busCycleColor,

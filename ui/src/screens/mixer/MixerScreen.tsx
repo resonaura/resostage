@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui";
 import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
 import { useHorizontalWindow } from "./hooks/useHorizontalWindow";
+import { useMixerDensity } from "./hooks/useMixerDensity";
 import { builder, mixer } from "../../lib/state/api";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/state/types";
 import { useIsCompact } from "../../hooks/useMediaQuery";
@@ -19,7 +20,8 @@ import { MetronomeStrip } from "./strips/MetronomeStrip";
 import { StripContextMenu, type StripMenuTarget } from "./strips/StripContextMenu";
 import { TrackStrip } from "./strips/TrackStrip";
 import { ConsolePane } from "./components/ConsolePane";
-import { MixerToolbar, type MixerDensity } from "./components/MixerToolbar";
+import { MixerToolbar } from "./components/MixerToolbar";
+import { type MixerDensity } from "./logic/constants";
 
 interface PluginTarget {
   stripId: string;
@@ -58,21 +60,7 @@ export function MixerScreen({
   onRender: (intent: RenderDialogIntent) => void;
 }) {
   const compact = useIsCompact();
-  const [density, setDensity] = useState<MixerDensity>(() => {
-    try {
-      const saved = localStorage.getItem("resostage:mixer-density");
-      if (saved === "narrow" || saved === "standard" || saved === "wide")
-        return saved;
-    } catch {}
-    return "standard";
-  });
-
-  const handleDensityChange = (d: MixerDensity) => {
-    setDensity(d);
-    try {
-      localStorage.setItem("resostage:mixer-density", d);
-    } catch {}
-  };
+  const { density, updateDensity } = useMixerDensity();
 
   const auxBusses = state.busses.filter((b) => b.isAux);
   const pitchPx = DENSITY_PITCH_MAP[density];
@@ -221,7 +209,7 @@ export function MixerScreen({
         trackCount={state.tracks.length}
         busCount={state.busses.length}
         density={density}
-        onDensityChange={handleDensityChange}
+        onDensityChange={updateDensity}
       />
 
       <div
