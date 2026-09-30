@@ -10,6 +10,7 @@ import {
 import { usePianoRollAutoScroll } from "@/screens/editor/pianoroll/hooks/usePianoRollAutoScroll";
 import { usePianoRollCoordinates } from "@/screens/editor/pianoroll/hooks/usePianoRollCoordinates";
 import { usePianoRollPlayheadFollow } from "@/screens/editor/pianoroll/hooks/usePianoRollPlayheadFollow";
+import { usePianoRollPointerEndHandlers } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerEndHandlers";
 import { usePianoRollViewportGestures } from "@/screens/editor/pianoroll/hooks/usePianoRollViewportGestures";
 import { triggerHaptic } from "@/lib/interaction/haptics";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
@@ -885,101 +886,36 @@ export function PianoRollCanvas({
     }
   };
 
-  // ── Pointer Up Interaction ─────────────────────────────────────────────
-  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    e.stopPropagation();
-    stopAutoScroll();
-
-    const canvas = canvasRef.current;
-    if (canvas && canvas.hasPointerCapture(e.pointerId)) {
-      canvas.releasePointerCapture(e.pointerId);
-    }
-
-    const dragging = draggingRef.current;
-    if (dragging) {
-      const finalNotes = dragging.type === "velocity"
-        ? velocityPaintRef.current?.notes ?? null
-        : localNotes ?? pendingCommitRef.current;
-      if (
-        (dragging.type === "move" || dragging.type === "resize" || dragging.type === "draw" || dragging.type === "velocity" || dragging.type === "brush") &&
-        finalNotes
-      ) {
-        pendingCommitRef.current = finalNotes;
-        onNotesChange(finalNotes);
-        triggerHaptic("generic");
-      } else if (dragging.type === "cc" && controllerGestureRef.current?.changed &&
-                 localAutomationLanesRef.current && onRegionChange) {
-        const lanes = localAutomationLanesRef.current;
-        const lane = controllerGestureRef.current && lanes[controllerGestureRef.current.laneIndex];
-        if (lane) {
-          pendingAutomationCommitRef.current = {
-            parameterId: lane.target.parameterId,
-            points: lane.points,
-          };
-          onRegionChange({ ...region, automationLanes: lanes });
-          triggerHaptic("generic");
-        }
-        pendingCommitRef.current = null;
-        setLocalNotes(null);
-      } else {
-        pendingCommitRef.current = null;
-        setLocalNotes(null);
-      }
-    }
-    draggingRef.current = null;
-    controllerGestureRef.current = null;
-    velocityPaintRef.current = null;
-    setHoveredPitch(null);
-    render();
-  };
-
-  const handlePointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    e.stopPropagation();
-    stopAutoScroll();
-    const canvas = canvasRef.current;
-    if (canvas?.hasPointerCapture(e.pointerId)) {
-      canvas.releasePointerCapture(e.pointerId);
-    }
-    // A cancelled gesture must not leave a speculative local preview or a
-    // running RAF loop behind. The authoritative notes were not committed.
-    setLocalNotes(null);
-    pendingCommitRef.current = null;
-    if (controllerGestureRef.current)
-      setControllerPreview(controllerGestureRef.current.beforeLanes);
-    controllerGestureRef.current = null;
-    draggingRef.current = null;
-    velocityPaintRef.current = null;
-    lastDragDetentRef.current = null;
-    render();
-  };
-
-  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (bottomLane !== "velocity") return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    if (y < rect.height - viewport.velocityLaneHeight) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-    const hit = spatialIndex.current.hitTestStart(
-      sourceBeatAt(xToBeat(x)),
-      Math.max(0.08, 8 / viewport.pixelsPerBeat),
-    );
-    if (!hit) return;
-    const updated = notesToRender.map((note) =>
-      note.id === hit.id ? { ...note, velocity: DEFAULT_NOTE_VELOCITY } : note,
-    );
-    setLocalNotes(updated);
-    pendingCommitRef.current = updated;
-    onNotesChange(updated);
-    onSelectionChange(new Set([hit.id]));
-    velocityPaintRef.current = null;
-    draggingRef.current = null;
-    render();
-  };
+  const {
+    handlePointerUp,
+    handlePointerCancel,
+    handleDoubleClick,
+  } = usePianoRollPointerEndHandlers({
+    canvasRef,
+    draggingRef,
+    pendingCommitRef,
+    pendingAutomationCommitRef,
+    controllerGestureRef,
+    localAutomationLanesRef,
+    velocityPaintRef,
+    lastDragDetentRef,
+    localNotes,
+    notesToRender,
+    region,
+    viewport,
+    bottomLane,
+    spatialIndex,
+    stopAutoScroll,
+    render,
+    sourceBeatAt,
+    xToBeat,
+    setLocalNotes,
+    setHoveredPitch,
+    setControllerPreview,
+    onNotesChange,
+    onSelectionChange,
+    onRegionChange,
+  });
 
   return (
     <div
