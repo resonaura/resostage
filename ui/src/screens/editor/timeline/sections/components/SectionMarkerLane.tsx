@@ -12,21 +12,18 @@ import {
   ContextMenuItem,
 } from "@/components/common/ContextMenu";
 import { InlineNamePrompt } from "@/components/common/InlineNamePrompt";
-import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "@/screens/editor/timeline/sections/logic/constants";
+import {
+  SECTION_LANE_HEIGHT,
+  SECTION_MARKER_GRAB_SLOP_PX,
+  SECTION_PRESETS,
+} from "@/screens/editor/timeline/sections/logic/constants";
 import {
   crossedDetent,
   songDetents,
   type CycleLocatorsForDetents,
 } from "@/screens/editor/timeline/snapping/logic/detents";
-import { formatTimeShort, snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
-
-/** Neutral marker chrome — no per-section accent colours. */
-const SECTION_LINE = "rgba(255,255,255,0.22)";
-/** Grab slop each side of the 1px marker line. Small enough that two markers a
- *  few pixels apart still address separately, big enough to hit with a mouse. */
-const GRAB_SLOP_PX = 3;
-const SECTION_CHIP_BG = "rgba(255,255,255,0.08)";
-const SECTION_CHIP_FG = "rgba(255,255,255,0.55)";
+import { snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
+import { SectionMarker } from "@/screens/editor/timeline/sections/components/SectionMarker";
 
 // Point markers, not ranges -- the segment a marker covers is implicitly
 // "from here to the next marker (or song end)". Editor empty-lane click /
@@ -445,91 +442,51 @@ export function SectionMarkerLane({
           const compact = chipMax < 36;
 
           return (
-            // The outer box spans to the NEXT marker purely so the chip can be
-            // clipped and never paint over its neighbour. It must NOT be
-            // interactive: when it was, the whole section behaved as a handle
-            // for its own left edge (clicking mid-section dragged the line) and
-            // right-clicking anywhere in it opened the EDIT menu -- so once one
-            // section existed the lane was never "empty" and a second one could
-            // not be created at all. Only the visible chrome takes pointers.
-            <div
+            <SectionMarker
               key={`${i}:${sec.id}`}
-              className="pointer-events-none absolute top-0 bottom-0 z-1 flex items-center overflow-hidden"
-              style={{
-                // Shifted left by the grab slop and padded back by it, so the
-                // line still lands exactly on `left` and the chip still clips
-                // where it did.
-                left: left - GRAB_SLOP_PX,
-                width: Math.max(1, availPx + 1) + GRAB_SLOP_PX,
-                paddingLeft: GRAB_SLOP_PX,
+              section={sec}
+              left={left}
+              availableWidth={availPx}
+              grabSlopPx={SECTION_MARKER_GRAB_SLOP_PX}
+              showChip={showChip}
+              chipMax={chipMax}
+              compact={compact}
+              readOnly={readOnly}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                emptyPtrRef.current = null; // not an empty-lane click
+                if (e.detail >= 2) return;
+                // Left button only. A right-click armed a drag too, so
+                // opening the context menu counted as picking the marker
+                // up: dismissing the menu committed a move nobody asked
+                // for, and the release also queued the retype menu on top
+                // of the one already open.
+                if (e.button !== 0) return;
+                beginDrag(e, i, sec.id, sec.startSeconds);
               }}
-            >
-              <div
-                className="pointer-events-auto flex h-full items-center"
-                style={{
-                  cursor: readOnly ? "default" : "ew-resize",
-                  // Grabbable slop around a 1px line, without making the marker
-                  // look any heavier.
-                  marginLeft: -GRAB_SLOP_PX,
-                  paddingLeft: GRAB_SLOP_PX,
-                  paddingRight: showChip ? 0 : GRAB_SLOP_PX,
-                }}
-                title={`${sec.name} @ ${formatTimeShort(sec.startSeconds)}${readOnly ? "" : " (drag · double-click = cycle · right-click edit)"}`}
-                onPointerDown={(e) => {
-                  e.stopPropagation();
-                  emptyPtrRef.current = null; // not an empty-lane click
-                  if (e.detail >= 2) return;
-                  // Left button only. A right-click armed a drag too, so
-                  // opening the context menu counted as picking the marker
-                  // up: dismissing the menu committed a move nobody asked
-                  // for, and the release also queued the retype menu on top
-                  // of the one already open.
-                  if (e.button !== 0) return;
-                  beginDrag(e, i, sec.id, sec.startSeconds);
-                }}
-                onDoubleClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  // Beat the pending type menu from the first click, whether
-                  // or not the cycle callback is wired.
-                  cancelTypeMenu();
-                  if (readOnly || !onCycleFromSection) return;
-                  finishDrag(null); // the first click armed a drag; drop it
-                  const range = sectionRange(i, sec.id);
-                  if (!range) return;
-                  onCycleFromSection(i, range.leftSec, range.rightSec);
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  emptyPtrRef.current = null;
-                  cancelTypeMenu();
-                  openMenuAtClient(e.clientX, e.clientY, {
-                    songIndex: i,
-                    sectionId: sec.id,
-                  });
-                }}
-              >
-                <div
-                  className="h-full w-px shrink-0"
-                  style={{ background: SECTION_LINE }}
-                />
-                {showChip && (
-                  <div
-                    className="ml-0.5 truncate rounded font-medium leading-none"
-                    style={{
-                      maxWidth: chipMax,
-                      padding: compact ? "1px 3px" : "2px 4px",
-                      fontSize: compact ? 8 : 9,
-                      background: SECTION_CHIP_BG,
-                      color: SECTION_CHIP_FG,
-                    }}
-                  >
-                    {sec.name}
-                  </div>
-                )}
-              </div>
-            </div>
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                // Beat the pending type menu from the first click, whether
+                // or not the cycle callback is wired.
+                cancelTypeMenu();
+                if (readOnly || !onCycleFromSection) return;
+                finishDrag(null); // the first click armed a drag; drop it
+                const range = sectionRange(i, sec.id);
+                if (!range) return;
+                onCycleFromSection(i, range.leftSec, range.rightSec);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                emptyPtrRef.current = null;
+                cancelTypeMenu();
+                openMenuAtClient(e.clientX, e.clientY, {
+                  songIndex: i,
+                  sectionId: sec.id,
+                });
+              }}
+            />
           );
         });
       })}
