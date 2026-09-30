@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { RegionRow, SongRow, TrackRow } from "../../lib/state/types";
-import { buildRows, songContentSeconds, songDurationSeconds } from "./rows";
+import type { RegionRow, SongRow, TrackRow } from "../../../../lib/state/types";
+import {
+  buildRows,
+  songContentSeconds,
+  songDurationSeconds,
+} from "../logic/rows";
 
 const track = (id: string, name: string): TrackRow => ({
   id,

@@ -23,7 +23,7 @@ import {
   quantizeScrollWindow,
   sameScrollWindow,
   type ScrollWindow,
-} from "./scrollWindow";
+} from "./layout/logic/scrollWindow";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -63,7 +63,7 @@ import {
   timelineSecondsAtClientX,
 } from "./ruler/logic/timelineCoordinates";
 import { useSongEndDrag } from "./ruler/hooks/useSongEndDrag";
-import { laneHeightPx } from "./laneDimensions";
+import { laneHeightPx } from "./layout/logic/laneDimensions";
 import { LightTrackLanes } from "./LightTrackLanes";
 import {
   RegionContextMenu,
@@ -75,8 +75,8 @@ import {
   type RegionSelKey,
   type RegionUiState,
 } from "./regions/logic/regionUtils";
-import { buildRows, songContentSeconds } from "./rows";
-import { previewDropReorder } from "./dropPreview";
+import { buildRows, songContentSeconds } from "./layout/logic/rows";
+import { previewDropReorder } from "./tracks/logic/dropPreview";
 import { SectionMarkerLane } from "./SectionMarkerLane";
 import { SelectionContextMenu } from "./selection/components/SelectionContextMenu";
 import { SongRulerHeader } from "./ruler/components/SongRulerHeader";
@@ -165,7 +165,7 @@ export function Timeline({
   // onScroll (sync with the browser) + rAF as a safety net — never via
   // React state (that lagged a frame and skew-synced track labels).
   const sidebarContentRef = useRef<HTMLDivElement>(null);
-  // The COARSE window, not the live scroll position -- see scrollWindow.ts.
+  // The COARSE window, not the live scroll position -- see layout/logic/scrollWindow.ts.
   // Everything in the tree that reads this culls or re-quantizes anyway, and
   // the follow loop writes the real scrollLeft straight to the DOM.
   const [scrollState, setScrollState] = useState<ScrollWindow>(() =>
@@ -181,7 +181,7 @@ export function Timeline({
    * Every caller passes the live pixel position; the filtering happens here
    * so no call site has to remember to do it. This is the whole reason a
    * screen of scrolling costs a handful of commits instead of a hundred and
-   * fifty -- see scrollWindow.ts for why the tree does not miss the
+   * fifty -- see layout/logic/scrollWindow.ts for why the tree does not miss the
    * precision.
    */
   const commitScrollState = useCallback(

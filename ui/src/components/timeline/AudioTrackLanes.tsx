@@ -10,7 +10,7 @@ import type {
   TrackRow,
   WebUiState,
 } from "../../lib/state/types";
-import { isCompactLane, laneHeightPx } from "./laneDimensions";
+import { isCompactLane, laneHeightPx } from "./layout/logic/laneDimensions";
 import { AudioRegionBlock } from "./regions/components/AudioRegionBlock";
 import { MidiRegionBlock } from "./regions/components/MidiRegionBlock";
 import { LiveRecordingRegion } from "./regions/components/LiveRecordingRegion";
@@ -38,7 +38,7 @@ import {
   type RegionSelKey,
   type RegionUiState,
 } from "./regions/logic/regionUtils";
-import type { TimelineRow } from "./rows";
+import type { TimelineRow } from "./layout/logic/rows";
 import { toolCursor, type TimelineTool } from "./tools";
 
 /** Geometry captured when a crossfade drag begins; see applyResize. */
@@ -219,7 +219,7 @@ export function AudioTrackLanes({
               // scroll offset double-counted it and picked the wrong song
               // once the timeline was scrolled past the first one -- which
               // also made this the only place in the tree that needed a
-              // pixel-exact scroll position (see scrollWindow.ts).
+              // pixel-exact scroll position (see layout/logic/scrollWindow.ts).
               const rect = e.currentTarget.getBoundingClientRect();
               const x = e.clientX - rect.left;
               // Find song under click
@@ -295,7 +295,7 @@ export function AudioTrackLanes({
               const segEnd = segStart + segWidth;
               // scrollState is the QUANTIZED window, which is why this can
               // be a plain overlap test with no overscan of its own: the
-              // window already carries it. See scrollWindow.ts.
+              // window already carries it. See layout/logic/scrollWindow.ts.
               const viewStart = Math.max(segStart, scrollState.scrollLeft);
               const viewEnd = Math.min(
                 segEnd,

@@ -1,11 +1,11 @@
 import type { RegionRow, SongRow, TrackRow } from "../../../../lib/state/types";
-import { laneHeightPx } from "../../laneDimensions";
+import { laneHeightPx } from "../../layout/logic/laneDimensions";
 import { EDGE_PX } from "../../constants";
 import type { CycleLocatorsForDetents } from "../../detents";
 
 import { snapToGridSec } from "../../ruler/logic/geometry";
 import type { RegionSelKey } from "./regionUtils";
-import type { TimelineRow } from "../../rows";
+import type { TimelineRow } from "../../layout/logic/rows";
 
 /**
  * How much of each end of a region grabs a stretch.

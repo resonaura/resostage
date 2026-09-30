@@ -3,7 +3,7 @@ import {
   quantizeScrollWindow,
   sameScrollWindow,
   SCROLL_QUANTUM_PX,
-} from "./scrollWindow";
+} from "../logic/scrollWindow";
 
 const Q = SCROLL_QUANTUM_PX;
 

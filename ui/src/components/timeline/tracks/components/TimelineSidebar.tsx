@@ -13,14 +13,14 @@ import {
   AUDIO_HINT_HEIGHT,
   LIGHT_HINT_HEIGHT,
 } from "../../../light/LightTimeline";
-import { laneHeightPx } from "../../laneDimensions";
+import { laneHeightPx } from "../../layout/logic/laneDimensions";
 import {
   EVENT_LANE_HEIGHT,
   RULER_HEIGHT,
   SECTION_LANE_HEIGHT,
   SIDEBAR_WIDTH,
 } from "../../constants";
-import type { TimelineRow } from "../../rows";
+import type { TimelineRow } from "../../layout/logic/rows";
 import { TimelineRowLabel } from "./TimelineRowLabel";
 import type { TimelineViewMode } from "../../TimelineToolbar";
 import { TrackHeaderControl } from "./TrackHeaderControl";

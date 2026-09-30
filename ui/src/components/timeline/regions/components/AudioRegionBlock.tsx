@@ -3,7 +3,7 @@ import { TrackWaveformLane } from "../../../audio/TrackWaveformLane";
 import { FadeCurveOverlay } from "./FadeCurveOverlay";
 import { RegionLoopBoundaries } from "./RegionLoopBoundaries";
 import { TimelineRegionFrame } from "./TimelineRegionFrame";
-import { isCompactLane, laneHeightPx } from "../../laneDimensions";
+import { isCompactLane, laneHeightPx } from "../../layout/logic/laneDimensions";
 import type { RegionDragMode, RegionGeom } from "../logic/regionDrag";
 import {
   regionEdgeCursor,

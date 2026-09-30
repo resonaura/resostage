@@ -4,7 +4,7 @@ import type {
   PeaksResponse,
   SongRow,
 } from "../../lib/state/types";
-import { songDurationSeconds } from "./rows";
+import { songDurationSeconds } from "./layout/logic/rows";
 
 /**
  * Per-song duration/offset in absolute project time. Uses allPeaks (every

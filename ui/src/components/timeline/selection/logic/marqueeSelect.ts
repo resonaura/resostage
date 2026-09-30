@@ -1,7 +1,7 @@
 import type { SongRow } from "../../../../lib/state/types";
 import type { CueSelKey } from "../../../light/LightTimeline";
 import { regionSelKey, type RegionSelKey } from "../../regions/logic/regionUtils";
-import type { TimelineRow } from "../../rows";
+import type { TimelineRow } from "../../layout/logic/rows";
 
 export type MarqueeRect = {
   left: number;

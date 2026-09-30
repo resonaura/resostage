@@ -3,7 +3,7 @@ import { fetchWaveformRaw } from "../../lib/state/api";
 import { withHexAlpha } from "../../lib/theme/cssColor";
 import type { PeakLevelData } from "../../lib/state/types";
 
-import { isCompactLane, laneHeightPx } from "../timeline/laneDimensions";
+import { isCompactLane, laneHeightPx } from "../timeline/layout/logic/laneDimensions";
 
 /** Pick the peak pyramid level whose bin width matches the current zoom. */
 function pickLevelForZoom(

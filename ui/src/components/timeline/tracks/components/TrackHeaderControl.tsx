@@ -7,7 +7,7 @@ import { useLiveValue } from "../../../../lib/state/optimistic";
 import type { TrackRow } from "../../../../lib/state/types";
 import { Knob, LevelMeterBar, MeterFader } from "../../../daw";
 import { TOGGLE_BLINK_ACCENT, ToggleButton } from "../../../ui";
-import { laneHeightPx } from "../../laneDimensions";
+import { laneHeightPx } from "../../layout/logic/laneDimensions";
 import { trackSelectionGesture, type TrackSelectionGesture } from "../logic/trackSelection";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with

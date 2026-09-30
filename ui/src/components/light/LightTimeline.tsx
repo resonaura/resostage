@@ -26,7 +26,7 @@ import {
   COMPACT_LANE_MAX_PX,
   LANE_HEIGHT,
   laneHeightPx,
-} from "../timeline/laneDimensions";
+} from "../timeline/layout/logic/laneDimensions";
 import { buildSongPeakLookup } from "../timeline/regions/logic/regionPeaks";
 import { toolCursor, type TimelineTool } from "../timeline/tools";
 import { TrackWaveformLane } from "../audio/TrackWaveformLane";

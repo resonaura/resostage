@@ -34,7 +34,7 @@ import { PianoRoll } from "../../components/pianoroll";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { MidiRegionSidePanel } from "../../components/pianoroll/components/MidiRegionSidePanel";
 import { getTrackColor } from "../../components/timeline/constants";
-import { songDurationSeconds } from "../../components/timeline/rows";
+import { songDurationSeconds } from "../../components/timeline/layout/logic/rows";
 import { builder, mixer, timelineHistory, transport } from "../../lib/state/api";
 import { useIsCompact } from "../../lib/interaction/useMediaQuery";
 import type {

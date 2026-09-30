@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { songBeatsAtSeconds } from "../../lib/midi/standardMidiFile";
 import { builder } from "../../lib/state/api";
 import type { SongRow, TrackRow } from "../../lib/state/types";
-import { laneHeightPx } from "./laneDimensions";
+import { laneHeightPx } from "./layout/logic/laneDimensions";
 import {
   audioDragInfo,
   audioFileDropEvent,
@@ -12,7 +12,7 @@ import {
   type AudioDropPosition,
   type AudioPreview,
 } from "./audioDrop";
-import type { TimelineRow } from "./rows";
+import type { TimelineRow } from "./layout/logic/rows";
 
 interface TimelineFileDropOptions {
   readOnly: boolean;

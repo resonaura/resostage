@@ -1,6 +1,6 @@
 import React from "react";
 import type { MidiRegionRow, TrackRow } from "../../../../lib/state/types";
-import { isCompactLane } from "../../laneDimensions";
+import { isCompactLane } from "../../layout/logic/laneDimensions";
 import { RegionLoopBoundaries } from "./RegionLoopBoundaries";
 import { TimelineRegionFrame } from "./TimelineRegionFrame";
 import type { TimelineTool } from "../../tools";

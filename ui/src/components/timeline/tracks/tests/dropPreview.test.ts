@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewDropReorder } from "./dropPreview";
+import { previewDropReorder } from "../logic/dropPreview";
 
 describe("previewDropReorder", () => {
   it("previews forward movement using the pre-removal drop slot", () => {

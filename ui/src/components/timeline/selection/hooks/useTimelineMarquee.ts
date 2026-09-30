@@ -2,14 +2,14 @@ import { useRef, useState } from "react";
 import { beginCancellableDrag, type CancellableDrag } from "../../../../lib/interaction/dragCancel";
 import type { SongRow, TrackRow } from "../../../../lib/state/types";
 import type { CueSelKey } from "../../../light/LightTimeline";
-import { laneHeightPx } from "../../laneDimensions";
+import { laneHeightPx } from "../../layout/logic/laneDimensions";
 import {
   normalizeMarquee,
   resolveMarqueeSelection,
   type MarqueeRect,
 } from "../logic/marqueeSelect";
 import type { TimelineViewMode } from "../../TimelineToolbar";
-import type { TimelineRow } from "../../rows";
+import type { TimelineRow } from "../../layout/logic/rows";
 import type { RegionSelKey } from "../../regions/logic/regionUtils";
 
 interface TimelineMarqueeOptions {
