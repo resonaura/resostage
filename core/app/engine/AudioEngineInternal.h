@@ -6,6 +6,7 @@
 // for readability (same pattern as MainComponent*.cpp).
 
 #include "platform/ProcessPriority.h"
+#include "audio/metering/MeterEnvelope.h"
 
 #include <juce_core/juce_core.h>
 
@@ -22,6 +23,42 @@ inline float dbToGain(double db) {
     if (db <= -144.0)
         return 0.0f;
     return static_cast<float>(std::pow(10.0, db / 20.0));
+}
+
+inline float linearPeakToDb(float peak) {
+    if (!(peak > 1.0e-9f) || !std::isfinite(peak))
+        return -144.0f;
+    return 20.0f * std::log10(std::min(peak, 32.0f));
+}
+
+/**
+ * Loudest thing this meter measured since the last poll.
+ *
+ * A true interval peak: the audio thread measures every 64 samples, so the
+ * answer does not depend on where the callback boundaries happened to fall.
+ * That is what makes a 512-frame buffer and a 4096-frame buffer read the same.
+ *
+ * Nothing drained means no audio was rendered since the last publish -- at a
+ * big buffer that is most polls -- so the previous value stands. That is not a
+ * decay: it is the absence of a new measurement, and how the needle FALLS is
+ * the display's decision, not ours. Real silence still reads as silence
+ * immediately, because a rendered block of silence measures zero and says so.
+ */
+template <size_t Capacity>
+const MeterEnvelopePoint& drainMeterEnvelope(
+    MeterEnvelopeRing<Capacity>& ring, MeterEnvelopePoint& lastPoint) {
+    MeterEnvelopePoint points[Capacity];
+    const size_t count = ring.drain(points, Capacity);
+    if (count == 0)
+        return lastPoint;
+
+    MeterEnvelopePoint loudest;
+    for (size_t index = 0; index < count; ++index) {
+        loudest.peakL = std::max(loudest.peakL, points[index].peakL);
+        loudest.peakR = std::max(loudest.peakR, points[index].peakR);
+    }
+    lastPoint = loudest;
+    return lastPoint;
 }
 
 // Fade shape: curve in [-1, +1], 0 = linear.
