@@ -1,10 +1,10 @@
 // Factory for the platform adapter. main.mts calls this once and never touches
 // process.platform again -- platform differences are behind PlatformAdapter.
 
-import { PlatformAdapter, type PlatformContext } from "./PlatformAdapter.js";
-import { MacPlatformAdapter } from "./MacPlatformAdapter.js";
-import { WindowsPlatformAdapter } from "./WindowsPlatformAdapter.js";
-import { LinuxPlatformAdapter } from "./LinuxPlatformAdapter.js";
+import { PlatformAdapter, type PlatformContext } from "@/platform/PlatformAdapter.js";
+import { MacPlatformAdapter } from "@/platform/MacPlatformAdapter.js";
+import { WindowsPlatformAdapter } from "@/platform/WindowsPlatformAdapter.js";
+import { LinuxPlatformAdapter } from "@/platform/LinuxPlatformAdapter.js";
 
 export function createPlatformAdapter(
   context: PlatformContext,
@@ -21,15 +21,15 @@ export function createPlatformAdapter(
   }
 }
 
-export { PlatformAdapter } from "./PlatformAdapter.js";
+export { PlatformAdapter } from "@/platform/PlatformAdapter.js";
 export type {
   PlatformContext,
   PlatformInput,
   PlatformMenuSections,
-} from "./PlatformAdapter.js";
-export { MacPlatformAdapter } from "./MacPlatformAdapter.js";
+} from "@/platform/PlatformAdapter.js";
+export { MacPlatformAdapter } from "@/platform/MacPlatformAdapter.js";
 export {
   WindowsPlatformAdapter,
   WindowsPlatformAdapter as WinPlatformAdapter,
-} from "./WindowsPlatformAdapter.js";
-export { LinuxPlatformAdapter } from "./LinuxPlatformAdapter.js";
+} from "@/platform/WindowsPlatformAdapter.js";
+export { LinuxPlatformAdapter } from "@/platform/LinuxPlatformAdapter.js";

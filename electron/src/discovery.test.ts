@@ -13,7 +13,7 @@ import {
   DEFAULT_BACKEND_PORT,
   DISCOVERY_PORT,
   type DiscoveredDevice,
-} from "./discovery.js";
+} from "@/discovery.js";
 
 const pkt = (over: Partial<Record<string, unknown>> = {}) =>
   Buffer.from(

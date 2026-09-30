@@ -10,8 +10,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // Allow `import "./discovery.js"` (NodeNext style) to resolve the .ts source.
-      // Vitest's default TS handling already maps .js -> .ts, but pin it to be safe.
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
 });

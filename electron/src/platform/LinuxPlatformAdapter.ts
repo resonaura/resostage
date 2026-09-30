@@ -14,8 +14,8 @@ import {
   PlatformAdapter,
   type PlatformContext,
   type PlatformMenuSections,
-} from "./PlatformAdapter.js";
-import { createSystemTray, type SystemTray } from "./tray.js";
+} from "@/platform/PlatformAdapter.js";
+import { createSystemTray, type SystemTray } from "@/platform/tray.js";
 
 const CORE_NAME = "core";
 const OLD_CORE_NAME = "ResoStage";

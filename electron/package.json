@@ -6,9 +6,9 @@
   "type": "module",
   "main": "dist/main.mjs",
   "scripts": {
-    "build": "tsc && node scripts/build/native/omni.mjs",
+    "build": "tsc && node scripts/resolve-import-aliases.mjs && node scripts/build/native/omni.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/resolve-import-aliases.test.mjs",
     "brand": "node scripts/brand-mac-app.mjs",
     "start": "pnpm build && electron ."
   },

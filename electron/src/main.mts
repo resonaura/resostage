@@ -59,12 +59,12 @@ import {
   subnetCandidates,
   DISCOVERY_PORT,
   type DiscoveredDevice,
-} from "./discovery.js";
-import { UdpTelemetryTracker } from "./udpTelemetry.js";
+} from "@/discovery.js";
+import { UdpTelemetryTracker } from "@/udpTelemetry.js";
 import {
   createPlatformAdapter,
   type PlatformAdapter,
-} from "./platform/index.js";
+} from "@/platform/index.js";
 
 // All platform differences live behind the platform adapter (see platform/).
 // main.mts talks to `platform` and never reads process.platform directly.

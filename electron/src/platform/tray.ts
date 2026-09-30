@@ -6,7 +6,7 @@
 import { app, Menu, nativeImage, nativeTheme, Tray } from "electron";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { PlatformContext } from "./PlatformAdapter.js";
+import type { PlatformContext } from "@/platform/PlatformAdapter.js";
 
 export interface SystemTray {
   install(): void;

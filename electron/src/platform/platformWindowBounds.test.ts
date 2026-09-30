@@ -10,10 +10,10 @@ vi.mock("electron", () => ({
   TouchBar: {},
 }));
 
-import { MacPlatformAdapter } from "./MacPlatformAdapter.js";
-import { WindowsPlatformAdapter } from "./WindowsPlatformAdapter.js";
-import { LinuxPlatformAdapter } from "./LinuxPlatformAdapter.js";
-import type { PlatformContext } from "./PlatformAdapter.js";
+import { MacPlatformAdapter } from "@/platform/MacPlatformAdapter.js";
+import { WindowsPlatformAdapter } from "@/platform/WindowsPlatformAdapter.js";
+import { LinuxPlatformAdapter } from "@/platform/LinuxPlatformAdapter.js";
+import type { PlatformContext } from "@/platform/PlatformAdapter.js";
 
 const mockContext: PlatformContext = {
   getMainWindow: () => null,

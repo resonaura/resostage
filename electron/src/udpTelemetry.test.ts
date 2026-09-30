@@ -3,7 +3,7 @@ import {
   isNewerSequence,
   parseTelemetryDatagram,
   UdpTelemetryTracker,
-} from "./udpTelemetry.js";
+} from "@/udpTelemetry.js";
 
 function frame(sequence: number, version = 8): Uint8Array {
   const data = new Uint8Array(8);

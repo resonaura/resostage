@@ -72,6 +72,14 @@ static asset responses and performs at most two delayed cache-bypassing
 reloads after same-origin 404s; this is a recovery path, not a substitute for
 publishing a complete UI build.
 
+Internal frontend imports use the `@/` alias rooted at `ui/src`; TypeScript,
+Vite, and Vitest must keep that mapping aligned. Electron has its own `@/`
+alias rooted at `electron/src`. Electron is emitted as direct Node ESM rather
+than bundled, so `electron/scripts/resolve-import-aliases.mjs` must run after
+`tsc` and before packaging: it rewrites aliased imports to explicit paths in
+`electron/dist` and fails closed for missing/out-of-root targets. Keep that
+step in the Electron build and its runtime-resolution test in the test command.
+
 On macOS the assembled Electron shell, nested Core app, helpers, frameworks,
 and native modules are signed bottom-up with one named identity. This stable
 designated requirement is required for persistent microphone/TCC consent;
