@@ -9,6 +9,12 @@
 
 namespace resostage {
 
+struct CoreMidiDispatcher::PlatformState {
+    snd_seq_t* seq = nullptr;
+    int outputPort = -1;
+    std::vector<std::pair<int, int>> destinations;
+};
+
 namespace {
 
 uint64_t nowNanos() {
@@ -47,7 +53,7 @@ void buildMidiBytes(const MidiCommand& cmd, uint8_t (&buffer)[3], int& totalByte
 
 } // namespace
 
-CoreMidiDispatcher::CoreMidiDispatcher() = default;
+CoreMidiDispatcher::CoreMidiDispatcher() : platformState(std::make_unique<PlatformState>()) {}
 
 CoreMidiDispatcher::~CoreMidiDispatcher() {
     stop();
@@ -87,8 +93,19 @@ std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
     return names;
 }
 
-bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std::string& error) {
-    closeDestination();
+bool CoreMidiDispatcher::openDestinations(const std::vector<std::string>& destinationNames, std::string& error) {
+    std::lock_guard<std::mutex> lock(destinationMutex);
+    if (destinationNames.empty()) {
+        if (platformState->seq != nullptr)
+            snd_seq_close(platformState->seq);
+        platformState->seq = nullptr;
+        platformState->outputPort = -1;
+        platformState->destinations.clear();
+        destinationCount.store(0, std::memory_order_release);
+        error.clear();
+        return true;
+    }
+
     snd_seq_t* seq = nullptr;
     if (snd_seq_open(&seq, "default", SND_SEQ_OPEN_OUTPUT, 0) < 0) {
         error = "Failed to open ALSA sequencer";
@@ -104,14 +121,14 @@ bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std
         return false;
     }
 
-    int destinationClient = -1;
-    int destinationPort = -1;
+    std::vector<std::pair<int, int>> targets;
+    const bool useDefaultDestination = destinationNames.size() == 1 && destinationNames.front().empty();
     snd_seq_client_info_t* cinfo;
     snd_seq_port_info_t* pinfo;
     snd_seq_client_info_alloca(&cinfo);
     snd_seq_port_info_alloca(&pinfo);
     snd_seq_client_info_set_client(cinfo, -1);
-    while (snd_seq_query_next_client(seq, cinfo) >= 0 && destinationClient < 0) {
+    while (snd_seq_query_next_client(seq, cinfo) >= 0) {
         const int candidateClient = snd_seq_client_info_get_client(cinfo);
         snd_seq_port_info_set_client(pinfo, candidateClient);
         snd_seq_port_info_set_port(pinfo, -1);
@@ -127,37 +144,45 @@ bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std
             const std::string qualified = label + " ["
                 + std::to_string(candidateClient) + ":"
                 + std::to_string(candidatePort) + "]";
-            if (destinationName.empty() || destinationName == qualified
-                || destinationName == label) {
-                destinationClient = candidateClient;
-                destinationPort = candidatePort;
-                break;
-            }
+            const bool requested = useDefaultDestination
+                ? targets.empty()
+                : std::any_of(destinationNames.begin(), destinationNames.end(),
+                    [&](const std::string& name) { return name == qualified || name == label; });
+            if (requested && std::find(targets.begin(), targets.end(), std::pair{candidateClient, candidatePort}) == targets.end())
+                targets.emplace_back(candidateClient, candidatePort);
         }
     }
-    if (destinationClient < 0
-        || snd_seq_connect_to(seq, port, destinationClient, destinationPort) < 0) {
+
+    std::vector<std::pair<int, int>> connected;
+    for (const auto& [targetClient, targetPort] : targets) {
+        if (snd_seq_connect_to(seq, port, targetClient, targetPort) >= 0)
+            connected.emplace_back(targetClient, targetPort);
+    }
+    if (connected.empty()) {
         snd_seq_close(seq);
-        error = destinationName.empty()
+        error = destinationNames.front().empty()
             ? "No connectable ALSA MIDI output destinations are available"
-            : "ALSA MIDI output destination not found: " + destinationName;
+            : "No selected ALSA MIDI output destination could be opened";
         return false;
     }
 
-    client = reinterpret_cast<MidiClientRef>(seq);
-    outputPort = static_cast<MidiPortRef>(port);
-    destination = 1; // The ALSA subscription is the concrete endpoint handle.
+    if (platformState->seq != nullptr)
+        snd_seq_close(platformState->seq);
+    platformState->seq = seq;
+    platformState->outputPort = port;
+    platformState->destinations = std::move(connected);
+    destinationCount.store(platformState->destinations.size(), std::memory_order_release);
     return true;
 }
 
 void CoreMidiDispatcher::closeDestination() {
-    if (client != 0) {
-        auto* seq = reinterpret_cast<snd_seq_t*>(client);
-        snd_seq_close(seq);
-        client = 0;
-        outputPort = 0;
-        destination = 0;
-    }
+    std::lock_guard<std::mutex> lock(destinationMutex);
+    if (platformState->seq != nullptr)
+        snd_seq_close(platformState->seq);
+    platformState->seq = nullptr;
+    platformState->outputPort = -1;
+    platformState->destinations.clear();
+    destinationCount.store(0, std::memory_order_release);
 }
 
 bool CoreMidiDispatcher::enableVirtualSource(std::string& error) {
@@ -237,7 +262,7 @@ void CoreMidiDispatcher::sendSongPositionPointer(uint16_t midiBeats) {
 }
 
 void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
-    if (destination == 0)
+    if (!hasDestination())
         return;
 
     const uint64_t now = nowNanos();
@@ -246,11 +271,14 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
         return;
     }
 
-    if (client != 0) {
-        auto* seq = reinterpret_cast<snd_seq_t*>(client);
+    {
+        std::lock_guard<std::mutex> lock(destinationMutex);
+        auto* seq = platformState->seq;
+        if (seq == nullptr || platformState->destinations.empty())
+            return;
         snd_seq_event_t ev;
         snd_seq_ev_clear(&ev);
-        snd_seq_ev_set_source(&ev, static_cast<int>(outputPort));
+        snd_seq_ev_set_source(&ev, platformState->outputPort);
         snd_seq_ev_set_subs(&ev);
         snd_seq_ev_set_direct(&ev);
 
@@ -319,7 +347,7 @@ void CoreMidiDispatcher::drainPendingVirtualCommands() {
     if (pendingVirtualCommands.empty())
         return;
 
-    if (destination == 0) {
+    if (!hasDestination()) {
         pendingVirtualCommands.clear();
         return;
     }

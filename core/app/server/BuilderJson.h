@@ -88,6 +88,21 @@ inline const glz::generic::array_t* getArray(const glz::generic& el, const char*
     return &v.get_array();
 }
 
+inline bool getStringArray(const glz::generic& el, const char* key, std::vector<std::string>& out) {
+    const auto* values = getArray(el, key);
+    if (values == nullptr)
+        return false;
+    std::vector<std::string> parsed;
+    parsed.reserve(values->size());
+    for (const auto& value : *values) {
+        if (!value.is_string())
+            return false;
+        parsed.push_back(value.get_string());
+    }
+    out = std::move(parsed);
+    return true;
+}
+
 inline const glz::generic::object_t* getObject(const glz::generic& el, const char* key) {
     if (!el.contains(key))
         return nullptr;

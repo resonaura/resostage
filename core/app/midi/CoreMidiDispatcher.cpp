@@ -7,9 +7,16 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <mach/mach_time.h>
 
+#include <algorithm>
 #include <chrono>
 
 namespace resostage {
+
+struct CoreMidiDispatcher::PlatformState {
+    MIDIClientRef client = 0;
+    MIDIPortRef outputPort = 0;
+    std::vector<MIDIEndpointRef> destinations;
+};
 
 namespace {
 
@@ -22,6 +29,13 @@ std::string cfStringToStd(CFStringRef ref) {
     if (CFStringGetCString(ref, buffer.data(), maxSize, kCFStringEncodingUTF8))
         return std::string(buffer.data());
     return {};
+}
+
+std::string endpointDisplayName(MIDIObjectRef endpoint, const std::string& name) {
+    SInt32 uniqueId = 0;
+    if (MIDIObjectGetIntegerProperty(endpoint, kMIDIPropertyUniqueID, &uniqueId) == noErr)
+        return name + " [" + std::to_string(uniqueId) + "]";
+    return name;
 }
 
 uint64_t nanosToMachTicks(uint64_t nanos) {
@@ -76,19 +90,20 @@ void buildMidiBytes(const MidiCommand& cmd, Byte (&buffer)[3], ByteCount& totalB
 } // namespace
 
 CoreMidiDispatcher::CoreMidiDispatcher() {
-    MIDIClientCreate(CFSTR("ResoStage MIDI"), nullptr, nullptr, &client);
-    if (client != 0)
-        MIDIOutputPortCreate(client, CFSTR("ResoStage Output"), &outputPort);
+    platformState = std::make_unique<PlatformState>();
+    MIDIClientCreate(CFSTR("ResoStage MIDI"), nullptr, nullptr, &platformState->client);
+    if (platformState->client != 0)
+        MIDIOutputPortCreate(platformState->client, CFSTR("ResoStage Output"), &platformState->outputPort);
 }
 
 CoreMidiDispatcher::~CoreMidiDispatcher() {
     stop();
     closeDestination();
     disableVirtualSource();
-    if (outputPort != 0)
-        MIDIPortDispose(outputPort);
-    if (client != 0)
-        MIDIClientDispose(client);
+    if (platformState->outputPort != 0)
+        MIDIPortDispose(platformState->outputPort);
+    if (platformState->client != 0)
+        MIDIClientDispose(platformState->client);
 }
 
 std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
@@ -99,59 +114,78 @@ std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
         MIDIEndpointRef dest = MIDIGetDestination(i);
         CFStringRef nameRef = nullptr;
         MIDIObjectGetStringProperty(dest, kMIDIPropertyName, &nameRef);
-        names.push_back(cfStringToStd(nameRef));
+        const std::string name = cfStringToStd(nameRef);
         if (nameRef != nullptr)
             CFRelease(nameRef);
+        names.push_back(endpointDisplayName(dest, name));
     }
     return names;
 }
 
-bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std::string& error) {
-    closeDestination();
-
+bool CoreMidiDispatcher::openDestinations(const std::vector<std::string>& destinationNames, std::string& error) {
+    std::lock_guard<std::mutex> lock(destinationMutex);
+    if (destinationNames.empty()) {
+        platformState->destinations.clear();
+        destinationCount.store(0, std::memory_order_release);
+        error.clear();
+        return true;
+    }
     const ItemCount count = MIDIGetNumberOfDestinations();
     if (count == 0) {
         error = "No CoreMIDI destinations available";
         return false;
     }
 
-    if (destinationName.empty()) {
-        destination = MIDIGetDestination(0);
-        return true;
-    }
-
-    for (ItemCount i = 0; i < count; ++i) {
-        MIDIEndpointRef dest = MIDIGetDestination(i);
-        CFStringRef nameRef = nullptr;
-        MIDIObjectGetStringProperty(dest, kMIDIPropertyName, &nameRef);
-        const std::string name = cfStringToStd(nameRef);
-        if (nameRef != nullptr)
-            CFRelease(nameRef);
-        if (name == destinationName) {
-            destination = dest;
-            return true;
+    std::vector<MIDIEndpointRef> opened;
+    for (const auto& destinationName : destinationNames) {
+        MIDIEndpointRef match = 0;
+        if (destinationName.empty()) {
+            match = MIDIGetDestination(0);
+        } else {
+            for (ItemCount i = 0; i < count; ++i) {
+                MIDIEndpointRef dest = MIDIGetDestination(i);
+                CFStringRef nameRef = nullptr;
+                MIDIObjectGetStringProperty(dest, kMIDIPropertyName, &nameRef);
+                const std::string name = cfStringToStd(nameRef);
+                if (nameRef != nullptr)
+                    CFRelease(nameRef);
+                if (name == destinationName
+                    || endpointDisplayName(dest, name) == destinationName) {
+                    match = dest;
+                    break;
+                }
+            }
         }
+        if (match != 0 && std::find(opened.begin(), opened.end(), match) == opened.end())
+            opened.push_back(match);
+        else if (match == 0 && error.empty())
+            error = "CoreMIDI destination not found: " + destinationName;
     }
 
-    error = "CoreMIDI destination not found: " + destinationName;
-    return false;
+    if (opened.empty())
+        return false;
+    platformState->destinations = std::move(opened);
+    destinationCount.store(platformState->destinations.size(), std::memory_order_release);
+    return true;
 }
 
 void CoreMidiDispatcher::closeDestination() {
-    destination = 0;
+    std::lock_guard<std::mutex> lock(destinationMutex);
+    platformState->destinations.clear();
+    destinationCount.store(0, std::memory_order_release);
 }
 
 bool CoreMidiDispatcher::enableVirtualSource(std::string& error) {
     if (virtualSource.load(std::memory_order_relaxed) != 0)
         return true; // already enabled
 
-    if (client == 0) {
+    if (platformState->client == 0) {
         error = "CoreMIDI client not initialized";
         return false;
     }
 
     MIDIEndpointRef source = 0;
-    const OSStatus status = MIDISourceCreate(client, CFSTR("ResoStage Sync"), &source);
+    const OSStatus status = MIDISourceCreate(platformState->client, CFSTR("ResoStage Sync"), &source);
     if (status != noErr) {
         error = "Failed to create virtual MIDI source (OSStatus " + std::to_string(status) + ")";
         return false;
@@ -236,7 +270,7 @@ void CoreMidiDispatcher::sendSongPositionPointer(uint16_t midiBeats) {
 
 void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
     const MIDIEndpointRef virtualSrc = virtualSource.load(std::memory_order_acquire);
-    const bool hasRealDestination = destination != 0 && outputPort != 0;
+    const bool hasRealDestination = hasDestination() && platformState->outputPort != 0;
     if (!hasRealDestination && virtualSrc == 0)
         return;
 
@@ -273,8 +307,11 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
     if (packet == nullptr)
         return;
 
-    if (hasRealDestination)
-        MIDISend(outputPort, destination, &packetList);
+    if (hasRealDestination) {
+        std::lock_guard<std::mutex> lock(destinationMutex);
+        for (const MIDIEndpointRef destination : platformState->destinations)
+            MIDISend(platformState->outputPort, destination, &packetList);
+    }
     if (virtualSrc != 0 && !deferToVirtual)
         MIDIReceived(virtualSrc, &packetList);
 }

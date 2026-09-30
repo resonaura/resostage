@@ -724,6 +724,8 @@ std::string WebServer::buildStateJson(const char* view) const {
         wire.settings.midiOutputs = s.midiOutputs;
         wire.settings.midiInputs = s.midiInputs;
         wire.settings.currentMidiInput = s.currentMidiInput;
+        wire.settings.selectedMidiOutputs = s.selectedMidiOutputs;
+        wire.settings.selectedMidiInputs = s.selectedMidiInputs;
         wire.settings.virtualMidiPortEnabled = s.virtualMidiPortEnabled;
         wire.settings.uiRenderEngine = s.uiRenderEngine;
         wire.settings.theme = s.theme;

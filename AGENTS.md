@@ -319,7 +319,12 @@ Preserve these rules:
   and mixer waveform canvas mirrors active polarity state by vertically inverting rendered
   peaks (`maxV = -minV`, `minV = -origMax`).
 - Hardware audio input configuration:
-  `AppSettings` persists `inputDeviceName` and `activeInputChannels` bitmap.
+  `AppSettings` persists `inputDeviceName` and `activeInputChannels` bitmap,
+  plus `audioInputDisabled` so an explicit user-selected “None” remains distinct
+  from an unset first-run preference. At startup, a saved device is applied
+  only if the active host API still exposes it; a missing saved device falls
+  back to the driver's default without erasing the saved name. Explicit input
+  disablement always overrides that fallback.
   `MainComponent` computes and publishes full hardware latency breakdown
   (`inputLatencyMs`, `outputLatencyMs`, `roundtripLatencyMs`) served via
   `/api/v1/settings/audio-input-device` and `/api/v1/settings/input-channels`.
@@ -457,12 +462,18 @@ Preserve these rules:
 - Active MIDI key illumination (including non-recording MIDI monitor and sequenced notes) is separate from MIDI-capture preview: the callback owns fixed-capacity per-strip overlapping note counts for up to 1024 tracks and publishes a compact `SeqLock` pitch mask when activity changes. The JUCE message thread maps track indices to stable IDs; WebServer includes complete sparse per-track pitch bitmaps in protocol-v9 UDP frames. The UI replaces its entire active-note state from each bitmap snapshot, including empty snapshots; it must not union event deltas or let slower HTTP polling overwrite a newer UDP snapshot. UI polling must never read callback-owned counters directly; stop requests a callback-owned clear alongside all-notes-off.
   `I` is an independent per-track live-input subscription: several audio and MIDI/instrument tracks may monitor simultaneously. Software-instrument tracks also audition incoming MIDI by ephemeral controller focus without being armed, while `R` is still required to capture audio or MIDI. The global Record action auto-arms the focused recordable track when no track is armed. Audio tracks with `No Input`, plus folder, lighting, and bus-timeline rows, cannot be armed or monitored.
   Hardware MIDI input is opt-in: an empty device preference opens no input on
-  startup. The selected source is persisted in device settings and published
-  back to controllers; choosing “All Inputs” is an explicit action. Live MIDI
-  note ownership is callback-owned and bounded by strip/channel/pitch, so
-  note-offs still reach their original strip if focus, arm, monitor, or channel
-  filtering changes while a key is held. Stop and seek clear this ownership
-  alongside active-note counters.
+  startup. `AppSettings` persists MIDI input/output device-name arrays while
+  retaining the legacy single-name fields for migration and older settings
+  files. A selected input array opens each available source; “All Inputs” is
+  represented as an exclusive explicit choice. Selected endpoints are
+  published in settings telemetry. Device labels carry stable endpoint IDs
+  where the platform exposes them (and legacy plain names still resolve during
+  migration), so same-named ports can be selected independently. MIDI output
+  commands fan out to every selected hardware destination, and an empty output
+  array disables hardware output. Live MIDI note ownership is callback-owned
+  and bounded by strip/channel/pitch, so note-offs still reach their original
+  strip if focus, arm, monitor, or channel filtering changes while a key is
+  held. Stop and seek clear this ownership alongside active-note counters.
 - If graph or block dimensions exceed prepared capacity, silence is safer
   than allocating or writing out of bounds.
 - Offline render must use the production graph and renderer. A second mixing

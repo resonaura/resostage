@@ -39,11 +39,31 @@ AppSettings loadAppSettings() {
 
     settings.outputDeviceName = std::move(wire.outputDeviceName);
     settings.inputDeviceName = std::move(wire.inputDeviceName);
+    settings.audioInputDisabled = wire.audioInputDisabled;
     settings.audioDeviceType = std::move(wire.audioDeviceType);
     settings.sampleRate = wire.sampleRate;
     settings.bufferSize = wire.bufferSize;
     settings.midiOutputName = std::move(wire.midiOutputName);
     settings.midiInputName = std::move(wire.midiInputName);
+    settings.midiOutputNames = std::move(wire.midiOutputNames);
+    settings.midiInputNames = std::move(wire.midiInputNames);
+    if (settings.midiOutputNames.empty() && !settings.midiOutputName.empty())
+        settings.midiOutputNames.push_back(settings.midiOutputName);
+    if (settings.midiInputNames.empty() && !settings.midiInputName.empty())
+        settings.midiInputNames.push_back(settings.midiInputName);
+    const auto removeDuplicateNames = [](std::vector<std::string>& names) {
+        std::vector<std::string> unique;
+        unique.reserve(names.size());
+        for (auto& name : names) {
+            if (!name.empty() && std::find(unique.begin(), unique.end(), name) == unique.end())
+                unique.push_back(std::move(name));
+        }
+        names = std::move(unique);
+    };
+    removeDuplicateNames(settings.midiOutputNames);
+    removeDuplicateNames(settings.midiInputNames);
+    settings.midiOutputName = settings.midiOutputNames.empty() ? std::string{} : settings.midiOutputNames.front();
+    settings.midiInputName = settings.midiInputNames.empty() ? std::string{} : settings.midiInputNames.front();
     settings.virtualMidiPortEnabled = wire.virtualMidiPortEnabled;
 
     if (wire.uiRenderEngine == "browser" || wire.uiRenderEngine == "electron") {
@@ -114,11 +134,14 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
     WAppSettings wire;
     wire.outputDeviceName = settings.outputDeviceName;
     wire.inputDeviceName = settings.inputDeviceName;
+    wire.audioInputDisabled = settings.audioInputDisabled;
     wire.audioDeviceType = settings.audioDeviceType;
     wire.sampleRate = settings.sampleRate;
     wire.bufferSize = settings.bufferSize;
     wire.midiOutputName = settings.midiOutputName;
     wire.midiInputName = settings.midiInputName;
+    wire.midiOutputNames = settings.midiOutputNames;
+    wire.midiInputNames = settings.midiInputNames;
     wire.virtualMidiPortEnabled = settings.virtualMidiPortEnabled;
     wire.uiRenderEngine = settings.uiRenderEngine;
     wire.theme = settings.theme;

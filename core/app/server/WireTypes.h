@@ -36,6 +36,7 @@ struct WDeviceProfile {
 struct WAppSettings {
     std::string outputDeviceName;
     std::string inputDeviceName;
+    bool audioInputDisabled = false;
     std::string audioDeviceType;
     double sampleRate = 0.0;
     int bufferSize = 0;
@@ -43,6 +44,8 @@ struct WAppSettings {
     std::unordered_map<std::string, WDeviceProfile> deviceProfiles;
     std::string midiOutputName;
     std::string midiInputName;
+    std::vector<std::string> midiOutputNames;
+    std::vector<std::string> midiInputNames;
     bool virtualMidiPortEnabled = false;
     std::string uiRenderEngine = "browser";
     std::string theme = "default";
@@ -812,6 +815,8 @@ struct WSettingsTelemetry {
     std::optional<std::vector<std::string>> midiOutputs;
     std::optional<std::vector<std::string>> midiInputs;
     std::optional<std::string> currentMidiInput;
+    std::optional<std::vector<std::string>> selectedMidiOutputs;
+    std::optional<std::vector<std::string>> selectedMidiInputs;
     std::optional<bool> virtualMidiPortEnabled;
     std::optional<std::string> uiRenderEngine;
     std::optional<std::string> theme;

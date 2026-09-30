@@ -18,9 +18,11 @@ using MidiEndpointRef = std::uintptr_t;
 
 #include "project/ProjectSchema.h"
 
+#include <atomic>
 #include <functional>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace resostage {
@@ -47,6 +49,7 @@ public:
 
     std::vector<std::string> availableSourceNames() const;
     bool openSource(const std::string& sourceName, std::string& error);
+    bool openSources(const std::vector<std::string>& sourceNames, std::string& error);
     void closeSource();
 
     // Mapping changes are rare (project load / remap) relative to how often
@@ -88,8 +91,11 @@ private:
     MidiClientRef client = 0;
     MidiPortRef inputPort = 0;
     MidiEndpointRef source = 0;
-    std::string currentSourceName = "All Inputs";
+    std::vector<MidiEndpointRef> inputSources;
+    std::vector<std::string> currentSourceNames;
     mutable std::mutex sourceMutex;
+    std::thread sourceThread;
+    std::atomic<bool> sourceThreadRunning{false};
 
     std::mutex mappingsMutex;
     std::vector<MidiMapping> mappings;

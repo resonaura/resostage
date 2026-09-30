@@ -1137,9 +1137,10 @@ export const settings = {
     post("/api/v1/settings/sample-rate", { value }),
   setBufferSize: (value: number) =>
     post("/api/v1/settings/buffer-size", { value }),
-  setMidiOutput: (name: string) =>
-    post("/api/v1/settings/midi-output", { name }),
-  setMidiInput: (name: string) => post("/api/v1/settings/midi-input", { name }),
+  setMidiOutput: (names: string[] | string) =>
+    post("/api/v1/settings/midi-output", Array.isArray(names) ? { names } : { name: names }),
+  setMidiInput: (names: string[] | string) =>
+    post("/api/v1/settings/midi-input", Array.isArray(names) ? { names } : { name: names }),
   /** Toggles the "ResoStage Sync" virtual MIDI source, for testing DAW clock/transport sync. */
   setMidiVirtualPort: (enabled: boolean) =>
     post("/api/v1/settings/midi-virtual-port", { enabled }),

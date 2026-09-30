@@ -5,6 +5,8 @@
 #include <atomic>
 #include <cstdint>
 #include <deque>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -71,9 +73,14 @@ public:
 
     // Opens a CoreMIDI destination by name; pass an empty string to use the
     // first available destination. Returns false + fills `error` on failure.
-    bool openDestination(const std::string& destinationName, std::string& error);
+    bool openDestination(const std::string& destinationName, std::string& error) {
+        return openDestinations({destinationName}, error);
+    }
+    // Replaces the active hardware destinations. Commands are broadcast to
+    // every selected endpoint; an empty list disables hardware output.
+    bool openDestinations(const std::vector<std::string>& destinationNames, std::string& error);
     void closeDestination();
-    bool hasDestination() const { return destination != 0; }
+    bool hasDestination() const { return destinationCount.load(std::memory_order_acquire) > 0; }
 
     // Creates a virtual CoreMIDI *source* named "ResoStage Sync" -- this is
     // the "fake device" a DAW picks as its MIDI In to test clock/transport
@@ -128,9 +135,10 @@ private:
     void drainPendingVirtualCommands();
     uint64_t nextPendingVirtualDeadlineNanos() const;
 
-    MidiClientRef client = 0;
-    MidiPortRef outputPort = 0;
-    MidiEndpointRef destination = 0;
+    struct PlatformState;
+    std::unique_ptr<PlatformState> platformState;
+    mutable std::mutex destinationMutex;
+    std::atomic<size_t> destinationCount{0};
     // Read on the worker thread (sendCommand), written from the message
     // thread (enable/disableVirtualSource) -- MIDIEndpointRef is just a
     // UInt32, so a plain atomic is enough, no mutex needed.

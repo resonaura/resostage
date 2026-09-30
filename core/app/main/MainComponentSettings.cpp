@@ -66,6 +66,8 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
     out.midiOutputs = hardwareSettingsCache.midiOutputs;
     out.midiInputs = hardwareSettingsCache.midiInputs;
     out.currentMidiInput = appSettings.midiInputName;
+    out.selectedMidiOutputs = appSettings.midiOutputNames;
+    out.selectedMidiInputs = appSettings.midiInputNames;
     out.virtualMidiPortEnabled = hardwareSettingsCache.virtualMidiPortEnabled;
 
     out.uiRenderEngine = appSettings.uiRenderEngine;
@@ -368,6 +370,11 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
         setup.sampleRate = 0;
         setup.bufferSize = 0;
     }
+    if (appSettings.audioInputDisabled) {
+        setup.inputDeviceName.clear();
+        setup.inputChannels.clear();
+        setup.useDefaultInputChannels = false;
+    }
 
     const juce::String error = applyDeviceSetupWithFade(engine, setup);
     if (error.isEmpty()) {
@@ -375,7 +382,8 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
         appSettings.activeOutputChannels.clear();
         if (haveProfile) {
             appSettings.activeOutputChannels = it->second.activeOutputChannels;
-            appSettings.activeInputChannels = it->second.activeInputChannels;
+            if (!appSettings.audioInputDisabled)
+                appSettings.activeInputChannels = it->second.activeInputChannels;
             if (it->second.sampleRate > 0.0)
                 appSettings.sampleRate = it->second.sampleRate;
             if (it->second.bufferSize > 0)
@@ -403,6 +411,7 @@ void MainComponent::settingsSetAudioInputDevice(const std::string& json) {
 
     auto setup = engine.deviceManager().getAudioDeviceSetup();
     setup.inputDeviceName = name;
+    const bool disableInput = name.empty();
 
     const std::string compositeKey = setup.outputDeviceName.toStdString() + "|" + name;
     auto it = appSettings.deviceProfiles.find(compositeKey);
@@ -410,7 +419,10 @@ void MainComponent::settingsSetAudioInputDevice(const std::string& json) {
         it = appSettings.deviceProfiles.find(setup.outputDeviceName.toStdString());
     }
     const bool haveProfile = it != appSettings.deviceProfiles.end();
-    if (haveProfile && !it->second.activeInputChannels.empty()) {
+    if (disableInput) {
+        setup.inputChannels.clear();
+        setup.useDefaultInputChannels = false;
+    } else if (haveProfile && !it->second.activeInputChannels.empty()) {
         juce::BigInteger bits;
         for (int idx : it->second.activeInputChannels) {
             if (idx >= 0)
@@ -425,8 +437,9 @@ void MainComponent::settingsSetAudioInputDevice(const std::string& json) {
     const juce::String error = applyDeviceSetupWithFade(engine, setup);
     if (error.isEmpty()) {
         appSettings.inputDeviceName = name;
+        appSettings.audioInputDisabled = disableInput;
         appSettings.activeInputChannels.clear();
-        if (haveProfile) {
+        if (haveProfile && !disableInput) {
             appSettings.activeInputChannels = it->second.activeInputChannels;
         }
         saveAppSettingsToDisk();
@@ -473,6 +486,16 @@ void MainComponent::settingsSetAudioDeviceType(const std::string& json) {
     if (dm.getCurrentAudioDevice() == nullptr) {
         setStatus("Audio driver " + juce::String(type) + " has no usable device");
         return;
+    }
+
+    if (appSettings.audioInputDisabled) {
+        auto setup = dm.getAudioDeviceSetup();
+        setup.inputDeviceName.clear();
+        setup.inputChannels.clear();
+        setup.useDefaultInputChannels = false;
+        const juce::String error = applyDeviceSetupWithFade(engine, setup);
+        if (!error.isEmpty())
+            setStatus("Audio driver changed, but input disablement could not be restored: " + error);
     }
 
     appSettings.audioDeviceType = type;
@@ -583,42 +606,77 @@ void MainComponent::settingsSetBufferSize(const std::string& json) {
 void MainComponent::settingsSetMidiOutput(const std::string& json) {
     invalidateHardwareSettingsCache();
     glz::generic doc;
-    std::string name;
-    if (!parseJson(json, doc) || !getString(doc, "name", name))
+    std::vector<std::string> names;
+    std::string legacyName;
+    if (!parseJson(json, doc))
         return;
+    if (!getStringArray(doc, "names", names)) {
+        if (!getString(doc, "name", legacyName))
+            return;
+        if (!legacyName.empty())
+            names.push_back(legacyName);
+    }
+    std::vector<std::string> uniqueNames;
+    for (const auto& name : names) {
+        if (!name.empty() && std::find(uniqueNames.begin(), uniqueNames.end(), name) == uniqueNames.end())
+            uniqueNames.push_back(name);
+    }
 
     std::string error;
-    if (!engine.midi().openDestination(name, error)) {
+    if (!engine.midi().openDestinations(uniqueNames, error)) {
         setStatus("MIDI output failed: " + juce::String(error));
     } else {
-        appSettings.midiOutputName = name;
+        appSettings.midiOutputNames = std::move(uniqueNames);
+        appSettings.midiOutputName = appSettings.midiOutputNames.empty()
+            ? std::string{} : appSettings.midiOutputNames.front();
         saveAppSettingsToDisk();
-        setStatus("MIDI output: " + juce::String(name));
+        setStatus(appSettings.midiOutputNames.empty()
+            ? "MIDI hardware output disabled"
+            : "MIDI output devices: " + juce::String(static_cast<int>(appSettings.midiOutputNames.size())));
     }
 }
 
 void MainComponent::settingsSetMidiInput(const std::string& json) {
     invalidateHardwareSettingsCache();
     glz::generic doc;
-    std::string name;
-    if (!parseJson(json, doc) || !getString(doc, "name", name))
+    std::vector<std::string> names;
+    std::string legacyName;
+    if (!parseJson(json, doc))
         return;
+    if (!getStringArray(doc, "names", names)) {
+        if (!getString(doc, "name", legacyName))
+            return;
+        if (!legacyName.empty() && legacyName != "none")
+            names.push_back(legacyName);
+    }
+    if (std::find(names.begin(), names.end(), "All Inputs") != names.end())
+        names = {"All Inputs"};
+    std::vector<std::string> uniqueNames;
+    for (const auto& name : names) {
+        if (!name.empty() && name != "none"
+            && std::find(uniqueNames.begin(), uniqueNames.end(), name) == uniqueNames.end())
+            uniqueNames.push_back(name);
+    }
 
-    const std::string previousName = appSettings.midiInputName;
+    const auto previousNames = appSettings.midiInputNames;
     std::string error;
-    if (name.empty()) {
+    if (uniqueNames.empty()) {
         midiInput.closeSource();
-    } else if (!midiInput.openSource(name, error)) {
-        if (!previousName.empty()) {
+    } else if (!midiInput.openSources(uniqueNames, error)) {
+        if (!previousNames.empty()) {
             std::string restoreError;
-            (void)midiInput.openSource(previousName, restoreError);
+            (void)midiInput.openSources(previousNames, restoreError);
         }
         setStatus("MIDI input failed: " + juce::String(error));
         return;
     }
-    appSettings.midiInputName = name;
+    appSettings.midiInputNames = std::move(uniqueNames);
+    appSettings.midiInputName = appSettings.midiInputNames.empty()
+        ? std::string{} : appSettings.midiInputNames.front();
     saveAppSettingsToDisk();
-    setStatus(name.empty() ? "MIDI input: None" : "MIDI input: " + juce::String(name));
+    setStatus(appSettings.midiInputNames.empty()
+        ? "MIDI input: None"
+        : "MIDI input devices: " + juce::String(static_cast<int>(appSettings.midiInputNames.size())));
 }
 
 void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {

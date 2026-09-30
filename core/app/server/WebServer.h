@@ -1015,6 +1015,8 @@ struct WebUiState {
         std::vector<std::string> midiOutputs;
         std::vector<std::string> midiInputs;
         std::string currentMidiInput;
+        std::vector<std::string> selectedMidiOutputs;
+        std::vector<std::string> selectedMidiInputs;
         // Whether CoreMidiDispatcher's "ResoStage Sync" virtual source (see
         // CoreMidiDispatcher::hasVirtualSource()) is currently enabled --
         // lets a DAW pick it as a MIDI In to test clock/transport sync

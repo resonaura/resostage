@@ -162,6 +162,10 @@ function buildMergedState(
             : prev.settings.midiInputs,
           currentMidiInput:
             next.settings.currentMidiInput ?? prev.settings.currentMidiInput,
+          selectedMidiOutputs:
+            next.settings.selectedMidiOutputs ?? prev.settings.selectedMidiOutputs,
+          selectedMidiInputs:
+            next.settings.selectedMidiInputs ?? prev.settings.selectedMidiInputs,
           virtualMidiPortEnabled:
             next.settings.virtualMidiPortEnabled ??
             prev.settings.virtualMidiPortEnabled,

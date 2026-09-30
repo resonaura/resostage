@@ -36,6 +36,9 @@ struct AppSettings {
     // -- callers fall back to JUCE's own default-device selection.
     std::string outputDeviceName;
     std::string inputDeviceName;
+    // Distinguishes an explicit "None" input choice from a first-run setup
+    // that has never selected an input device and should use the system default.
+    bool audioInputDisabled = false;
     double sampleRate = 0.0;
     int bufferSize = 0;
     std::vector<int> activeOutputChannels; // indices into the device's channel list
@@ -68,6 +71,10 @@ struct AppSettings {
 
     std::string midiOutputName;
     std::string midiInputName;
+    // Multi-device MIDI routing. Legacy single-name fields remain readable
+    // for older settings files and mirror the first selected device.
+    std::vector<std::string> midiOutputNames;
+    std::vector<std::string> midiInputNames;
     bool virtualMidiPortEnabled = false;
 
     // Which engine drives the on-screen UI: "browser" (default -- the SPA

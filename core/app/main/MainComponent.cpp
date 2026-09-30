@@ -82,29 +82,65 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
 
     engine.initialiseDefaultDevices(2, 2);
     {
-        auto setup = engine.deviceManager().getAudioDeviceSetup();
-        // Saved device/channel preference wins; otherwise prefer 48 kHz for
-        // stage playback (matches project schema default and most concert
-        // audio interfaces). Fall back silently if the device rejects it.
-        if (!appSettings.outputDeviceName.empty()) {
-            setup.outputDeviceName = appSettings.outputDeviceName;
-            setup.useDefaultOutputChannels = appSettings.activeOutputChannels.empty();
+        auto& dm = engine.deviceManager();
+        if (!appSettings.audioDeviceType.empty()) {
+            const auto& types = dm.getAvailableDeviceTypes();
+            const auto matchingType = std::find_if(types.begin(), types.end(), [this](auto* type) {
+                return type != nullptr
+                    && type->getTypeName().toStdString() == appSettings.audioDeviceType;
+            });
+            if (matchingType != types.end())
+                dm.setCurrentAudioDeviceType((*matchingType)->getTypeName(), true);
         }
-        if (!appSettings.inputDeviceName.empty()) {
-            setup.inputDeviceName = appSettings.inputDeviceName;
-            setup.useDefaultInputChannels = appSettings.activeInputChannels.empty();
+
+        auto setup = engine.deviceManager().getAudioDeviceSetup();
+        auto* currentType = dm.getCurrentDeviceTypeObject();
+        const auto hasDevice = [currentType](const std::string& name, bool wantInput) {
+            if (name.empty() || currentType == nullptr)
+                return false;
+            return currentType->getDeviceNames(wantInput).contains(juce::String(name));
+        };
+
+        // A device remembered on another day may be unplugged now. Only ask
+        // JUCE to reopen a saved name when the current host API still exposes
+        // it; otherwise retain the manager's initialized default device and
+        // let a later launch retry the saved preference.
+        if (!appSettings.outputDeviceName.empty()) {
+            if (hasDevice(appSettings.outputDeviceName, false)) {
+                setup.outputDeviceName = appSettings.outputDeviceName;
+                setup.useDefaultOutputChannels = appSettings.activeOutputChannels.empty();
+            } else {
+                setup.outputDeviceName.clear();
+                setup.useDefaultOutputChannels = true;
+            }
+        }
+        if (appSettings.audioInputDisabled) {
+            setup.inputDeviceName.clear();
+            setup.inputChannels.clear();
+            setup.useDefaultInputChannels = false;
+        } else if (!appSettings.inputDeviceName.empty()) {
+            if (hasDevice(appSettings.inputDeviceName, true)) {
+                setup.inputDeviceName = appSettings.inputDeviceName;
+                setup.useDefaultInputChannels = appSettings.activeInputChannels.empty();
+            } else {
+                setup.inputDeviceName.clear();
+                setup.useDefaultInputChannels = true;
+            }
         }
         setup.sampleRate = appSettings.sampleRate > 0.0 ? appSettings.sampleRate : 48000.0;
         if (appSettings.bufferSize > 0)
             setup.bufferSize = appSettings.bufferSize;
-        if (!appSettings.activeOutputChannels.empty()) {
+        if (!appSettings.activeOutputChannels.empty()
+            && hasDevice(appSettings.outputDeviceName, false)) {
             juce::BigInteger bits;
             for (int idx : appSettings.activeOutputChannels)
                 bits.setBit(idx);
             setup.outputChannels = bits;
             setup.useDefaultOutputChannels = false;
         }
-        if (!appSettings.activeInputChannels.empty()) {
+        if (!appSettings.audioInputDisabled
+            && !appSettings.activeInputChannels.empty()
+            && hasDevice(appSettings.inputDeviceName, true)) {
             juce::BigInteger bits;
             for (int idx : appSettings.activeInputChannels)
                 bits.setBit(idx);
@@ -147,13 +183,13 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     };
 
     // MIDI input is opt-in. An empty persisted name means no hardware source.
-    if (!appSettings.midiOutputName.empty()) {
+    if (!appSettings.midiOutputNames.empty()) {
         std::string err;
-        (void)engine.midi().openDestination(appSettings.midiOutputName, err);
+        (void)engine.midi().openDestinations(appSettings.midiOutputNames, err);
     }
-    if (!appSettings.midiInputName.empty()) {
+    if (!appSettings.midiInputNames.empty()) {
         std::string err;
-        (void)midiInput.openSource(appSettings.midiInputName, err);
+        (void)midiInput.openSources(appSettings.midiInputNames, err);
     }
     if (appSettings.virtualMidiPortEnabled) {
         std::string err;

@@ -35,6 +35,10 @@
 
 namespace resostage {
 
+struct CoreMidiDispatcher::PlatformState {
+    std::vector<HMIDIOUT> destinations;
+};
+
 namespace {
 
 uint64_t nowNanos() {
@@ -97,9 +101,13 @@ std::string devNameToUtf8(const TCHAR* name) {
 #endif
 }
 
+std::string devDisplayName(const TCHAR* name, UINT deviceId) {
+    return devNameToUtf8(name) + " [WinMM " + std::to_string(deviceId) + "]";
+}
+
 } // namespace
 
-CoreMidiDispatcher::CoreMidiDispatcher() = default;
+CoreMidiDispatcher::CoreMidiDispatcher() : platformState(std::make_unique<PlatformState>()) {}
 
 CoreMidiDispatcher::~CoreMidiDispatcher() {
     stop();
@@ -115,61 +123,70 @@ std::vector<std::string> CoreMidiDispatcher::availableDestinationNames() const {
         MIDIOUTCAPS caps{};
         if (midiOutGetDevCaps(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
             // Device name may be ANSI or UTF-16 depending on the build.
-            names.push_back(devNameToUtf8(caps.szPname));
+            names.push_back(devDisplayName(caps.szPname, i));
         }
     }
     return names;
 }
 
-bool CoreMidiDispatcher::openDestination(const std::string& destinationName, std::string& error) {
-    closeDestination();
-
+bool CoreMidiDispatcher::openDestinations(const std::vector<std::string>& destinationNames, std::string& error) {
+    std::lock_guard<std::mutex> lock(destinationMutex);
+    if (destinationNames.empty()) {
+        for (HMIDIOUT handle : platformState->destinations)
+            midiOutClose(handle);
+        platformState->destinations.clear();
+        destinationCount.store(0, std::memory_order_release);
+        error.clear();
+        return true;
+    }
     const UINT count = midiOutGetNumDevs();
     if (count == 0) {
         error = "No Windows MIDI output devices available";
         return false;
     }
 
-    UINT deviceId = 0;
-    bool found = false;
-    if (destinationName.empty()) {
-        deviceId = 0;
-        found = true;
-    } else {
-        for (UINT i = 0; i < count; ++i) {
+    std::vector<HMIDIOUT> opened;
+    for (const auto& destinationName : destinationNames) {
+        UINT deviceId = 0;
+        bool found = destinationName.empty();
+        for (UINT i = 0; !found && i < count; ++i) {
             MIDIOUTCAPS caps{};
-            if (midiOutGetDevCaps(i, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
-                continue;
-            if (devNameToUtf8(caps.szPname) == destinationName) {
+            if (midiOutGetDevCaps(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR
+                && (devNameToUtf8(caps.szPname) == destinationName
+                    || devDisplayName(caps.szPname, i) == destinationName)) {
                 deviceId = i;
                 found = true;
-                break;
             }
         }
+        if (!found) {
+            if (error.empty())
+                error = "Windows MIDI output device not found: " + destinationName;
+            continue;
+        }
+        HMIDIOUT handle = nullptr;
+        const MMRESULT result = midiOutOpen(&handle, deviceId, 0, 0, CALLBACK_NULL);
+        if (result != MMSYSERR_NOERROR) {
+            if (error.empty())
+                error = "Failed to open Windows MIDI output device (MMRESULT " + std::to_string(result) + ")";
+            continue;
+        }
+        opened.push_back(handle);
     }
-
-    if (!found) {
-        error = "Windows MIDI output device not found: " + destinationName;
+    if (opened.empty())
         return false;
-    }
-
-    HMIDIOUT handle = nullptr;
-    const MMRESULT res = midiOutOpen(&handle, deviceId, 0, 0, CALLBACK_NULL);
-    if (res != MMSYSERR_NOERROR) {
-        error = "Failed to open Windows MIDI output device (MMRESULT " + std::to_string(res) + ")";
-        return false;
-    }
-    client = 0;       // unused on Windows
-    outputPort = 0;   // unused on Windows
-    destination = reinterpret_cast<MidiEndpointRef>(handle);
+    for (HMIDIOUT handle : platformState->destinations)
+        midiOutClose(handle);
+    platformState->destinations = std::move(opened);
+    destinationCount.store(platformState->destinations.size(), std::memory_order_release);
     return true;
 }
 
 void CoreMidiDispatcher::closeDestination() {
-    if (destination != 0) {
-        midiOutClose(reinterpret_cast<HMIDIOUT>(destination));
-        destination = 0;
-    }
+    std::lock_guard<std::mutex> lock(destinationMutex);
+    for (HMIDIOUT handle : platformState->destinations)
+        midiOutClose(handle);
+    platformState->destinations.clear();
+    destinationCount.store(0, std::memory_order_release);
 }
 
 bool CoreMidiDispatcher::enableVirtualSource(std::string& error) {
@@ -252,8 +269,7 @@ void CoreMidiDispatcher::sendSongPositionPointer(uint16_t midiBeats) {
 }
 
 void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
-    const MidiEndpointRef dest = destination;
-    if (dest == 0)
+    if (!hasDestination())
         return;
 
     // Software scheduling: midiOutShortMsg cannot future-date. Anything whose
@@ -268,15 +284,16 @@ void CoreMidiDispatcher::sendCommand(const MidiCommand& cmd) {
     BYTE buffer[3];
     int totalBytes = 0;
     buildMidiBytes(cmd, buffer, totalBytes);
-    midiOutShortMsg(reinterpret_cast<HMIDIOUT>(dest), winmmMsg(buffer, totalBytes));
+    std::lock_guard<std::mutex> lock(destinationMutex);
+    for (HMIDIOUT destination : platformState->destinations)
+        midiOutShortMsg(destination, winmmMsg(buffer, totalBytes));
 }
 
 void CoreMidiDispatcher::drainPendingVirtualCommands() {
     if (pendingVirtualCommands.empty())
         return;
 
-    const MidiEndpointRef dest = destination;
-    if (dest == 0) {
+    if (!hasDestination()) {
         pendingVirtualCommands.clear();
         return;
     }
@@ -289,7 +306,9 @@ void CoreMidiDispatcher::drainPendingVirtualCommands() {
         BYTE buffer[3];
         int totalBytes = 0;
         buildMidiBytes(cmd, buffer, totalBytes);
-        midiOutShortMsg(reinterpret_cast<HMIDIOUT>(dest), winmmMsg(buffer, totalBytes));
+        std::lock_guard<std::mutex> lock(destinationMutex);
+        for (HMIDIOUT destination : platformState->destinations)
+            midiOutShortMsg(destination, winmmMsg(buffer, totalBytes));
     }
 }
 

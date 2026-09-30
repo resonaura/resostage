@@ -21,6 +21,7 @@
 #pragma comment(lib, "winmm.lib")
 
 #include <array>
+#include <algorithm>
 
 namespace resostage {
 
@@ -39,6 +40,10 @@ std::string devNameToUtf8(const TCHAR* name) {
     // ANSI build: szPname is already a narrow string; reinterpret as UTF-8.
     return name ? std::string(name) : std::string();
 #endif
+}
+
+std::string devDisplayName(const TCHAR* name, UINT deviceId) {
+    return devNameToUtf8(name) + " [WinMM " + std::to_string(deviceId) + "]";
 }
 
 } // namespace
@@ -69,7 +74,7 @@ CoreMidiInputListener::~CoreMidiInputListener() {
 
 std::string CoreMidiInputListener::currentSource() const {
     std::lock_guard<std::mutex> lock(sourceMutex);
-    return currentSourceName;
+    return currentSourceNames.empty() ? std::string{} : currentSourceNames.front();
 }
 
 std::vector<std::string> CoreMidiInputListener::availableSourceNames() const {
@@ -80,65 +85,65 @@ std::vector<std::string> CoreMidiInputListener::availableSourceNames() const {
     for (UINT i = 0; i < count; ++i) {
         MIDIINCAPS caps{};
         if (midiInGetDevCaps(i, &caps, sizeof(caps)) == MMSYSERR_NOERROR) {
-            names.push_back(devNameToUtf8(caps.szPname));
+            names.push_back(devDisplayName(caps.szPname, i));
         }
     }
     return names;
 }
 
 bool CoreMidiInputListener::openSource(const std::string& sourceName, std::string& error) {
+    return openSources({sourceName.empty() ? "All Inputs" : sourceName}, error);
+}
+
+bool CoreMidiInputListener::openSources(const std::vector<std::string>& sourceNames, std::string& error) {
     std::lock_guard<std::mutex> lock(sourceMutex);
     closeSourceInternal();
-
-    currentSourceName = sourceName.empty() ? "All Inputs" : sourceName;
+    currentSourceNames.clear();
+    for (const auto& name : sourceNames) {
+        if (!name.empty() && std::find(currentSourceNames.begin(), currentSourceNames.end(), name)
+                                 == currentSourceNames.end())
+            currentSourceNames.push_back(name);
+    }
+    const bool allInputs = currentSourceNames.size() == 1
+        && (currentSourceNames.front() == "All Inputs" || currentSourceNames.front() == "all");
+    if (currentSourceNames.empty())
+        return true;
     const UINT count = midiInGetNumDevs();
     if (count == 0) {
-        if (currentSourceName == "All Inputs" || currentSourceName == "all")
-            return true;
         error = "No Windows MIDI input devices available";
         return false;
     }
 
-    UINT deviceId = 0;
-    bool found = false;
-    if (currentSourceName == "All Inputs" || currentSourceName == "all") {
-        deviceId = 0;
-        found = true;
-    } else {
-        for (UINT i = 0; i < count; ++i) {
-            MIDIINCAPS caps{};
-            if (midiInGetDevCaps(i, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
-                continue;
-            if (devNameToUtf8(caps.szPname) == currentSourceName) {
-                deviceId = i;
-                found = true;
-                break;
-            }
+    for (UINT deviceId = 0; deviceId < count; ++deviceId) {
+        MIDIINCAPS caps{};
+        if (midiInGetDevCaps(deviceId, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
+            continue;
+        const std::string name = devNameToUtf8(caps.szPname);
+        if (!allInputs
+            && std::find(currentSourceNames.begin(), currentSourceNames.end(), name)
+                == currentSourceNames.end()
+            && std::find(currentSourceNames.begin(), currentSourceNames.end(),
+                    devDisplayName(caps.szPname, deviceId)) == currentSourceNames.end())
+            continue;
+        HMIDIIN handle = nullptr;
+        const MMRESULT res = midiInOpen(&handle, deviceId, reinterpret_cast<DWORD_PTR>(&midiInProc),
+                                        reinterpret_cast<DWORD_PTR>(this), CALLBACK_FUNCTION);
+        if (res != MMSYSERR_NOERROR || midiInStart(handle) != MMSYSERR_NOERROR) {
+            if (handle != nullptr)
+                midiInClose(handle);
+            if (error.empty())
+                error = "Failed to open Windows MIDI input device: " + name;
+            continue;
         }
+        inputSources.push_back(reinterpret_cast<MidiEndpointRef>(handle));
     }
 
-    if (!found) {
-        error = "Windows MIDI input device not found: " + currentSourceName;
-        return false;
-    }
-
-    HMIDIIN handle = nullptr;
-    MMRESULT res = midiInOpen(&handle, deviceId, reinterpret_cast<DWORD_PTR>(&midiInProc),
-                              reinterpret_cast<DWORD_PTR>(this), CALLBACK_FUNCTION);
-    if (res != MMSYSERR_NOERROR) {
-        error = "Failed to open Windows MIDI input device (MMRESULT " + std::to_string(res) + ")";
-        return false;
-    }
-    if (midiInStart(handle) != MMSYSERR_NOERROR) {
-        midiInClose(handle);
-        error = "Failed to start Windows MIDI input device";
-        return false;
-    }
-
-    client = 0;    // unused on Windows
-    inputPort = 0; // unused on Windows
-    source = reinterpret_cast<MidiEndpointRef>(handle);
-    return true;
+    source = inputSources.empty() ? 0 : inputSources.front();
+    if (!inputSources.empty())
+        return true;
+    if (error.empty())
+        error = "No selected Windows MIDI input device was found";
+    return false;
 }
 
 void CoreMidiInputListener::closeSource() {
@@ -147,13 +152,14 @@ void CoreMidiInputListener::closeSource() {
 }
 
 void CoreMidiInputListener::closeSourceInternal() {
-    if (source != 0) {
-        HMIDIIN handle = reinterpret_cast<HMIDIIN>(source);
+    for (const MidiEndpointRef input : inputSources) {
+        HMIDIIN handle = reinterpret_cast<HMIDIIN>(input);
         midiInStop(handle);
         midiInClose(handle);
-        source = 0;
     }
-    currentSourceName.clear();
+    inputSources.clear();
+    source = 0;
+    currentSourceNames.clear();
 }
 
 void CoreMidiInputListener::setMappings(std::vector<MidiMapping> newMappings) {
