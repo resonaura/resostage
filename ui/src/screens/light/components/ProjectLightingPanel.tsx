@@ -50,6 +50,7 @@ import {
 import { ResoLightStage3D } from "./LazyResoLightStage3D";
 import { FixtureItem } from "./FixtureItem";
 import { HardwareHostField } from "./HardwareHostField";
+import { Section } from "./Section";
 import {
   EffectTypeGrid,
   Field,
@@ -90,31 +91,6 @@ const SHAPE_ICON: Record<
 type IdleBehavior = NonNullable<
   Parameters<typeof lighting.setConfig>[0]["idleBehavior"]
 >;
-
-/** One bordered block of the panel. */
-function Section({
-  title,
-  action,
-  children,
-}: {
-  title?: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <Card.Content className="flex flex-col gap-3 p-4">
-        {(title || action) && (
-          <div className="flex items-center justify-between gap-2">
-            {title ? <Label className={CAPTION_CLS}>{title}</Label> : <span />}
-            {action}
-          </div>
-        )}
-        {children}
-      </Card.Content>
-    </Card>
-  );
-}
 
 
 // ─── ProjectLightingPanel ─────────────────────────────────────────────────
