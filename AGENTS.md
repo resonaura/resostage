@@ -98,11 +98,15 @@ See `docs/REMOTE_CONTROL.md` for operator setup and the two-machine test.
 | `core/tests/` | Native unit, stress, protocol, routing, streaming, and renderer tests. |
 | `electron/src/` | Desktop main process, preload bridge, UDP receiver, discovery, platform integration. |
 | `ui/src/app/` | Application-shell workflows and UI shared outside any one screen, such as transport, overlays, and import/export dialogs. |
+| `ui/src/app/shell/` | Root shell composition and shell-owned global dialog, connection, backend-health, and notification UI/state. |
+| `ui/src/app/workflows/` | Cross-screen import/export/render request lifecycles and their mounted dialogs. |
+| `ui/src/app/project/` | App-wide project UI and data shared by project-facing screens, including timeline peak loading. |
+| `ui/src/app/midi/` | App-level MIDI workflows and Musical Typing keyboard, organized into components, hooks, logic, and tests. |
 | `ui/src/screens/` | Screen-owned UI and feature logic, organized by feature into `components/`, `hooks/`, `logic/`, and `tests/` where applicable. |
 | `ui/src/screens/editor/timeline/` | The Editor's arrangement timeline and its feature-owned components, hooks, logic, and tests. |
 | `ui/src/hooks/` | React hooks intentionally shared across application/screen boundaries; shell- and screen-specific hooks stay with their owner. |
 | `ui/src/lib/` | Cross-screen domain, state/API, platform, theme, and interaction services. Screen-owned logic does not belong here. |
-| `ui/src/components/` | Only cross-screen reusable presentation: `common/`, shared DAW primitives in `daw/`, and the design-system wrappers in `ui/`. Keep screen-specific components under their screen or feature. |
+| `ui/src/components/` | Only cross-screen reusable presentation: `common/`, shared DAW primitives and track-state controls in `daw/`, and the design-system wrappers in `ui/`. Keep screen-specific components under their screen or feature. |
 | `scripts/` | Cross-platform build, assembly, migration, release, and remote verification. |
 | `docs/` | Operator-facing details that do not belong in this architectural contract. |
 

@@ -6,7 +6,7 @@ import { builder, mixer } from "../../../../lib/state/api";
 import type { MidiRegionRow, TrackRow } from "../../../../lib/state/types";
 import { LabeledSlider } from "../../../light/components/LightControls";
 import { SidePanelShell } from "../../../../components/common/SidePanelShell";
-import { TrackStateButtons } from "../../timeline/tracks/components/TrackStateButtons";
+import { TrackStateButtons } from "../../../../components/daw/TrackStateButtons";
 import { Select } from "../../../../components/ui";
 
 export function MidiRegionSidePanel({

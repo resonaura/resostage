@@ -6,17 +6,29 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  audioRender,
-  type AudioRenderOptions,
-  type AudioRenderStatus,
-} from "../../../lib/state/api";
+import type { AudioRenderOptions } from "../../../lib/state/api";
 import type { WebUiState } from "../../../lib/state/types";
-import { songSecondsAtBeat } from "../../../lib/midi/standardMidiFile";
 import { Button, Modal, Select, Switch } from "../../../components/ui";
+import { useAudioRenderJob } from "../hooks/useAudioRenderJob";
+import {
+  formatBytes,
+  formatDuration,
+  resolveRange,
+  songDuration,
+  type RenderOutputChoice,
+  type RenderScope,
+  type TailPolicy,
+} from "../logic/renderModel";
+import {
+  Choice,
+  Field,
+  inputClass,
+  NumberField,
+  RenderProgress,
+  Section,
+  SummaryRow,
+} from "./RenderFields";
 
-type Scope = "song" | "project" | "cycle" | "custom";
-type TailPolicy = "cut" | "leave" | "wrap";
 export type RenderDialogIntent =
   | { kind: "generic" }
   | { kind: "all-tracks" }
@@ -25,23 +37,6 @@ export type RenderDialogIntent =
       targetKind: "master" | "track" | "bus" | "click";
       id?: string;
     };
-type OutputChoice = {
-  key: string;
-  kind: "master" | "track" | "bus" | "click";
-  id?: string;
-  label: string;
-  detail: string;
-};
-
-const initialStatus: AudioRenderStatus = {
-  state: "rendering",
-  phase: "preparing",
-  progress: 0,
-  outputPath: "",
-  outputPaths: [],
-  error: "",
-};
-
 export function RenderAudioDialog({
   open,
   state,
@@ -55,7 +50,7 @@ export function RenderAudioDialog({
   requestId: number;
   onClose: () => void;
 }) {
-  const [scope, setScope] = useState<Scope>("song");
+  const [scope, setScope] = useState<RenderScope>("song");
   const [songIndex, setSongIndex] = useState(
     String(Math.max(0, state.songIndex)),
   );
@@ -82,13 +77,17 @@ export function RenderAudioDialog({
     "{project}_{song}_{stem}",
   );
   const [advanced, setAdvanced] = useState(false);
-  const [renderStatus, setRenderStatus] = useState<AudioRenderStatus | null>(
-    null,
-  );
-  const [error, setError] = useState<string | null>(null);
+  const {
+    status: renderStatus,
+    error,
+    clearError,
+    setError,
+    start: startRender,
+    cancel,
+  } = useAudioRenderJob(open, requestId, state.songIndex);
   const appliedRequestId = useRef(-1);
 
-  const outputs = useMemo<OutputChoice[]>(
+  const outputs = useMemo<RenderOutputChoice[]>(
     () => [
       {
         key: "master",
@@ -125,8 +124,6 @@ export function RenderAudioDialog({
   useEffect(() => {
     if (!open || appliedRequestId.current === requestId) return;
     appliedRequestId.current = requestId;
-    setRenderStatus(null);
-    setError(null);
     if (intent.kind === "all-tracks") {
       setScope("project");
       setSelected(
@@ -154,25 +151,7 @@ export function RenderAudioDialog({
   }, [open, requestId, intent, outputs, state.songIndex]);
 
   useEffect(() => {
-    if (!open || renderStatus?.state !== "rendering") return;
-    const timer = setInterval(() => {
-      void audioRender
-        .status()
-        .then(setRenderStatus)
-        .catch((e) => setError(String(e)));
-    }, 350);
-    return () => clearInterval(timer);
-  }, [open, renderStatus?.state]);
-
-  useEffect(() => {
-    if (!open) return;
-    setSongIndex(String(Math.max(0, state.songIndex)));
-    void audioRender
-      .status()
-      .then((status) => {
-        if (status.state !== "idle") setRenderStatus(status);
-      })
-      .catch(() => {});
+    if (open) setSongIndex(String(Math.max(0, state.songIndex)));
   }, [open, state.songIndex]);
 
   useEffect(() => {
@@ -241,7 +220,7 @@ export function RenderAudioDialog({
   };
 
   const start = async () => {
-    setError(null);
+    clearError();
     if (selectedOutputs.length === 0) {
       setError("Select at least one output.");
       return;
@@ -268,20 +247,7 @@ export function RenderAudioDialog({
       trimOutputLatency,
       fileNamePattern: fileNamePattern.trim() || "{project}_{song}_{stem}",
     };
-    try {
-      await audioRender.start(options);
-      setRenderStatus(initialStatus);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const cancel = async () => {
-    try {
-      await audioRender.cancel();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    await startRender(options);
   };
 
   if (!open) return null;
@@ -669,232 +635,4 @@ export function RenderAudioDialog({
       </Modal.Backdrop>
     </Modal>
   );
-}
-
-function Section({
-  title,
-  aside,
-  children,
-}: {
-  title: string;
-  aside?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-bold uppercase tracking-wide text-foreground/55">
-          {title}
-        </h3>
-        {aside && (
-          <span className="text-[10px] text-foreground/40">{aside}</span>
-        )}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Choice({
-  active,
-  disabled,
-  onPress,
-  children,
-}: {
-  active: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Button
-      size="sm"
-      variant={active ? "accent-soft" : "outline"}
-      isDisabled={disabled}
-      onPress={onPress}
-      className="w-full"
-    >
-      {children}
-    </Button>
-  );
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="space-y-1">
-      <span className="block text-[10px] font-semibold uppercase text-foreground/45">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-const inputClass =
-  "h-8 w-full rounded-lg border border-default/30 bg-default/20 px-3 text-xs outline-none focus:border-accent disabled:opacity-40";
-
-function NumberField({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step = 0.001,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  disabled?: boolean;
-}) {
-  return (
-    <Field label={label}>
-      <input
-        type="number"
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        className={inputClass}
-      />
-    </Field>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-start justify-between gap-3 text-xs">
-      <span className="text-foreground/45">{label}</span>
-      <span className="max-w-40 text-right font-semibold">{value}</span>
-    </div>
-  );
-}
-
-function RenderProgress({ status }: { status: AudioRenderStatus }) {
-  return (
-    <div className="space-y-2 rounded-lg border border-default/20 bg-surface/60 p-3">
-      {status.state === "rendering" && (
-        <>
-          <div className="flex justify-between text-[10px]">
-            <span className="capitalize">{status.phase ?? "Rendering"}</span>
-            <span>{Math.round(status.progress * 100)}%</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-default/25">
-            <div
-              className="h-full rounded-full bg-accent transition-[width]"
-              style={{ width: `${Math.round(status.progress * 100)}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-[9px] text-foreground/45">
-            <span>
-              {(status.processingSpeedMultiplier ?? 0) > 0
-                ? `${status.processingSpeedMultiplier?.toFixed(1)}× realtime`
-                : "Measuring speed…"}
-            </span>
-            <span>
-              {(status.estimatedRemainingSeconds ?? 0) > 0
-                ? `${formatDuration(status.estimatedRemainingSeconds ?? 0)} left`
-                : ""}
-            </span>
-          </div>
-        </>
-      )}
-      {status.state === "complete" && (
-        <>
-          <div className="text-xs font-semibold text-success">
-            Render complete
-          </div>
-          <div className="max-h-28 space-y-1 overflow-y-auto">
-            {(status.outputPaths?.length
-              ? status.outputPaths
-              : [status.outputPath]
-            ).map((path) => (
-              <div
-                key={path}
-                className="break-all font-mono text-[9px] text-foreground/55"
-              >
-                {path}
-              </div>
-            ))}
-          </div>
-          {status.warnings?.map((warning) => (
-            <div
-              key={warning}
-              className="rounded bg-warning/10 px-2 py-1 text-[9px] text-warning"
-            >
-              {warning}
-            </div>
-          ))}
-        </>
-      )}
-      {status.state === "cancelled" && (
-        <div className="text-xs text-warning">
-          Render cancelled. Partial files were removed.
-        </div>
-      )}
-      {status.state === "failed" && (
-        <div className="text-xs text-danger">
-          {status.error || "Render failed"}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function songDuration(song: WebUiState["songs"][number] | undefined): number {
-  if (!song) return 0;
-  if ((song.endSeconds ?? 0) > 0) return song.endSeconds ?? 0;
-  return Math.max(
-    0,
-    ...(song.regions ?? []).map((region) => region.startSeconds + region.durationSeconds),
-    ...song.events.map((event) => event.timeSeconds),
-    ...((song.midiRegions ?? []).map((region) => songSecondsAtBeat(
-      song, region.startBeats + region.durationBeats,
-    ))),
-  );
-}
-
-function resolveRange(
-  scope: Scope,
-  songEnd: number,
-  state: WebUiState,
-  songIndex: number,
-  customStart: string,
-  customEnd: string,
-) {
-  if (scope === "cycle" && state.cycle?.songIndex === songIndex)
-    return { start: state.cycle.startSeconds, end: state.cycle.endSeconds };
-  if (scope === "custom")
-    return {
-      start: Math.max(0, Number(customStart) || 0),
-      end: Math.min(songEnd, Math.max(0, Number(customEnd) || 0)),
-    };
-  return { start: 0, end: songEnd };
-}
-
-function formatDuration(seconds: number): string {
-  const safe = Math.max(0, seconds);
-  const hours = Math.floor(safe / 3600);
-  const minutes = Math.floor((safe % 3600) / 60);
-  const secs = Math.floor(safe % 60);
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
-    : `${minutes}:${String(secs).padStart(2, "0")}`;
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  return `${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
 }
