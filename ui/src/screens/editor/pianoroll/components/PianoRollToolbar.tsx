@@ -4,8 +4,6 @@ import {
   Layers,
   Magnet,
   MousePointer,
-  MoveHorizontalIcon,
-  MoveVerticalIcon,
   Music,
   Paintbrush,
   Pencil,
@@ -18,9 +16,10 @@ import {
   Undo2,
   Redo2,
 } from "lucide-react";
-import { Button, Slider, ToggleButton } from "../../../../components/ui";
+import { Button, ToggleButton } from "../../../../components/ui";
 import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
 import { PianoRollFollowControl } from "./PianoRollFollowControl";
+import { PianoRollZoomControl } from "./PianoRollZoomControl";
 import { NOTE_NAMES, SCALE_LABELS } from "../logic/scales";
 import type {
   GridSnapValue,
@@ -440,59 +439,12 @@ export function PianoRollToolbar({
           onPixelsPerBeatChange &&
           pixelsPerPitch !== undefined &&
           onPixelsPerPitchChange && (
-            <div className="flex w-52 shrink-0 items-center gap-1.5 border-l border-default/30 pl-2">
-              <MoveHorizontalIcon
-                style={{ opacity: 0.4, width: "14px", height: "14px" }}
-              />
-              <div className="flex-1 min-w-0 flex items-center">
-                <Slider
-                  aria-label="Horizontal zoom"
-                  minValue={0}
-                  maxValue={1}
-                  step={0.001}
-                  value={Math.max(
-                    0,
-                    Math.min(
-                      1,
-                      Math.log(pixelsPerBeat / 20) / Math.log(400 / 20),
-                    ),
-                  )}
-                  onChange={(v) => {
-                    const t = Array.isArray(v) ? v[0] : v;
-                    const next = 20 * Math.pow(400 / 20, t);
-                    onPixelsPerBeatChange(next);
-                  }}
-                  className="min-w-0 flex-1 flex items-center justify-center"
-                >
-                  <Slider.Track>
-                    <Slider.Fill />
-                    <Slider.Thumb />
-                  </Slider.Track>
-                </Slider>
-              </div>
-              <MoveVerticalIcon
-                style={{ opacity: 0.4, width: "14px", height: "14px" }}
-              />
-              <div className="flex-1 min-w-0 flex items-center">
-                <Slider
-                  aria-label="Vertical zoom"
-                  minValue={10}
-                  maxValue={40}
-                  step={0.5}
-                  value={pixelsPerPitch}
-                  onChange={(v) => {
-                    const z = Array.isArray(v) ? v[0] : v;
-                    onPixelsPerPitchChange(z);
-                  }}
-                  className="min-w-0 flex-1 flex items-center justify-center"
-                >
-                  <Slider.Track>
-                    <Slider.Fill />
-                    <Slider.Thumb />
-                  </Slider.Track>
-                </Slider>
-              </div>
-            </div>
+            <PianoRollZoomControl
+              pixelsPerBeat={pixelsPerBeat}
+              onPixelsPerBeatChange={onPixelsPerBeatChange}
+              pixelsPerPitch={pixelsPerPitch}
+              onPixelsPerPitchChange={onPixelsPerPitchChange}
+            />
           )}
       </div>
     </div>
