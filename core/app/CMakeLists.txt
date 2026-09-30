@@ -101,8 +101,10 @@ target_sources(ResoStage PRIVATE
   plugins/PluginHostSharedMemory.cpp
   plugins/PluginHostProcess.cpp
   server/WebServer.cpp
+  server/WebServerHttp.cpp
   server/WebServerJobs.cpp
   server/WebServerMenuModel.cpp
+  server/WebServerResources.cpp
   server/WebServerTelemetry.cpp
   network/UdpDiscovery.cpp
 )
