@@ -1,6 +1,4 @@
-import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "../../components/ui";
 import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
 import { useHorizontalWindow } from "./hooks/useHorizontalWindow";
 import { useMixerDensity } from "./hooks/useMixerDensity";
@@ -15,13 +13,12 @@ import {
   resolvePendingBusJobs,
   type PendingBusJob,
 } from "./logic/pendingBusJobs";
-import { BusStrip } from "./strips/BusStrip";
 import { StripContextMenu, type StripMenuTarget } from "./strips/StripContextMenu";
-import { ConsolePane } from "./components/ConsolePane";
 import { MixerToolbar } from "./components/MixerToolbar";
 import { type MixerDensity } from "./logic/constants";
 import { MixerClickMasterLane } from "./components/MixerClickMasterLane";
 import { MixerTrackRack } from "./components/MixerTrackRack";
+import { MixerSendRack } from "./components/MixerSendRack";
 
 interface PluginTarget {
   stripId: string;
@@ -240,71 +237,21 @@ export function MixerScreen({
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
-            <ConsolePane
+            <MixerSendRack
+              state={state}
               compact={compact}
-              className={`flex shrink-0 ${compact ? "" : "max-w-[35%]"}`}
-            >
-              <div
-                className={`mr-2 flex h-full ${density === "narrow" ? "w-16" : density === "wide" ? "w-28" : "w-20"} shrink-0 flex-col items-center justify-center`}
-              >
-                {/* Dashed and full-height on purpose -- it stands where a
-                    strip would, so it reads as a slot to fill rather than as
-                    a control in the row. */}
-                <Button
-                  variant="default-soft"
-                  aria-label="Add a new return/send bus"
-                  onPress={() => requestAddSend()}
-                  className={`h-full ${density === "narrow" ? "w-16" : density === "wide" ? "w-28" : "w-20"} shrink-0 flex-col bg-background-secondary hover:bg-background-tertiary/50 transition-all gap-0 rounded-xl border border-dashed border-default/40 text-foreground/60`}
-                >
-                  <Plus size={22} />
-                  <span className="text-[11px] font-semibold">Send</span>
-                </Button>
-              </div>
-
-              {/* See the track pane above for what the spacers are doing. */}
-              <div
-                ref={sendWindow.contentRef}
-                className="h-full shrink-0"
-                style={{ width: sendWindow.window.padStartPx }}
-                aria-hidden
-              />
-              {auxBusses
-                .slice(sendWindow.window.start, sendWindow.window.end)
-                .map((b) => (
-                  <div
-                    key={b.id}
-                    className="mr-2 flex h-full min-h-0 shrink-0"
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setMenu({
-                        kind: "send",
-                        x: e.clientX,
-                        y: e.clientY,
-                        index: state.busses.indexOf(b),
-                        bus: b,
-                      });
-                    }}
-                  >
-                    <BusStrip
-                      b={b}
-                      index={state.busses.indexOf(b)}
-                      meters={state.meters}
-                      master={master}
-                      settings={state.settings}
-                      anySoloInGroup={anyAuxSolo}
-                      pluginCatalog={effectCatalog}
-                      density={density}
-                      targetPluginSlots={maxPluginSlots}
-                      onOpenPlugins={openPlugins}
-                    />
-                  </div>
-                ))}
-              <div
-                className="h-full shrink-0"
-                style={{ width: sendWindow.window.padEndPx }}
-                aria-hidden
-              />
-            </ConsolePane>
+              density={density}
+              auxBusses={auxBusses}
+              master={master}
+              anySoloInGroup={anyAuxSolo}
+              pluginCatalog={effectCatalog}
+              targetPluginSlots={maxPluginSlots}
+              contentRef={sendWindow.contentRef}
+              visibleWindow={sendWindow.window}
+              onAddSend={requestAddSend}
+              onOpenPlugins={openPlugins}
+              onMenuTarget={setMenu}
+            />
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
