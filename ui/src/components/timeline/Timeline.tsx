@@ -12,7 +12,6 @@ import {
   type CycleWrapRange,
 } from "../../lib/state/optimistic";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
-import { useCoalescedCommit } from "../../lib/state/optimistic";
 import { addRafTask } from "../../lib/state/rafLoop";
 import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timeline/timelineVisibility";
@@ -62,7 +61,7 @@ import {
   snapSongLocalSeconds,
   timelineSecondsAtClientX,
 } from "./timelineCoordinates";
-import type { SongEndDrag } from "./SongEndMarker";
+import { useSongEndDrag } from "./useSongEndDrag";
 import { laneHeightPx } from "./laneDimensions";
 import { LightTrackLanes } from "./LightTrackLanes";
 import {
@@ -567,19 +566,11 @@ export function Timeline({
   const songs = state.songs;
   const hasSongs = songs.length > 0;
 
-  // ── Dragging a song's end ────────────────────────────────────────────────
-  //
-  // Held locally for the duration of the gesture and fed back into the layout
-  // (see useSongLayout's endOverride), so the resized song and everything
-  // after it move with the pointer instead of a round trip behind it. Writes
-  // are coalesced to one a frame under a shared gesture id, which is also what
-  // makes the whole drag a single undo entry.
-  const [songEndDrag, setSongEndDrag] = useState<SongEndDrag | null>(null);
-  const songEndGestureRef = useRef("");
-  const [sendSongEnd] = useCoalescedCommit(
-    ({ index, seconds }: SongEndDrag) =>
-      void builder.songEnd(index, seconds, songEndGestureRef.current),
-  );
+  const {
+    songEndDrag,
+    handleSongEndDrag,
+    handleSongEndCommit,
+  } = useSongEndDrag();
 
   const { songLengths, songOffsets, totalLength } = useSongLayout(
     songs,
@@ -631,26 +622,6 @@ export function Timeline({
         ),
       ),
     [songs, allPeaks, peaks, state.songIndex],
-  );
-
-  const handleSongEndDrag = useCallback(
-    (drag: SongEndDrag) => {
-      if (!songEndGestureRef.current)
-        songEndGestureRef.current = `song_end_${drag.index}_${Date.now()}`;
-      setSongEndDrag(drag);
-      sendSongEnd(drag);
-    },
-    [sendSongEnd],
-  );
-
-  const handleSongEndCommit = useCallback(
-    (drag: SongEndDrag | null) => {
-      if (drag) sendSongEnd(drag);
-      setSongEndDrag(null);
-      // A fresh id next time, so the next drag is its own undo step.
-      songEndGestureRef.current = "";
-    },
-    [sendSongEnd],
   );
 
   const activeSongIndex = state.songIndex >= 0 ? state.songIndex : 0;
