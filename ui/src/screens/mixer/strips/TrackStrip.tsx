@@ -1,9 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ContextMenu,
-  ContextMenuItem,
-} from "../../../components/common/ContextMenu";
-import {
   mixer,
   pluginChains,
   type PluginCatalogEntry,
@@ -22,9 +18,11 @@ import {
   type TrackRow,
 } from "../../../lib/state/types";
 import { InstrumentContextMenu } from "../plugins/InstrumentContextMenu";
+import { resolveTrackPolarity, toggleTrackPolarity } from "../logic/polarity";
 import { ChannelStrip } from "./ChannelStrip";
 import { colorForIndex } from "../logic/constants";
 import { getTrackInputOptions, getTrackInputState } from "../logic/trackInputs";
+import { PolarityContextMenu } from "./PolarityContextMenu";
 
 function TrackStripInner({
   t,
@@ -76,8 +74,11 @@ function TrackStripInner({
     "left" | "right" | "none" | "both" | null
   >(null);
   const lastPolarityEdit = useRef(0);
-  const polarity: "left" | "right" | "none" | "both" =
-    optimisticPolarity ?? t.polarity ?? (t.phaseInvert ? "both" : "none");
+  const polarity = resolveTrackPolarity(
+    optimisticPolarity,
+    t.polarity,
+    t.phaseInvert,
+  );
   const isPolarityActive = polarity !== "none";
   const [polarityMenu, setPolarityMenu] = useState<{
     x: number;
@@ -91,7 +92,7 @@ function TrackStripInner({
   }, [t.polarity, t.phaseInvert]);
 
   const togglePolarity = () => {
-    const nextPolarity = isPolarityActive ? "none" : isMono ? "left" : "both";
+    const nextPolarity = toggleTrackPolarity(polarity, isMono);
     lastPolarityEdit.current = Date.now();
     setOptimisticPolarity(nextPolarity);
     void mixer.setTrackTrim(
@@ -231,67 +232,20 @@ function TrackStripInner({
         onSoloSafe={(safe) => void mixer.setTrackSoloSafe(index, safe)}
       />
 
-      {polarityMenu && (
-        <ContextMenu
-          x={polarityMenu.x}
-          y={polarityMenu.y}
-          width={180}
-          onClose={() => setPolarityMenu(null)}
-        >
-          <ContextMenuItem
-            onClick={() => {
-              void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, true, "both");
-              setPolarityMenu(null);
-            }}
-          >
-            {polarity === "both"
-              ? "✓ Both Channels (L+R)"
-              : "Both Channels (L+R)"}
-          </ContextMenuItem>
-          {!isMono && (
-            <>
-              <ContextMenuItem
-                onClick={() => {
-                  void mixer.setTrackTrim(
-                    index,
-                    t.inputTrimDb ?? 0,
-                    true,
-                    "left",
-                  );
-                  setPolarityMenu(null);
-                }}
-              >
-                {polarity === "left"
-                  ? "✓ Left Channel Only (L)"
-                  : "Left Channel Only (L)"}
-              </ContextMenuItem>
-              <ContextMenuItem
-                onClick={() => {
-                  void mixer.setTrackTrim(
-                    index,
-                    t.inputTrimDb ?? 0,
-                    true,
-                    "right",
-                  );
-                  setPolarityMenu(null);
-                }}
-              >
-                {polarity === "right"
-                  ? "✓ Right Channel Only (R)"
-                  : "Right Channel Only (R)"}
-              </ContextMenuItem>
-            </>
-          )}
-          <ContextMenuItem
-            onClick={() => {
-              void mixer.setTrackTrim(index, t.inputTrimDb ?? 0, false, "none");
-              setPolarityMenu(null);
-            }}
-          >
-            {polarity === "none" ? "✓ Normal (0°)" : "Normal (0°)"}
-          </ContextMenuItem>
-        </ContextMenu>
-      )}
+      <PolarityContextMenu
+        position={polarityMenu}
+        isMono={isMono}
+        polarity={polarity}
+        onSelect={(nextPolarity) =>
+          void mixer.setTrackTrim(
+            index,
+            t.inputTrimDb ?? 0,
+            nextPolarity !== "none",
+            nextPolarity,
+          )
+        }
+        onClose={() => setPolarityMenu(null)}
+      />
 
       <InstrumentContextMenu
         trackId={t.id}
