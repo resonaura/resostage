@@ -43,7 +43,7 @@ import {
   EmptyProjectState,
 } from "../project/EmptyProjectState";
 import { AudioDropGhost } from "./drop/components/AudioDropGhost";
-import { AudioTrackLanes } from "./AudioTrackLanes";
+import { AudioTrackLanes } from "./tracks/components/AudioTrackLanes";
 import { BeatGrid } from "./ruler/components/BeatGrid";
 import {
   EVENT_LANE_HEIGHT,
@@ -64,7 +64,7 @@ import {
 } from "./ruler/logic/timelineCoordinates";
 import { useSongEndDrag } from "./ruler/hooks/useSongEndDrag";
 import { laneHeightPx } from "./layout/logic/laneDimensions";
-import { LightTrackLanes } from "./LightTrackLanes";
+import { LightTrackLanes } from "./tracks/components/LightTrackLanes";
 import {
   RegionContextMenu,
   type RegionContextMenuState,

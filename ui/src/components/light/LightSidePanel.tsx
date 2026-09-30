@@ -38,7 +38,7 @@ import type {
   TrackRow,
   WebUiState,
 } from "../../lib/state/types";
-import { SidePanelShell } from "../timeline/SidePanelShell";
+import { SidePanelShell } from "../common/SidePanelShell";
 import { ResoLightStage3D } from "./LazyResoLightStage3D";
 import {
   EffectTypeGrid,

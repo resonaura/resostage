@@ -1,11 +1,11 @@
 import { EmptyState } from "@heroui/react";
-import type { LightTrackRow, SongRow } from "../../lib/state/types";
+import type { LightTrackRow, SongRow } from "../../../../lib/state/types";
 import {
   LightTrackLane,
   type CueSelKey,
   type LightCueDragState,
-} from "../light/LightTimeline";
-import type { TimelineTool } from "./toolbar/logic/tools";
+} from "../../../light/LightTimeline";
+import type { TimelineTool } from "../../toolbar/logic/tools";
 
 export function LightTrackLanes({
   lightEnabled,

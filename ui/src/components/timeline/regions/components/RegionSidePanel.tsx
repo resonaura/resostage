@@ -12,7 +12,7 @@ import {
   type CrossfadeRegion,
   type CrossfadeShape,
 } from "../../crossfade/logic/crossfade";
-import { SidePanelShell } from "../../SidePanelShell";
+import { SidePanelShell } from "../../../common/SidePanelShell";
 import { TrackStateButtons } from "../../tracks/components/TrackStateButtons";
 import type { RegionSelKey } from "../logic/regionUtils";
 import { lookupAnyRegion, lookupRegion } from "../logic/regionUtils";

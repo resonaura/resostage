@@ -5,7 +5,7 @@ import { createEditGesture } from "../../../lib/interaction/editGesture";
 import { builder, mixer } from "../../../lib/state/api";
 import type { MidiRegionRow, TrackRow } from "../../../lib/state/types";
 import { LabeledSlider } from "../../light/LightControls";
-import { SidePanelShell } from "../../timeline/SidePanelShell";
+import { SidePanelShell } from "../../common/SidePanelShell";
 import { TrackStateButtons } from "../../timeline/tracks/components/TrackStateButtons";
 import { Select } from "../../ui";
 
