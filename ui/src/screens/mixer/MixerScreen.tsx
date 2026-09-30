@@ -17,11 +17,11 @@ import {
 } from "./logic/pendingBusJobs";
 import { BusStrip } from "./strips/BusStrip";
 import { StripContextMenu, type StripMenuTarget } from "./strips/StripContextMenu";
-import { TrackStrip } from "./strips/TrackStrip";
 import { ConsolePane } from "./components/ConsolePane";
 import { MixerToolbar } from "./components/MixerToolbar";
 import { type MixerDensity } from "./logic/constants";
 import { MixerClickMasterLane } from "./components/MixerClickMasterLane";
+import { MixerTrackRack } from "./components/MixerTrackRack";
 
 interface PluginTarget {
   stripId: string;
@@ -220,66 +220,23 @@ export function MixerScreen({
           </div>
         ) : (
           <>
-            <ConsolePane
+            <MixerTrackRack
+              state={state}
               compact={compact}
-              className={`flex min-h-0 pr-1 ${compact ? "shrink-0" : "flex-1"}`}
-            >
-              {/* Spacers stand in for the strips that are not mounted, so the
-                  scroll extent and every strip's position are unchanged.
-                  The leading one also carries the ref: it is the row's first
-                  child, so its left edge IS the row's left edge, which is the
-                  offset the window is computed from. */}
-              <div
-                ref={trackWindow.contentRef}
-                className="h-full shrink-0"
-                style={{ width: trackWindow.window.padStartPx }}
-                aria-hidden
-              />
-              {state.tracks
-                .slice(trackWindow.window.start, trackWindow.window.end)
-                .map((t, offset) => {
-                  const i = trackWindow.window.start + offset;
-                  return (
-                    <div
-                      key={t.id}
-                      className="mr-2 flex h-full min-h-0 shrink-0"
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setMenu({
-                          kind: "track",
-                          x: e.clientX,
-                          y: e.clientY,
-                          index: i,
-                          track: t,
-                          songIndex,
-                        });
-                      }}
-                    >
-                      <TrackStrip
-                        t={t}
-                        index={i}
-                        destinationBusses={destinationBusses}
-                        allBusses={state.busses}
-                        auxBusses={auxBusses}
-                        meters={state.meters}
-                        settings={state.settings}
-                        anySoloInGroup={anyTrackSolo}
-                        pluginCatalog={effectCatalog}
-                        isRecording={state.recording ?? false}
-                        density={density}
-                        targetPluginSlots={maxPluginSlots}
-                        onDirectOutput={requestTrackDirectOutput}
-                        onOpenPlugins={openPlugins}
-                      />
-                    </div>
-                  );
-                })}
-              <div
-                className="h-full shrink-0"
-                style={{ width: trackWindow.window.padEndPx }}
-                aria-hidden
-              />
-            </ConsolePane>
+              density={density}
+              contentRef={trackWindow.contentRef}
+              window={trackWindow.window}
+              destinationBusses={destinationBusses}
+              auxBusses={auxBusses}
+              anySoloInGroup={anyTrackSolo}
+              pluginCatalog={effectCatalog}
+              isRecording={state.recording ?? false}
+              targetPluginSlots={maxPluginSlots}
+              onDirectOutput={requestTrackDirectOutput}
+              onOpenPlugins={openPlugins}
+              onMenuTarget={setMenu}
+              songIndex={songIndex}
+            />
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
