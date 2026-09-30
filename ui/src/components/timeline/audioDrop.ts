@@ -17,6 +17,62 @@ export interface AudioPreview {
   max: number[];
 }
 
+export interface AudioDropPosition {
+  rowIndex: number;
+  trackIndex: number;
+  songIndex: number;
+  startPx: number;
+}
+
+/** Map a timeline-lane point to a valid track/song insertion position. */
+export function computeAudioDropPosition(args: {
+  x: number;
+  y: number;
+  rows: readonly { name: string }[];
+  tracks: readonly { id: string; name: string }[];
+  songOffsets: readonly number[];
+  songLengths: readonly number[];
+  pxPerSec: number;
+  laneHeight: number;
+  previewDuration: number;
+}): AudioDropPosition | null {
+  const rowIndex = Math.max(
+    0,
+    Math.min(args.rows.length - 1, Math.floor(args.y / args.laneHeight)),
+  );
+  const rowName = args.rows[rowIndex]?.name ?? "";
+  const trackIndex = args.tracks.findIndex(
+    (track) => (track.name || track.id) === rowName,
+  );
+  // Orphan rows (no staged track) cannot hold an import.
+  if (trackIndex < 0) return null;
+
+  let songIndex = 0;
+  for (let index = 0; index < args.songOffsets.length; index++) {
+    const start = args.songOffsets[index] * args.pxPerSec;
+    if (
+      args.x >= start &&
+      args.x < start + args.songLengths[index] * args.pxPerSec
+    ) {
+      songIndex = index;
+      break;
+    }
+  }
+
+  const durationPx = Math.max(8, args.previewDuration * args.pxPerSec);
+  const segmentStart = args.songOffsets[songIndex] * args.pxPerSec;
+  const segmentEnd =
+    segmentStart + Math.max(1, args.songLengths[songIndex] * args.pxPerSec);
+  // Clamp the region start so the ghost stays inside the song segment.
+  const maxStart = Math.max(segmentStart, segmentEnd - durationPx);
+  return {
+    rowIndex,
+    trackIndex,
+    songIndex,
+    startPx: Math.max(segmentStart, Math.min(args.x, maxStart)),
+  };
+}
+
 const AUDIO_EXT = /\.(wav|wave|mp3|aiff?|flac|ogg|m4a|aac|opus|wma|caf|webm)$/i;
 
 export function isAudioName(name: string): boolean {

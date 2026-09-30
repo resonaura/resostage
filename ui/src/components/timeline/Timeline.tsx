@@ -7,7 +7,6 @@ import {
   useState,
 } from "react";
 import { builder, transport } from "../../lib/state/api";
-import { songBeatsAtSeconds } from "../../lib/midi/standardMidiFile";
 import {
   beginCancellableDrag,
   type CancellableDrag,
@@ -21,13 +20,8 @@ import { useCoalescedCommit } from "../../lib/state/optimistic";
 import { addRafTask } from "../../lib/state/rafLoop";
 import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timeline/timelineVisibility";
-import {
-  getClipboardCues,
-  getClipboardRegions,
-  hasClipboard,
-  setClipboardCues,
-  setClipboardRegions,
-} from "./timelineClipboard";
+import { useTimelineFileDrop } from "./useTimelineFileDrop";
+import { hasClipboard } from "./timelineClipboard";
 import { RegionSidePanel } from "./RegionSidePanel";
 import {
   quantizeScrollWindow,
@@ -50,12 +44,6 @@ import {
   LightHintStrip,
 } from "../light/LightTimeline";
 import {
-  audioDragInfo,
-  audioFileDropEvent,
-  entryToFile,
-  loadAudioPreview,
-} from "./audioDrop";
-import {
   emptyProjectActions,
   EmptyProjectState,
 } from "../project/EmptyProjectState";
@@ -70,15 +58,6 @@ import {
   TRAILING_SLACK_MIN_PX,
   TRAILING_SLACK_SECONDS,
 } from "./constants";
-import {
-  deleteCues,
-  duplicateCue,
-  findCue,
-  offsetCuesToPlayhead,
-  pasteCues,
-  splitCueAtPlayhead,
-  type CueClipboardEntry,
-} from "./cueEdit";
 import { EventMarkerLane } from "./EventMarkerLane";
 import { LongImportPrompt } from "./LongImportPrompt";
 import { OutOfBoundsOverlay } from "./OutOfBoundsOverlay";
@@ -96,18 +75,9 @@ import {
   RegionContextMenu,
   type RegionContextMenuState,
 } from "./RegionContextMenu";
-import {
-  addRegionEntries,
-  deleteSelectedRegions as deleteRegionsOp,
-  offsetRegionsToPlayhead,
-  resolveSelectedRegions,
-  resolveSongLocal,
-  selectRegionKeys,
-  splitRegionsAtPlayhead,
-} from "./regionEdit";
+import { splitRegionsAtPlayhead } from "./regionEdit";
 import {
   allRegionSelKeys,
-  lookupAnyRegion,
   type RegionSelKey,
   type RegionUiState,
 } from "./regionUtils";
@@ -126,7 +96,8 @@ import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { useTimelinePrefs } from "./useTimelinePrefs";
-import { trackSelectionGesture, type TrackSelectionGesture } from "./trackSelection";
+import type { TrackSelectionGesture } from "./trackSelection";
+import { createTimelineSelectionActions } from "./selectionActions";
 
 // ------- Timeline (continuous multi-song arrangement) -------------------
 
@@ -534,201 +505,6 @@ export function Timeline({
       }
     }
   }, [state.recording, state.songs]);
-  // Clipboards live in a module, not in this component -- see
-  // timelineClipboard.ts: Timeline unmounts on a tab switch, and a clipboard
-  // that empties because you looked at the Player is not a clipboard.
-
-  const copySelectedCue = () => {
-    const keys =
-      selectedCueKeys.length > 0
-        ? selectedCueKeys
-        : cueSelection
-          ? [cueSelection]
-          : [];
-    const entries: CueClipboardEntry[] = [];
-    for (const k of keys) {
-      const cue = findCue(state.songs, k);
-      if (cue) entries.push({ ...cue, songIndex: k.songIndex });
-    }
-    if (entries.length === 0) return;
-    setClipboardCues(entries);
-    showToast(
-      entries.length === 1
-        ? "Copied light cue"
-        : `Copied ${entries.length} light cues`,
-    );
-  };
-
-  const deleteSelectedCue = () => {
-    const keys =
-      selectedCueKeys.length > 0
-        ? selectedCueKeys
-        : cueSelection
-          ? [cueSelection]
-          : [];
-    if (keys.length === 0) return;
-    void deleteCues(keys);
-    setCueSelection(null);
-    setSelectedCueKeys([]);
-    showToast(
-      keys.length === 1 ? "Deleted light cue" : `Deleted ${keys.length} cues`,
-    );
-  };
-
-  const selectCue = (
-    sel: CueSelKey | null,
-    mods?: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
-  ) => {
-    if (sel === null) {
-      setCueSelection(null);
-      setSelectedCueKeys([]);
-      return;
-    }
-    const additive = Boolean(mods?.metaKey || mods?.ctrlKey);
-    setCueSelection(sel);
-    setSelectedCueKeys((prev) => {
-      if (additive) {
-        const has = prev.some(
-          (s) => s.songIndex === sel.songIndex && s.cueId === sel.cueId,
-        );
-        return has
-          ? prev.filter(
-              (s) => !(s.songIndex === sel.songIndex && s.cueId === sel.cueId),
-            )
-          : [...prev, sel];
-      }
-      return [sel];
-    });
-    // Selecting a cue clears audio region selection
-    setSelectedRegionKeys([]);
-  };
-
-  const duplicateSelectedCue = async () => {
-    if (!cueSelection) return;
-    if (await duplicateCue(state.songs, cueSelection))
-      showToast("Duplicated light cue");
-  };
-
-  const pasteClipboardCues = async () => {
-    if (getClipboardCues().length === 0) return;
-    const { songIndex, localSeconds } = resolveSongLocal(
-      songOffsets,
-      songLengths,
-      playheadAbsNow(),
-    );
-    const placed = offsetCuesToPlayhead(
-      getClipboardCues(),
-      songIndex,
-      localSeconds,
-    );
-    const n = await pasteCues(placed);
-    if (n) {
-      showToast(`Pasted ${n} light cue(s) at playhead`);
-      setSelectedCueKeys([]);
-      setCueSelection(null);
-      setSelectedRegionKeys([]);
-    }
-  };
-
-  const splitSelectedCueAtPlayhead = async () => {
-    if (!cueSelection) {
-      showToast("Select a cue to trim");
-      return;
-    }
-    const status = await splitCueAtPlayhead(
-      state.songs,
-      cueSelection,
-      songOffsets,
-      playheadAbsNow(),
-    );
-    if (status === "playhead-outside") {
-      showToast("Playhead is not inside the selected cue");
-      return;
-    }
-    if (status === "ok") {
-      showToast("Split cue at playhead");
-      setCueSelection(null);
-    }
-  };
-
-  const selectRegion = (
-    key: RegionSelKey,
-    e: { metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean },
-  ) => {
-    setSelectedRegionKeys(
-      selectRegionKeys(key, e, selectedRegionKeys, state.songs),
-    );
-    setCueSelection(null);
-    setSelectedCueKeys([]);
-    const found = lookupAnyRegion(state.songs, key);
-    if (found?.region?.trackId) {
-      onSelectTrackId?.(found.region.trackId, trackSelectionGesture(e));
-    }
-  };
-
-  const copySelectedRegions = () => {
-    const entries = resolveSelectedRegions(selectedRegionKeys, state.songs);
-    setClipboardRegions(entries);
-    if (entries.length) showToast(`Copied ${entries.length} region(s)`);
-  };
-
-  /**
-   * Cut: copy, then remove.
-   *
-   * Missing until now, which is also why the toolbar's scissors read as
-   * "cut" to everyone who saw it -- it is Split. Cut is the operation people
-   * actually reach for when moving a region somewhere far away, where
-   * dragging means scrolling with the mouse down.
-   */
-  const cutSelectedRegions = () => {
-    if (selectedRegionKeys.length === 0) return;
-    const entries = resolveSelectedRegions(selectedRegionKeys, state.songs);
-    if (entries.length === 0) return;
-    setClipboardRegions(entries);
-    deleteRegionsOp(selectedRegionKeys, state.songs);
-    setSelectedRegionKeys([]);
-    showToast(`Cut ${entries.length} region(s)`);
-  };
-
-  const cutSelectedCues = () => {
-    copySelectedCue();
-    if (getClipboardCues().length === 0) return;
-    deleteSelectedCue();
-    showToast(`Cut ${getClipboardCues().length} cue(s)`);
-  };
-
-  const deleteSelectedRegions = () => {
-    if (selectedRegionKeys.length === 0) return;
-    deleteRegionsOp(selectedRegionKeys, state.songs);
-    setSelectedRegionKeys([]);
-    showToast("Deleted region(s)");
-  };
-
-  const duplicateSelectedRegions = async () => {
-    const entries = resolveSelectedRegions(selectedRegionKeys, state.songs);
-    await addRegionEntries(entries, state.songs);
-    if (entries.length) showToast(`Duplicated ${entries.length} region(s)`);
-  };
-
-  const pasteClipboardRegions = async () => {
-    if (getClipboardRegions().length === 0) return;
-    const { songIndex, localSeconds } = resolveSongLocal(
-      songOffsets,
-      songLengths,
-      playheadAbsNow(),
-    );
-    const placed = offsetRegionsToPlayhead(
-      getClipboardRegions(),
-      songIndex,
-      localSeconds,
-    );
-    await addRegionEntries(placed, state.songs);
-    showToast(`Pasted ${getClipboardRegions().length} region(s) at playhead`);
-    setSelectedRegionKeys([]);
-    setSelectedCueKeys([]);
-    setCueSelection(null);
-  };
-
   // Drop selection entries that no longer exist (delete / project reload).
   useEffect(() => {
     const valid = new Set(allRegionSelKeys(state.songs));
@@ -837,6 +613,37 @@ export function Timeline({
     state.songIndex,
     songEndDrag,
   );
+
+  // Selection and clipboard operations are grouped in selectionActions.ts;
+  // this component retains ownership of the underlying React selection state.
+  const {
+    copySelectedCue,
+    deleteSelectedCue,
+    selectCue,
+    duplicateSelectedCue,
+    pasteClipboardCues,
+    splitSelectedCueAtPlayhead,
+    selectRegion,
+    copySelectedRegions,
+    cutSelectedRegions,
+    cutSelectedCues,
+    deleteSelectedRegions,
+    duplicateSelectedRegions,
+    pasteClipboardRegions,
+  } = createTimelineSelectionActions({
+    songs,
+    selectedCueKeys,
+    cueSelection,
+    setCueSelection,
+    setSelectedCueKeys,
+    selectedRegionKeys,
+    setSelectedRegionKeys,
+    songOffsets,
+    songLengths,
+    playheadAbsNow,
+    showToast,
+    onSelectTrackId,
+  });
 
   // The floor the marker reports as "content past here is out of bounds".
   const songContentLengths = useMemo(
@@ -1004,207 +811,30 @@ export function Timeline({
     return previewDropReorder(rows, index, dropSlot);
   }, [rows, trackReorderPreview]);
 
-  // Drag & drop audio-file ghost preview (audio view only). While a file is
-  // dragged over the lanes, AudioDropGhost shows a fake region -- waveform +
-  // duration decoded from the local file -- but nothing is imported until the
-  // drop actually fires (then builder.trackImportWav runs the real import).
-  const audioDropFileRef = useRef<File | null>(null);
-  const audioDropEntryResolvedRef = useRef<string | null>(null);
-  const [audioDropFile, setAudioDropFile] = useState<{
-    file: File;
-    name: string;
-  } | null>(null);
-  const [midiDropName, setMidiDropName] = useState<string | null>(null);
-  const [audioDropPreview, setAudioDropPreview] = useState<{
-    duration: number;
-    min: number[];
-    max: number[];
-  } | null>(null);
-  const [audioDropPos, setAudioDropPos] = useState<{
-    rowIndex: number;
-    trackIndex: number;
-    songIndex: number;
-    startPx: number;
-  } | null>(null);
-
-  const clearAudioDrop = () => {
-    audioDropFileRef.current = null;
-    audioDropEntryResolvedRef.current = null;
-    setAudioDropFile(null);
-    setMidiDropName(null);
-    setAudioDropPreview(null);
-    setAudioDropPos(null);
-  };
-
-  // Decode the dragged file once (cached in audioDrop.ts); preview fills in
-  // as soon as it resolves.
-  useEffect(() => {
-    if (!audioDropFile) return;
-    let cancelled = false;
-    void loadAudioPreview(audioDropFile.file).then((p) => {
-      if (!cancelled) setAudioDropPreview(p);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [audioDropFile]);
-
-  // Leaving audio view (or readOnly) dismisses any ghost.
-  useEffect(() => {
-    if (readOnly || effectiveViewMode !== "audio") clearAudioDrop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readOnly, effectiveViewMode]);
-
-  const rowTrackIndexFor = (name: string) =>
-    state.tracks.findIndex((t) => (t.name || t.id) === name);
-
-  // Map a pointer position (relative to the tracks container) to the lane
-  // row, song and clamped region-start pixel offset under it.
-  const computeAudioDropPos = (x: number, y: number) => {
-    const laneH = laneHeightPx(verticalZoom);
-    const rowIndex = Math.max(
-      0,
-      Math.min(rows.length - 1, Math.floor(y / laneH)),
-    );
-    const trackIndex = rowTrackIndexFor(rows[rowIndex]?.name ?? "");
-    // Orphan rows (no staged track) can't hold an import.
-    if (trackIndex < 0) return null;
-    let songIndex = 0;
-    for (let i = 0; i < songOffsets.length; i++) {
-      const start = songOffsets[i] * pxPerSec;
-      if (x >= start && x < start + songLengths[i] * pxPerSec) {
-        songIndex = i;
-        break;
-      }
-    }
-    const duration = audioDropPreview?.duration ?? 0;
-    const durationPx = Math.max(8, duration * pxPerSec);
-    const segStart = songOffsets[songIndex] * pxPerSec;
-    const segEnd = segStart + Math.max(1, songLengths[songIndex] * pxPerSec);
-    // Clamp the region start so the ghost stays inside the song segment.
-    const maxStart = Math.max(segStart, segEnd - durationPx);
-    return {
-      rowIndex,
-      trackIndex,
-      songIndex,
-      startPx: Math.max(segStart, Math.min(x, maxStart)),
-    };
-  };
-
-  const onTracksDragOver = (e: React.DragEvent) => {
-    if (readOnly || effectiveViewMode !== "audio") return;
-    const info = audioDragInfo(e);
-    // Not a file drag at all -- leave the browser default (no drop target).
-    if (!info.anyFiles) return;
-    // Accept the drag (drop allowed). On macOS the dragover phase carries no
-    // File (audioDrop.ts docs the quirk) -- the audio check runs again on
-    // drop, and the ghost only shows when we positively identified audio.
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-
-    const midiName = /\.(mid|midi)$/i.test(info.name) ? info.name : null;
-    setMidiDropName(midiName);
-    if (midiName && audioDropFile) {
-      audioDropFileRef.current = null;
-      setAudioDropFile(null);
-      setAudioDropPreview(null);
-    }
-    if (info.audio) {
-      // Grab the File for the preview: sync when available, else async via
-      // the drop-entry (one resolution attempt per dragged filename).
-      if (info.file) {
-        if (audioDropFileRef.current !== info.file) {
-          audioDropFileRef.current = info.file;
-          setAudioDropFile({ file: info.file, name: info.name });
-        }
-      } else if (
-        info.entry &&
-        audioDropEntryResolvedRef.current !== info.name
-      ) {
-        audioDropEntryResolvedRef.current = info.name;
-        void entryToFile(info.entry).then((f) => {
-          if (f && audioDropFileRef.current !== f) {
-            audioDropFileRef.current = f;
-            setAudioDropFile({ file: f, name: f.name });
-          }
-        });
-      }
-    } else if (!midiName && (audioDropFile || audioDropPos)) {
-      // A file we couldn't identify as audio -- hide any stale ghost.
-      clearAudioDrop();
-    }
-
-    const origin = tracksOriginRef.current;
-    if (!origin) return;
-    const rect = origin.getBoundingClientRect();
-    // tracksOrigin lives inside the scrolled body -- getBoundingClientRect()
-    // already shifts with scrollLeft (same rule as the marquee handlers).
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const pos = computeAudioDropPos(x, y);
-    setAudioDropPos(pos);
-  };
-
-  const onTracksDragLeave = (e: React.DragEvent) => {
-    const related = e.relatedTarget as Node | null;
-    if (related && e.currentTarget.contains(related)) return;
-    clearAudioDrop();
-  };
-
-  const onTracksDrop = (e: React.DragEvent) => {
-    if (readOnly || effectiveViewMode !== "audio") return;
-    const droppedFiles = Array.from(e.dataTransfer.files ?? []);
-    const dropped = droppedFiles[0] ?? null;
-    const allMidi = droppedFiles.length > 0 && droppedFiles.every((file) => /\.(mid|midi|midi2)$/i.test(file.name));
-    const isMidi = Boolean(dropped && /\.(mid|midi|midi2)$/i.test(dropped.name));
-    const file = isMidi ? dropped : audioFileDropEvent(e);
-    if (!file) {
-      clearAudioDrop();
-      return;
-    }
-    e.preventDefault();
-    const origin = tracksOriginRef.current;
-    let pos = audioDropPos;
-    // Drags that skipped the ghost (unidentified during dragover) still land
-    // here with coordinates -- recompute so the import targets the right row.
-    if (!pos && origin) {
-      const rect = origin.getBoundingClientRect();
-      pos = computeAudioDropPos(e.clientX - rect.left, e.clientY - rect.top);
-    }
-    clearAudioDrop();
-    if (!pos) return;
-    if (isMidi) {
-      if (!allMidi) {
-        showToast("Drop MIDI files together, or audio files together; mixed batches are not supported yet");
-        return;
-      }
-      const track = state.tracks[pos.trackIndex];
-      if (!track || !["instrument", "midi", "externalMidi"].includes(track.kind ?? "")) {
-        showToast("Drop MIDI on an instrument or MIDI track");
-        return;
-      }
-      const song = songs[pos.songIndex];
-      const startSeconds = Math.max(0, pos.startPx / pxPerSec - (songOffsets[pos.songIndex] ?? 0));
-      const rawStartBeats = song ? songBeatsAtSeconds(song, startSeconds) : startSeconds * 2;
-      const startBeats = snapToGrid ? Math.round(rawStartBeats * 4) / 4 : rawStartBeats;
-      window.dispatchEvent(new CustomEvent("resostage-import-midi", {
-        detail: { files: droppedFiles, target: { songIndex: pos.songIndex, trackId: track.id, startBeats } },
-      }));
-      return;
-    }
-    if (droppedFiles.some((candidate) => /\.(mid|midi|midi2)$/i.test(candidate.name))) {
-      showToast("Drop MIDI files together, or audio files together; mixed batches are not supported");
-      return;
-    }
-    const startSeconds = Math.max(0, pos.startPx / pxPerSec - (songOffsets[pos.songIndex] ?? 0));
-    if (droppedFiles.length > 1) {
-      window.dispatchEvent(new CustomEvent("resostage-import-audio-batch", {
-        detail: { files: droppedFiles, songIndex: pos.songIndex, startSeconds },
-      }));
-      return;
-    }
-    void builder.trackImportWav(pos.songIndex, pos.trackIndex, file, startSeconds);
-  };
+  // Drag & drop state is isolated with the import workflow below.
+  const tracksOriginRef = useRef<HTMLDivElement>(null);
+  const {
+    audioDropFile,
+    midiDropName,
+    audioDropPreview,
+    audioDropPos,
+    onTracksDragOver,
+    onTracksDragLeave,
+    onTracksDrop,
+  } = useTimelineFileDrop({
+    readOnly,
+    viewMode: effectiveViewMode,
+    tracks: state.tracks,
+    rows,
+    songs,
+    songOffsets,
+    songLengths,
+    pxPerSec,
+    verticalZoom,
+    snapToGrid,
+    tracksOriginRef,
+    showToast,
+  });
 
   // Imported audio that lands past an authored song end has to be dealt with
   // one way or the other -- see useLongImportGuard for why this watches the
@@ -1724,7 +1354,6 @@ export function Timeline({
   // Empty track-lane gesture: click = seek + clear selection; drag = marquee.
   // Regions/cues stopPropagation so this only sees empty space.
   // While dragging, selection updates live (before mouse-up).
-  const tracksOriginRef = useRef<HTMLDivElement>(null);
   const marqueeCancelRef = useRef<CancellableDrag | null>(null);
   /**
    * Esc mid-marquee: drop the rubber band and put the selection back to what it
@@ -1966,7 +1595,8 @@ export function Timeline({
     if (lightTracks.length > prevLightTrackCountRef.current) {
       const newIdx = lightTracks.length - 1;
       setSidePanelTrackIndex(newIdx);
-      selectCue(null);
+      setCueSelection(null);
+      setSelectedCueKeys([]);
       scrollToTrackIndex(newIdx);
     }
     prevLightTrackCountRef.current = lightTracks.length;
