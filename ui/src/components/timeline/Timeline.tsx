@@ -82,7 +82,7 @@ import { SelectionContextMenu } from "./selection/components/SelectionContextMen
 import { SongRulerHeader } from "./ruler/components/SongRulerHeader";
 import { TimelineSidebar } from "./tracks/components/TimelineSidebar";
 import { TimelineToolbar } from "./toolbar/components/TimelineToolbar";
-import { ToastContainer, type Toast } from "./ToastContainer";
+import { ToastContainer, type Toast } from "./toast/components/ToastContainer";
 import { useCycleState } from "./cycle/hooks/useCycleState";
 import { useRegionDrag } from "./regions/hooks/useRegionDrag";
 import { useLongImportGuard } from "./overrun/hooks/useLongImportGuard";
