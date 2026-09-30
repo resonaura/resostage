@@ -3,7 +3,7 @@ import type { LightCueValue } from "@/lib/light/lightCueInterpolation";
 import type { WebUiState } from "@/lib/state/types";
 import { getLightColor } from "@/screens/light/logic/lightColors";
 import type { LightSidePanelSelection } from "@/screens/light/components/LightSidePanel";
-import type { CueSelKey } from "@/screens/light/components/LightTimeline";
+import type { CueSelKey } from "@/screens/editor/timeline/lighting/logic/types";
 import { resolveLightSidePanelSelection } from "@/screens/editor/timeline/selection/logic/resolveLightSidePanelSelection";
 import { previewDropReorder } from "@/screens/editor/timeline/tracks/logic/dropPreview";
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";

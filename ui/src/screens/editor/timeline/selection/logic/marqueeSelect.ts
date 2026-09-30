@@ -1,5 +1,5 @@
 import type { SongRow } from "@/lib/state/types";
-import type { CueSelKey } from "@/screens/light/components/LightTimeline";
+import type { CueSelKey } from "@/screens/editor/timeline/lighting/logic/types";
 import { regionSelKey, type RegionSelKey } from "@/screens/editor/timeline/regions/logic/regionUtils";
 import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 

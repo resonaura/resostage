@@ -30,7 +30,7 @@ import type {
   WebUiState,
 } from "@/lib/state/types";
 import { LightSidePanel } from "@/screens/light/components/LightSidePanel";
-import type { CueSelKey, LightCueDragState } from "@/screens/light/components/LightTimeline";
+import type { CueSelKey, LightCueDragState } from "@/screens/editor/timeline/lighting/logic/types";
 import { LightHintStrip } from "@/screens/editor/timeline/lighting/components/LightHintStrip";
 import { AudioHintStrip } from "@/screens/editor/timeline/lighting/components/AudioHintStrip";
 import { LIGHT_HINT_HEIGHT } from "@/screens/editor/timeline/layout/logic/hintStripDimensions";

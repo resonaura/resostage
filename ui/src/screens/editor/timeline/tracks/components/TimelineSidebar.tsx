@@ -8,7 +8,7 @@ import type {
   WebUiState,
 } from "@/lib/state/types";
 import { builder, lighting } from "@/lib/state/api";
-import { LightTrackHeader } from "@/screens/light/components/LightTimeline";
+import { LightTrackHeader } from "@/screens/editor/timeline/tracks/components/LightTrackHeader";
 import {
   AUDIO_HINT_HEIGHT,
   LIGHT_HINT_HEIGHT,

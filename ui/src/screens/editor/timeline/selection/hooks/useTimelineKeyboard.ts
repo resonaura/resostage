@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { SongRow } from "@/lib/state/types";
-import type { CueSelKey } from "@/screens/light/components/LightTimeline";
+import type { CueSelKey } from "@/screens/editor/timeline/lighting/logic/types";
 import { allRegionSelKeys, type RegionSelKey } from "@/screens/editor/timeline/regions/logic/regionUtils";
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";

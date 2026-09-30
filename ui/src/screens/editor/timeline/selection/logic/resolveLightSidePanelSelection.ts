@@ -1,5 +1,5 @@
 import type { LightSidePanelSelection } from "@/screens/light/components/LightSidePanel";
-import type { CueSelKey } from "@/screens/light/components/LightTimeline";
+import type { CueSelKey } from "@/screens/editor/timeline/lighting/logic/types";
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import type { LightTrackRow, SongRow } from "@/lib/state/types";
 

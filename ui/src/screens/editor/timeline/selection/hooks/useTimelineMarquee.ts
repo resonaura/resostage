@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { beginCancellableDrag, type CancellableDrag } from "@/lib/interaction/dragCancel";
 import type { SongRow, TrackRow } from "@/lib/state/types";
-import type { CueSelKey } from "@/screens/light/components/LightTimeline";
+import type { CueSelKey } from "@/screens/editor/timeline/lighting/logic/types";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import {
   normalizeMarquee,
