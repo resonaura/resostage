@@ -72,7 +72,7 @@ export function useTimelineFileDrop({
     setAudioDropPos(null);
   }, []);
 
-  // Decode the dragged file once (cached in logic/audioDrop.ts); preview fills in
+  // Decode the dragged file once (cached in ../logic/audioDrop.ts); preview fills in
   // as soon as it resolves.
   useEffect(() => {
     if (!audioDropFile) return;
@@ -109,7 +109,7 @@ export function useTimelineFileDrop({
     // Not a file drag at all -- leave the browser default (no drop target).
     if (!info.anyFiles) return;
     // Accept the drag (drop allowed). On macOS the dragover phase carries no
-    // File (logic/audioDrop.ts documents the quirk) -- the audio check runs again on
+    // File (../logic/audioDrop.ts documents the quirk) -- the audio check runs again on
     // drop, and the ghost only shows when we positively identified audio.
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";

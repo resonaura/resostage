@@ -1,7 +1,7 @@
 import type { RegionRow, SongRow, TrackRow } from "../../../../lib/state/types";
 import { laneHeightPx } from "../../layout/logic/laneDimensions";
 import { EDGE_PX } from "../../constants";
-import type { CycleLocatorsForDetents } from "../../detents";
+import type { CycleLocatorsForDetents } from "../../snapping/logic/detents";
 
 import { snapToGridSec } from "../../ruler/logic/geometry";
 import type { RegionSelKey } from "./regionUtils";

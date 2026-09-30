@@ -1,6 +1,7 @@
 // HTML5 drag & drop helpers for the timeline's audio-file ghost preview.
 // The ghost is purely visual ("as if you'd added the file") until the user
-// actually drops it, see AudioDropGhost.tsx + the drop wiring in Timeline.tsx.
+// actually drops it, see ../components/AudioDropGhost.tsx + the drop wiring in
+// Timeline.tsx.
 //
 // macOS/Electron quirk that drives this design: on an OS file drag (Finder),
 // `dataTransfer.files` is empty and `getAsFile()` returns null for the whole

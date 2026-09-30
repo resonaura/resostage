@@ -15,7 +15,7 @@ import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { addRafTask } from "../../lib/state/rafLoop";
 import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timeline/timelineVisibility";
-import { useTimelineFileDrop } from "./fileDrop/hooks/useTimelineFileDrop";
+import { useTimelineFileDrop } from "./drop/hooks/useTimelineFileDrop";
 import { hasClipboard } from "./selection/logic/timelineClipboard";
 import { useTimelineGestureActivity } from "./useTimelineGestureActivity";
 import { RegionSidePanel } from "./regions/components/RegionSidePanel";
@@ -42,7 +42,7 @@ import {
   emptyProjectActions,
   EmptyProjectState,
 } from "../project/EmptyProjectState";
-import { AudioDropGhost } from "./fileDrop/components/AudioDropGhost";
+import { AudioDropGhost } from "./drop/components/AudioDropGhost";
 import { AudioTrackLanes } from "./AudioTrackLanes";
 import { BeatGrid } from "./ruler/components/BeatGrid";
 import {
@@ -56,7 +56,7 @@ import {
 import { EventMarkerLane } from "./EventMarkerLane";
 import { LongImportPrompt } from "./LongImportPrompt";
 import { OutOfBoundsOverlay } from "./OutOfBoundsOverlay";
-import { songDetents } from "./detents";
+import { songDetents } from "./snapping/logic/detents";
 import { resolveCycleWrapRange } from "./cycle/logic/resolveCycleWrapRange";
 import {
   snapSongLocalSeconds,
@@ -77,7 +77,7 @@ import {
 } from "./regions/logic/regionUtils";
 import { buildRows, songContentSeconds } from "./layout/logic/rows";
 import { previewDropReorder } from "./tracks/logic/dropPreview";
-import { SectionMarkerLane } from "./SectionMarkerLane";
+import { SectionMarkerLane } from "./sections/components/SectionMarkerLane";
 import { SelectionContextMenu } from "./selection/components/SelectionContextMenu";
 import { SongRulerHeader } from "./ruler/components/SongRulerHeader";
 import { TimelineSidebar } from "./tracks/components/TimelineSidebar";
@@ -87,7 +87,7 @@ import { useCycleState } from "./cycle/hooks/useCycleState";
 import { useRegionDrag } from "./regions/hooks/useRegionDrag";
 import { useLongImportGuard } from "./useLongImportGuard";
 import { useRegionSelectionLifecycle } from "./regions/hooks/useRegionSelectionLifecycle";
-import { useSongLayout } from "./useSongLayout";
+import { useSongLayout } from "./layout/hooks/useSongLayout";
 import { useTimelineKeyboard } from "./selection/hooks/useTimelineKeyboard";
 import { useTimelineMarquee } from "./selection/hooks/useTimelineMarquee";
 import { useTimelineScrub } from "./ruler/hooks/useTimelineScrub";

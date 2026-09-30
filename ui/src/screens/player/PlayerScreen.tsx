@@ -30,7 +30,7 @@ import {
 import { FontIcon } from "../../components/common/FontIcon";
 import { ResoLightStage3D } from "../../components/light/LazyResoLightStage3D";
 import { Timeline } from "../../components/timeline";
-import { useSongLayout } from "../../components/timeline/useSongLayout";
+import { useSongLayout } from "../../components/timeline/layout/hooks/useSongLayout";
 import {
   Button,
   ButtonGroup,

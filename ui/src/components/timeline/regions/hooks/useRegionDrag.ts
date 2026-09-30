@@ -12,7 +12,7 @@ import {
   type CrossfadeRegion,
   type CrossfadeShape,
 } from "../../crossfade/logic/crossfade";
-import { edgesCrossedDetent, songDetents } from "../../detents";
+import { edgesCrossedDetent, songDetents } from "../../snapping/logic/detents";
 import { lookupAnyRegion, type RegionSelKey } from "../logic/regionUtils";
 import {
   baseRegionGeom,

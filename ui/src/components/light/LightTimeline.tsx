@@ -10,7 +10,7 @@ import {
   type CancellableDrag,
 } from "../../lib/interaction/dragCancel";
 import { triggerHaptic } from "../../lib/interaction/haptics";
-import { edgesCrossedDetent } from "../timeline/detents";
+import { edgesCrossedDetent } from "../timeline/snapping/logic/detents";
 import type {
   AllPeaksResponse,
   LightCueRow,

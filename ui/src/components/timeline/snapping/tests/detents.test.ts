@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { SongRow } from "../../lib/state/types";
-import { crossedDetent, edgesCrossedDetent, songDetents } from "./detents";
+import type { SongRow } from "../../../../lib/state/types";
+import {
+  crossedDetent,
+  edgesCrossedDetent,
+  songDetents,
+} from "../logic/detents";
 
 const song = {
   regions: [
