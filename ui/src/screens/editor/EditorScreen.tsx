@@ -26,16 +26,13 @@ import {
   executeStemImport,
 } from "../../transfer/audio/logic/stemImport";
 import { Timeline } from "./timeline";
-import {
-  resolveTrackSelection,
-  type TrackSelectionGesture,
-} from "./timeline/tracks/logic/trackSelection";
+import { useEditorTrackSelection } from "./hooks/useEditorTrackSelection";
 import { PianoRoll } from "./pianoroll";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { MidiRegionSidePanel } from "./pianoroll/components/MidiRegionSidePanel";
 import { getTrackColor } from "../../lib/theme";
 import { songDurationSeconds } from "./timeline/layout/logic/rows";
-import { builder, mixer, timelineHistory, transport } from "../../lib/state/api";
+import { builder, timelineHistory, transport } from "../../lib/state/api";
 import { useIsCompact } from "../../hooks/useMediaQuery";
 import type {
   AllPeaksResponse,
@@ -74,8 +71,8 @@ export function EditorScreen({
   const compact = useIsCompact();
   const [tab, setTab] = useState<EditorTab>("timeline");
   const [selected, setSelected] = useState(-1);
-  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
-  const [selectedTrackIds, setSelectedTrackIds] = useState<string[]>([]);
+  const { selectedTrackId, selectedTrackIds, handleSelectTrack } =
+    useEditorTrackSelection(state);
   const [showInspector, setShowInspector] = useState(() => {
     try {
       return localStorage.getItem("resostage:editor-inspector") !== "false";
@@ -83,8 +80,6 @@ export function EditorScreen({
       return true;
     }
   });
-  const trackSelectionAnchorRef = useRef<string | null>(null);
-
   useEffect(() => {
     hotkeyManager.setScopeActive(HotkeyScope.Timeline, !compact && tab === "timeline");
     hotkeyManager.setScopeActive(HotkeyScope.PianoRoll, !compact && tab === "pianoroll");
@@ -103,82 +98,6 @@ export function EditorScreen({
       return next;
     });
   }, []);
-
-  const lastProjectNameRef = useRef<string | null>(null);
-  const pendingUserTrackSelectRef = useRef<string | null>(null);
-
-  const handleSelectTrack = useCallback((
-    trackId: string | null,
-    gesture: TrackSelectionGesture = "replace",
-  ) => {
-    const next = resolveTrackSelection(
-      {
-        selectedIds: selectedTrackIds,
-        primaryId: selectedTrackId,
-        anchorId: trackSelectionAnchorRef.current,
-      },
-      state.tracks.map((track) => track.id),
-      trackId,
-      gesture,
-    );
-    pendingUserTrackSelectRef.current =
-      next.primaryId && next.primaryId !== state.activeTrackId
-        ? next.primaryId
-        : null;
-    trackSelectionAnchorRef.current = next.anchorId;
-    setSelectedTrackId(next.primaryId);
-    setSelectedTrackIds(next.selectedIds);
-    const focusedIndex = state.tracks.findIndex(
-      (track) => track.id === next.primaryId,
-    );
-    if (focusedIndex >= 0) void mixer.setFocusedTrack(focusedIndex);
-    else if (gesture === "toggle") void mixer.setFocusedTrack(-1);
-  }, [selectedTrackId, selectedTrackIds, state.activeTrackId, state.tracks]);
-
-  useEffect(() => {
-    if (!state.projectName) return;
-    const isNewProject = lastProjectNameRef.current !== state.projectName;
-    if (isNewProject) {
-      lastProjectNameRef.current = state.projectName;
-      pendingUserTrackSelectRef.current = null;
-      trackSelectionAnchorRef.current = state.activeTrackId || null;
-      if (
-        state.activeTrackId &&
-        state.tracks.some((t) => t.id === state.activeTrackId)
-      ) {
-        setSelectedTrackId(state.activeTrackId);
-        setSelectedTrackIds([state.activeTrackId]);
-      }
-      return;
-    }
-
-    if (
-      pendingUserTrackSelectRef.current &&
-      state.activeTrackId === pendingUserTrackSelectRef.current
-    ) {
-      pendingUserTrackSelectRef.current = null;
-    }
-
-    if (!pendingUserTrackSelectRef.current && state.activeTrackId) {
-      if (
-        state.activeTrackId !== selectedTrackId &&
-        state.tracks.some((t) => t.id === state.activeTrackId)
-      ) {
-        setSelectedTrackId(state.activeTrackId);
-        setSelectedTrackIds([state.activeTrackId]);
-        trackSelectionAnchorRef.current = state.activeTrackId;
-      }
-    }
-  }, [state.activeTrackId, state.projectName, state.tracks, selectedTrackId]);
-
-  useEffect(() => {
-    const available = new Set(state.tracks.map((track) => track.id));
-    setSelectedTrackIds((current) =>
-      current.every((id) => available.has(id))
-        ? current
-        : current.filter((id) => available.has(id)),
-    );
-  }, [state.tracks]);
 
   useEffect(
     () => hotkeyManager.registerCommand(
