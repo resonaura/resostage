@@ -107,6 +107,7 @@ target_sources(ResoStage PRIVATE
   server/WebServerMenuModel.cpp
   server/WebServerResources.cpp
   server/WebServerTelemetry.cpp
+  server/WebServerTelemetryBinary.cpp
   network/UdpDiscovery.cpp
 )
 
