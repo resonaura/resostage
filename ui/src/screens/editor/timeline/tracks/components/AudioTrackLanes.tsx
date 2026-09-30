@@ -29,7 +29,6 @@ import {
   type RegionGeomDraft,
 } from "@/screens/editor/timeline/regions/logic/regionDrag";
 import { splitRegionsAtPlayhead } from "@/screens/editor/timeline/regions/logic/regionEdit";
-import { midiRegionPlacementAt } from "@/screens/editor/timeline/regions/logic/midiRegionPlacement";
 import { buildSongPeakLookup } from "@/screens/editor/timeline/regions/logic/regionPeaks";
 import {
   regionSelKey,
@@ -38,6 +37,7 @@ import {
 } from "@/screens/editor/timeline/regions/logic/regionUtils";
 import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 import { toolCursor, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import { useEmptyTrackLaneClick } from "@/screens/editor/timeline/tracks/hooks/useEmptyTrackLaneClick";
 import { useTrackAudioImport } from "@/screens/editor/timeline/tracks/hooks/useTrackAudioImport";
 
 export function AudioTrackLanes({
@@ -109,6 +109,16 @@ export function AudioTrackLanes({
 
   const { fileInputRef, openTrackAudioImport, handleFileChange } =
     useTrackAudioImport();
+  const handleEmptyLaneClick = useEmptyTrackLaneClick({
+    songs,
+    songOffsets,
+    songLengths,
+    pxPerSec,
+    snapToGrid,
+    readOnly,
+    tool,
+    openTrackAudioImport,
+  });
 
   // One resolver per song: region -> waveform data, including the by-file
   // fallback that lets a fresh split draw immediately. See regionPeaks.ts.
@@ -169,69 +179,9 @@ export function AudioTrackLanes({
               height: laneHeightPx(verticalZoom),
               cursor: toolCursor(tool, readOnly),
             }}
-            onClick={(e) => {
-              if (readOnly || tool !== "pencil") return;
-              // Empty lane only. Stopping the region's POINTERDOWN does not
-              // stop its click, so a pencil click on an existing region used
-              // to bubble here and open the file picker -- the pencil's one
-              // job, offered in the one place it makes no sense.
-              if ((e.target as HTMLElement).closest?.("[data-region-block]"))
-                return;
-              // No scrollLeft term: this lane IS the full-width content
-              // element, so its bounding rect has already moved left by the
-              // scroll and `clientX - rect.left` is content space. Adding the
-              // scroll offset double-counted it and picked the wrong song
-              // once the timeline was scrolled past the first one -- which
-              // also made this the only place in the tree that needed a
-              // pixel-exact scroll position (see layout/logic/scrollWindow.ts).
-              const rect = e.currentTarget.getBoundingClientRect();
-              const x = e.clientX - rect.left;
-              // Find song under click
-              let songIndex = 0;
-              for (let i = 0; i < songOffsets.length; i++) {
-                const start = songOffsets[i] * pxPerSec;
-                const end = start + songLengths[i] * pxPerSec;
-                if (x >= start && x < end) {
-                  songIndex = i;
-                  break;
-                }
-                if (i === songOffsets.length - 1) songIndex = i;
-              }
-              if (trackIndex < 0) return;
-              const clickedSong = songs[songIndex];
-              const trackKind = track?.kind ?? "audio";
-              const acceptsMidi =
-                trackKind === "instrument" ||
-                trackKind === "midi" ||
-                trackKind === "externalMidi";
-              if (acceptsMidi && track) {
-                const localSeconds = Math.max(
-                  0,
-                  x / pxPerSec - (songOffsets[songIndex] ?? 0),
-                );
-                const placement = midiRegionPlacementAt(
-                  localSeconds,
-                  songLengths[songIndex] ?? 0,
-                  clickedSong?.bpm ?? 120,
-                  clickedSong?.tsNum ?? 4,
-                  pxPerSec,
-                  snapToGrid,
-                );
-                void builder.midiRegionAdd({
-                  songIndex,
-                  trackId: track.id,
-                  name: "MIDI Region",
-                  startBeats: placement.startBeats,
-                  durationBeats: placement.durationBeats,
-                  loop: false,
-                  loopLengthBeats: placement.durationBeats,
-                  color: row.color,
-                });
-                return;
-              }
-              if (trackKind === "audio")
-                openTrackAudioImport(songIndex, trackIndex);
-            }}
+            onClick={(event) =>
+              handleEmptyLaneClick(event, row, track, trackIndex)
+            }
           >
             {(() => {
               const activeRecording = state.liveRecordings?.find(
