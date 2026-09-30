@@ -26,6 +26,7 @@ import {
 import { groupInstruments } from "../plugins/logic/pluginGroups";
 import { ChannelStrip } from "./ChannelStrip";
 import { colorForIndex } from "../logic/constants";
+import { getTrackInputOptions, getTrackInputState } from "../logic/trackInputs";
 
 function TrackStripInner({
   t,
@@ -70,17 +71,8 @@ function TrackStripInner({
   const peakDbL = t.peakDbL ?? busMeter?.peakDbL ?? peakDb;
   const peakDbR = t.peakDbR ?? busMeter?.peakDbR ?? peakDb;
 
-  const isInstrument = t.kind === "instrument";
-  const isMidiInputTrack =
-    t.kind === "instrument" ||
-    t.kind === "midi" ||
-    t.kind === "externalMidi";
-  const hasAudioInput =
-    (t.kind === "audio" || t.kind == null) && t.inputSource !== "none";
-  const canRecord = hasAudioInput || isMidiInputTrack;
-  const canMonitorInput = hasAudioInput || isMidiInputTrack;
-  const isMono = t.channels === 1;
-  const currentInput = t.inputSource || (isMono ? "in:1" : "in:1+2");
+  const { isInstrument, canRecord, canMonitorInput, isMono, currentInput } =
+    getTrackInputState(t);
 
   const [optimisticPolarity, setOptimisticPolarity] = useState<
     "left" | "right" | "none" | "both" | null
@@ -127,31 +119,11 @@ function TrackStripInner({
     [isInstrument, pluginCatalog],
   );
 
-  const hwChannels =
-    settings?.inputChannelNames && settings.inputChannelNames.length > 0
-      ? settings.inputChannelNames
-      : ["In 1", "In 2"];
-
-  const inputOptions = [
-    ...(isMono
-      ? hwChannels.map((chName, chIdx) => ({
-          id: `in:${chIdx + 1}`,
-          label: chName || `In ${chIdx + 1}`,
-        }))
-      : [
-          { id: "in:1+2", label: "In 1+2" },
-          ...(hwChannels.length >= 4
-            ? [{ id: "in:3+4", label: "In 3+4" }]
-            : []),
-          { id: "in:1", label: "In 1 (Spread)" },
-          { id: "in:2", label: "In 2 (Spread)" },
-        ]),
-    ...allBusses.map((b, bIdx) => ({
-      id: `bus:${b.id}`,
-      label: `Bus ${bIdx + 1}: ${b.name || b.id}`,
-    })),
-    { id: "none", label: "No In" },
-  ];
+  const inputOptions = getTrackInputOptions({
+    isMono,
+    inputChannelNames: settings?.inputChannelNames,
+    allBusses,
+  });
 
   return (
     <>
