@@ -7,6 +7,7 @@ import {
   PianoRollProjectHeader,
   type PianoRollCycleSetRange,
 } from "@/screens/editor/pianoroll/components/PianoRollProjectHeader";
+import { usePianoRollAutoScroll } from "@/screens/editor/pianoroll/hooks/usePianoRollAutoScroll";
 import { triggerHaptic } from "@/lib/interaction/haptics";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
 import { midiRegionSourceBeat } from "@/lib/midi/midiRegionTiming";
@@ -191,13 +192,6 @@ export function PianoRollCanvas({
     setControllerPreview(null);
   }, [region.id, setControllerPreview]);
 
-  // Auto-scroll loop state while dragging notes near canvas edges
-  const autoScrollRafRef = useRef<number | null>(null);
-  const lastPointerPosRef = useRef<{ clientX: number; clientY: number }>({
-    clientX: 0,
-    clientY: 0,
-  });
-  const autoScrollTimeRef = useRef<number | null>(null);
   const lastDragDetentRef = useRef<string | null>(null);
 
   // Pencil's one-click note length follows the last note the user selected
@@ -289,143 +283,22 @@ export function PianoRollCanvas({
     [region],
   );
 
-  // ── Edge Auto-Scroll Engine (time-based, bounded speed) ─────────────────
-  const stopAutoScroll = useCallback(() => {
-    if (autoScrollRafRef.current !== null) {
-      cancelAnimationFrame(autoScrollRafRef.current);
-      autoScrollRafRef.current = null;
-    }
-  }, []);
-
-  const startAutoScroll = useCallback(() => {
-    stopAutoScroll();
-    autoScrollTimeRef.current = null;
-    const tick = (now: number) => {
-      const dragging = draggingRef.current;
-      const canvas = canvasRef.current;
-      if (
-        !dragging ||
-        !canvas ||
-        (dragging.type !== "move" && dragging.type !== "resize"
-          && dragging.type !== "draw")
-      ) {
-        autoScrollRafRef.current = null;
-        return;
-      }
-
-      const rect = canvas.getBoundingClientRect();
-      const { clientX, clientY } = lastPointerPosRef.current;
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
-      const width = rect.width;
-      const gridBottom = rect.height - viewport.velocityLaneHeight;
-
-      const dt = Math.min(
-        0.05,
-        Math.max(0, (now - (autoScrollTimeRef.current ?? now)) / 1000),
-      );
-      autoScrollTimeRef.current = now;
-      const EDGE_X = 55;
-      const MIN_SPEED_X = 35; // pixels / second
-      const MAX_SPEED_X = 420;
-      let speedX = 0;
-
-      if (x > width - EDGE_X) {
-        const prox = Math.max(0, Math.min(1, (x - (width - EDGE_X)) / EDGE_X));
-        speedX = MIN_SPEED_X + (MAX_SPEED_X - MIN_SPEED_X) * (prox * prox);
-      } else if (
-        x < viewport.keyWidth + EDGE_X &&
-        x >= viewport.keyWidth - 20
-      ) {
-        const prox = Math.max(
-          0,
-          Math.min(1, (viewport.keyWidth + EDGE_X - x) / EDGE_X),
-        );
-        speedX = -(MIN_SPEED_X + (MAX_SPEED_X - MIN_SPEED_X) * (prox * prox));
-      }
-
-      const EDGE_Y = 45;
-      const MIN_SPEED_Y = 20; // pixels / second
-      const MAX_SPEED_Y = 180;
-      let speedY = 0;
-
-      if (y > gridBottom - EDGE_Y && y <= gridBottom + 30) {
-        const prox = Math.max(
-          0,
-          Math.min(1, (y - (gridBottom - EDGE_Y)) / EDGE_Y),
-        );
-        speedY = -(MIN_SPEED_Y + (MAX_SPEED_Y - MIN_SPEED_Y) * (prox * prox));
-      } else if (y < RULER_HEIGHT + EDGE_Y && y >= RULER_HEIGHT - 20) {
-        const prox = Math.max(
-          0,
-          Math.min(1, (RULER_HEIGHT + EDGE_Y - y) / EDGE_Y),
-        );
-        speedY = MIN_SPEED_Y + (MAX_SPEED_Y - MIN_SPEED_Y) * (prox * prox);
-      }
-
-      if (speedX !== 0 || speedY !== 0) {
-        onViewportChange((v) => {
-          const deltaBeats = (speedX * dt) / v.pixelsPerBeat;
-          const nextBeats = Math.max(0, v.scrollBeats + deltaBeats);
-          const deltaPitch = (speedY * dt) / v.pixelsPerPitch;
-          const nextPitch = Math.max(
-            0,
-            Math.min(127 - 5, v.scrollPitch + deltaPitch),
-          );
-          return {
-            ...v,
-            scrollBeats: nextBeats,
-            scrollPitch: nextPitch,
-          };
-        });
-
-        if (dragging.type === "draw") {
-          const liveViewport = viewportRef.current;
-          const pointerBeat = liveViewport.scrollBeats
-            + (x - liveViewport.keyWidth) / liveViewport.pixelsPerBeat;
-          const initialNote = dragging.initialNotesSnapshot.values()
-            .next().value as MidiNoteRow | undefined;
-          if (initialNote) {
-            const duration = resolveDrawNoteDuration(
-              dragging.startBeat,
-              pointerBeat,
-              snap,
-              initialNote.durationBeats,
-              3 / liveViewport.pixelsPerBeat,
-            );
-            const startBeat = sourceBeatAt(snapBeat(
-              Math.max(0, Math.min(dragging.startBeat, pointerBeat)),
-            ));
-            const baseNotes = pendingCommitRef.current ?? notesToRender;
-            const updated = baseNotes.map((note) =>
-              dragging.targetNoteIds?.has(note.id)
-                ? { ...note, startBeats: startBeat, durationBeats: duration }
-                : note,
-            );
-            pendingCommitRef.current = updated;
-            setLocalNotes(updated);
-          }
-        }
-      }
-
-      autoScrollRafRef.current = requestAnimationFrame(tick);
-    };
-
-    autoScrollRafRef.current = requestAnimationFrame(tick);
-  }, [
-    onViewportChange,
-    notesToRender,
-    snap,
-    snapBeat,
-    sourceBeatAt,
-    stopAutoScroll,
-    viewport.keyWidth,
-    viewport.velocityLaneHeight,
-  ]);
-
-  useEffect(() => {
-    return () => stopAutoScroll();
-  }, [stopAutoScroll]);
+  // Edge auto-scroll RAF and its pointer/clock refs are owned by one hook.
+  const { lastPointerPosRef, startAutoScroll, stopAutoScroll } =
+    usePianoRollAutoScroll({
+      canvasRef,
+      viewportRef,
+      draggingRef,
+      pendingCommitRef,
+      notesToRender,
+      keyWidth: viewport.keyWidth,
+      velocityLaneHeight: viewport.velocityLaneHeight,
+      snap,
+      snapBeat,
+      sourceBeatAt,
+      onViewportChange,
+      setLocalNotes,
+    });
 
   // ── Playhead Autofollow Management ──────────────────────────────────────
   // Catch on playback start: reveal playhead and reset suspension
