@@ -51,6 +51,7 @@ target_sources(ResoStage PRIVATE
   Main.cpp
   main/MainComponent.cpp
   main/commands/MainComponentWebCommands.cpp
+  main/state/MainComponentWebState.cpp
   main/MainComponentBuilder.cpp
   main/MainComponentSettings.cpp
   main/MainComponentTimeline.cpp
