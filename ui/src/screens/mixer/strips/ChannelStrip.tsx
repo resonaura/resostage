@@ -19,6 +19,7 @@ import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
 import { MonoStereoIcon } from "./MonoStereoIcon";
 import { StripButton } from "./StripButton";
+import { createVerticalValueDragHandler } from "./logic/verticalValueDrag";
 import { PluginInsertSlots } from "../plugins/PluginInsertSlots";
 import { PluginSlotControl } from "../plugins/PluginSlotControl";
 import { SendKnobs } from "./SendKnobs";
@@ -167,38 +168,32 @@ export function ChannelStrip({
     inputRouting?.onTrimChange ?? noop,
   );
 
-  const handleTrimPointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    if (!inputRouting?.onTrimChange) return;
-    try {
-      e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
-    const startY = e.clientY;
-    const startVal = displayTrimDb;
-
-    const onPointerMove = (ev: PointerEvent) => {
-      const dy = startY - ev.clientY;
-      const sensitivity = ev.shiftKey ? 0.02 : 0.15;
-      const step = ev.shiftKey ? 0.05 : 0.1;
-      const raw = startVal + dy * sensitivity;
-      const next = Math.max(-24, Math.min(24, Math.round(raw / step) * step));
-      commitTrimDb(Math.round(next * 100) / 100);
-    };
-
-    const onPointerUp = (ev: PointerEvent) => {
-      try {
-        if (e.currentTarget.hasPointerCapture(ev.pointerId)) {
-          e.currentTarget.releasePointerCapture(ev.pointerId);
-        }
-      } catch {}
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-  };
+  const handleTrimPointerDown = createVerticalValueDragHandler(
+    displayTrimDb,
+    commitTrimDb,
+    {
+      min: -24,
+      max: 24,
+      sensitivity: 0.15,
+      step: 0.1,
+      fineSensitivity: 0.02,
+      fineStep: 0.05,
+      precision: 2,
+      capturePointer: true,
+    },
+  );
+  const handlePanPointerDown = createVerticalValueDragHandler(
+    displayPan,
+    commitPan,
+    {
+      min: -1,
+      max: 1,
+      sensitivity: 0.01,
+      step: 0.05,
+      fineSensitivity: 0.01,
+      fineStep: 0.01,
+    },
+  );
 
   const isPolarityActive =
     inputRouting?.polarity && inputRouting.polarity !== "none";
@@ -482,30 +477,7 @@ export function ChannelStrip({
           <div
             className="font-mono text-[8.5px] text-foreground/50 hover:text-foreground cursor-ns-resize select-none transition-colors"
             title="Pan (Drag up/down to adjust, double-click for Center)"
-            onPointerDown={(e) => {
-              if (e.button !== 0) return;
-              e.preventDefault();
-              const startY = e.clientY;
-              const startVal = displayPan;
-
-              const onPointerMove = (ev: PointerEvent) => {
-                const dy = startY - ev.clientY;
-                const step = ev.shiftKey ? 0.01 : 0.05;
-                const next = Math.max(
-                  -1,
-                  Math.min(1, Math.round((startVal + dy * 0.01) / step) * step),
-                );
-                commitPan(next);
-              };
-
-              const onPointerUp = () => {
-                window.removeEventListener("pointermove", onPointerMove);
-                window.removeEventListener("pointerup", onPointerUp);
-              };
-
-              window.addEventListener("pointermove", onPointerMove);
-              window.addEventListener("pointerup", onPointerUp);
-            }}
+            onPointerDown={handlePanPointerDown}
             onDoubleClick={(e) => {
               e.preventDefault();
               commitPan(0);
