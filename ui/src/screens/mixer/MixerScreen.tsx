@@ -4,14 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui";
 import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
 import { useHorizontalWindow } from "./hooks/useHorizontalWindow";
-import {
-  builder,
-  mixer,
-  pluginCatalog as pluginCatalogApi,
-  type PluginCatalogEntry,
-} from "../../lib/state/api";
+import { builder, mixer } from "../../lib/state/api";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/state/types";
 import { useIsCompact } from "../../hooks/useMediaQuery";
+import { usePluginCatalog } from "./plugins/hooks/usePluginCatalog";
 import { PluginChainModal } from "./plugins/PluginChainModal";
 import { extOutTarget, isMainBusId } from "./logic/mixerIds";
 import { patchClickFields } from "./logic/mixerUtils";
@@ -138,43 +134,11 @@ export function MixerScreen({
   stateRef.current = state;
   const [menu, setMenu] = useState<StripMenuTarget | null>(null);
   const [pluginTarget, setPluginTarget] = useState<PluginTarget | null>(null);
-  const [effectCatalog, setEffectCatalog] = useState<PluginCatalogEntry[]>([]);
+  const effectCatalog = usePluginCatalog(active);
 
   const openPlugins = useCallback((stripId: string, stripName: string) => {
     setPluginTarget({ stripId, stripName });
   }, []);
-
-  // The catalog is device-local structural state, so load it once for every
-  // strip instead of making each insert rack poll Core. If a scan is active,
-  // keep the single shared copy fresh until the helper finishes.
-  useEffect(() => {
-    if (!active) return;
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const refresh = () => {
-      void pluginCatalogApi
-        .list()
-        .then((response) => {
-          if (disposed) return;
-          setEffectCatalog(response.catalog.plugins);
-          if (response.scan.state === "scanning") {
-            timer = setTimeout(refresh, 1500);
-          }
-        })
-        .catch(() => {
-          // An unavailable catalog leaves explicit empty insert slots. The
-          // reliable settings screen owns scan errors and retry controls, but
-          // keep this one shared request recoverable across a Core restart or
-          // remote host switch instead of leaving the rack empty forever.
-          if (!disposed) timer = setTimeout(refresh, 3000);
-        });
-    };
-    refresh();
-    return () => {
-      disposed = true;
-      if (timer !== null) clearTimeout(timer);
-    };
-  }, [active]);
 
   useEffect(() => {
     if (pendingBusJobs.current.length === 0) return;
