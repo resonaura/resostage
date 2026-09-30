@@ -95,6 +95,7 @@ target_sources(ResoStage PRIVATE
   plugins/PluginHostProcess.cpp
   server/WebServer.cpp
   server/WebServerJobs.cpp
+  server/WebServerMenuModel.cpp
   server/WebServerTelemetry.cpp
   network/UdpDiscovery.cpp
 )
