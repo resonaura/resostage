@@ -70,7 +70,6 @@ import {
 } from "./RegionContextMenu";
 import { splitRegionsAtPlayhead } from "./regionEdit";
 import {
-  allRegionSelKeys,
   type RegionSelKey,
   type RegionUiState,
 } from "./regionUtils";
@@ -85,6 +84,7 @@ import { ToastContainer, type Toast } from "./ToastContainer";
 import { useCycleState } from "./useCycleState";
 import { useRegionDrag } from "./useRegionDrag";
 import { useLongImportGuard } from "./useLongImportGuard";
+import { useRegionSelectionLifecycle } from "./useRegionSelectionLifecycle";
 import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
 import { useTimelineMarquee } from "./useTimelineMarquee";
@@ -474,42 +474,11 @@ export function Timeline({
   const [selectedRegionKeys, setSelectedRegionKeys] = useState<RegionSelKey[]>(
     [],
   );
-  const recordingWasActiveRef = useRef(false);
-  const recordingBaselineRef = useRef<Set<RegionSelKey>>(new Set());
-  const awaitingRecordedRegionsRef = useRef(false);
-
-  // Recording completion is a project mutation arriving from Core, not a UI
-  // gesture. Remember the arrangement at Record start and select the newly
-  // committed audio regions when the structural snapshot catches up; do not
-  // open an editor automatically.
-  useEffect(() => {
-    const recording = state.recording ?? false;
-    if (recording && !recordingWasActiveRef.current) {
-      recordingBaselineRef.current = new Set(allRegionSelKeys(state.songs));
-      awaitingRecordedRegionsRef.current = false;
-    } else if (!recording && recordingWasActiveRef.current) {
-      awaitingRecordedRegionsRef.current = true;
-    }
-    recordingWasActiveRef.current = recording;
-
-    if (!recording && awaitingRecordedRegionsRef.current) {
-      const added = allRegionSelKeys(state.songs).filter(
-        (key) => !recordingBaselineRef.current.has(key),
-      );
-      if (added.length > 0) {
-        setSelectedRegionKeys(added);
-        awaitingRecordedRegionsRef.current = false;
-      }
-    }
-  }, [state.recording, state.songs]);
-  // Drop selection entries that no longer exist (delete / project reload).
-  useEffect(() => {
-    const valid = new Set(allRegionSelKeys(state.songs));
-    setSelectedRegionKeys((prev) => {
-      const next = prev.filter((k) => valid.has(k));
-      return next.length === prev.length ? prev : next;
-    });
-  }, [state.songs]);
+  useRegionSelectionLifecycle({
+    songs: state.songs,
+    recording: state.recording,
+    setSelectedRegionKeys,
+  });
 
   // Region UI state (mute); geometry is project-owned
   const [regions, setRegions] = useState<Map<RegionSelKey, RegionUiState>>(
