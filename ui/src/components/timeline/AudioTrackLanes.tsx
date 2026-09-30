@@ -20,7 +20,7 @@ import {
 } from "../common/ContextMenu";
 import { LiveRecordingRegion } from "./LiveRecordingRegion";
 import { CrossfadeOverlay } from "./CrossfadeOverlay";
-import { MIN_CROSSFADE_SECONDS } from "./crossfade";
+import { buildCrossfadeLayout } from "./crossfadeLayout";
 import { resizeCrossfade } from "./crossfadeResize";
 import {
   buildRegionDragSession,
@@ -445,8 +445,12 @@ export function AudioTrackLanes({
               // used twice: the blocks need it to suppress the fade triangle
               // that CrossfadeOverlay is about to draw for them, and the
               // overlays need it to exist at all.
-              const placed = trackRegions
-                .map((r) => ({
+              const {
+                pairs: crossfadePairs,
+                crossfadedIn,
+                crossfadedOut,
+              } = buildCrossfadeLayout(
+                trackRegions.map((r) => ({
                   region: r,
                   key: regionSelKey(i, r.id),
                   geom: effectiveRegionGeom(
@@ -454,32 +458,7 @@ export function AudioTrackLanes({
                     regionGeomDraft[regionSelKey(i, r.id)],
                     segDuration,
                   ),
-                }))
-                .sort((a, b) => a.geom.start - b.geom.start);
-
-              const crossfadePairs: {
-                earlier: (typeof placed)[number];
-                later: (typeof placed)[number];
-                overlap: number;
-              }[] = [];
-              for (let k = 0; k < placed.length - 1; k++) {
-                const earlier = placed[k];
-                const later = placed[k + 1];
-                const earlierEnd = earlier.geom.start + earlier.geom.duration;
-                const overlap = earlierEnd - later.geom.start;
-                // Matches MIN_CROSSFADE_SECONDS: below this it is a rounding
-                // artefact of snapping, not a join.
-                if (overlap < MIN_CROSSFADE_SECONDS) continue;
-                // A region buried inside another is not a join.
-                if (later.geom.start + later.geom.duration <= earlierEnd)
-                  continue;
-                crossfadePairs.push({ earlier, later, overlap });
-              }
-              const crossfadedOut = new Set(
-                crossfadePairs.map((p) => p.earlier.region.id),
-              );
-              const crossfadedIn = new Set(
-                crossfadePairs.map((p) => p.later.region.id),
+                })),
               );
 
               return (
