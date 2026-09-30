@@ -29,7 +29,6 @@ import type {
   PeaksResponse,
   WebUiState,
 } from "../../../../lib/state/types";
-import { getLightColor } from "../../../light/logic/lightColors";
 import { LightSidePanel } from "../../../light/components/LightSidePanel";
 import type { CueSelKey, LightCueDragState } from "../../../light/components/LightTimeline";
 import {
@@ -69,7 +68,6 @@ import {
   type RegionContextMenuState,
 } from "../regions/components/RegionContextMenu";
 import { splitRegionsAtPlayhead } from "../regions/logic/regionEdit";
-import { resolveLightSidePanelSelection } from "../selection/logic/resolveLightSidePanelSelection";
 import {
   type RegionSelKey,
   type RegionUiState,
@@ -97,6 +95,10 @@ import { hotkeyManager, HotkeyScope } from "../../../../lib/interaction/HotkeyMa
 import { useTimelinePrefs } from "../toolbar/hooks/useTimelinePrefs";
 import type { TrackSelectionGesture } from "../tracks/logic/trackSelection";
 import { createTimelineSelectionActions } from "../selection/logic/selectionActions";
+import {
+  useTimelineLightingState,
+  type TimelineTrackReorderPreview,
+} from "../lighting/hooks/useTimelineLightingState";
 
 // ------- Timeline (continuous multi-song arrangement) -------------------
 
@@ -599,11 +601,8 @@ export function Timeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.tracks, songs, themeVersion],
   );
-  const [trackReorderPreview, setTrackReorderPreview] = useState<{
-    index: number;
-    kind: "audio" | "light";
-    dropSlot: number;
-  } | null>(null);
+  const [trackReorderPreview, setTrackReorderPreview] =
+    useState<TimelineTrackReorderPreview | null>(null);
   const previewRows = useMemo(() => {
     if (trackReorderPreview?.kind !== "audio") return rows;
     const { index, dropSlot } = trackReorderPreview;
@@ -651,61 +650,26 @@ export function Timeline({
     cycle,
   };
 
-  // Light-mode derived data (Feature 6). Guarded with optional chaining so an
-  // older WebUiState snapshot without the lighting fields still renders.
-  const lightTracks = useMemo(
-    () => state.lighting.tracks ?? [],
-    [state.lighting.tracks],
-  );
-  const previewLightTracks = useMemo(() => {
-    if (trackReorderPreview?.kind !== "light") return lightTracks;
-    const { index, dropSlot } = trackReorderPreview;
-    return previewDropReorder(lightTracks, index, dropSlot);
-  }, [lightTracks, trackReorderPreview]);
-  const lightTrackIds = useMemo(
-    () => lightTracks.map((t) => t.id),
-    [lightTracks],
-  );
-  const lightFixtures = useMemo(
-    () => state.lighting?.fixtures ?? [],
-    [state.lighting?.fixtures],
-  );
-  const lightEnabled = Boolean(state.lighting?.enabled);
-  const lightTrackColor = (index: number) => getLightColor(Math.max(0, index));
-  const lightTrackColorForId = (trackId: string) =>
-    lightTrackColor(lightTracks.findIndex((t) => t.id === trackId));
-  const hasLightContent =
-    lightEnabled &&
-    (lightTracks.length > 0 ||
-      songs.some((s) => (s.lightCues ?? []).length > 0));
-
-  // Live 3D stage colors come only from the core binary LED stream
-  // (LightSidePanel). Do not re-resolve cues on the frontend.
-  const previewColors = useMemo(
-    () =>
-      ({}) as Record<
-        string,
-        import("../../../../lib/light/lightCueInterpolation").LightCueValue
-      >,
-    [],
-  );
-
-  // Derived side-panel selection (after songs, lightTracks, cueSelection are defined).
-  const sidePanelSelection = resolveLightSidePanelSelection({
-    viewMode: effectiveViewMode,
+  const {
+    lightTracks,
+    previewLightTracks,
+    lightTrackIds,
+    lightFixtures,
+    lightEnabled,
+    lightTrackColor,
+    lightTrackColorForId,
+    hasLightContent,
+    previewColors,
+    sidePanelSelection,
+  } = useTimelineLightingState({
+    state,
+    songs,
+    effectiveViewMode,
+    trackReorderPreview,
     cueSelection,
     sidePanelTrackIndex,
-    songs,
-    tracks: lightTracks,
+    setCueSelection,
   });
-
-  // Drop cue selection when the cue itself disappears (delete / reload).
-  useEffect(() => {
-    if (!cueSelection) return;
-    const song = songs[cueSelection.songIndex];
-    const cue = song?.lightCues?.find((c) => c.id === cueSelection.cueId);
-    if (!cue) setCueSelection(null);
-  }, [songs, cueSelection]);
 
   const applyZoomAt = (nextPxPerSec: number, focusClientX?: number) => {
     const scroller = scrollRef.current;
