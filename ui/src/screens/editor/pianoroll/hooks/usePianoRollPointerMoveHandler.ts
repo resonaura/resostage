@@ -1,0 +1,333 @@
+import type { PointerEvent as ReactPointerEvent } from "react";
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
+import { triggerHaptic } from "@/lib/interaction/haptics";
+import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import {
+  editControllerPoint,
+  paintBrushNote,
+  resolveDrawNoteDuration,
+} from "@/screens/editor/pianoroll/logic/pianoRollModel";
+import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
+import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
+import { controllerValueFromY } from "@/screens/editor/pianoroll/logic/canvasUtils";
+import type {
+  DraggingState,
+  GridSnapValue,
+  PianoRollBottomLane,
+  PianoRollTool,
+  PianoRollViewport,
+  ScaleMode,
+} from "@/screens/editor/pianoroll/logic/types";
+
+interface ControllerGesture {
+  beforeLanes: AutomationLaneRow[] | null;
+  baseLanes: AutomationLaneRow[];
+  laneIndex: number;
+  pointIndex: number;
+  added: boolean;
+  anchorBeat: number;
+  changed: boolean;
+  lastBeat: number;
+  lastValue: number;
+}
+
+interface VelocityPaintState {
+  lastBeat: number;
+  notes: MidiNoteRow[];
+  noteById: Map<number, MidiNoteRow>;
+}
+
+interface PianoRollPointerMoveHandlerOptions {
+  canvasRef: MutableRefObject<HTMLCanvasElement | null>;
+  lastPointerPosRef: MutableRefObject<{ clientX: number; clientY: number }>;
+  draggingRef: MutableRefObject<DraggingState | null>;
+  pendingCommitRef: MutableRefObject<MidiNoteRow[] | null>;
+  velocityPaintRef: MutableRefObject<VelocityPaintState | null>;
+  controllerGestureRef: MutableRefObject<ControllerGesture | null>;
+  lastDragDetentRef: MutableRefObject<string | null>;
+  spatialIndex: MutableRefObject<SpatialNoteIndex>;
+  viewport: PianoRollViewport;
+  bottomLane: PianoRollBottomLane;
+  notesToRender: MidiNoteRow[];
+  tool: PianoRollTool;
+  snap: GridSnapValue;
+  snapToScale: boolean;
+  rootNote: number;
+  scaleMode: ScaleMode;
+  xToBeat: (x: number) => number;
+  yToPitch: (y: number, height: number) => number;
+  snapBeat: (beat: number) => number;
+  sourceBeatAt: (beat: number) => number;
+  setLocalNotes: Dispatch<SetStateAction<MidiNoteRow[] | null>>;
+  setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
+  onSelectionChange: (ids: Set<number>) => void;
+  onSeek?: (beats: number) => void;
+  onRegionChange?: (region: MidiRegionRow) => void;
+  render: () => void;
+}
+
+/** Updates the active Piano Roll drag, hover cursor, and local preview state. */
+export function usePianoRollPointerMoveHandler({
+  canvasRef,
+  lastPointerPosRef,
+  draggingRef,
+  pendingCommitRef,
+  velocityPaintRef,
+  controllerGestureRef,
+  lastDragDetentRef,
+  spatialIndex,
+  viewport,
+  bottomLane,
+  notesToRender,
+  tool,
+  snap,
+  snapToScale,
+  rootNote,
+  scaleMode,
+  xToBeat,
+  yToPitch,
+  snapBeat,
+  sourceBeatAt,
+  setLocalNotes,
+  setControllerPreview,
+  onSelectionChange,
+  onSeek,
+  onRegionChange,
+  render,
+}: PianoRollPointerMoveHandlerOptions) {
+  // ── Pointer Move Interaction ───────────────────────────────────────────
+  const handlePointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    e.stopPropagation();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    lastPointerPosRef.current = { clientX: e.clientX, clientY: e.clientY };
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const height = rect.height;
+    const gridBottom = height - viewport.velocityLaneHeight;
+    const dragging = draggingRef.current;
+
+    // Hover cursor styling when not dragging
+    if (!dragging) {
+      if (y < RULER_HEIGHT && x >= viewport.keyWidth) {
+        canvas.style.cursor = "col-resize";
+      } else if (x < viewport.keyWidth) {
+        canvas.style.cursor = "pointer";
+      } else if (y >= gridBottom) {
+        canvas.style.cursor = "crosshair";
+      } else {
+        const beat = sourceBeatAt(xToBeat(x));
+        const pitch = yToPitch(y, height);
+        const handleTol = Math.max(0.08, 8 / viewport.pixelsPerBeat);
+        const hit = spatialIndex.current.hitTest(beat, pitch, handleTol);
+        if (hit) {
+          canvas.style.cursor = hit.isResizeHandle ? "ew-resize" : "grab";
+        } else {
+          canvas.style.cursor =
+            tool === "draw" || tool === "brush"
+              ? "crosshair"
+              : tool === "slice"
+                ? "vertical-text"
+                : "default";
+        }
+      }
+      return;
+    }
+
+    // ── Dragging: Playhead Scrub ─────────────────────────────────────────
+    if (dragging.type === "playhead") {
+      canvas.style.cursor = "col-resize";
+      const beat = Math.max(0, xToBeat(x));
+      const targetBeat = snap > 0 && !e.shiftKey ? snapBeat(beat) : beat;
+      if (onSeek) onSeek(targetBeat);
+      return;
+    }
+
+    // ── Dragging: Velocity ───────────────────────────────────────────────
+    if (dragging.type === "velocity") {
+      const vel = Math.max(
+        0.01,
+        Math.min(1.0, (height - y) / (viewport.velocityLaneHeight - 20)),
+      );
+      const beat = sourceBeatAt(xToBeat(x));
+      const paint = velocityPaintRef.current;
+      if (paint) {
+        // Sweep the interval, not just the current pointer sample: fast mouse
+        // movement must not skip notes between two pointer events.
+        const tolerance = Math.max(0.08, 8 / viewport.pixelsPerBeat);
+        const lo = Math.min(paint.lastBeat, beat) - tolerance;
+        const hi = Math.max(paint.lastBeat, beat) + tolerance;
+        let changed = false;
+        for (const candidate of spatialIndex.current.queryRange(lo, hi, 0, 127)) {
+          const note = paint.noteById.get(candidate.id);
+          if (!note) continue;
+          if (note.startBeats >= lo && note.startBeats <= hi && note.velocity !== vel) {
+            note.velocity = vel;
+            changed = true;
+          }
+        }
+        paint.lastBeat = beat;
+        if (changed) setLocalNotes(paint.notes.map((note) => ({ ...note })));
+      }
+      return;
+    }
+
+    // ── Dragging: CC Automation ──────────────────────────────────────────
+    if (dragging.type === "cc" && onRegionChange) {
+      const gesture = controllerGestureRef.current;
+      if (!gesture) return;
+      const beat = Math.max(0, snapBeat(sourceBeatAt(xToBeat(x))));
+      const value = controllerValueFromY(y, gridBottom, height, bottomLane === "pitchBend");
+      if (gesture.lastBeat === beat && gesture.lastValue === value) return;
+      gesture.lastBeat = beat;
+      gesture.lastValue = value;
+
+      const lane = gesture.baseLanes[gesture.laneIndex];
+      const startedNewRamp = gesture.added &&
+        Math.hypot(x - dragging.startPointerX, y - dragging.startPointerY) > 3 &&
+        beat !== gesture.anchorBeat;
+      const points = editControllerPoint(
+        lane.points,
+        startedNewRamp ? null : gesture.pointIndex,
+        beat,
+        value,
+      );
+      if (!points) return;
+      gesture.changed = true;
+      const lanes = [...gesture.baseLanes];
+      lanes[gesture.laneIndex] = { ...lane, points };
+      setControllerPreview(lanes);
+      return;
+    }
+
+    // ── Dragging: Brush ──────────────────────────────────────────────────
+    if (dragging.type === "brush") {
+      const curBeat = snapBeat(sourceBeatAt(xToBeat(x)));
+      let curPitch = yToPitch(y, height);
+      if (snapToScale) {
+        curPitch = snapPitchToScale(curPitch, rootNote, scaleMode);
+      }
+      const dur = snap > 0 ? snap : 0.25;
+      const painted = paintBrushNote(notesToRender, curBeat, curPitch, dur);
+      if (painted) {
+        setLocalNotes(painted.updatedNotes);
+        pendingCommitRef.current = painted.updatedNotes;
+        onSelectionChange(new Set([painted.newNote.id]));
+      }
+      return;
+    }
+
+    // ── Dragging: Move Notes (Accurate, Non-Accumulating) ─────────────────
+    if (dragging.type === "move") {
+      canvas.style.cursor = "grabbing";
+      const deltaBeats = xToBeat(x) - dragging.startBeat;
+      // MIDI pitch increases upward; yToPitch already performs the inverse
+      // screen transform, so subtracting here inverted vertical dragging.
+      const deltaPitch = yToPitch(y, height) - dragging.startPitch;
+
+      const snappedDeltaBeats =
+        snap > 0 ? Math.round(deltaBeats / snap) * snap : deltaBeats;
+      const anchorNote = dragging.initialNotesSnapshot
+        .values()
+        .next().value as MidiNoteRow | undefined;
+      const pitchDetent = anchorNote ? anchorNote.pitch + deltaPitch : deltaPitch;
+      const beatDetent = snap > 0 ? Math.round(snappedDeltaBeats / snap) : "free";
+      const detent = `${beatDetent}:${pitchDetent}`;
+      if (detent !== lastDragDetentRef.current) {
+        if (lastDragDetentRef.current !== null) triggerHaptic("alignment");
+        lastDragDetentRef.current = detent;
+      }
+
+      // Update local working state relative to initial snapshot
+      const updated = notesToRender.map((note) => {
+        if (!dragging.targetNoteIds?.has(note.id)) return note;
+        const initial = dragging.initialNotesSnapshot.get(note.id);
+        if (!initial) return note;
+        const newBeat = Math.max(0, initial.startBeats + snappedDeltaBeats);
+        const newPitch = Math.max(0, Math.min(127, initial.pitch + deltaPitch));
+        return { ...note, startBeats: newBeat, pitch: newPitch };
+      });
+
+      setLocalNotes(updated);
+      render();
+    } else if (dragging.type === "draw") {
+      const pointerBeat = xToBeat(x);
+      const initialNote = dragging.initialNotesSnapshot.values().next().value as MidiNoteRow | undefined;
+      if (!initialNote) return;
+      const duration = resolveDrawNoteDuration(
+        dragging.startBeat,
+        pointerBeat,
+        snap,
+        initialNote.durationBeats,
+        3 / viewport.pixelsPerBeat,
+      );
+      const startBeat = sourceBeatAt(snapBeat(
+        Math.max(0, Math.min(dragging.startBeat, pointerBeat)),
+      ));
+      const updated = notesToRender.map((note) =>
+        dragging.targetNoteIds?.has(note.id)
+          ? { ...note, startBeats: startBeat, durationBeats: duration }
+          : note,
+      );
+      setLocalNotes(updated);
+      render();
+    } else if (dragging.type === "resize") {
+      canvas.style.cursor = "ew-resize";
+      const deltaBeats = xToBeat(x) - dragging.startBeat;
+      const anchorNote = dragging.initialNotesSnapshot
+        .values()
+        .next().value as MidiNoteRow | undefined;
+      if (anchorNote) {
+        const duration = anchorNote.durationBeats + deltaBeats;
+        const detent = snap > 0
+          ? Math.round(Math.max(snap, duration) / snap)
+          : Math.round(Math.max(0.125, duration) * 100);
+        const key = `resize:${detent}`;
+        if (key !== lastDragDetentRef.current) {
+          if (lastDragDetentRef.current !== null) triggerHaptic("alignment");
+          lastDragDetentRef.current = key;
+        }
+      }
+
+      const updated = notesToRender.map((note) => {
+        if (!dragging.targetNoteIds?.has(note.id)) return note;
+        const initial = dragging.initialNotesSnapshot.get(note.id);
+        if (!initial) return note;
+        const rawDuration = initial.durationBeats + deltaBeats;
+        const snappedDuration =
+          snap > 0
+            ? Math.max(snap, Math.round(rawDuration / snap) * snap)
+            : Math.max(0.125, rawDuration);
+        return { ...note, durationBeats: snappedDuration };
+      });
+
+      setLocalNotes(updated);
+      render();
+    } else if (dragging.type === "marquee" && dragging.marqueeBox) {
+      const currentBeat = sourceBeatAt(xToBeat(x));
+      const currentPitch = yToPitch(y, height);
+      dragging.marqueeBox.currentBeat = currentBeat;
+      dragging.marqueeBox.currentPitch = currentPitch;
+
+      const minB = Math.min(dragging.marqueeBox.startBeat, currentBeat);
+      const maxB = Math.max(dragging.marqueeBox.startBeat, currentBeat);
+      const minP = Math.min(dragging.marqueeBox.startPitch, currentPitch);
+      const maxP = Math.max(dragging.marqueeBox.startPitch, currentPitch);
+
+      const enclosedNotes = spatialIndex.current.queryRange(
+        minB,
+        maxB,
+        minP,
+        maxP,
+      );
+      onSelectionChange(new Set(enclosedNotes.map((n) => n.id)));
+      render();
+    }
+  };
+
+  return handlePointerMove;
+}
