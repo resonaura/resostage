@@ -20,11 +20,16 @@ export function autoLayoutPositions(
   }));
 }
 
-/**
- * Detect overlapping explicit DMX address ranges among generic fixtures.
- * ResoLight bars are auto-packed by the backend and must not be re-modeled
- * here, or frontend validation could drift from actual patch assignment.
- */
+// ─── DMX channel conflicts ─────────────────────────────────────────────────
+//
+// DmxGeneric fixtures use their own explicit universe/start channel/count
+// (see ResoLightChannelMap.h's assignResoLightChannels), so two of them can
+// silently be pointed at overlapping channels with nothing to catch it until
+// the actual hardware misbehaves. Only checks DmxGeneric against DmxGeneric:
+// ResoLightBar channels are auto-packed sequentially by the backend from
+// each bar's ledCount/addressable (not from its own dmxUniverse/dmxStartChannel
+// fields, which the auto-pack never reads), so replicating that packing here
+// just to cross-check would drift the moment the packer's algorithm changes.
 export function findDmxChannelConflicts(
   fixtures: LightFixtureRow[],
 ): Set<string> {
