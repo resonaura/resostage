@@ -113,6 +113,7 @@ import {
   type RegionUiState,
 } from "./regionUtils";
 import { buildRows, songContentSeconds } from "./rows";
+import { previewDropReorder } from "./dropPreview";
 import { SectionMarkerLane } from "./SectionMarkerLane";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { SongRulerHeader } from "./SongRulerHeader";
@@ -1001,13 +1002,8 @@ export function Timeline({
   const previewRows = useMemo(() => {
     if (trackReorderPreview?.kind !== "audio") return rows;
     const { index, dropSlot } = trackReorderPreview;
-    const to = dropSlot > index ? dropSlot - 1 : dropSlot;
-    if (to === index || index < 0 || index >= state.tracks.length) return rows;
-    const next = [...rows];
-    const [moved] = next.splice(index, 1);
-    next.splice(to, 0, moved);
-    return next;
-  }, [rows, state.tracks.length, trackReorderPreview]);
+    return previewDropReorder(rows, index, dropSlot);
+  }, [rows, trackReorderPreview]);
 
   // Drag & drop audio-file ghost preview (audio view only). While a file is
   // dragged over the lanes, AudioDropGhost shows a fake region -- waveform +
@@ -1236,12 +1232,7 @@ export function Timeline({
   const previewLightTracks = useMemo(() => {
     if (trackReorderPreview?.kind !== "light") return lightTracks;
     const { index, dropSlot } = trackReorderPreview;
-    const to = dropSlot > index ? dropSlot - 1 : dropSlot;
-    if (to === index || index < 0 || index >= lightTracks.length) return lightTracks;
-    const next = [...lightTracks];
-    const [moved] = next.splice(index, 1);
-    next.splice(to, 0, moved);
-    return next;
+    return previewDropReorder(lightTracks, index, dropSlot);
   }, [lightTracks, trackReorderPreview]);
   const lightTrackIds = useMemo(
     () => lightTracks.map((t) => t.id),
