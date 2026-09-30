@@ -9,7 +9,6 @@ import {
   Square,
 } from "lucide-react";
 import {
-  memo,
   useCallback,
   useEffect,
   useRef,
@@ -20,7 +19,6 @@ import {
   LiveReadout,
 } from "../../components/daw";
 import { FontIcon } from "../../components/common/FontIcon";
-import { ResoLightStage3D } from "../light/components/LazyResoLightStage3D";
 import { Timeline } from "../editor/timeline";
 import { useSongLayout } from "../editor/timeline/layout/hooks/useSongLayout";
 import {
@@ -48,42 +46,10 @@ import { BusMetersPanel } from "./components/BusMetersPanel";
 import { SetlistPanel } from "./components/SetlistPanel";
 import { barBeat, globalBarBeat } from "./logic/timeDisplay";
 import { DriftReadout } from "./components/DriftReadout";
+import { PlayerLightStagePreview } from "./components/PlayerLightStagePreview";
 
 /** Stable empty roster so a rig with no fixtures doesn't churn the memo. */
 const EMPTY_FIXTURES: LightFixtureRow[] = [];
-
-
-// Memoized on the fixture roster alone. That roster is shipped on every
-// telemetry frame ("lighting ... always shipped" in WebServer.cpp) but rarely
-// actually changes, and structural sharing in the live-state merge keeps its
-// reference stable when it doesn't -- so the WebGL stage now mounts once and
-// stays put instead of being re-rendered under the live LED stream.
-const PlayerLightStagePreview = memo(function PlayerLightStagePreview({
-  fixtures,
-  enabled,
-}: {
-  fixtures: LightFixtureRow[];
-  enabled: boolean;
-}) {
-  if (fixtures.length === 0) return null;
-
-  return (
-    <Card className="relative flex h-40 w-full shrink-0 flex-col overflow-hidden sm:h-full sm:w-52 p-0 gap-0">
-      <Card.Header className="h-10 border-b border-default/20 px-3.5 text-[11px] font-bold uppercase tracking-widest text-foreground/35 flex flex-row items-center justify-between z-10 space-y-0 shrink-0">
-        <span>Stage Lights</span>
-      </Card.Header>
-      <Card.Content className="flex flex-col flex-1 min-h-0 relative p-0 overflow-hidden">
-        <ResoLightStage3D
-          mode="preview"
-          fixtures={fixtures}
-          live={enabled}
-          chrome="minimal"
-        />
-      </Card.Content>
-    </Card>
-  );
-});
-
 
 
 export function PlayerScreen({
