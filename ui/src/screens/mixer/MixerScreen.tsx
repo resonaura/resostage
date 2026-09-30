@@ -1,17 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
 import { useHorizontalWindow } from "./hooks/useHorizontalWindow";
 import { useMixerDensity } from "./hooks/useMixerDensity";
-import { builder, mixer } from "../../lib/state/api";
+import { mixer } from "../../lib/state/api";
 import type { WebUiState } from "../../lib/state/types";
 import { useIsCompact } from "../../hooks/useMediaQuery";
 import { usePluginCatalog } from "./plugins/hooks/usePluginCatalog";
 import { extOutTarget, isMainBusId } from "./logic/mixerIds";
 import { patchClickFields } from "./logic/mixerUtils";
-import {
-  resolvePendingBusJobs,
-  type PendingBusJob,
-} from "./logic/pendingBusJobs";
 import type { StripMenuTarget } from "./strips/StripContextMenu";
 import { MixerToolbar } from "./components/MixerToolbar";
 import { type MixerDensity } from "./logic/constants";
@@ -19,6 +15,7 @@ import { MixerClickMasterLane } from "./components/MixerClickMasterLane";
 import { MixerTrackRack } from "./components/MixerTrackRack";
 import { MixerSendRack } from "./components/MixerSendRack";
 import { MixerOverlays, type PluginTarget } from "./components/MixerOverlays";
+import { useMixerSendCreation } from "./hooks/useMixerSendCreation";
 
 /**
  * Density-dependent strip pitch: strip width + 8px gap.
@@ -78,7 +75,11 @@ export function MixerScreen({
   const destinationBusses = state.busses.filter(
     (b) => isMainBusId(b.id) || b.isAux,
   );
-  const pendingBusJobs = useRef<PendingBusJob[]>([]);
+  const { requestAddSend } = useMixerSendCreation({
+    busses: state.busses,
+    auxBusses,
+    master,
+  });
   const stateRef = useRef(state);
   stateRef.current = state;
   const [menu, setMenu] = useState<StripMenuTarget | null>(null);
@@ -88,43 +89,6 @@ export function MixerScreen({
   const openPlugins = useCallback((stripId: string, stripName: string) => {
     setPluginTarget({ stripId, stripName });
   }, []);
-
-  useEffect(() => {
-    if (pendingBusJobs.current.length === 0) return;
-    pendingBusJobs.current = resolvePendingBusJobs(
-      pendingBusJobs.current,
-      state.busses,
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.busses]);
-
-  function queueBusJob(finalize: (busId: string, index: number) => void) {
-    pendingBusJobs.current.push({
-      knownIds: new Set(state.busses.map((b) => b.id)),
-      finalize,
-    });
-    void builder.busAdd();
-  }
-
-  function requestAddSend() {
-    const label = `Send ${auxBusses.length + 1}`;
-    // A freshly-added send points at Master (same outs as master) so its
-    // destination reads "Master" by default, not an awkward Ext. Out on some
-    // stray free channel (which made a just-added send look broken/unrouted).
-    const startChannel = master?.startChannel ?? 0;
-    queueBusJob((_busId, index) => {
-      void builder.busUpdate({
-        index,
-        name: label,
-        channels: 2,
-        startChannel,
-        gainDb: 0,
-        mute: false,
-        solo: false,
-        isAux: true,
-      });
-    });
-  }
 
   /**
    * Output lanes are fabricated by the engine from the device's active output
