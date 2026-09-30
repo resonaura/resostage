@@ -84,6 +84,7 @@ target_sources(ResoStage PRIVATE
   engine/AudioEngineQueries.cpp
   engine/AudioEngineRecording.cpp
   engine/AudioEngineRouting.cpp
+  engine/AudioEngineSongSelection.cpp
   engine/AudioEngineTimeline.cpp
   engine/AudioEngineTransport.cpp
   engine/AudioEngineTransportControls.cpp
