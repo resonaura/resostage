@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { builder } from "@/lib/state/api";
 import type {
   AllPeaksResponse,
   PeaksResponse,
@@ -19,15 +18,11 @@ import {
 import { CrossfadePairOverlay } from "@/screens/editor/timeline/crossfade/components/CrossfadePairOverlay";
 import { buildCrossfadeLayout } from "@/screens/editor/timeline/crossfade/logic/crossfadeLayout";
 import {
-  buildRegionDragSession,
-  regionStretchEdge,
   effectiveRegionGeom,
   type RegionGeom,
-  type RegionDragMode,
   type RegionDragSession,
   type RegionGeomDraft,
 } from "@/screens/editor/timeline/regions/logic/regionDrag";
-import { splitRegionsAtPlayhead } from "@/screens/editor/timeline/regions/logic/regionEdit";
 import { buildSongPeakLookup } from "@/screens/editor/timeline/regions/logic/regionPeaks";
 import {
   regionSelKey,
@@ -36,6 +31,7 @@ import {
 } from "@/screens/editor/timeline/regions/logic/regionUtils";
 import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 import { toolCursor, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import { useAudioRegionDragStart } from "@/screens/editor/timeline/regions/hooks/useAudioRegionDragStart";
 import { useMidiRegionDragStart } from "@/screens/editor/timeline/regions/hooks/useMidiRegionDragStart";
 import { useEmptyTrackLaneClick } from "@/screens/editor/timeline/tracks/hooks/useEmptyTrackLaneClick";
 import { useTrackAudioImport } from "@/screens/editor/timeline/tracks/hooks/useTrackAudioImport";
@@ -127,6 +123,17 @@ export function AudioTrackLanes({
     readOnly,
     tool,
     clearGeomDrafts,
+    startRegionDrag,
+  });
+  const startAudioRegionDrag = useAudioRegionDragStart({
+    songs,
+    songOffsets,
+    songLengths,
+    pxPerSec,
+    readOnly,
+    tool,
+    clearGeomDrafts,
+    selectRegion,
     startRegionDrag,
   });
 
@@ -374,99 +381,6 @@ export function AudioTrackLanes({
                       fileDuration - geom.sourceOffset,
                     );
 
-                    const beginDrag = (
-                      e: React.PointerEvent,
-                      mode: RegionDragMode,
-                    ) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-
-                      if (!readOnly && tool === "eraser") {
-                        void builder.regionRemove(i, songRegion.id);
-                        return;
-                      }
-                      if (!readOnly && tool === "scissors") {
-                        const abs =
-                          songOffsets[i] +
-                          geom.start +
-                          Math.max(
-                            0.02,
-                            Math.min(
-                              geom.duration - 0.02,
-                              (e.clientX -
-                                (
-                                  e.currentTarget as HTMLElement
-                                ).getBoundingClientRect().left) /
-                                pxPerSec,
-                            ),
-                          );
-                        // Drop the optimistic geometry first -- see the same
-                        // call in Timeline's splitSelectedAtPlayhead.
-                        clearGeomDrafts([thisRegionSelKey]);
-                        void splitRegionsAtPlayhead(
-                          [thisRegionSelKey],
-                          songs,
-                          songOffsets,
-                          songLengths,
-                          abs,
-                        );
-                        return;
-                      }
-
-                      selectRegion(thisRegionSelKey, e);
-                      // The stretch tool turns the whole region into one
-                      // handle: there is only one thing it can do, so aiming
-                      // at a 6px edge to do it would be busywork.
-                      if (tool === "stretch") {
-                        // Edges only. The middle of a region is not a
-                        // handle: with one gesture available, a click
-                        // anywhere would rescale whatever it landed on.
-                        const rect = (
-                          e.currentTarget as HTMLElement
-                        ).getBoundingClientRect();
-                        const edge = regionStretchEdge(
-                          e.clientX - rect.left,
-                          rect.width,
-                        );
-                        if (!edge) return;
-                        startRegionDrag(
-                          buildRegionDragSession({
-                            key: thisRegionSelKey,
-                            mode: edge === "start" ? "stretchStart" : "stretch",
-                            clientX: e.clientX,
-                            clientY: e.clientY,
-                            songIndex: i,
-                            regionId: songRegion.id,
-                            geom,
-                            originTrackId:
-                              songRegion.trackId || track?.id || row.name,
-                            originRowIndex: rowIndex,
-                            segDuration: songLengths[i] ?? 0,
-                            fileDuration,
-                          }),
-                        );
-                        return;
-                      }
-                      if (tool !== "pointer" && mode !== "slip") return;
-                      const originTrackId =
-                        songRegion.trackId || track?.id || row.name;
-                      startRegionDrag(
-                        buildRegionDragSession({
-                          key: thisRegionSelKey,
-                          mode,
-                          clientX: e.clientX,
-                          clientY: e.clientY,
-                          songIndex: i,
-                          regionId: songRegion.id,
-                          geom,
-                          originTrackId,
-                          originRowIndex: rowIndex,
-                          segDuration,
-                          fileDuration,
-                        }),
-                      );
-                    };
-
                     return (
                       <AudioRegionBlock
                         key={songRegion.id}
@@ -496,7 +410,20 @@ export function AudioTrackLanes({
                         tool={tool}
                         isActivelyDragging={regionDragKey === thisRegionSelKey}
                         onSelectRegion={selectRegion}
-                        onBeginDrag={beginDrag}
+                        onBeginDrag={(event, mode) =>
+                          startAudioRegionDrag({
+                            event,
+                            mode,
+                            regionId: songRegion.id,
+                            selectionKey: thisRegionSelKey,
+                            songIndex: i,
+                            rowIndex,
+                            fallbackTrackId:
+                              songRegion.trackId || track?.id || row.name,
+                            geom,
+                            fileDuration,
+                          })
+                        }
                         crossfadeIn={crossfadedIn.has(songRegion.id)}
                         crossfadeOut={crossfadedOut.has(songRegion.id)}
                         onContextMenu={(e) => {
