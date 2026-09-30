@@ -15,7 +15,6 @@ import {
   sameExceptLevels,
 } from "../../../lib/audio/levelFields";
 import { getTrackLiveLevel } from "../../../lib/audio/liveLevels";
-import { deduplicatePlugins } from "../../../lib/plugins/pluginCategories";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
@@ -24,40 +23,9 @@ import {
   type SettingsState,
   type TrackRow,
 } from "../../../lib/state/types";
+import { groupInstruments } from "../plugins/logic/pluginGroups";
 import { ChannelStrip } from "./ChannelStrip";
 import { colorForIndex } from "../logic/constants";
-
-interface InstrumentGroup {
-  name: string;
-  plugins: PluginCatalogEntry[];
-}
-
-function groupInstruments(plugins: PluginCatalogEntry[]): InstrumentGroup[] {
-  const groups = new Map<string, PluginCatalogEntry[]>();
-  const instruments = plugins.filter(
-    (p) => p.instrument && p.enabled !== false,
-  );
-  const deduplicated = deduplicatePlugins(instruments);
-
-  for (const plugin of deduplicated) {
-    const rawMfg = (plugin.manufacturer || "").trim();
-    const groupName = rawMfg || plugin.category || "Instruments";
-    const group = groups.get(groupName) ?? [];
-    group.push(plugin);
-    groups.set(groupName, group);
-  }
-
-  return [...groups]
-    .map(([name, entries]) => ({
-      name,
-      plugins: entries.sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
-      ),
-    }))
-    .sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
-    );
-}
 
 function TrackStripInner({
   t,
