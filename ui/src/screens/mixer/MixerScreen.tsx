@@ -15,15 +15,14 @@ import { useIsCompact } from "../../lib/interaction/useMediaQuery";
 import { PluginChainModal } from "./plugins/PluginChainModal";
 import { extOutTarget, isMainBusId } from "./logic/mixerIds";
 import { patchClickFields } from "./logic/mixerUtils";
+import {
+  resolvePendingBusJobs,
+  type PendingBusJob,
+} from "./logic/pendingBusJobs";
 import { BusStrip } from "./strips/BusStrip";
 import { MetronomeStrip } from "./strips/MetronomeStrip";
 import { StripContextMenu, type StripMenuTarget } from "./strips/StripContextMenu";
 import { TrackStrip } from "./strips/TrackStrip";
-
-interface PendingBusJob {
-  knownIds: Set<string>;
-  finalize: (busId: string, index: number) => void;
-}
 
 interface PluginTarget {
   stripId: string;
@@ -179,20 +178,10 @@ export function MixerScreen({
 
   useEffect(() => {
     if (pendingBusJobs.current.length === 0) return;
-    const claimed = new Set<string>();
-    const remaining: PendingBusJob[] = [];
-    for (const job of pendingBusJobs.current) {
-      const idx = state.busses.findIndex(
-        (b) => !job.knownIds.has(b.id) && !claimed.has(b.id),
-      );
-      if (idx >= 0) {
-        claimed.add(state.busses[idx].id);
-        job.finalize(state.busses[idx].id, idx);
-      } else {
-        remaining.push(job);
-      }
-    }
-    pendingBusJobs.current = remaining;
+    pendingBusJobs.current = resolvePendingBusJobs(
+      pendingBusJobs.current,
+      state.busses,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.busses]);
 
