@@ -80,7 +80,7 @@ import { previewDropReorder } from "./dropPreview";
 import { SectionMarkerLane } from "./SectionMarkerLane";
 import { SelectionContextMenu } from "./SelectionContextMenu";
 import { SongRulerHeader } from "./SongRulerHeader";
-import { TimelineSidebar } from "./TimelineSidebar";
+import { TimelineSidebar } from "./tracks/components/TimelineSidebar";
 import { TimelineToolbar } from "./TimelineToolbar";
 import { ToastContainer, type Toast } from "./ToastContainer";
 import { useCycleState } from "./cycle/hooks/useCycleState";
@@ -91,11 +91,11 @@ import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
 import { useTimelineMarquee } from "./useTimelineMarquee";
 import { useTimelineScrub } from "./useTimelineScrub";
-import { useTimelineTrackFocus } from "./useTimelineTrackFocus";
+import { useTimelineTrackFocus } from "./tracks/hooks/useTimelineTrackFocus";
 import { useTimelineZoomGestures } from "./useTimelineZoomGestures";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { useTimelinePrefs } from "./useTimelinePrefs";
-import type { TrackSelectionGesture } from "./trackSelection";
+import type { TrackSelectionGesture } from "./tracks/logic/trackSelection";
 import { createTimelineSelectionActions } from "./selectionActions";
 
 // ------- Timeline (continuous multi-song arrangement) -------------------

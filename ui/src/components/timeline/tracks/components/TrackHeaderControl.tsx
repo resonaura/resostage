@@ -1,14 +1,14 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Mic, Music } from "lucide-react";
-import { mixer } from "../../lib/state/api";
-import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "../common/ContextMenu";
-import { getTrackLiveLevel } from "../../lib/audio/liveLevels";
-import { useLiveValue } from "../../lib/state/optimistic";
-import type { TrackRow } from "../../lib/state/types";
-import { Knob, LevelMeterBar, MeterFader } from "../daw";
-import { TOGGLE_BLINK_ACCENT, ToggleButton } from "../ui";
-import { laneHeightPx } from "./laneDimensions";
-import { trackSelectionGesture, type TrackSelectionGesture } from "./trackSelection";
+import { mixer } from "../../../../lib/state/api";
+import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "../../../common/ContextMenu";
+import { getTrackLiveLevel } from "../../../../lib/audio/liveLevels";
+import { useLiveValue } from "../../../../lib/state/optimistic";
+import type { TrackRow } from "../../../../lib/state/types";
+import { Knob, LevelMeterBar, MeterFader } from "../../../daw";
+import { TOGGLE_BLINK_ACCENT, ToggleButton } from "../../../ui";
+import { laneHeightPx } from "../../laneDimensions";
+import { trackSelectionGesture, type TrackSelectionGesture } from "../logic/trackSelection";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with
 // waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ the combined

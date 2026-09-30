@@ -1,17 +1,17 @@
 import type { Dispatch, SetStateAction } from "react";
 import { Music, Mic, Sliders } from "lucide-react";
-import { builder, lighting, mixer } from "../../lib/state/api";
+import { builder, lighting, mixer } from "../../../../lib/state/api";
 import type {
   LightTrackRow,
   TrackRow,
   WebUiState,
-} from "../../lib/state/types";
+} from "../../../../lib/state/types";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../common/ContextMenu";
-import { InlineNamePrompt } from "../common/InlineNamePrompt";
+} from "../../../common/ContextMenu";
+import { InlineNamePrompt } from "../../../common/InlineNamePrompt";
 
 export interface SidebarMenuPosition {
   x: number;

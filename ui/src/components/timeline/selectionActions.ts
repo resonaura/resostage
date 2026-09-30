@@ -31,7 +31,7 @@ import { lookupAnyRegion, type RegionSelKey } from "./regionUtils";
 import {
   trackSelectionGesture,
   type TrackSelectionGesture,
-} from "./trackSelection";
+} from "./tracks/logic/trackSelection";
 
 interface SelectionActionOptions {
   songs: SongRow[];

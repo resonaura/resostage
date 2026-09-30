@@ -10,7 +10,7 @@ import type { TimelineFollowMode } from "../../timeline/TimelineToolbar";
 import { useCycleState } from "../../timeline/cycle/hooks/useCycleState";
 import { timelineHistory } from "../../../lib/state/api";
 import { getTrackColor } from "../../timeline/constants";
-import { TrackStateButtons } from "../../timeline/TrackStateButtons";
+import { TrackStateButtons } from "../../timeline/tracks/components/TrackStateButtons";
 import { useThemeVersion } from "../../../hooks/useThemeVersion";
 import type {
   GridSnapValue,

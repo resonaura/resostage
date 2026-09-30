@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveTrackSelection } from "./trackSelection";
+import { resolveTrackSelection } from "../logic/trackSelection";
 
 describe("track selection gestures", () => {
   const order = ["a", "b", "c", "d", "e"];

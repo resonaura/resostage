@@ -29,7 +29,7 @@ import { Timeline } from "../../components/timeline";
 import {
   resolveTrackSelection,
   type TrackSelectionGesture,
-} from "../../components/timeline/trackSelection";
+} from "../../components/timeline/tracks/logic/trackSelection";
 import { PianoRoll } from "../../components/pianoroll";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { MidiRegionSidePanel } from "../../components/pianoroll/components/MidiRegionSidePanel";

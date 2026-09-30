@@ -1,34 +1,34 @@
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { Button } from "../ui";
+import { Button } from "../../../ui";
 import type {
   LightFixtureRow,
   LightTrackRow,
   TrackRow,
   WebUiState,
-} from "../../lib/state/types";
-import { builder, lighting } from "../../lib/state/api";
+} from "../../../../lib/state/types";
+import { builder, lighting } from "../../../../lib/state/api";
 import {
   LightTrackHeader,
   AUDIO_HINT_HEIGHT,
   LIGHT_HINT_HEIGHT,
-} from "../light/LightTimeline";
-import { laneHeightPx } from "./laneDimensions";
+} from "../../../light/LightTimeline";
+import { laneHeightPx } from "../../laneDimensions";
 import {
   EVENT_LANE_HEIGHT,
   RULER_HEIGHT,
   SECTION_LANE_HEIGHT,
   SIDEBAR_WIDTH,
-} from "./constants";
-import type { TimelineRow } from "./rows";
+} from "../../constants";
+import type { TimelineRow } from "../../rows";
 import { TimelineRowLabel } from "./TimelineRowLabel";
-import type { TimelineViewMode } from "./TimelineToolbar";
+import type { TimelineViewMode } from "../../TimelineToolbar";
 import { TrackHeaderControl } from "./TrackHeaderControl";
 import {
   trackSelectionGesture,
   type TrackSelectionGesture,
-} from "./trackSelection";
-import { useTrackReorder } from "./useTrackReorder";
+} from "../logic/trackSelection";
+import { useTrackReorder } from "../hooks/useTrackReorder";
 import {
   TimelineSidebarMenus,
   type SidebarLightTrackMenuState,
