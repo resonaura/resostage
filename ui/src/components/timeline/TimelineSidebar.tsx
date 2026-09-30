@@ -1,19 +1,13 @@
-import { Plus, Music, Mic, Sliders } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useState } from "react";
 import { Button } from "../ui";
-import {
-  ContextMenu,
-  ContextMenuDivider,
-  ContextMenuItem,
-} from "../common/ContextMenu";
-import { InlineNamePrompt } from "../common/InlineNamePrompt";
 import type {
   LightFixtureRow,
   LightTrackRow,
   TrackRow,
   WebUiState,
 } from "../../lib/state/types";
-import { builder, lighting, mixer } from "../../lib/state/api";
+import { builder, lighting } from "../../lib/state/api";
 import {
   LightTrackHeader,
   AUDIO_HINT_HEIGHT,
@@ -35,6 +29,13 @@ import {
   type TrackSelectionGesture,
 } from "./trackSelection";
 import { useTrackReorder } from "./useTrackReorder";
+import {
+  TimelineSidebarMenus,
+  type SidebarLightTrackMenuState,
+  type SidebarMenuPosition,
+  type SidebarRenameState,
+  type SidebarTrackMenuState,
+} from "./TimelineSidebarMenus";
 
 const laneHeaderCls =
   "shrink-0 border-b border-default/30 px-2.5 font-bold uppercase flex items-center bg-background-tertiary";
@@ -84,36 +85,16 @@ export function TimelineSidebar({
     dropSlot: number;
   } | null) => void;
 }) {
-  const [addTrackMenu, setAddTrackMenu] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-
-  const [trackMenu, setTrackMenu] = useState<{
-    x: number;
-    y: number;
-    trackIndex: number;
-    track: TrackRow;
-  } | null>(null);
-  const [renamingTrack, setRenamingTrack] = useState<{
-    x: number;
-    y: number;
-    index: number;
-    name: string;
-  } | null>(null);
-
-  const [lightTrackMenu, setLightTrackMenu] = useState<{
-    x: number;
-    y: number;
-    index: number;
-    track: LightTrackRow;
-  } | null>(null);
-  const [renamingLightTrack, setRenamingLightTrack] = useState<{
-    x: number;
-    y: number;
-    index: number;
-    name: string;
-  } | null>(null);
+  const [addTrackMenu, setAddTrackMenu] =
+    useState<SidebarMenuPosition | null>(null);
+  const [trackMenu, setTrackMenu] =
+    useState<SidebarTrackMenuState | null>(null);
+  const [renamingTrack, setRenamingTrack] =
+    useState<SidebarRenameState | null>(null);
+  const [lightTrackMenu, setLightTrackMenu] =
+    useState<SidebarLightTrackMenuState | null>(null);
+  const [renamingLightTrack, setRenamingLightTrack] =
+    useState<SidebarRenameState | null>(null);
 
   const {
     containerRef,
@@ -377,304 +358,23 @@ export function TimelineSidebar({
         </div>
       </div>
 
-      {addTrackMenu && (
-        <ContextMenu
-          x={addTrackMenu.x}
-          y={addTrackMenu.y}
-          width={220}
-          onClose={() => setAddTrackMenu(null)}
-        >
-          <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-foreground/40 border-b border-default/20">
-            Create New Track
-          </div>
-          <ContextMenuItem onClick={() => void handleAddTrack("instrument", 2)}>
-            <div className="flex items-center gap-2">
-              <Music size={14} className="text-purple-400" />
-              <span>Software Instrument Track</span>
-            </div>
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => void handleAddTrack("audio", 2)}>
-            <div className="flex items-center gap-2">
-              <Mic size={14} className="text-blue-400" />
-              <span>Audio Track (Stereo)</span>
-            </div>
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => void handleAddTrack("audio", 1)}>
-            <div className="flex items-center gap-2">
-              <Mic size={14} className="text-teal-400" />
-              <span>Audio Track (Mono)</span>
-            </div>
-          </ContextMenuItem>
-          <div className="my-1 border-t border-default/20" />
-          <ContextMenuItem onClick={handleAddBus}>
-            <div className="flex items-center gap-2">
-              <Sliders size={14} className="text-orange-400" />
-              <span>Aux / Send Bus</span>
-            </div>
-          </ContextMenuItem>
-        </ContextMenu>
-      )}
-
-      {/* Audio / Instrument Track Context Menu */}
-      {trackMenu && (
-        <ContextMenu
-          x={trackMenu.x}
-          y={trackMenu.y}
-          width={210}
-          onClose={() => setTrackMenu(null)}
-        >
-          {contextTrackIndices.length > 1 && (
-            <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-foreground/40 border-b border-default/20">
-              {contextTrackIndices.length} Selected Tracks
-            </div>
-          )}
-          <ContextMenuItem
-            disabled={contextTrackIndices.length > 1}
-            onClick={() => {
-              const tm = trackMenu;
-              setTrackMenu(null);
-              setRenamingTrack({
-                x: tm.x,
-                y: tm.y,
-                index: tm.trackIndex,
-                name: tm.track.name || tm.track.id,
-              });
-            }}
-          >
-            Rename…
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={contextTrackIndices.length > 1}
-            onClick={() => {
-              void builder.trackDuplicate(trackMenu.trackIndex, false);
-              setTrackMenu(null);
-            }}
-          >
-            Duplicate Track
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={contextTrackIndices.length > 1}
-            onClick={() => {
-              void builder.trackDuplicate(trackMenu.trackIndex, true);
-              setTrackMenu(null);
-            }}
-          >
-            Duplicate Track with Content
-          </ContextMenuItem>
-          {["instrument", "midi", "externalMidi"].includes(trackMenu.track.kind ?? "") && (
-            <ContextMenuItem onClick={() => {
-              window.dispatchEvent(new CustomEvent("resostage-open-midi-export", {
-                detail: { kind: "track", trackId: trackMenu.track.id },
-              }));
-              setTrackMenu(null);
-            }}>
-              Export Track as MIDI…
-            </ContextMenuItem>
-          )}
-          <ContextMenuDivider />
-          <ContextMenuItem
-            disabled={
-              contextTrackIndices.length > 1 || trackMenu.trackIndex === 0
-            }
-            onClick={() => {
-              const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
-              void builder.trackMove(songIdx, trackMenu.trackIndex, -1);
-              setTrackMenu(null);
-            }}
-          >
-            Move Up
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={
-              contextTrackIndices.length > 1 ||
-              trackMenu.trackIndex >= state.tracks.length - 1
-            }
-            onClick={() => {
-              const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
-              void builder.trackMove(songIdx, trackMenu.trackIndex, 1);
-              setTrackMenu(null);
-            }}
-          >
-            Move Down
-          </ContextMenuItem>
-          <ContextMenuDivider />
-          <ContextMenuItem
-            onClick={() => {
-              for (const index of contextTrackIndices) {
-                void mixer.setTrackGain(index, 0);
-                void mixer.setTrackPan(index, 0);
-              }
-              setTrackMenu(null);
-            }}
-          >
-            Reset Gain & Pan{contextTrackIndices.length > 1 ? " (Selected)" : ""}
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              for (const index of contextTrackIndices) {
-                void mixer.setTrackMute(index, false);
-                void mixer.setTrackSolo(index, false);
-              }
-              setTrackMenu(null);
-            }}
-          >
-            Clear Mute & Solo{contextTrackIndices.length > 1 ? " (Selected)" : ""}
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              for (const index of contextTrackIndices) {
-                const track = state.tracks[index];
-                if (!track) continue;
-                const isPol =
-                  (track.polarity ??
-                    (track.phaseInvert ? "both" : "none")) !== "none";
-                const nextPol = isPol
-                  ? "none"
-                  : track.channels === 1
-                    ? "left"
-                    : "both";
-                void mixer.setTrackTrim(
-                  index,
-                  track.inputTrimDb ?? 0,
-                  nextPol !== "none",
-                  nextPol,
-                );
-              }
-              setTrackMenu(null);
-            }}
-          >
-            Phase Invert (Ø){contextTrackIndices.length > 1 ? " (Selected)" : ""}
-          </ContextMenuItem>
-          <ContextMenuDivider />
-          <ContextMenuItem
-            danger
-            onClick={async () => {
-              const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
-              setTrackMenu(null);
-              for (const index of [...contextTrackIndices].sort((a, b) => b - a)) {
-                await builder.trackRemove(songIdx, index);
-              }
-            }}
-          >
-            Delete {contextTrackIndices.length > 1 ? `${contextTrackIndices.length} Tracks` : "Track"}
-          </ContextMenuItem>
-        </ContextMenu>
-      )}
-
-      {/* Light Track Context Menu */}
-      {lightTrackMenu && (
-        <ContextMenu
-          x={lightTrackMenu.x}
-          y={lightTrackMenu.y}
-          width={200}
-          onClose={() => setLightTrackMenu(null)}
-        >
-          <ContextMenuItem
-            onClick={() => {
-              const lm = lightTrackMenu;
-              setLightTrackMenu(null);
-              setRenamingLightTrack({
-                x: lm.x,
-                y: lm.y,
-                index: lm.index,
-                name: lm.track.name || `Light Track ${lm.index + 1}`,
-              });
-            }}
-          >
-            Rename…
-          </ContextMenuItem>
-          <ContextMenuDivider />
-          <ContextMenuItem
-            disabled={lightTrackMenu.index === 0}
-            onClick={() => {
-              void lighting.trackMove(lightTrackMenu.index, -1);
-              setLightTrackMenu(null);
-            }}
-          >
-            Move Up
-          </ContextMenuItem>
-          <ContextMenuItem
-            disabled={lightTrackMenu.index >= lightTracks.length - 1}
-            onClick={() => {
-              void lighting.trackMove(lightTrackMenu.index, 1);
-              setLightTrackMenu(null);
-            }}
-          >
-            Move Down
-          </ContextMenuItem>
-          <ContextMenuDivider />
-          <ContextMenuItem
-            onClick={() => {
-              void lighting.trackAdd();
-              setLightTrackMenu(null);
-            }}
-          >
-            Add Light Track
-          </ContextMenuItem>
-          <ContextMenuDivider />
-          <ContextMenuItem
-            danger
-            onClick={() => {
-              void lighting.trackRemove(lightTrackMenu.index);
-              setLightTrackMenu(null);
-            }}
-          >
-            Delete Track
-          </ContextMenuItem>
-        </ContextMenu>
-      )}
-
-      {/* Rename Prompt for Audio / Instrument Track */}
-      {renamingTrack && (
-        <InlineNamePrompt
-          x={renamingTrack.x}
-          y={renamingTrack.y}
-          value={renamingTrack.name}
-          placeholder="Track name"
-          onChange={(val) =>
-            setRenamingTrack((prev) => (prev ? { ...prev, name: val } : null))
-          }
-          onCommit={() => {
-            const name = renamingTrack.name.trim();
-            if (name.length > 0) {
-              const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
-              void builder.trackUpdate({
-                songIndex: songIdx,
-                index: renamingTrack.index,
-                name,
-              });
-            }
-            setRenamingTrack(null);
-          }}
-          onCancel={() => setRenamingTrack(null)}
-        />
-      )}
-
-      {/* Rename Prompt for Light Track */}
-      {renamingLightTrack && (
-        <InlineNamePrompt
-          x={renamingLightTrack.x}
-          y={renamingLightTrack.y}
-          value={renamingLightTrack.name}
-          placeholder="Light track name"
-          onChange={(val) =>
-            setRenamingLightTrack((prev) =>
-              prev ? { ...prev, name: val } : null,
-            )
-          }
-          onCommit={() => {
-            const name = renamingLightTrack.name.trim();
-            if (name.length > 0) {
-              void lighting.trackUpdate({
-                index: renamingLightTrack.index,
-                name,
-              });
-            }
-            setRenamingLightTrack(null);
-          }}
-          onCancel={() => setRenamingLightTrack(null)}
-        />
-      )}
+      <TimelineSidebarMenus
+        state={state}
+        lightTracks={lightTracks}
+        contextTrackIndices={contextTrackIndices}
+        addTrackMenu={addTrackMenu}
+        setAddTrackMenu={setAddTrackMenu}
+        trackMenu={trackMenu}
+        setTrackMenu={setTrackMenu}
+        lightTrackMenu={lightTrackMenu}
+        setLightTrackMenu={setLightTrackMenu}
+        renamingTrack={renamingTrack}
+        setRenamingTrack={setRenamingTrack}
+        renamingLightTrack={renamingLightTrack}
+        setRenamingLightTrack={setRenamingLightTrack}
+        onAddTrack={handleAddTrack}
+        onAddBus={handleAddBus}
+      />
     </div>
   );
 }
