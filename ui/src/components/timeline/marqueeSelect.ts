@@ -10,6 +10,12 @@ export type MarqueeRect = {
   height: number;
 };
 
+export type MarqueeSelection = {
+  cueKeys: CueSelKey[];
+  selectedCue: CueSelKey | null;
+  regionKeys: RegionSelKey[];
+};
+
 /** Axis-aligned rect intersection (inclusive edges with tiny epsilon). */
 function rectsIntersect(
   a: MarqueeRect,
@@ -142,4 +148,73 @@ export function marqueeHitCues(
     });
   });
   return keys;
+}
+
+/**
+ * Resolve the live selection produced by a marquee gesture. Additive selection
+ * preserves the original selection order and appends newly hit items, matching
+ * the component's historical pointer-drag behavior.
+ */
+export function resolveMarqueeSelection(args: {
+  mode: "audio" | "light";
+  marquee: MarqueeRect;
+  additive: boolean;
+  baseCueKeys: CueSelKey[];
+  baseRegionKeys: RegionSelKey[];
+  lightTrackIds: string[];
+  songs: SongRow[];
+  songOffsets: number[];
+  songLengths: number[];
+  pxPerSec: number;
+  laneHeight: number;
+  rows: TimelineRow[];
+  tracks: { id: string; name: string }[];
+}): MarqueeSelection {
+  if (args.mode === "light") {
+    const hits = marqueeHitCues(
+      args.marquee,
+      args.lightTrackIds,
+      args.songs,
+      args.songOffsets,
+      args.pxPerSec,
+      args.laneHeight,
+    );
+    const cueKeys = args.additive
+      ? mergeCueSelection(args.baseCueKeys, hits)
+      : hits;
+    return {
+      cueKeys,
+      selectedCue: cueKeys[cueKeys.length - 1] ?? null,
+      regionKeys: [],
+    };
+  }
+
+  const hits = marqueeHitRegions(
+    args.marquee,
+    args.rows,
+    args.songs,
+    args.songOffsets,
+    args.songLengths,
+    args.pxPerSec,
+    args.laneHeight,
+    args.tracks,
+  );
+  return {
+    cueKeys: [],
+    selectedCue: null,
+    regionKeys: args.additive
+      ? [...new Set([...args.baseRegionKeys, ...hits])]
+      : hits,
+  };
+}
+
+function mergeCueSelection(
+  base: CueSelKey[],
+  hits: CueSelKey[],
+): CueSelKey[] {
+  const merged = new Map(
+    base.map((cue) => [`${cue.songIndex}:${cue.cueId}`, cue] as const),
+  );
+  for (const cue of hits) merged.set(`${cue.songIndex}:${cue.cueId}`, cue);
+  return [...merged.values()];
 }

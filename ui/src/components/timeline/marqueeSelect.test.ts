@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { SongRow } from "../../lib/state/types";
-import { marqueeHitRegions } from "./marqueeSelect";
+import {
+  marqueeHitRegions,
+  resolveMarqueeSelection,
+} from "./marqueeSelect";
 
 describe("timeline region marquee", () => {
   it("selects MIDI regions using beat placement and the song tempo", () => {
@@ -67,5 +70,88 @@ describe("timeline region marquee", () => {
         [{ id: "track-1", name: "Instrument" }],
       ),
     ).toEqual([]);
+  });
+
+  it("merges additive region hits and clears cue selection", () => {
+    const song = {
+      bpm: 120,
+      regions: [],
+      midiRegions: [
+        {
+          id: "midi-1",
+          trackId: "track-1",
+          name: "Pattern",
+          startBeats: 0,
+          durationBeats: 4,
+          clipOffsetBeats: 0,
+          loop: false,
+          loopLengthBeats: 4,
+          notes: [],
+        },
+      ],
+    } as unknown as SongRow;
+
+    expect(
+      resolveMarqueeSelection({
+        mode: "audio",
+        marquee: { left: 0, top: 0, width: 40, height: 40 },
+        additive: true,
+        baseCueKeys: [{ songIndex: 1, cueId: "old-cue" }],
+        baseRegionKeys: ["2:old-region", "0:midi-1"],
+        lightTrackIds: [],
+        songs: [song],
+        songOffsets: [0],
+        songLengths: [30],
+        pxPerSec: 10,
+        laneHeight: 40,
+        rows: [{ name: "Instrument", color: "#00ff00", headerIndex: 0 }],
+        tracks: [{ id: "track-1", name: "Instrument" }],
+      }),
+    ).toEqual({
+      cueKeys: [],
+      selectedCue: null,
+      regionKeys: ["2:old-region", "0:midi-1"],
+    });
+  });
+
+  it("merges additive light-cue hits and clears region selection", () => {
+    const song = {
+      bpm: 120,
+      regions: [],
+      midiRegions: [],
+      lightCues: [
+        {
+          id: "cue-1",
+          trackId: "light-1",
+          startSeconds: 1,
+          durationSeconds: 2,
+        },
+      ],
+    } as unknown as SongRow;
+
+    expect(
+      resolveMarqueeSelection({
+        mode: "light",
+        marquee: { left: 0, top: 0, width: 40, height: 40 },
+        additive: true,
+        baseCueKeys: [{ songIndex: 1, cueId: "old-cue" }],
+        baseRegionKeys: ["2:old-region"],
+        lightTrackIds: ["light-1"],
+        songs: [song],
+        songOffsets: [0],
+        songLengths: [30],
+        pxPerSec: 10,
+        laneHeight: 40,
+        rows: [],
+        tracks: [],
+      }),
+    ).toEqual({
+      cueKeys: [
+        { songIndex: 1, cueId: "old-cue" },
+        { songIndex: 0, cueId: "cue-1" },
+      ],
+      selectedCue: { songIndex: 0, cueId: "cue-1" },
+      regionKeys: [],
+    });
   });
 });

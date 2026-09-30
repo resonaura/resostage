@@ -88,9 +88,8 @@ import type { SongEndDrag } from "./SongEndMarker";
 import { laneHeightPx } from "./laneDimensions";
 import { LightTrackLanes } from "./LightTrackLanes";
 import {
-  marqueeHitCues,
-  marqueeHitRegions,
   normalizeMarquee,
+  resolveMarqueeSelection,
   type MarqueeRect,
 } from "./marqueeSelect";
 import {
@@ -1270,50 +1269,24 @@ export function Timeline({
   ) => {
     const live = marqueeLiveRef.current;
     if (!live) return;
-    const laneH = laneHeightPx(live.verticalZoom);
-    if (live.effectiveViewMode === "light") {
-      const hits = marqueeHitCues(
-        box,
-        live.lightTrackIds,
-        live.songs,
-        live.songOffsets,
-        live.pxPerSec,
-        laneH,
-      );
-      if (m.additive) {
-        const map = new Map(
-          m.baseCueKeys.map((s) => [`${s.songIndex}:${s.cueId}`, s] as const),
-        );
-        for (const h of hits) map.set(`${h.songIndex}:${h.cueId}`, h);
-        const next = [...map.values()];
-        setSelectedCueKeys(next);
-        setCueSelection(next[next.length - 1] ?? null);
-      } else {
-        setSelectedCueKeys(hits);
-        setCueSelection(hits[hits.length - 1] ?? null);
-      }
-      setSelectedRegionKeys([]);
-    } else {
-      const hits = marqueeHitRegions(
-        box,
-        live.rows,
-        live.songs,
-        live.songOffsets,
-        live.songLengths,
-        live.pxPerSec,
-        laneH,
-        live.tracks,
-      );
-      if (m.additive) {
-        const set = new Set(m.baseRegionKeys);
-        for (const h of hits) set.add(h);
-        setSelectedRegionKeys([...set]);
-      } else {
-        setSelectedRegionKeys(hits);
-      }
-      setSelectedCueKeys([]);
-      setCueSelection(null);
-    }
+    const selection = resolveMarqueeSelection({
+      mode: live.effectiveViewMode,
+      marquee: box,
+      additive: m.additive,
+      baseCueKeys: m.baseCueKeys,
+      baseRegionKeys: m.baseRegionKeys,
+      lightTrackIds: live.lightTrackIds,
+      songs: live.songs,
+      songOffsets: live.songOffsets,
+      songLengths: live.songLengths,
+      pxPerSec: live.pxPerSec,
+      laneHeight: laneHeightPx(live.verticalZoom),
+      rows: live.rows,
+      tracks: live.tracks,
+    });
+    setSelectedCueKeys(selection.cueKeys);
+    setCueSelection(selection.selectedCue);
+    setSelectedRegionKeys(selection.regionKeys);
   };
 
   // Live 3D stage colors come only from the core binary LED stream
