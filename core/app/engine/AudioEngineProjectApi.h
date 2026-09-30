@@ -1,6 +1,7 @@
 // Public project I/O / import / dirty-state API for AudioEngine.
 // Included only from AudioEngine.h inside `class AudioEngine { public: ... }`.
-// Implementation: AudioEngineProject.cpp, AudioEngineImport.cpp.
+// Implementation: AudioEngineProject.cpp, AudioEngineImport.cpp,
+// AudioEngineBatchImport.cpp.
 
 #ifndef RESOSTAGE_INSIDE_AUDIOENGINE_CLASS
 // Opened on its own (an editor, a grep-and-jump, clangd indexing a header):
