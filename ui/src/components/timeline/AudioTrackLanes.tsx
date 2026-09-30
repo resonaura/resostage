@@ -13,12 +13,11 @@ import type {
 import { isCompactLane, laneHeightPx } from "./laneDimensions";
 import { AudioRegionBlock } from "./AudioRegionBlock";
 import { MidiRegionBlock } from "./MidiRegionBlock";
-import {
-  ContextMenu,
-  ContextMenuItem,
-  ContextMenuDivider,
-} from "../common/ContextMenu";
 import { LiveRecordingRegion } from "./LiveRecordingRegion";
+import {
+  MidiRegionContextMenu,
+  type MidiRegionContextMenuState,
+} from "./MidiRegionContextMenu";
 import { CrossfadeOverlay } from "./CrossfadeOverlay";
 import { buildCrossfadeLayout } from "./crossfadeLayout";
 import { resizeCrossfade } from "./crossfadeResize";
@@ -114,12 +113,8 @@ export function AudioTrackLanes({
   }) => void;
   onOpenMidiRegion?: (trackId: string, regionId: string) => void;
 }) {
-  const [midiContextMenu, setMidiContextMenu] = useState<{
-    x: number;
-    y: number;
-    songIndex: number;
-    region: MidiRegionRow;
-  } | null>(null);
+  const [midiContextMenu, setMidiContextMenu] =
+    useState<MidiRegionContextMenuState | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingImportRef = useRef<{
@@ -817,116 +812,11 @@ export function AudioTrackLanes({
           </div>
         );
       })}
-      {midiContextMenu && (
-        <ContextMenu
-          x={midiContextMenu.x}
-          y={midiContextMenu.y}
-          width={220}
-          onClose={() => setMidiContextMenu(null)}
-        >
-          <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-foreground/40 border-b border-default/20">
-            {midiContextMenu.region.name || "MIDI Region"}
-          </div>
-          <ContextMenuItem
-            onClick={() => {
-              const currentName = midiContextMenu.region.name || "MIDI Region";
-              const newName = window.prompt("Rename MIDI Region", currentName);
-              if (newName !== null && newName.trim()) {
-                void builder.midiRegionUpdate({
-                  songIndex: midiContextMenu.songIndex,
-                  regionId: midiContextMenu.region.id,
-                  name: newName.trim(),
-                });
-              }
-              setMidiContextMenu(null);
-            }}
-          >
-            Rename Region…
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              void builder.midiRegionAdd({
-                songIndex: midiContextMenu.songIndex,
-                trackId: midiContextMenu.region.trackId,
-                name: `${midiContextMenu.region.name || "MIDI"} (Copy)`,
-                startBeats:
-                  midiContextMenu.region.startBeats +
-                  midiContextMenu.region.durationBeats,
-                durationBeats: midiContextMenu.region.durationBeats,
-                clipOffsetBeats: midiContextMenu.region.clipOffsetBeats,
-                loop: midiContextMenu.region.loop,
-                loopLengthBeats: midiContextMenu.region.loopLengthBeats,
-                loopStartBeats: midiContextMenu.region.loopStartBeats ?? 0,
-                muted: Boolean(midiContextMenu.region.muted),
-                color: midiContextMenu.region.color,
-                notes: midiContextMenu.region.notes.map((note) => ({
-                  ...note,
-                })),
-                events: (midiContextMenu.region.events ?? []).map((event) => ({
-                  ...event,
-                  data: [...event.data],
-                })),
-                umpEvents: (midiContextMenu.region.umpEvents ?? []).map((event) => ({
-                  ...event,
-                  words: [...event.words],
-                })),
-                automationLanes: midiContextMenu.region.automationLanes,
-              });
-              setMidiContextMenu(null);
-            }}
-          >
-            Duplicate Region
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              void builder.midiRegionUpdate({
-                songIndex: midiContextMenu.songIndex,
-                regionId: midiContextMenu.region.id,
-                muted: !midiContextMenu.region.muted,
-              });
-              setMidiContextMenu(null);
-            }}
-          >
-            {midiContextMenu.region.muted ? "Unmute Region" : "Mute Region"}
-          </ContextMenuItem>
-          <ContextMenuDivider />
-          <ContextMenuItem
-            onClick={() => {
-              window.dispatchEvent(new CustomEvent("resostage-open-midi-export", {
-                detail: { kind: "region", songIndex: midiContextMenu.songIndex,
-                  trackId: midiContextMenu.region.trackId, regionId: midiContextMenu.region.id },
-              }));
-              setMidiContextMenu(null);
-            }}
-          >
-            Export Region as MIDI…
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              onOpenMidiRegion?.(
-                midiContextMenu.region.trackId,
-                midiContextMenu.region.id,
-              );
-              setMidiContextMenu(null);
-            }}
-          >
-            Open in Piano Roll
-          </ContextMenuItem>
-          <ContextMenuDivider />
-          <ContextMenuItem
-            danger
-            onClick={() => {
-              void builder.midiRegionRemove(
-                midiContextMenu.songIndex,
-                midiContextMenu.region.id,
-              );
-              setMidiContextMenu(null);
-            }}
-          >
-            Delete Region
-          </ContextMenuItem>
-        </ContextMenu>
-      )}
+      <MidiRegionContextMenu
+        menu={midiContextMenu}
+        onClose={() => setMidiContextMenu(null)}
+        onOpenMidiRegion={onOpenMidiRegion}
+      />
     </>
   );
 }
