@@ -8,6 +8,7 @@ import {
   type PianoRollCycleSetRange,
 } from "@/screens/editor/pianoroll/components/PianoRollProjectHeader";
 import { usePianoRollAutoScroll } from "@/screens/editor/pianoroll/hooks/usePianoRollAutoScroll";
+import { usePianoRollPlayheadFollow } from "@/screens/editor/pianoroll/hooks/usePianoRollPlayheadFollow";
 import { triggerHaptic } from "@/lib/interaction/haptics";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
 import { midiRegionSourceBeat } from "@/lib/midi/midiRegionTiming";
@@ -206,7 +207,6 @@ export function PianoRollCanvas({
 
   // Playhead autofollow suspension flag (suspended by manual scroll / pan gestures)
   const isFollowSuspendedRef = useRef<boolean>(false);
-  const prevPlayingRef = useRef<boolean>(isPlaying);
 
   // Sync spatial index whenever rendered notes change
   useEffect(() => {
@@ -300,97 +300,17 @@ export function PianoRollCanvas({
       setLocalNotes,
     });
 
-  // ── Playhead Autofollow Management ──────────────────────────────────────
-  // Catch on playback start: reveal playhead and reset suspension
-  useEffect(() => {
-    if (isPlaying && !prevPlayingRef.current) {
-      if (catchOnPlay) {
-        isFollowSuspendedRef.current = false;
-        if (playheadBeats !== undefined) {
-          const canvas = canvasRef.current;
-          if (canvas) {
-            const width = canvas.width / (window.devicePixelRatio || 1);
-            const viewBeats =
-              (width - viewport.keyWidth) / viewport.pixelsPerBeat;
-            onViewportChange((v) => ({
-              ...v,
-              scrollBeats: Math.max(0, playheadBeats - viewBeats * 0.25),
-            }));
-          }
-        }
-      }
-    }
-    prevPlayingRef.current = isPlaying;
-  }, [
-    isPlaying,
-    catchOnPlay,
-    playheadBeats,
-    viewport.keyWidth,
-    viewport.pixelsPerBeat,
-    onViewportChange,
-  ]);
-
-  // Autofollow frame update during playback
-  const followScrollBeats = followMode === "snap" ? viewport.scrollBeats : 0;
-  useEffect(() => {
-    if (!isPlaying || followMode === "off" || isFollowSuspendedRef.current) {
-      return;
-    }
-    if (playheadBeats === undefined) return;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const width = canvas.width / (window.devicePixelRatio || 1);
-    const viewBeats = (width - viewport.keyWidth) / viewport.pixelsPerBeat;
-    if (followMode === "smooth") {
-      // Telemetry is sampled below display refresh. Project from its latest
-      // position for at most one short packet interval, then ease the viewport
-      // on animation frames like the main timeline.
-      const receivedAt = performance.now();
-      const beatsPerMs = (projectSong?.bpm || 120) / 60_000;
-      let frame = 0;
-      const tick = (now: number) => {
-        if (isFollowSuspendedRef.current) return;
-        const projectedBeat = playheadBeats + Math.min(now - receivedAt, 120) * beatsPerMs;
-        const target = Math.max(0, projectedBeat - viewBeats * 0.35);
-        onViewportChange((current) => {
-          const next = current.scrollBeats + (target - current.scrollBeats) * 0.28;
-          return Math.abs(next - current.scrollBeats) < 0.001
-            ? current
-            : { ...current, scrollBeats: next };
-        });
-        frame = requestAnimationFrame(tick);
-      };
-      frame = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(frame);
-    }
-    if (followMode === "snap") {
-      const minBeat = followScrollBeats;
-      const maxBeat = minBeat + viewBeats;
-      // Snap mode: page turn when playhead reaches near right edge
-      if (playheadBeats >= maxBeat - 0.75) {
-        onViewportChange((v) => ({
-          ...v,
-          scrollBeats: Math.max(0, playheadBeats - viewBeats * 0.15),
-        }));
-      } else if (playheadBeats < minBeat) {
-        // Rewind reveal
-        onViewportChange((v) => ({
-          ...v,
-          scrollBeats: Math.max(0, playheadBeats - viewBeats * 0.2),
-        }));
-      }
-    }
-  }, [
+  usePianoRollPlayheadFollow({
+    canvasRef,
+    isFollowSuspendedRef,
     isPlaying,
     followMode,
+    catchOnPlay,
     playheadBeats,
-    viewport.keyWidth,
-    viewport.pixelsPerBeat,
-    followScrollBeats,
-    projectSong?.bpm,
+    viewport,
+    projectBpm: projectSong?.bpm,
     onViewportChange,
-  ]);
+  });
 
   // ── Render Loop ────────────────────────────────────────────────────────
   const render = useCallback(() => {
