@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { builder } from "@/lib/state/api";
 import type {
   AllPeaksResponse,
-  MidiRegionRow,
   PeaksResponse,
   RegionRow,
   SongRow,
@@ -37,6 +36,7 @@ import {
 } from "@/screens/editor/timeline/regions/logic/regionUtils";
 import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 import { toolCursor, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import { useMidiRegionDragStart } from "@/screens/editor/timeline/regions/hooks/useMidiRegionDragStart";
 import { useEmptyTrackLaneClick } from "@/screens/editor/timeline/tracks/hooks/useEmptyTrackLaneClick";
 import { useTrackAudioImport } from "@/screens/editor/timeline/tracks/hooks/useTrackAudioImport";
 
@@ -118,6 +118,16 @@ export function AudioTrackLanes({
     readOnly,
     tool,
     openTrackAudioImport,
+  });
+  const startMidiRegionDrag = useMidiRegionDragStart({
+    songs,
+    songOffsets,
+    songLengths,
+    pxPerSec,
+    readOnly,
+    tool,
+    clearGeomDrafts,
+    startRegionDrag,
   });
 
   // One resolver per song: region -> waveform data, including the by-file
@@ -245,112 +255,6 @@ export function AudioTrackLanes({
               const peakEntryFor = (r: RegionRow) =>
                 peakLookupPerSong[i]?.forRegion(r, track?.id);
 
-              const beginMidiDrag = (
-                midiRegion: MidiRegionRow,
-                e: React.PointerEvent,
-                mode: RegionDragMode,
-              ) => {
-                e.stopPropagation();
-                e.preventDefault();
-                if (readOnly) return;
-                if (tool === "eraser") {
-                  void builder.midiRegionRemove(i, midiRegion.id);
-                  return;
-                }
-                const songBpm = song.bpm > 0 ? song.bpm : 120;
-                if (tool === "scissors") {
-                  const rect = (
-                    e.currentTarget as HTMLElement
-                  ).getBoundingClientRect();
-                  const clickSec = Math.max(
-                    0,
-                    Math.min(
-                      (midiRegion.durationBeats * 60) / songBpm,
-                      (e.clientX - rect.left) / pxPerSec,
-                    ),
-                  );
-                  const abs =
-                    songOffsets[i] +
-                    (midiRegion.startBeats * 60) / songBpm +
-                    clickSec;
-                  const key = regionSelKey(i, midiRegion.id);
-                  clearGeomDrafts([key]);
-                  void splitRegionsAtPlayhead(
-                    [key],
-                    songs,
-                    songOffsets,
-                    songLengths,
-                    abs,
-                  );
-                  return;
-                }
-
-                const key = regionSelKey(i, midiRegion.id);
-
-                const startSec = (midiRegion.startBeats * 60) / songBpm;
-                const durSec = Math.max(
-                  0.05,
-                  (midiRegion.durationBeats * 60) / songBpm,
-                );
-                const clipOffsetSec =
-                  (midiRegion.clipOffsetBeats * 60) / songBpm;
-                const geom: RegionGeom = {
-                  start: startSec,
-                  sourceOffset: clipOffsetSec,
-                  duration: durSec,
-                  speed: 1,
-                  fadeIn: 0,
-                  fadeOut: 0,
-                  fadeInCurve: 0,
-                  fadeOutCurve: 0,
-                  loop: midiRegion.loop,
-                  loopLengthSeconds:
-                    midiRegion.loopLengthBeats > 0
-                      ? (midiRegion.loopLengthBeats * 60) / songBpm
-                      : durSec,
-                  loopStartSeconds:
-                    ((midiRegion.loopStartBeats ?? 0) * 60) / songBpm,
-                  trackId: midiRegion.trackId,
-                };
-
-                const originTrackId =
-                  midiRegion.trackId || track?.id || row.name;
-
-                startRegionDrag({
-                  key,
-                  kind: "midi",
-                  mode,
-                  startX: e.clientX,
-                  startY: e.clientY,
-                  songIndex: i,
-                  regionId: midiRegion.id,
-                  origStart: startSec,
-                  origSourceOffset: clipOffsetSec,
-                  origDuration: durSec,
-                  origFadeIn: 0,
-                  origFadeOut: 0,
-                  origFadeInCurve: 0,
-                  origFadeOutCurve: 0,
-                  origLoop: midiRegion.loop,
-                  origLoopLength:
-                    midiRegion.loopLengthBeats > 0
-                      ? (midiRegion.loopLengthBeats * 60) / songBpm
-                      : durSec,
-                  origLoopStart:
-                    ((midiRegion.loopStartBeats ?? 0) * 60) / songBpm,
-                  origSpeed: 1,
-                  maxEnd: songLengths[i] ?? 600,
-                  maxSourceDur: 3600,
-                  lastGeom: geom,
-                  originRowIndex: rowIndex,
-                  targetRowIndex: rowIndex,
-                  originTrackId,
-                  bpm: songBpm,
-                  origStartBeats: midiRegion.startBeats,
-                  origDurationBeats: midiRegion.durationBeats,
-                });
-              };
-
               // Adjacent overlapping pairs on this lane. Computed once and
               // used twice: the blocks need it to suppress the fade triangle
               // that CrossfadeOverlay is about to draw for them, and the
@@ -399,8 +303,16 @@ export function AudioTrackLanes({
                         geomDraft={midiGeomDraft}
                         isDragging={regionDragKey === midiSelKey}
                         onSelect={(e) => selectRegion(midiSelKey, e)}
-                        onBeginDrag={(e, mode) =>
-                          beginMidiDrag(midiRegion, e, mode)
+                        onBeginDrag={(event, mode) =>
+                          startMidiRegionDrag({
+                            event,
+                            mode,
+                            region: midiRegion,
+                            songIndex: i,
+                            songBpm: song.bpm,
+                            rowIndex,
+                            fallbackTrackId: track?.id || row.name,
+                          })
                         }
                         onOpenPianoRoll={onOpenMidiRegion}
                         onContextMenu={(e, region) => {
