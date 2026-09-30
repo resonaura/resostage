@@ -100,6 +100,7 @@ target_sources(ResoStage PRIVATE
   plugins/PluginProcessorBank.cpp
   plugins/PluginHostSharedMemory.cpp
   plugins/PluginHostProcess.cpp
+  server/WebServerCommands.cpp
   server/WebServer.cpp
   server/WebServerHttp.cpp
   server/WebServerJobs.cpp
