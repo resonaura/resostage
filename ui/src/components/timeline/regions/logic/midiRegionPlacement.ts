@@ -1,4 +1,4 @@
-import { snapToGridSec } from "./geometry";
+import { snapToGridSec } from "../../geometry";
 
 export function midiRegionPlacementAt(
   localSeconds: number,

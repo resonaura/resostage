@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { builder } from "../../lib/state/api";
-import type { SongRow } from "../../lib/state/types";
+import { builder } from "../../../../lib/state/api";
+import type { SongRow } from "../../../../lib/state/types";
 import {
   deleteSelectedRegions,
   resolveSelectedRegions,
   splitRegionsAtPlayhead,
-} from "./regionEdit";
-import { regionSelKey } from "./regionUtils";
+} from "../logic/regionEdit";
+import { regionSelKey } from "../logic/regionUtils";
 
 const midiSong = {
   bpm: 120,

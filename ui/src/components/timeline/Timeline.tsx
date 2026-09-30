@@ -18,7 +18,7 @@ import { isPositionVisible } from "../../lib/timeline/timelineVisibility";
 import { useTimelineFileDrop } from "./useTimelineFileDrop";
 import { hasClipboard } from "./timelineClipboard";
 import { useTimelineGestureActivity } from "./useTimelineGestureActivity";
-import { RegionSidePanel } from "./RegionSidePanel";
+import { RegionSidePanel } from "./regions/components/RegionSidePanel";
 import {
   quantizeScrollWindow,
   sameScrollWindow,
@@ -68,13 +68,13 @@ import { LightTrackLanes } from "./LightTrackLanes";
 import {
   RegionContextMenu,
   type RegionContextMenuState,
-} from "./RegionContextMenu";
-import { splitRegionsAtPlayhead } from "./regionEdit";
+} from "./regions/components/RegionContextMenu";
+import { splitRegionsAtPlayhead } from "./regions/logic/regionEdit";
 import { resolveLightSidePanelSelection } from "./resolveLightSidePanelSelection";
 import {
   type RegionSelKey,
   type RegionUiState,
-} from "./regionUtils";
+} from "./regions/logic/regionUtils";
 import { buildRows, songContentSeconds } from "./rows";
 import { previewDropReorder } from "./dropPreview";
 import { SectionMarkerLane } from "./SectionMarkerLane";
@@ -84,9 +84,9 @@ import { TimelineSidebar } from "./tracks/components/TimelineSidebar";
 import { TimelineToolbar } from "./TimelineToolbar";
 import { ToastContainer, type Toast } from "./ToastContainer";
 import { useCycleState } from "./cycle/hooks/useCycleState";
-import { useRegionDrag } from "./useRegionDrag";
+import { useRegionDrag } from "./regions/hooks/useRegionDrag";
 import { useLongImportGuard } from "./useLongImportGuard";
-import { useRegionSelectionLifecycle } from "./useRegionSelectionLifecycle";
+import { useRegionSelectionLifecycle } from "./regions/hooks/useRegionSelectionLifecycle";
 import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
 import { useTimelineMarquee } from "./useTimelineMarquee";

@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { builder } from "../../lib/state/api";
+import { builder } from "../../../../lib/state/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../lib/interaction/dragCancel";
-import { triggerHaptic } from "../../lib/interaction/haptics";
-import type { SongRow } from "../../lib/state/types";
+} from "../../../../lib/interaction/dragCancel";
+import { triggerHaptic } from "../../../../lib/interaction/haptics";
+import type { SongRow } from "../../../../lib/state/types";
 import {
   DEFAULT_CROSSFADE_SHAPE,
   planTrackCrossfades,
   type CrossfadeRegion,
   type CrossfadeShape,
-} from "./crossfade/logic/crossfade";
-import { edgesCrossedDetent, songDetents } from "./detents";
-import { lookupAnyRegion, type RegionSelKey } from "./regionUtils";
+} from "../../crossfade/logic/crossfade";
+import { edgesCrossedDetent, songDetents } from "../../detents";
+import { lookupAnyRegion, type RegionSelKey } from "../logic/regionUtils";
 import {
   baseRegionGeom,
   computeRegionDragGeom,
@@ -22,7 +22,7 @@ import {
   type RegionDragSession,
   type RegionGeom,
   type RegionGeomDraft,
-} from "./regionDrag";
+} from "../logic/regionDrag";
 
 /**
  * How long an optimistic draft may disagree with the engine before it is

@@ -1,18 +1,18 @@
-import type { PeakLevelData, RegionRow } from "../../lib/state/types";
-import { TrackWaveformLane } from "../audio/TrackWaveformLane";
+import type { PeakLevelData, RegionRow } from "../../../../lib/state/types";
+import { TrackWaveformLane } from "../../../audio/TrackWaveformLane";
 import { FadeCurveOverlay } from "./FadeCurveOverlay";
 import { RegionLoopBoundaries } from "./RegionLoopBoundaries";
 import { TimelineRegionFrame } from "./TimelineRegionFrame";
-import { isCompactLane, laneHeightPx } from "./laneDimensions";
-import type { RegionDragMode, RegionGeom } from "./regionDrag";
+import { isCompactLane, laneHeightPx } from "../../laneDimensions";
+import type { RegionDragMode, RegionGeom } from "../logic/regionDrag";
 import {
   regionEdgeCursor,
   regionEdgeMode,
   regionFadeHandleAt,
   regionStretchEdge,
-} from "./regionDrag";
-import type { TimelineTool } from "./tools";
-import type { RegionSelKey, RegionUiState } from "./regionUtils";
+} from "../logic/regionDrag";
+import type { TimelineTool } from "../../tools";
+import type { RegionSelKey, RegionUiState } from "../logic/regionUtils";
 
 export function AudioRegionBlock({
   songRegion,

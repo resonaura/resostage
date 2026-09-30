@@ -11,13 +11,13 @@ import type {
   WebUiState,
 } from "../../lib/state/types";
 import { isCompactLane, laneHeightPx } from "./laneDimensions";
-import { AudioRegionBlock } from "./AudioRegionBlock";
-import { MidiRegionBlock } from "./MidiRegionBlock";
-import { LiveRecordingRegion } from "./LiveRecordingRegion";
+import { AudioRegionBlock } from "./regions/components/AudioRegionBlock";
+import { MidiRegionBlock } from "./regions/components/MidiRegionBlock";
+import { LiveRecordingRegion } from "./regions/components/LiveRecordingRegion";
 import {
   MidiRegionContextMenu,
   type MidiRegionContextMenuState,
-} from "./MidiRegionContextMenu";
+} from "./regions/components/MidiRegionContextMenu";
 import { CrossfadeOverlay } from "./crossfade/components/CrossfadeOverlay";
 import { buildCrossfadeLayout } from "./crossfade/logic/crossfadeLayout";
 import { resizeCrossfade } from "./crossfade/logic/crossfadeResize";
@@ -29,15 +29,15 @@ import {
   type RegionDragMode,
   type RegionDragSession,
   type RegionGeomDraft,
-} from "./regionDrag";
-import { splitRegionsAtPlayhead } from "./regionEdit";
-import { midiRegionPlacementAt } from "./midiRegionPlacement";
-import { buildSongPeakLookup } from "./regionPeaks";
+} from "./regions/logic/regionDrag";
+import { splitRegionsAtPlayhead } from "./regions/logic/regionEdit";
+import { midiRegionPlacementAt } from "./regions/logic/midiRegionPlacement";
+import { buildSongPeakLookup } from "./regions/logic/regionPeaks";
 import {
   regionSelKey,
   type RegionSelKey,
   type RegionUiState,
-} from "./regionUtils";
+} from "./regions/logic/regionUtils";
 import type { TimelineRow } from "./rows";
 import { toolCursor, type TimelineTool } from "./tools";
 

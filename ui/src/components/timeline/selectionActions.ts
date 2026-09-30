@@ -26,8 +26,8 @@ import {
   resolveSelectedRegions,
   resolveSongLocal,
   selectRegionKeys,
-} from "./regionEdit";
-import { lookupAnyRegion, type RegionSelKey } from "./regionUtils";
+} from "./regions/logic/regionEdit";
+import { lookupAnyRegion, type RegionSelKey } from "./regions/logic/regionUtils";
 import {
   trackSelectionGesture,
   type TrackSelectionGesture,

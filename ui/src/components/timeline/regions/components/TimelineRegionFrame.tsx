@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { withHexAlpha } from "../../lib/theme/cssColor";
-import { dimHexColor } from "./colors";
+import { withHexAlpha } from "../../../../lib/theme/cssColor";
+import { dimHexColor } from "../../colors";
 
 type TimelineRegionFrameProps = HTMLAttributes<HTMLDivElement> & {
   color: string;

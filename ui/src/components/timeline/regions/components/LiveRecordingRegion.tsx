@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { recording as recordingApi } from "../../lib/state/api";
-import type { LiveRecordingRegion as LiveRecordingRegionType } from "../../lib/state/types";
+import { recording as recordingApi } from "../../../../lib/state/api";
+import type { LiveRecordingRegion as LiveRecordingRegionType } from "../../../../lib/state/types";
 
 export interface LiveRecordingRegionProps {
   recording: LiveRecordingRegionType;

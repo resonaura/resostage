@@ -1,5 +1,5 @@
-import { builder } from "../../lib/state/api";
-import type { MidiNoteRow, SongRow } from "../../lib/state/types";
+import { builder } from "../../../../lib/state/api";
+import type { MidiNoteRow, SongRow } from "../../../../lib/state/types";
 import {
   allRegionSelKeys,
   lookupAnyRegion,

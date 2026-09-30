@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSongPeakLookup } from "./regionPeaks";
+import { buildSongPeakLookup } from "../logic/regionPeaks";
 import type {
   AllPeaksResponse,
   PeakLevelData,
   RegionRow,
   TrackPeaks,
-} from "../../lib/state/types";
+} from "../../../../lib/state/types";
 
 const LEVELS: PeakLevelData[] = [
   { samplesPerBin: 256, min: [-1], max: [1], rms: [0.5] },

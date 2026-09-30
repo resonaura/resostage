@@ -1,11 +1,11 @@
-import { builder } from "../../lib/state/api";
-import type { SongRow } from "../../lib/state/types";
+import { builder } from "../../../../lib/state/api";
+import type { SongRow } from "../../../../lib/state/types";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../common/ContextMenu";
-import type { RegionSelKey, RegionUiState } from "./regionUtils";
+} from "../../../common/ContextMenu";
+import type { RegionSelKey, RegionUiState } from "../logic/regionUtils";
 
 export type RegionContextMenuState = {
   x: number;

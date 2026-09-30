@@ -1,21 +1,21 @@
 import { EmptyState, Separator, Switch } from "@heroui/react";
 import { AudioWaveform, Blend, Mic, Music, Repeat, Rewind } from "lucide-react";
 import { useMemo, useRef } from "react";
-import { builder, mixer } from "../../lib/state/api";
-import { createEditGesture } from "../../lib/interaction/editGesture";
-import type { RegionRow, SongRow, TrackRow } from "../../lib/state/types";
-import { Button, Select, ToggleButton } from "../ui";
-import { Field, LabeledSlider } from "../light/LightControls";
+import { builder, mixer } from "../../../../lib/state/api";
+import { createEditGesture } from "../../../../lib/interaction/editGesture";
+import type { RegionRow, SongRow, TrackRow } from "../../../../lib/state/types";
+import { Button, Select, ToggleButton } from "../../../ui";
+import { Field, LabeledSlider } from "../../../light/LightControls";
 import {
   CROSSFADE_SHAPES,
   crossfadeBetween,
   type CrossfadeRegion,
   type CrossfadeShape,
-} from "./crossfade/logic/crossfade";
-import { SidePanelShell } from "./SidePanelShell";
-import { TrackStateButtons } from "./tracks/components/TrackStateButtons";
-import type { RegionSelKey } from "./regionUtils";
-import { lookupAnyRegion, lookupRegion } from "./regionUtils";
+} from "../../crossfade/logic/crossfade";
+import { SidePanelShell } from "../../SidePanelShell";
+import { TrackStateButtons } from "../../tracks/components/TrackStateButtons";
+import type { RegionSelKey } from "../logic/regionUtils";
+import { lookupAnyRegion, lookupRegion } from "../logic/regionUtils";
 
 const GAIN_MIN_DB = -24;
 const GAIN_MAX_DB = 12;

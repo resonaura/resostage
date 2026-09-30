@@ -10,7 +10,7 @@ import {
 } from "./marqueeSelect";
 import type { TimelineViewMode } from "./TimelineToolbar";
 import type { TimelineRow } from "./rows";
-import type { RegionSelKey } from "./regionUtils";
+import type { RegionSelKey } from "./regions/logic/regionUtils";
 
 interface TimelineMarqueeOptions {
   viewMode: TimelineViewMode;
