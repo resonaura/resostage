@@ -15,7 +15,7 @@ import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { addRafTask } from "../../lib/state/rafLoop";
 import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timeline/timelineVisibility";
-import { useTimelineFileDrop } from "./useTimelineFileDrop";
+import { useTimelineFileDrop } from "./fileDrop/hooks/useTimelineFileDrop";
 import { hasClipboard } from "./selection/logic/timelineClipboard";
 import { useTimelineGestureActivity } from "./useTimelineGestureActivity";
 import { RegionSidePanel } from "./regions/components/RegionSidePanel";
@@ -42,7 +42,7 @@ import {
   emptyProjectActions,
   EmptyProjectState,
 } from "../project/EmptyProjectState";
-import { AudioDropGhost } from "./AudioDropGhost";
+import { AudioDropGhost } from "./fileDrop/components/AudioDropGhost";
 import { AudioTrackLanes } from "./AudioTrackLanes";
 import { BeatGrid } from "./ruler/components/BeatGrid";
 import {
