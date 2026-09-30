@@ -11,7 +11,7 @@ import { clearToneColorCache } from "../../components/ui/tones";
  * `#rrggbb` first.
  *
  * It exists because that resolution was written three times over -- the track
- * palette in timeline/constants, the light palette in light/lightColors, the
+ * palette in lib/theme/trackColors, the light palette in light/lightColors, the
  * mixer roles in lib/mixerColors -- each with its own copy of the same
  * wrap-the-index-and-resolve logic and its own hardcoded fallback list. Adding
  * a fourth family meant a fourth copy, and the fallbacks had already drifted

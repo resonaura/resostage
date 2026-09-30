@@ -1,6 +1,7 @@
 import { withHexAlpha } from "../../../../lib/theme/cssColor";
 import type { SongRow } from "../../../../lib/state/types";
-import { EVENT_LANE_HEIGHT, getEventColor } from "../../constants";
+import { EVENT_LANE_HEIGHT } from "../logic/constants";
+import { getEventColor } from "../logic/colors";
 
 /** Events from every song, each at its song's absolute offset. */
 export function EventMarkerLane({

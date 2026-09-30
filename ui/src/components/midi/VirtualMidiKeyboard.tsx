@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mixer, sendLiveMidi } from "../../lib/state/api";
 import type { WebUiState } from "../../lib/state/types";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
-import { getTrackColor } from "../timeline/constants";
+import { getTrackColor } from "../../lib/theme";
 import { getActiveMidiPitches } from "./activeMidiPitches";
 import { TrackStateButtons } from "../timeline/tracks/components/TrackStateButtons";
 import { Slider } from "../ui";

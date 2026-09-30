@@ -1,4 +1,4 @@
-import { getTrackColor } from "../../components/timeline/constants";
+import { getTrackColor } from "../../lib/theme";
 
 // Re-export mixer role colours so strip files can import from one place.
 export {

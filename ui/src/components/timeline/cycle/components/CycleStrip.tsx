@@ -6,7 +6,7 @@ import {
 } from "../../../../lib/interaction/dragCancel";
 import { triggerHaptic } from "../../../../lib/interaction/haptics";
 import type { SongRow } from "../../../../lib/state/types";
-import { RULER_CYCLE_HEIGHT } from "../../constants";
+import { RULER_CYCLE_HEIGHT } from "../../ruler/logic/constants";
 import { crossedDetent, songDetents } from "../../snapping/logic/detents";
 import { snapToGridSec } from "../../ruler/logic/geometry";
 import type { CycleLocators } from "../hooks/useCycleState";

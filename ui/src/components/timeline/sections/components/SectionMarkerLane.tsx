@@ -12,7 +12,7 @@ import {
   ContextMenuItem,
 } from "../../../common/ContextMenu";
 import { InlineNamePrompt } from "../../../common/InlineNamePrompt";
-import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "../../constants";
+import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "../logic/constants";
 import {
   crossedDetent,
   songDetents,

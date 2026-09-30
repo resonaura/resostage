@@ -1,6 +1,6 @@
 import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "../../../lib/state/types";
 import { resolveCssVar } from "../../../lib/theme/cssColor";
-import { RULER_HEIGHT } from "../../timeline/constants";
+import { RULER_HEIGHT } from "../../timeline/ruler/logic/constants";
 import {
   midiRegionContainsLoopSourceBeat,
   midiRegionLoopOccurrence,

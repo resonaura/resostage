@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "../../../lib/state/types";
 import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
-import { RULER_HEIGHT } from "../../timeline/constants";
+import { RULER_HEIGHT } from "../../timeline/ruler/logic/constants";
 import { Ruler } from "../../timeline/ruler/components/Ruler";
 import { CycleStrip } from "../../timeline/cycle/components/CycleStrip";
 import type { CycleLocators } from "../../timeline/cycle/hooks/useCycleState";

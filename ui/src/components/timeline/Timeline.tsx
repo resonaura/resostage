@@ -45,14 +45,13 @@ import {
 import { AudioDropGhost } from "./drop/components/AudioDropGhost";
 import { AudioTrackLanes } from "./tracks/components/AudioTrackLanes";
 import { BeatGrid } from "./ruler/components/BeatGrid";
+import { EVENT_LANE_HEIGHT } from "./events/logic/constants";
 import {
-  EVENT_LANE_HEIGHT,
-  MAX_PX_PER_SEC,
-  MIN_PX_PER_SEC,
-  SECTION_LANE_HEIGHT,
   TRAILING_SLACK_MIN_PX,
   TRAILING_SLACK_SECONDS,
-} from "./constants";
+} from "./layout/logic/projectBounds";
+import { SECTION_LANE_HEIGHT } from "./sections/logic/constants";
+import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./viewport/logic/zoomLimits";
 import { EventMarkerLane } from "./events/components/EventMarkerLane";
 import { LongImportPrompt } from "./overrun/components/LongImportPrompt";
 import { OutOfBoundsOverlay } from "./layout/components/OutOfBoundsOverlay";

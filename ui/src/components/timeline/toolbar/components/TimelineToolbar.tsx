@@ -37,7 +37,7 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../../../common/ContextMenu";
-import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "../../constants";
+import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "../../viewport/logic/zoomLimits";
 import { formatTimeShort } from "../../ruler/logic/geometry";
 import { TIMELINE_TOOLS, type TimelineTool } from "../logic/tools";
 import type { TimelineFollowMode, TimelineViewMode } from "../logic/types";

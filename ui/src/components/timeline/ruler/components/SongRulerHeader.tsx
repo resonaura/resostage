@@ -3,7 +3,7 @@ import {
   RULER_BEAT_HEIGHT,
   RULER_CYCLE_HEIGHT,
   RULER_HEIGHT,
-} from "../../constants";
+} from "../logic/constants";
 import { CycleStrip } from "../../cycle/components/CycleStrip";
 import { Ruler } from "./Ruler";
 import { SongEndMarker, type SongEndDrag } from "./SongEndMarker";

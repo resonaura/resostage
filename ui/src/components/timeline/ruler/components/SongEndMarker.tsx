@@ -3,7 +3,7 @@ import {
   beginCancellableDrag,
   type CancellableDrag,
 } from "../../../../lib/interaction/dragCancel";
-import { RULER_HEIGHT } from "../../constants";
+import { RULER_HEIGHT } from "../logic/constants";
 import { snapToGridSec } from "../logic/geometry";
 
 /**

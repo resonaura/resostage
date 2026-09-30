@@ -14,12 +14,10 @@ import {
   LIGHT_HINT_HEIGHT,
 } from "../../../light/LightTimeline";
 import { laneHeightPx } from "../../layout/logic/laneDimensions";
-import {
-  EVENT_LANE_HEIGHT,
-  RULER_HEIGHT,
-  SECTION_LANE_HEIGHT,
-  SIDEBAR_WIDTH,
-} from "../../constants";
+import { EVENT_LANE_HEIGHT } from "../../events/logic/constants";
+import { RULER_HEIGHT } from "../../ruler/logic/constants";
+import { SECTION_LANE_HEIGHT } from "../../sections/logic/constants";
+import { SIDEBAR_WIDTH } from "../logic/constants";
 import type { TimelineRow } from "../../layout/logic/rows";
 import { TimelineRowLabel } from "./TimelineRowLabel";
 import type { TimelineViewMode } from "../../toolbar/logic/types";
