@@ -4,18 +4,18 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
   ContextMenuSubmenu,
-} from "../../components/common/ContextMenu";
+} from "../../../components/common/ContextMenu";
 import {
   mixer,
   pluginChains,
   type PluginCatalogEntry,
-} from "../../lib/state/api";
+} from "../../../lib/state/api";
 import {
   rowsSameExceptLevels,
   sameExceptLevels,
-} from "../../lib/audio/levelFields";
-import { getTrackLiveLevel } from "../../lib/audio/liveLevels";
-import { deduplicatePlugins } from "../../lib/plugins/pluginCategories";
+} from "../../../lib/audio/levelFields";
+import { getTrackLiveLevel } from "../../../lib/audio/liveLevels";
+import { deduplicatePlugins } from "../../../lib/plugins/pluginCategories";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
@@ -23,9 +23,9 @@ import {
   type MeterRow,
   type SettingsState,
   type TrackRow,
-} from "../../lib/state/types";
+} from "../../../lib/state/types";
 import { ChannelStrip } from "./ChannelStrip";
-import { colorForIndex } from "./constants";
+import { colorForIndex } from "../logic/constants";
 
 interface InstrumentGroup {
   name: string;

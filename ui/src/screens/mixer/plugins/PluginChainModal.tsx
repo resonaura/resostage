@@ -15,15 +15,15 @@ import {
   pluginCatalog,
   pluginChains,
   type PluginCatalogResponse,
-} from "../../lib/state/api";
-import { createEditGesture } from "../../lib/interaction/editGesture";
-import type { PluginSlotRow, SongRow, TrackRow } from "../../lib/state/types";
-import { Alert, Button, Modal } from "../../components/ui";
-import { AutomationMiniGraph } from "../../components/mixer/AutomationMiniGraph";
+} from "../../../lib/state/api";
+import { createEditGesture } from "../../../lib/interaction/editGesture";
+import type { PluginSlotRow, SongRow, TrackRow } from "../../../lib/state/types";
+import { Alert, Button, Modal } from "../../../components/ui";
+import { AutomationMiniGraph } from "../../../components/mixer/AutomationMiniGraph";
 import {
   deduplicatePlugins,
   displayFormat,
-} from "../../lib/plugins/pluginCategories";
+} from "../../../lib/plugins/pluginCategories";
 
 export function PluginChainModal({
   open,

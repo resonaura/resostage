@@ -12,13 +12,13 @@ import {
 } from "../../lib/state/api";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/state/types";
 import { useIsCompact } from "../../lib/interaction/useMediaQuery";
-import { BusStrip } from "./BusStrip";
-import { MetronomeStrip } from "./MetronomeStrip";
-import { PluginChainModal } from "./PluginChainModal";
-import { extOutTarget, isMainBusId } from "./mixerIds";
-import { patchClickFields } from "./mixerUtils";
-import { StripContextMenu, type StripMenuTarget } from "./StripContextMenu";
-import { TrackStrip } from "./TrackStrip";
+import { PluginChainModal } from "./plugins/PluginChainModal";
+import { extOutTarget, isMainBusId } from "./logic/mixerIds";
+import { patchClickFields } from "./logic/mixerUtils";
+import { BusStrip } from "./strips/BusStrip";
+import { MetronomeStrip } from "./strips/MetronomeStrip";
+import { StripContextMenu, type StripMenuTarget } from "./strips/StripContextMenu";
+import { TrackStrip } from "./strips/TrackStrip";
 
 interface PendingBusJob {
   knownIds: Set<string>;

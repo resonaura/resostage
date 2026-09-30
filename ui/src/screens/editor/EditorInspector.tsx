@@ -10,10 +10,10 @@ import {
   type WebUiState,
 } from "../../lib/state/types";
 import { ScrollShadow } from "../../components/ui";
-import { BusStrip } from "../mixer/BusStrip";
-import { TrackStrip } from "../mixer/TrackStrip";
-import { PluginChainModal } from "../mixer/PluginChainModal";
-import { extOutTarget } from "../mixer/mixerIds";
+import { PluginChainModal } from "../mixer/plugins/PluginChainModal";
+import { extOutTarget } from "../mixer/logic/mixerIds";
+import { BusStrip } from "../mixer/strips/BusStrip";
+import { TrackStrip } from "../mixer/strips/TrackStrip";
 import {
   DEFAULT_INSPECTOR_OVERFLOW_WIDTH,
   DEFAULT_INSPECTOR_WIDTH,

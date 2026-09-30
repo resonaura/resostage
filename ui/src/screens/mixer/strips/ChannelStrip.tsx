@@ -1,29 +1,29 @@
 import { useMemo } from "react";
-import { Knob, LevelMeterBar } from "../../components/daw";
+import { Knob, LevelMeterBar } from "../../../components/daw";
 import {
   Button,
   Select,
   TOGGLE_BLINK_ACCENT,
   type SelectOption,
-} from "../../components/ui";
-import { useChannelClipHold } from "../../hooks/useChannelClipHold";
-import type { PluginCatalogEntry } from "../../lib/state/api";
-import { useLiveValue } from "../../lib/state/optimistic";
+} from "../../../components/ui";
+import { useChannelClipHold } from "../../../hooks/useChannelClipHold";
+import type { PluginCatalogEntry } from "../../../lib/state/api";
+import { useLiveValue } from "../../../lib/state/optimistic";
 import type {
   BusRow,
   ClickSendRow,
   PluginSlotRow,
   SettingsState,
-} from "../../lib/state/types";
-import { ROUTING_SELECT_SIZE } from "./constants";
+} from "../../../lib/state/types";
+import { ROUTING_SELECT_SIZE } from "../logic/constants";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
 import { MonoStereoIcon } from "./MonoStereoIcon";
-import { PluginInsertSlots } from "./PluginInsertSlots";
-import { PluginSlotControl } from "./PluginSlotControl";
+import { PluginInsertSlots } from "../plugins/PluginInsertSlots";
+import { PluginSlotControl } from "../plugins/PluginSlotControl";
 import { SendKnobs } from "./SendKnobs";
-import { TrackOutputRouting } from "./TrackOutputRouting";
-import { RoutingSlotPlaceholder } from "./RoutingSlotPlaceholder";
+import { TrackOutputRouting } from "../routing/components/TrackOutputRouting";
+import { RoutingSlotPlaceholder } from "../routing/components/RoutingSlotPlaceholder";
 
 /** Stable identity so useLiveValue's commit ref doesn't churn. */
 const noop = () => {};

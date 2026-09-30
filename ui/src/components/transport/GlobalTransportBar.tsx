@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { FontIcon } from "../common/FontIcon";
-import { patchClickFields } from "../../screens/mixer/mixerUtils";
+import { patchClickFields } from "../../screens/mixer/logic/mixerUtils";
 import { transport } from "../../lib/state/api";
 import { useContinuousPlayhead } from "../../lib/state/optimistic";
 import type { WebUiState } from "../../lib/state/types";

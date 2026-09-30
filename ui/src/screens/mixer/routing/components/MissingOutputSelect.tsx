@@ -1,6 +1,6 @@
 import { TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
-import type { Tone } from "../../components/ui";
+import type { Tone } from "../../../../components/ui";
 
 /**
  * How a routing picker says "this output is gone".

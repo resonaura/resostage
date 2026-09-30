@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
-import { isMainBusId } from "./mixerIds";
-import { builder } from "../../lib/state/api";
-import { Select, type SelectOption } from "../../components/ui";
-import type { BusRow, SettingsState } from "../../lib/state/types";
-import { EXT_OUTPUT_VALUE, ROUTING_SELECT_SIZE } from "./constants";
+import { isMainBusId } from "../../logic/mixerIds";
+import { builder } from "../../../../lib/state/api";
+import { Select, type SelectOption } from "../../../../components/ui";
+import type { BusRow, SettingsState } from "../../../../lib/state/types";
+import { EXT_OUTPUT_VALUE, ROUTING_SELECT_SIZE } from "../../logic/constants";
 import { RoutingSlotPlaceholder } from "./RoutingSlotPlaceholder";
 import {
   directOutputOptions,
   matchOptionId,
   parseOptionId,
   channelAvailable,
-} from "./directOutput";
+} from "../logic/directOutput";
 import { missingOutputSelectProps } from "./MissingOutputSelect";
-import { missingRouteLabel, missingRouteOptionId } from "./missingOutputUtils";
+import { missingRouteLabel, missingRouteOptionId } from "../logic/missingOutputUtils";
 
 export function BusDestinationRouting({
   bus,

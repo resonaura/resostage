@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { clipColor, clipGlow, LiveReadout } from "../../components/daw";
+import { clipColor, clipGlow, LiveReadout } from "../../../components/daw";
 
 function formatDbReadout(v: number): string {
   if (!Number.isFinite(v) || v <= -59.5) return "-inf";

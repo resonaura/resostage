@@ -4,7 +4,7 @@ import {
   type BusRow,
   type TrackRow,
 } from "../../lib/state/types";
-import { isMainBusId, MAIN_BUS_ID } from "../mixer/mixerIds";
+import { isMainBusId, MAIN_BUS_ID } from "../mixer/logic/mixerIds";
 
 export function busFeedsMaster(bus: BusRow, master?: BusRow): boolean {
   if (!master) return false;

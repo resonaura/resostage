@@ -5,9 +5,9 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
   ContextMenuSubmenu,
-} from "../../components/common/ContextMenu";
-import { pluginChains, type PluginCatalogEntry } from "../../lib/state/api";
-import type { PluginSlotRow } from "../../lib/state/types";
+} from "../../../components/common/ContextMenu";
+import { pluginChains, type PluginCatalogEntry } from "../../../lib/state/api";
+import type { PluginSlotRow } from "../../../lib/state/types";
 import { PluginSlotControl } from "./PluginSlotControl";
 
 interface SlotMenu {
@@ -20,7 +20,7 @@ interface SlotMenu {
 import {
   deduplicatePlugins,
   displayCategory,
-} from "../../lib/plugins/pluginCategories";
+} from "../../../lib/plugins/pluginCategories";
 
 interface PluginGroup {
   name: string;
