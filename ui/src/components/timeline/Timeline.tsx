@@ -57,6 +57,7 @@ import { EventMarkerLane } from "./EventMarkerLane";
 import { LongImportPrompt } from "./LongImportPrompt";
 import { OutOfBoundsOverlay } from "./OutOfBoundsOverlay";
 import { songDetents } from "./detents";
+import { resolveCycleWrapRange } from "./resolveCycleWrapRange";
 import {
   snapSongLocalSeconds,
   timelineSecondsAtClientX,
@@ -521,24 +522,7 @@ export function Timeline({
 
   // Display wrap for active loop cycle (not skip). Outside the zone the
   // playhead is free — only hi→lo crossings from inside mirror the engine.
-  {
-    const sc = state.cycle;
-    let wrap: CycleWrapRange | null = null;
-    if (
-      sc?.active &&
-      !sc.skip &&
-      typeof sc.songIndex === "number" &&
-      sc.songIndex >= 0
-    ) {
-      const lo = Math.min(sc.startSeconds, sc.endSeconds);
-      const hi = Math.max(sc.startSeconds, sc.endSeconds);
-      if (hi - lo >= 0.05) {
-        const off = songOffsets[sc.songIndex] ?? 0;
-        wrap = { loAbs: off + lo, hiAbs: off + hi };
-      }
-    }
-    cycleWrapRef.current = wrap;
-  }
+  cycleWrapRef.current = resolveCycleWrapRange(state.cycle, songOffsets);
 
   // Catch-follow when transport starts playing.
   const wasPlayingRef = useRef(state.playing);
