@@ -1,4 +1,3 @@
-import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui";
@@ -19,13 +18,13 @@ import { BusStrip } from "./strips/BusStrip";
 import { MetronomeStrip } from "./strips/MetronomeStrip";
 import { StripContextMenu, type StripMenuTarget } from "./strips/StripContextMenu";
 import { TrackStrip } from "./strips/TrackStrip";
+import { ConsolePane } from "./components/ConsolePane";
+import { MixerToolbar, type MixerDensity } from "./components/MixerToolbar";
 
 interface PluginTarget {
   stripId: string;
   stripName: string;
 }
-
-export type MixerDensity = "narrow" | "standard" | "wide";
 
 /**
  * Density-dependent strip pitch: strip width + 8px gap.
@@ -48,36 +47,6 @@ const DENSITY_PITCH_MAP: Record<MixerDensity, number> = {
  * the windowed and unwindowed renders are identical when everything fits.
  */
 const VIRTUALIZE_FROM = 12;
-
-/**
- * One group of strips (tracks / sends / master).
- *
- * On a desktop console each group is its own horizontal scroller so the master
- * stays pinned on the right while the track pane scrolls under it. That
- * division needs width to make sense: on a phone the master and sends alone
- * eat the entire viewport and the track pane collapses to a sliver. There, the
- * groups stop scrolling individually and the console becomes one continuous
- * strip you swipe through -- the same order, just laid end to end.
- */
-function ConsolePane({
-  compact,
-  className,
-  children,
-}: {
-  compact: boolean;
-  className: string;
-  children: React.ReactNode;
-}) {
-  if (compact) return <div className={className}>{children}</div>;
-  return (
-    <ScrollShadow
-      orientation="horizontal"
-      className={`${className} overflow-y-hidden`}
-    >
-      {children}
-    </ScrollShadow>
-  );
-}
 
 export function MixerScreen({
   state,
@@ -248,50 +217,12 @@ export function MixerScreen({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex shrink-0 items-center justify-between text-xs text-foreground/40">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold uppercase tracking-wide">Console</span>
-          <span>&middot;</span>
-          <span>{state.tracks.length} tracks</span>
-          <span>&middot;</span>
-          <span>{state.busses.length} busses</span>
-        </div>
-        <div className="flex items-center gap-0.5 rounded-lg border border-default/20 bg-surface/40 p-0.5">
-          <button
-            type="button"
-            onClick={() => handleDensityChange("narrow")}
-            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
-              density === "narrow"
-                ? "bg-accent/20 text-accent font-bold shadow-sm"
-                : "text-foreground/50 hover:text-foreground"
-            }`}
-          >
-            Narrow (64px)
-          </button>
-          <button
-            type="button"
-            onClick={() => handleDensityChange("standard")}
-            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
-              density === "standard"
-                ? "bg-accent/20 text-accent font-bold shadow-sm"
-                : "text-foreground/50 hover:text-foreground"
-            }`}
-          >
-            Standard (96px)
-          </button>
-          <button
-            type="button"
-            onClick={() => handleDensityChange("wide")}
-            className={`px-2 py-0.5 text-[10px] font-medium rounded transition-colors ${
-              density === "wide"
-                ? "bg-accent/20 text-accent font-bold shadow-sm"
-                : "text-foreground/50 hover:text-foreground"
-            }`}
-          >
-            Wide (128px)
-          </button>
-        </div>
-      </div>
+      <MixerToolbar
+        trackCount={state.tracks.length}
+        busCount={state.busses.length}
+        density={density}
+        onDensityChange={handleDensityChange}
+      />
 
       <div
         className={`flex min-h-0 flex-1 rounded-xl border border-default/30 bg-background p-1.5 sm:p-3 ${
