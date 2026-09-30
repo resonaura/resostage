@@ -33,16 +33,16 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     webPort_ = webPort;
     bindAddress_ = std::move(bindAddress);
 
-    // IPC server создаётся ДО аудио-setup: Electron ждёт {"type":"ready"},
-    // а notifyCoreReady() сработает только после открытия устройства. Сервер
-    // слушает в фоновом потоке и сам доставит readiness клиенту, как только
-    // тот подключится (возможно, раньше, чем устройство откроется).
+    // Create the IPC server before audio setup. Electron waits for
+    // {"type":"ready"}, which notifyCoreReady() sends only after the device
+    // opens. The listener runs in the background, so Electron can connect
+    // before device startup and receive readiness once notifyCoreReady() runs.
     if (!ipcSocketPath.empty()) {
         ipcServer = std::make_unique<IpcServer>();
         if (!ipcServer->start(ipcSocketPath)) {
             std::fprintf(stderr, "[resostage-core] IPC server failed to start on %s\n",
                          ipcSocketPath.c_str());
-            ipcServer.reset(); // нефатально: fallback на HTTP polling
+            ipcServer.reset(); // Non-fatal: fall back to HTTP polling.
         } else {
             std::fprintf(stderr, "[resostage-core] IPC server listening on %s\n",
                          ipcSocketPath.c_str());

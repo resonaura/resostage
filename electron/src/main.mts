@@ -141,7 +141,7 @@ function waitForIpcReady(timeoutMs = 15_000): Promise<void> {
     const p = ipcSocketPath();
     const sock: Socket = connect(p);
     const onData = (data: Buffer) => {
-      // Core шлёт JSON‑строки с переводом строки. Дожидаемся ready или любого сообщения.
+      // Core sends newline-delimited JSON. Wait for its "ready" message.
       const text = data.toString();
       if (text.includes('"type":"ready"')) {
         sock.off("data", onData);
@@ -155,7 +155,7 @@ function waitForIpcReady(timeoutMs = 15_000): Promise<void> {
     sock.on("error", () => resolve());
     setTimeout(() => {
       if (!sock.destroyed) sock.end();
-      resolve(); // fallback — UI падает на HTTP polling, как раньше
+      resolve(); // Fall back to HTTP polling, as before.
     }, timeoutMs).unref?.();
   });
 }
@@ -814,13 +814,13 @@ function spawnBackend(): void {
     );
     return;
   }
-  // Передаём путь IPC‑сокета: Core сообщит о готовности по нему раньше,
-  // чем станет доступен HTTP, чтобы Electron не показывал окно в пустоту.
+  // Pass the IPC socket path so Core can report readiness before HTTP is
+  // available, avoiding an empty Electron window during startup.
   const ipcPath = ipcSocketPath();
   try {
     unlinkSync(ipcPath);
   } catch {
-    /* нет старого сокета — ок */
+    /* No stale socket file; nothing to remove. */
   }
   console.log(`[resostage] Spawning nested backend: ${corePath}`);
   backendProcess = spawn(corePath, ["--ipc-socket", ipcPath, "--discovery"], {
@@ -2848,8 +2848,8 @@ if (!app.requestSingleInstanceLock()) {
     const fileArg = platform.handleProjectFileArgv(process.argv);
     if (fileArg) pendingOpenProjectPath = fileArg;
 
-    // Ждём готовности IPC Core (standalone) — мгновенно, если сокет недоступен,
-    // fallback на HTTP polling через fetchMenuWithRetry ниже.
+    // Wait for Core's IPC readiness in standalone mode. If IPC is unavailable,
+    // fall back to the HTTP polling in fetchMenuWithRetry below.
     if (STANDALONE) await waitForIpcReady();
 
     // The GET response already carries the current Open Recent list, so the

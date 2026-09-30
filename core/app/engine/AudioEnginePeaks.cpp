@@ -152,8 +152,9 @@ void AudioEngine::rebuildTrackPeaks() {
 
             // Publish a single region→track peak onto the message thread as
             // soon as it is ready so the SPA can paint waveforms track-by-
-            // track instead of waiting for the whole song batch to finish
-            // ("пики не грузит динамически").
+            // track instead of waiting for the whole song batch to finish;
+            // this fixes the previous behavior where peaks appeared only
+            // after the entire batch completed.
             auto publishPartial = [this, generation, songIndexForBuild, &indices](size_t regionIndex, PeakOverview overview) {
                 if (overview.empty())
                     return;

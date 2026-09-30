@@ -463,7 +463,7 @@ export function useContinuousPlayhead(
   useEffect(() => {
     // While frozen (zoom gesture) or actively dragging the playhead, don't
     // let server corrections yank the clock -- it must stand still
-    // ("автостоп времени при зуме") or stay exactly where the user dropped
+    // (freeze time during zoom) or stay exactly where the user dropped
     // it, unconditionally, for the whole gesture. Both resume cleanly once
     // the flag drops: frozen re-corrects on its own next tick, dragging
     // hands off to the fixed post-commit lock below.

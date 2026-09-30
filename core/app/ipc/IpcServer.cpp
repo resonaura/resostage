@@ -55,8 +55,8 @@ std::string IpcServer::jsonReady(int sampleRate, int blockSize, int outputLatenc
 
 bool IpcServer::start(const std::string& socketPath) {
 #if JUCE_WINDOWS
-    // Windows: именованный канал потоковый. Формат пути \\.\pipe\name.
-    // Если путь уже начинается с \\.\pipe\, используем как есть.
+    // Windows uses a byte-stream named pipe with paths shaped like
+    // \\.\pipe\name. Preserve paths that already include the prefix.
     std::string pipeName = socketPath;
     const std::string prefix = "\\\\.\\pipe\\";
     if (pipeName.rfind(prefix, 0) != 0)
@@ -65,7 +65,7 @@ bool IpcServer::start(const std::string& socketPath) {
     for (int attempt = 0; attempt < 20; ++attempt) {
         serverHandle_ = CreateNamedPipeA(
             pipeName.c_str(),
-            PIPE_ACCESS_DUPLEX,            // Двунаправленный канал (Core читает и пишет)
+            PIPE_ACCESS_DUPLEX,            // Bidirectional pipe (Core reads and writes).
             PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
             1,                             // max instances
             0, 0,                          // out/in buffer sizes
@@ -84,13 +84,13 @@ bool IpcServer::start(const std::string& socketPath) {
     if (fd < 0)
         return false;
 
-    // Удаляем возможный старый файл сокета (от убитого процесса).
+    // Remove a stale socket file left by a terminated process.
     ::unlink(socketPath.c_str());
 
     struct sockaddr_un addr;
     std::memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    // sun_path ограничен длиной; проверяем.
+    // sun_path has a fixed length limit; validate it before copying.
     if (socketPath.size() >= sizeof(addr.sun_path)) {
         ::close(fd);
         return false;
@@ -134,17 +134,17 @@ void IpcServer::listenerThread() {
 #if JUCE_WINDOWS
     if (!serverHandle_ || serverHandle_ == INVALID_HANDLE_VALUE)
         return;
-    // Ждём клиента: ConnectNamedPipe блокирует до подключения или ошибки.
+    // Wait for a client; ConnectNamedPipe blocks until connection or failure.
     BOOL ok = ConnectNamedPipe(serverHandle_, nullptr);
     if (!ok && GetLastError() != ERROR_PIPE_CONNECTED)
         return;
     clientHandle_ = serverHandle_;
-    // После отключения клиента серверный handle нельзя переиспользовать —
-    // достаточно ждать завершения процесса Core (он умирает с ним).
+    // After a client disconnects, this server handle cannot be reused. Core
+    // only needs to wait for process shutdown, which owns this handle's life.
 #else
     if (serverFd_ < 0)
         return;
-    // Принимаем ровно одного клиента (Electron).
+    // Accept exactly one client (Electron).
     clientFd_ = ::accept(serverFd_, nullptr, nullptr);
     if (clientFd_ < 0)
         return;
@@ -153,7 +153,7 @@ void IpcServer::listenerThread() {
     // Read buffer for incoming messages from Electron.
     std::string readBuf;
 
-    // Цикл: отправляем исходящие сообщения И читаем входящие от Electron.
+    // Send queued messages and read incoming messages from Electron.
     while (!stopRequested_.load(std::memory_order_relaxed)) {
         // 1. Send any pending outbound message.
         if (hasPending_.load(std::memory_order_acquire)) {
@@ -164,7 +164,7 @@ void IpcServer::listenerThread() {
                 hasPending_.store(false, std::memory_order_release);
             }
             if (!writeMessage(msg))
-                break; // клиент отключился
+                break; // The client disconnected.
         }
 
         // 2. Try to read inbound data (non-blocking poll + read).
@@ -206,7 +206,7 @@ void IpcServer::listenerThread() {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    // Гарантируем доставку readiness, если клиент всё ещё подключён.
+    // Deliver readiness before exit if a client is still connected.
     if (hasPending_.load(std::memory_order_acquire)) {
         std::string msg;
         {

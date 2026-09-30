@@ -8,8 +8,8 @@
 #include <shellapi.h>
 #endif
 
-// kaishaku (介錯) -- Cross-Platform PID Executioner of ResoStage
-// Liquidates ONLY our specific target processes by explicit PIDs passed via CLI.
+// Kaishaku -- cross-platform helper for terminating ResoStage processes.
+// It acts only on explicit target PIDs passed via the command line.
 
 int runKaishakuMain(int argc, char* argv[]) {
     std::unique_ptr<resostage::KaishakuAdapter> adapter(resostage::createKaishakuAdapter());

@@ -164,8 +164,7 @@ inline constexpr double kResumeFadeSeconds = 0.25;
 // should this fixture show right now" -- LightEngine's real-time DMX thread
 // and MainComponent's ~30Hz WebUiState push both call this, so the live
 // preview the user sees can never show something the real hardware isn't
-// also doing (see RESTORE_POINT.md Feature 6 / the "намертво к таймлайну"
-// sync fix).
+// also doing (see RESTORE_POINT.md Feature 6 / the hard timeline-sync fix).
 // One fixture's contribution from a single track that currently drives it,
 // bundled with the blend mode its active cue asked for -- kept only long
 // enough to fold multiple simultaneous tracks together below.

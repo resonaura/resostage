@@ -77,8 +77,8 @@ public:
     // Called when the render callback returns while the transport is playing
     // without having written anything -- the block leaves as silence. The
     // driver never notices (it was serviced on time), so this is invisible to
-    // underrunCount, yet a handful of these per second is the "хрип" a
-    // listener reports while a fader is being dragged.
+    // underrunCount, yet even a handful of these per second can cause the
+    // audible crackle listeners report while a fader is being dragged.
     void noteSilentBlock() { silentBlockCount.fetch_add(1, std::memory_order_relaxed); }
     /** One block pushed through a region's transposer. See pitchBlockCount. */
     void notePitchBlock() { pitchBlockCount.fetch_add(1, std::memory_order_relaxed); }

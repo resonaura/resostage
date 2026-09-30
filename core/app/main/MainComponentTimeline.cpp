@@ -94,7 +94,7 @@ void MainComponent::maybePublishPeaks() {
 
     // While peaks are still streaming in, republish at most ~2 Hz -- BUT
     // always publish immediately when the filled count advances so the SPA
-    // sees each track as it lands ("пики не грузит динамически").
+    // sees each track's peaks as soon as they are ready.
     const juce::uint32 nowMs = juce::Time::getMillisecondCounter();
     const bool filledAdvanced = filled != lastPeaksPublishFilledCount;
     if (songIdx == lastPeaksPublishSongIndex && !complete && !filledAdvanced

@@ -1,24 +1,25 @@
 // resostage::IpcServer
 // ----------------------
-// Кроссплатформенный IPC-канал между C++/JUCE Core и Electron UI.
+// Cross-platform IPC channel between the C++/JUCE Core and Electron UI.
 //
-// Транспорт: потоковый сокет — AF_UNIX (Linux/macOS) или именованный канал
-// Windows (\\.\pipe\...). Electron подключается через Node.js net.connect(),
-// поэтому НЕ JUCE NamedPipe: тот на POSIX создаёт FIFO‑файлы с суффиксами
-// _in/_out, к которым net.connect путём указания пути не подключиться.
+// Transport: a stream socket -- AF_UNIX (Linux/macOS) or a Windows named pipe
+// (\\.\pipe\...). Electron connects with Node.js net.connect(), so this does
+// not use JUCE NamedPipe: on POSIX that creates FIFO files with _in/_out
+// suffixes, which net.connect cannot open by path.
 //
-// Протокол: одна строка JSON + '\n' на сообщение, от Core → UI:
+// Protocol: one JSON line plus '\n' per message, from Core to UI:
 //
 //   {"type":"ready",   "sampleRate":48000,"blockSize":512,"latency":44}
 //   {"type":"started"}
 //   {"type":"stopped"}
 //   {"type":"error","message":"..."}
 //
-// Жизненный цикл:
-//   - Core запускается с --ipc-socket <path>, создаёт слушающий сервер,
-//     вызывает notifyReady(...) после инициализации аудиоустройства.
-//   - Electron: spawn(core, ['--ipc-socket', path]) → net.connect(path) →
-//     ждёт {"type":"ready"} → createWindow. При закрытии окна core.kill('SIGTERM').
+// Lifecycle:
+//   - Core starts with --ipc-socket <path>, creates the listener, and calls
+//     notifyReady(...) after audio-device initialization.
+//   - Electron: spawn(core, ['--ipc-socket', path]) -> net.connect(path) ->
+//     wait for {"type":"ready"} -> createWindow. Closing the window sends
+//     core.kill('SIGTERM').
 #pragma once
 
 #include <juce_events/juce_events.h>
@@ -43,14 +44,14 @@ public:
     IpcServer(const IpcServer&) = delete;
     IpcServer& operator=(const IpcServer&) = delete;
 
-    // Создаёт слушающий потоковый сокет/канал. Возвращает false при ошибке.
+    // Creates a listening stream socket/pipe. Returns false on failure.
     bool start(const std::string& socketPath);
 
-    // Останавливает сервер и закрывает клиентское соединение (если есть).
+    // Stops the server and closes the client connection, if present.
     void stop();
 
-    // Вызываются из аудио/транспортных потоков Core. Накапливают сообщение;
-    // фоновый поток рассылает его подключённому клиенту.
+    // Called from Core audio/transport threads. These queue a message for the
+    // background listener to deliver to the connected client.
     void notifyReady(int sampleRate, int blockSize, int outputLatencySamples);
     void notifyStarted();
     void notifyStopped();
@@ -66,7 +67,7 @@ private:
     bool writeMessage(const std::string& msg);
 
 #if JUCE_WINDOWS
-    // Win32 HANDLE идентификатора серверного именованного канала и клиента.
+    // Win32 HANDLEs for the server named pipe and connected client.
     void* serverHandle_ = nullptr;
     void* clientHandle_ = nullptr;
 #else

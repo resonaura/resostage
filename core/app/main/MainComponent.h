@@ -30,12 +30,12 @@ namespace resostage {
 // Occasional OS FileChooser / AlertWindow peers are created on demand.
 class MainComponent final : public juce::Component, private juce::Timer {
 public:
-    // `ipcSocketPath`: если непусто, создаёт IPC‑сервер и посылает
-    // {"type":"ready"} после открытия аудиоустройства (для Electron UI на
-    // Linux/Windows/standalone-macOS). Пусто → IPC выключен (dev‑режим,
-    // когда JUCE стартует Electron через --backend-port).
-    // `webPort`: порт для WebServer (default 2899). Может переопределяться
-    // через --backend-port при запуске в remote-режиме.
+    // A non-empty ipcSocketPath starts an IPC server and sends
+    // {"type":"ready"} after the audio device opens (for Electron UI on
+    // Linux/Windows/standalone macOS). An empty path disables IPC (development
+    // mode, when JUCE starts Electron with --backend-port).
+    // webPort is the WebServer port (default 2899); remote startup can
+    // override it with --backend-port.
     explicit MainComponent(std::string ipcSocketPath = {}, uint16_t webPort = kWebPort, bool enableDiscovery = true, std::string bindAddress = "0.0.0.0");
     ~MainComponent() override;
 
@@ -85,10 +85,9 @@ public:
 private:
     uint16_t webPort_ = kWebPort;
 
-    // IPC канал к Electron UI (Windows/Linux: Unix domain socket, создаваемый
-    // Core на старте; macOS пока запускается Electron как дочерний процесс).
-    // Принимает сообщение {"type":"ready",...} после того, как аудиоустройство
-    // открыто, чтобы Electron не пытался подключиться к серверу раньше времени.
+    // IPC channel to Electron: Core creates a Unix-domain socket on POSIX or
+    // a named pipe on Windows at startup. Sends {"type":"ready",...} after
+    // the audio device opens so Electron does not connect prematurely.
     std::unique_ptr<IpcServer> ipcServer;
     std::string ipcSocketPath;
     void notifyCoreReady();
