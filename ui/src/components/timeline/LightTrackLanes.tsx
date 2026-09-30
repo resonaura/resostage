@@ -5,7 +5,7 @@ import {
   type CueSelKey,
   type LightCueDragState,
 } from "../light/LightTimeline";
-import type { TimelineTool } from "./tools";
+import type { TimelineTool } from "./toolbar/logic/tools";
 
 export function LightTrackLanes({
   lightEnabled,

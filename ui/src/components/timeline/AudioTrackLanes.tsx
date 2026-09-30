@@ -39,7 +39,7 @@ import {
   type RegionUiState,
 } from "./regions/logic/regionUtils";
 import type { TimelineRow } from "./layout/logic/rows";
-import { toolCursor, type TimelineTool } from "./tools";
+import { toolCursor, type TimelineTool } from "./toolbar/logic/tools";
 
 /** Geometry captured when a crossfade drag begins; see applyResize. */
 interface CrossfadeDragBase {

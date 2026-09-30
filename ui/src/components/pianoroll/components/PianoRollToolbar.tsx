@@ -28,7 +28,7 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
 } from "../../common/ContextMenu";
-import type { TimelineFollowMode } from "../../timeline/TimelineToolbar";
+import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
 import { NOTE_NAMES, SCALE_LABELS } from "../logic/scales";
 import type {
   GridSnapValue,

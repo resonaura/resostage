@@ -17,7 +17,7 @@ import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timeline/timelineVisibility";
 import { useTimelineFileDrop } from "./drop/hooks/useTimelineFileDrop";
 import { hasClipboard } from "./selection/logic/timelineClipboard";
-import { useTimelineGestureActivity } from "./useTimelineGestureActivity";
+import { useTimelineGestureActivity } from "./viewport/hooks/useTimelineGestureActivity";
 import { RegionSidePanel } from "./regions/components/RegionSidePanel";
 import {
   quantizeScrollWindow,
@@ -81,7 +81,7 @@ import { SectionMarkerLane } from "./sections/components/SectionMarkerLane";
 import { SelectionContextMenu } from "./selection/components/SelectionContextMenu";
 import { SongRulerHeader } from "./ruler/components/SongRulerHeader";
 import { TimelineSidebar } from "./tracks/components/TimelineSidebar";
-import { TimelineToolbar } from "./TimelineToolbar";
+import { TimelineToolbar } from "./toolbar/components/TimelineToolbar";
 import { ToastContainer, type Toast } from "./ToastContainer";
 import { useCycleState } from "./cycle/hooks/useCycleState";
 import { useRegionDrag } from "./regions/hooks/useRegionDrag";
@@ -92,9 +92,9 @@ import { useTimelineKeyboard } from "./selection/hooks/useTimelineKeyboard";
 import { useTimelineMarquee } from "./selection/hooks/useTimelineMarquee";
 import { useTimelineScrub } from "./ruler/hooks/useTimelineScrub";
 import { useTimelineTrackFocus } from "./tracks/hooks/useTimelineTrackFocus";
-import { useTimelineZoomGestures } from "./useTimelineZoomGestures";
+import { useTimelineZoomGestures } from "./viewport/hooks/useTimelineZoomGestures";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
-import { useTimelinePrefs } from "./useTimelinePrefs";
+import { useTimelinePrefs } from "./toolbar/hooks/useTimelinePrefs";
 import type { TrackSelectionGesture } from "./tracks/logic/trackSelection";
 import { createTimelineSelectionActions } from "./selection/logic/selectionActions";
 

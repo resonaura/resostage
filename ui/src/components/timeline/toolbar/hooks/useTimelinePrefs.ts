@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { TimelineFollowMode, TimelineViewMode } from "./TimelineToolbar";
-import type { TimelineTool } from "./tools";
+import type { TimelineFollowMode, TimelineViewMode } from "../logic/types";
+import type { TimelineTool } from "../logic/tools";
 
 const FOLLOW_KEY = "resostage.timeline.followMode";
 const VIEW_KEY = "resostage.timeline.viewMode";

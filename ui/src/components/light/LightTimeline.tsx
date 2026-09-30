@@ -28,7 +28,7 @@ import {
   laneHeightPx,
 } from "../timeline/layout/logic/laneDimensions";
 import { buildSongPeakLookup } from "../timeline/regions/logic/regionPeaks";
-import { toolCursor, type TimelineTool } from "../timeline/tools";
+import { toolCursor, type TimelineTool } from "../timeline/toolbar/logic/tools";
 import { TrackWaveformLane } from "../audio/TrackWaveformLane";
 import { EFFECT_META, effectUsesOwnColor } from "./lightEffectMeta";
 import type { EffectType } from "./LightSidePanel";

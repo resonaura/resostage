@@ -6,7 +6,7 @@ import { applyLegato, applyOverlapTrim, generateNoteId, sliceNote } from "../log
 import { snapPitchToScale } from "../logic/scales";
 import { getRegionActivePitches } from "../../midi/activeMidiPitches";
 import type { MidiNoteRow } from "../../../lib/state/types";
-import type { TimelineFollowMode } from "../../timeline/TimelineToolbar";
+import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
 import { useCycleState } from "../../timeline/cycle/hooks/useCycleState";
 import { timelineHistory } from "../../../lib/state/api";
 import { getTrackColor } from "../../timeline/constants";

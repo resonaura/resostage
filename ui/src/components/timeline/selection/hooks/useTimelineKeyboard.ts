@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import type { SongRow } from "../../../../lib/state/types";
 import type { CueSelKey } from "../../../light/LightTimeline";
 import { allRegionSelKeys, type RegionSelKey } from "../../regions/logic/regionUtils";
-import type { TimelineViewMode } from "../../TimelineToolbar";
+import type { TimelineViewMode } from "../../toolbar/logic/types";
 import { hotkeyManager, HotkeyScope } from "../../../../lib/interaction/HotkeyManager";
 
 type Actions = {

@@ -28,21 +28,19 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   CollapsibleInline,
-} from "../ui";
+} from "../../../ui";
 
-import { timelineHistory } from "../../lib/state/api";
-import { useEscRevert } from "../../lib/interaction/useEscRevert";
+import { timelineHistory } from "../../../../lib/state/api";
+import { useEscRevert } from "../../../../lib/interaction/useEscRevert";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../common/ContextMenu";
-import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
-import { formatTimeShort } from "./ruler/logic/geometry";
-import { TIMELINE_TOOLS, type TimelineTool } from "./tools";
-
-export type TimelineFollowMode = "off" | "snap" | "smooth";
-export type TimelineViewMode = "audio" | "light";
+} from "../../../common/ContextMenu";
+import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "../../constants";
+import { formatTimeShort } from "../../ruler/logic/geometry";
+import { TIMELINE_TOOLS, type TimelineTool } from "../logic/tools";
+import type { TimelineFollowMode, TimelineViewMode } from "../logic/types";
 
 const TOOL_ICONS: Record<TimelineTool, React.ReactNode> = {
   pointer: <MousePointer2 size={13} />,

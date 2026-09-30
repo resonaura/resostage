@@ -22,7 +22,7 @@ import {
 } from "../../constants";
 import type { TimelineRow } from "../../layout/logic/rows";
 import { TimelineRowLabel } from "./TimelineRowLabel";
-import type { TimelineViewMode } from "../../TimelineToolbar";
+import type { TimelineViewMode } from "../../toolbar/logic/types";
 import { TrackHeaderControl } from "./TrackHeaderControl";
 import {
   trackSelectionGesture,

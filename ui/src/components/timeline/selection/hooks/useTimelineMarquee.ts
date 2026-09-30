@@ -8,7 +8,7 @@ import {
   resolveMarqueeSelection,
   type MarqueeRect,
 } from "../logic/marqueeSelect";
-import type { TimelineViewMode } from "../../TimelineToolbar";
+import type { TimelineViewMode } from "../../toolbar/logic/types";
 import type { TimelineRow } from "../../layout/logic/rows";
 import type { RegionSelKey } from "../../regions/logic/regionUtils";
 

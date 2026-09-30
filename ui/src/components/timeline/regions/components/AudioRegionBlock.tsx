@@ -11,7 +11,7 @@ import {
   regionFadeHandleAt,
   regionStretchEdge,
 } from "../logic/regionDrag";
-import type { TimelineTool } from "../../tools";
+import type { TimelineTool } from "../../toolbar/logic/tools";
 import type { RegionSelKey, RegionUiState } from "../logic/regionUtils";
 
 export function AudioRegionBlock({

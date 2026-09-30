@@ -3,7 +3,7 @@ import type { MidiRegionRow, TrackRow } from "../../../../lib/state/types";
 import { isCompactLane } from "../../layout/logic/laneDimensions";
 import { RegionLoopBoundaries } from "./RegionLoopBoundaries";
 import { TimelineRegionFrame } from "./TimelineRegionFrame";
-import type { TimelineTool } from "../../tools";
+import type { TimelineTool } from "../../toolbar/logic/tools";
 import type { RegionDragMode } from "../logic/regionDrag";
 import type { RegionGeomDraft } from "../logic/regionDrag";
 import {
