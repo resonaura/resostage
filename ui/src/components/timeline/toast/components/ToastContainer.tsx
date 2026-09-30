@@ -1,7 +1,6 @@
-export interface Toast {
-  id: number;
-  message: string;
-}
+import type { Toast } from "../logic/types";
+
+export type { Toast } from "../logic/types";
 
 export function ToastContainer({
   toasts,

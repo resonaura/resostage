@@ -81,7 +81,8 @@ import { SelectionContextMenu } from "./selection/components/SelectionContextMen
 import { SongRulerHeader } from "./ruler/components/SongRulerHeader";
 import { TimelineSidebar } from "./tracks/components/TimelineSidebar";
 import { TimelineToolbar } from "./toolbar/components/TimelineToolbar";
-import { ToastContainer, type Toast } from "./toast/components/ToastContainer";
+import { ToastContainer } from "./toast/components/ToastContainer";
+import { useTimelineToasts } from "./toast/hooks/useTimelineToasts";
 import { useCycleState } from "./cycle/hooks/useCycleState";
 import { useRegionDrag } from "./regions/hooks/useRegionDrag";
 import { useLongImportGuard } from "./overrun/hooks/useLongImportGuard";
@@ -367,17 +368,7 @@ export function Timeline({
   const lastScrollStateCommitAtRef = useRef(0);
 
   // Vertical zoom (buttons, not gestures)
-  // Toast notifications
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const toastCounterRef = useRef(0);
-  const showToast = (message: string) => {
-    const id = ++toastCounterRef.current;
-    setToasts((prev) => [...prev, { id, message }]);
-    setTimeout(
-      () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-      3500,
-    );
-  };
+  const { toasts, showToast, dismissToast } = useTimelineToasts();
 
   // Region selection (editor only) for copy/delete/duplicate hotkeys.
   const [selectedRegionKeys, setSelectedRegionKeys] = useState<RegionSelKey[]>(
@@ -1525,10 +1516,7 @@ export function Timeline({
       className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-default/30 bg-background-secondary"
     >
       {/* Toast overlay */}
-      <ToastContainer
-        toasts={toasts}
-        onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
-      />
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <TimelineToolbar
         songCount={songs.length}
