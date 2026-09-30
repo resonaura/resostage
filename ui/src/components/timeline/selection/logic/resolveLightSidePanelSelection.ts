@@ -1,7 +1,7 @@
-import type { LightSidePanelSelection } from "../light/LightSidePanel";
-import type { CueSelKey } from "../light/LightTimeline";
-import type { TimelineViewMode } from "./TimelineToolbar";
-import type { LightTrackRow, SongRow } from "../../lib/state/types";
+import type { LightSidePanelSelection } from "../../../light/LightSidePanel";
+import type { CueSelKey } from "../../../light/LightTimeline";
+import type { TimelineViewMode } from "../../TimelineToolbar";
+import type { LightTrackRow, SongRow } from "../../../../lib/state/types";
 
 interface ResolveLightSidePanelSelectionArgs {
   viewMode: TimelineViewMode;

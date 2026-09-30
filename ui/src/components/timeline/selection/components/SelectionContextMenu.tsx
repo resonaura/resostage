@@ -2,7 +2,7 @@ import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../common/ContextMenu";
+} from "../../../common/ContextMenu";
 
 /** Shared multi-selection context menu (regions or cues). */
 export function SelectionContextMenu({

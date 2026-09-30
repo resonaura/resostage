@@ -1,5 +1,5 @@
 import type { CueClipboardEntry } from "./cueEdit";
-import type { RegionClipboardEntry } from "./regions/logic/regionUtils";
+import type { RegionClipboardEntry } from "../../regions/logic/regionUtils";
 
 /**
  * What was last cut or copied in the timeline.

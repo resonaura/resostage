@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { SongRow } from "../../lib/state/types";
-import type { CueSelKey } from "../light/LightTimeline";
+import type { SongRow } from "../../../../lib/state/types";
+import type { CueSelKey } from "../../../light/LightTimeline";
 import {
   deleteCues,
   duplicateCue,
@@ -26,12 +26,12 @@ import {
   resolveSelectedRegions,
   resolveSongLocal,
   selectRegionKeys,
-} from "./regions/logic/regionEdit";
-import { lookupAnyRegion, type RegionSelKey } from "./regions/logic/regionUtils";
+} from "../../regions/logic/regionEdit";
+import { lookupAnyRegion, type RegionSelKey } from "../../regions/logic/regionUtils";
 import {
   trackSelectionGesture,
   type TrackSelectionGesture,
-} from "./tracks/logic/trackSelection";
+} from "../../tracks/logic/trackSelection";
 
 interface SelectionActionOptions {
   songs: SongRow[];

@@ -1,16 +1,16 @@
 import { useRef, useState } from "react";
-import { beginCancellableDrag, type CancellableDrag } from "../../lib/interaction/dragCancel";
-import type { SongRow, TrackRow } from "../../lib/state/types";
-import type { CueSelKey } from "../light/LightTimeline";
-import { laneHeightPx } from "./laneDimensions";
+import { beginCancellableDrag, type CancellableDrag } from "../../../../lib/interaction/dragCancel";
+import type { SongRow, TrackRow } from "../../../../lib/state/types";
+import type { CueSelKey } from "../../../light/LightTimeline";
+import { laneHeightPx } from "../../laneDimensions";
 import {
   normalizeMarquee,
   resolveMarqueeSelection,
   type MarqueeRect,
-} from "./marqueeSelect";
-import type { TimelineViewMode } from "./TimelineToolbar";
-import type { TimelineRow } from "./rows";
-import type { RegionSelKey } from "./regions/logic/regionUtils";
+} from "../logic/marqueeSelect";
+import type { TimelineViewMode } from "../../TimelineToolbar";
+import type { TimelineRow } from "../../rows";
+import type { RegionSelKey } from "../../regions/logic/regionUtils";
 
 interface TimelineMarqueeOptions {
   viewMode: TimelineViewMode;

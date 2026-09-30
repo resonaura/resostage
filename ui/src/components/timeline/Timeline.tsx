@@ -16,7 +16,7 @@ import { addRafTask } from "../../lib/state/rafLoop";
 import { useScrollShadow } from "@heroui/react";
 import { isPositionVisible } from "../../lib/timeline/timelineVisibility";
 import { useTimelineFileDrop } from "./useTimelineFileDrop";
-import { hasClipboard } from "./timelineClipboard";
+import { hasClipboard } from "./selection/logic/timelineClipboard";
 import { useTimelineGestureActivity } from "./useTimelineGestureActivity";
 import { RegionSidePanel } from "./regions/components/RegionSidePanel";
 import {
@@ -70,7 +70,7 @@ import {
   type RegionContextMenuState,
 } from "./regions/components/RegionContextMenu";
 import { splitRegionsAtPlayhead } from "./regions/logic/regionEdit";
-import { resolveLightSidePanelSelection } from "./resolveLightSidePanelSelection";
+import { resolveLightSidePanelSelection } from "./selection/logic/resolveLightSidePanelSelection";
 import {
   type RegionSelKey,
   type RegionUiState,
@@ -78,7 +78,7 @@ import {
 import { buildRows, songContentSeconds } from "./rows";
 import { previewDropReorder } from "./dropPreview";
 import { SectionMarkerLane } from "./SectionMarkerLane";
-import { SelectionContextMenu } from "./SelectionContextMenu";
+import { SelectionContextMenu } from "./selection/components/SelectionContextMenu";
 import { SongRulerHeader } from "./SongRulerHeader";
 import { TimelineSidebar } from "./tracks/components/TimelineSidebar";
 import { TimelineToolbar } from "./TimelineToolbar";
@@ -88,15 +88,15 @@ import { useRegionDrag } from "./regions/hooks/useRegionDrag";
 import { useLongImportGuard } from "./useLongImportGuard";
 import { useRegionSelectionLifecycle } from "./regions/hooks/useRegionSelectionLifecycle";
 import { useSongLayout } from "./useSongLayout";
-import { useTimelineKeyboard } from "./useTimelineKeyboard";
-import { useTimelineMarquee } from "./useTimelineMarquee";
+import { useTimelineKeyboard } from "./selection/hooks/useTimelineKeyboard";
+import { useTimelineMarquee } from "./selection/hooks/useTimelineMarquee";
 import { useTimelineScrub } from "./useTimelineScrub";
 import { useTimelineTrackFocus } from "./tracks/hooks/useTimelineTrackFocus";
 import { useTimelineZoomGestures } from "./useTimelineZoomGestures";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { useTimelinePrefs } from "./useTimelinePrefs";
 import type { TrackSelectionGesture } from "./tracks/logic/trackSelection";
-import { createTimelineSelectionActions } from "./selectionActions";
+import { createTimelineSelectionActions } from "./selection/logic/selectionActions";
 
 // ------- Timeline (continuous multi-song arrangement) -------------------
 

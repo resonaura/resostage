@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { LightCueRow, LightTrackRow, SongRow } from "../../lib/state/types";
-import { resolveLightSidePanelSelection } from "./resolveLightSidePanelSelection";
+import type { LightCueRow, LightTrackRow, SongRow } from "../../../../lib/state/types";
+import { resolveLightSidePanelSelection } from "../logic/resolveLightSidePanelSelection";
 
 const tracks: LightTrackRow[] = [
   { id: "light-1", name: "Front Wash", fixtureIds: [] },

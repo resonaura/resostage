@@ -21,7 +21,7 @@ import type {
   WebUiState,
 } from "../../lib/state/types";
 import { ContextMenu, ContextMenuItem } from "../common/ContextMenu";
-import { splitCueAtPlayhead } from "../timeline/cueEdit";
+import { splitCueAtPlayhead } from "../timeline/selection/logic/cueEdit";
 import {
   COMPACT_LANE_MAX_PX,
   LANE_HEIGHT,

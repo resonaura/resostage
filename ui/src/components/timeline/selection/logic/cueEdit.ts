@@ -1,6 +1,6 @@
-import { lighting } from "../../lib/state/api";
-import type { LightCueRow, SongRow } from "../../lib/state/types";
-import type { CueSelKey } from "../light/LightTimeline";
+import { lighting } from "../../../../lib/state/api";
+import type { LightCueRow, SongRow } from "../../../../lib/state/types";
+import type { CueSelKey } from "../../../light/LightTimeline";
 
 export interface CueClipboardEntry extends LightCueRow {
   songIndex: number;
