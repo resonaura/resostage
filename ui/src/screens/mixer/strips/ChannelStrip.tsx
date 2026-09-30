@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Knob, LevelMeterBar } from "../../../components/daw";
+import { LevelMeterBar } from "../../../components/daw";
 import {
   Button,
   Select,
@@ -18,6 +18,7 @@ import { ROUTING_SELECT_SIZE } from "../logic/constants";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
 import { MonoStereoIcon } from "./MonoStereoIcon";
+import { PanControl } from "./PanControl";
 import { StripButton } from "./StripButton";
 import { createVerticalValueDragHandler } from "./logic/verticalValueDrag";
 import { PluginInsertSlots } from "../plugins/PluginInsertSlots";
@@ -153,12 +154,6 @@ export function ChannelStrip({
   density?: "narrow" | "standard" | "wide";
   targetPluginSlots?: number;
 }) {
-  const formatPan = (p: number) => {
-    if (Math.abs(p) < 0.05) return "C";
-    if (p < 0) return `L${Math.round(-p * 100)}`;
-    return `R${Math.round(p * 100)}`;
-  };
-
   // ── What this strip currently SHOWS, as opposed to what the engine has
   // last confirmed ────────────────────────────────────────────────────────
   const [displayGainDb, commitGain] = useLiveValue(gainDb, onGain);
@@ -182,19 +177,6 @@ export function ChannelStrip({
       capturePointer: true,
     },
   );
-  const handlePanPointerDown = createVerticalValueDragHandler(
-    displayPan,
-    commitPan,
-    {
-      min: -1,
-      max: 1,
-      sensitivity: 0.01,
-      step: 0.05,
-      fineSensitivity: 0.01,
-      fineStep: 0.01,
-    },
-  );
-
   const isPolarityActive =
     inputRouting?.polarity && inputRouting.polarity !== "none";
 
@@ -463,29 +445,11 @@ export function ChannelStrip({
 
       {/* 6. Pan / Balance Section */}
       {onPan && pan !== null ? (
-        <div className="my-0.5 flex flex-col items-center gap-0.5">
-          <Knob
-            value={displayPan}
-            min={-1}
-            max={1}
-            defaultValue={0}
-            accent="color-mix(in oklab, var(--foreground) 90%, transparent)"
-            onCommit={commitPan}
-            size={knobSize}
-            title="Pan"
-          />
-          <div
-            className="font-mono text-[8.5px] text-foreground/50 hover:text-foreground cursor-ns-resize select-none transition-colors"
-            title="Pan (Drag up/down to adjust, double-click for Center)"
-            onPointerDown={handlePanPointerDown}
-            onDoubleClick={(e) => {
-              e.preventDefault();
-              commitPan(0);
-            }}
-          >
-            {formatPan(displayPan)}
-          </div>
-        </div>
+        <PanControl
+          value={displayPan}
+          onChange={commitPan}
+          size={knobSize}
+        />
       ) : (
         <div className="h-0.5" />
       )}
