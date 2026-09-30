@@ -5,7 +5,7 @@ import type { RenderDialogIntent } from "../../transfer/render/components/Render
 import { useHorizontalWindow } from "./hooks/useHorizontalWindow";
 import { useMixerDensity } from "./hooks/useMixerDensity";
 import { builder, mixer } from "../../lib/state/api";
-import { outputSendsToClickRows, type WebUiState } from "../../lib/state/types";
+import type { WebUiState } from "../../lib/state/types";
 import { useIsCompact } from "../../hooks/useMediaQuery";
 import { usePluginCatalog } from "./plugins/hooks/usePluginCatalog";
 import { PluginChainModal } from "./plugins/PluginChainModal";
@@ -16,12 +16,12 @@ import {
   type PendingBusJob,
 } from "./logic/pendingBusJobs";
 import { BusStrip } from "./strips/BusStrip";
-import { MetronomeStrip } from "./strips/MetronomeStrip";
 import { StripContextMenu, type StripMenuTarget } from "./strips/StripContextMenu";
 import { TrackStrip } from "./strips/TrackStrip";
 import { ConsolePane } from "./components/ConsolePane";
 import { MixerToolbar } from "./components/MixerToolbar";
 import { type MixerDensity } from "./logic/constants";
+import { MixerClickMasterLane } from "./components/MixerClickMasterLane";
 
 interface PluginTarget {
   stripId: string;
@@ -181,9 +181,6 @@ export function MixerScreen({
     (state.click?.soloActiveInGroup ?? false);
   const anyAuxSolo = auxBusses.some((b) => b.soloActiveInGroup);
   const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
-  const clickSends = state.click
-    ? outputSendsToClickRows(state.click.output)
-    : [];
 
   // Smart aligned mixer racks: align Audio FX slot rows horizontally across the mixer
   const maxPluginSlots = useMemo(() => {
@@ -354,76 +351,17 @@ export function MixerScreen({
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
 
-            <div className="flex h-full min-h-0 shrink-0 gap-2 items-stretch">
-              <div
-                className="flex h-full min-h-0 shrink-0"
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setMenu({
-                    kind: "click",
-                    x: e.clientX,
-                    y: e.clientY,
-                    name: state.click?.name?.trim() || "Click",
-                    onRename: (name) =>
-                      patchClickFields(state, { clickName: name }),
-                    onResetGainPan: () =>
-                      patchClickFields(state, {
-                        clickGainDb: 0,
-                        clickPan: 0,
-                      }),
-                    onClearMuteSolo: () => {
-                      patchClickFields(state, { click: true });
-                      void mixer.setClickSolo(false);
-                    },
-                    hasSends: clickSends.length > 0,
-                    onRemoveAllSends: () =>
-                      patchClickFields(state, { clickSends: [] }),
-                  });
-                }}
-              >
-                <MetronomeStrip
-                  state={state}
-                  density={density}
-                  targetPluginSlots={maxPluginSlots}
-                  onDirectOutput={requestClickDirectOutput}
-                  onOpenPlugins={openPlugins}
-                  pluginCatalog={effectCatalog}
-                />
-              </div>
-
-              <div className="mx-1 w-px shrink-0 self-stretch bg-default/40" />
-
-              {masterBusses.map((b) => (
-                <div
-                  key={b.id}
-                  className="flex h-full min-h-0 shrink-0"
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({
-                      kind: "master",
-                      x: e.clientX,
-                      y: e.clientY,
-                      index: state.busses.indexOf(b),
-                      bus: b,
-                    });
-                  }}
-                >
-                  <BusStrip
-                    b={b}
-                    index={state.busses.indexOf(b)}
-                    meters={state.meters}
-                    master={master}
-                    settings={state.settings}
-                    anySoloInGroup={b.soloActiveInGroup}
-                    isMaster
-                    pluginCatalog={effectCatalog}
-                    density={density}
-                    targetPluginSlots={maxPluginSlots}
-                    onOpenPlugins={openPlugins}
-                  />
-                </div>
-              ))}
-            </div>
+            <MixerClickMasterLane
+              state={state}
+              density={density}
+              targetPluginSlots={maxPluginSlots}
+              pluginCatalog={effectCatalog}
+              master={master}
+              masterBusses={masterBusses}
+              onDirectOutput={requestClickDirectOutput}
+              onOpenPlugins={openPlugins}
+              onMenuTarget={setMenu}
+            />
           </>
         )}
       </div>
