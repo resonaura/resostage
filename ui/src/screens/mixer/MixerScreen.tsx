@@ -6,24 +6,19 @@ import { builder, mixer } from "../../lib/state/api";
 import type { WebUiState } from "../../lib/state/types";
 import { useIsCompact } from "../../hooks/useMediaQuery";
 import { usePluginCatalog } from "./plugins/hooks/usePluginCatalog";
-import { PluginChainModal } from "./plugins/PluginChainModal";
 import { extOutTarget, isMainBusId } from "./logic/mixerIds";
 import { patchClickFields } from "./logic/mixerUtils";
 import {
   resolvePendingBusJobs,
   type PendingBusJob,
 } from "./logic/pendingBusJobs";
-import { StripContextMenu, type StripMenuTarget } from "./strips/StripContextMenu";
+import type { StripMenuTarget } from "./strips/StripContextMenu";
 import { MixerToolbar } from "./components/MixerToolbar";
 import { type MixerDensity } from "./logic/constants";
 import { MixerClickMasterLane } from "./components/MixerClickMasterLane";
 import { MixerTrackRack } from "./components/MixerTrackRack";
 import { MixerSendRack } from "./components/MixerSendRack";
-
-interface PluginTarget {
-  stripId: string;
-  stripName: string;
-}
+import { MixerOverlays, type PluginTarget } from "./components/MixerOverlays";
 
 /**
  * Density-dependent strip pitch: strip width + 8px gap.
@@ -270,34 +265,15 @@ export function MixerScreen({
         )}
       </div>
 
-      {menu && (
-        <StripContextMenu
-          target={menu}
-          onRender={onRender}
-          onClose={() => setMenu(null)}
-        />
-      )}
-      {pluginTarget && (
-        <PluginChainModal
-          open
-          stripId={pluginTarget.stripId}
-          stripName={pluginTarget.stripName}
-          track={state.tracks.find((track) => track.id === pluginTarget.stripId)}
-          songIndex={songIndex}
-          song={state.songs[songIndex]}
-          slots={
-            pluginTarget.stripId === "audio::click"
-              ? (state.click?.plugins ?? [])
-              : (state.tracks
-                  .find((track) => track.id === pluginTarget.stripId)
-                  ?.plugins ??
-                state.busses.find((bus) => bus.id === pluginTarget.stripId)
-                  ?.plugins ??
-                [])
-          }
-          onClose={() => setPluginTarget(null)}
-        />
-      )}
+      <MixerOverlays
+        state={state}
+        songIndex={songIndex}
+        menu={menu}
+        pluginTarget={pluginTarget}
+        onRender={onRender}
+        onCloseMenu={() => setMenu(null)}
+        onClosePlugins={() => setPluginTarget(null)}
+      />
     </div>
   );
 }
