@@ -1,9 +1,14 @@
 import { TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { lighting } from "@/lib/state/api";
-import { withHexAlpha } from "@/lib/theme/cssColor";
 import { roleColor } from "@/lib/theme";
 import { themeAdaptedColor } from "@/screens/light/logic/tintFilter";
+import { LightCueBody } from "@/screens/light/cues/components/LightCueBody";
+import {
+  adaptCueToTheme,
+  CUE_EDGE_PX,
+  lightCueSelectionStyle,
+} from "@/screens/light/cues/logic/appearance";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
 import {
   beginCancellableDrag,
@@ -30,7 +35,7 @@ import {
 import { buildSongPeakLookup } from "@/screens/editor/timeline/regions/logic/regionPeaks";
 import { toolCursor, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
 import { TrackWaveformLane } from "@/screens/editor/timeline/waveform/components/TrackWaveformLane";
-import { EFFECT_META, effectUsesOwnColor } from "@/screens/light/logic/lightEffectMeta";
+import { EFFECT_META } from "@/screens/light/logic/lightEffectMeta";
 import type { EffectType } from "@/screens/light/components/LightSidePanel";
 
 // Fixed heights for the cross-mode hint strips (one strip per mode, the
@@ -39,8 +44,6 @@ import type { EffectType } from "@/screens/light/components/LightSidePanel";
 export const LIGHT_HINT_HEIGHT = 26;
 export const AUDIO_HINT_HEIGHT = 46;
 
-const CUE_EDGE_PX = 10;
-
 export interface CueSelKey {
   songIndex: number;
   cueId: string;
@@ -48,149 +51,6 @@ export interface CueSelKey {
 
 function cueKey(songIndex: number, cueId: string): string {
   return `${songIndex}:${cueId}`;
-}
-
-/** Slanted-fade clip path sized to a cue's fadeIn/fadeOut (Cue Block spec).
- * Fades share the cue duration without overlapping (same clamp as the side
- * panel sliders / lightCueInterpolation). */
-function cueClipPath(
-  cue: Pick<LightCueRow, "durationSeconds"> & {
-    fade: Pick<LightCueRow["fade"], "inSeconds" | "outSeconds">;
-  },
-  pxPerSec: number,
-): string | undefined {
-  const dur = Math.max(0, cue.durationSeconds);
-  const fi = Math.min(Math.max(0, cue.fade.inSeconds), dur);
-  const fo = Math.min(Math.max(0, cue.fade.outSeconds), Math.max(0, dur - fi));
-  const fadeInPx = fi * pxPerSec;
-  const fadeOutPx = fo * pxPerSec;
-  if (fadeInPx <= 0 && fadeOutPx <= 0) return undefined;
-  return `polygon(${fadeInPx}px 0, calc(100% - ${fadeOutPx}px) 0, 100% 100%, 0 100%)`;
-}
-
-/** Shared fill for timeline cues and player/hint previews. */
-function lightCueFill(
-  cue: Pick<LightCueRow, "intensity"> & {
-    color: Pick<LightCueRow["color"], "r" | "g" | "b">;
-    effect: Pick<LightCueRow["effect"], "type">;
-    gradient: Pick<LightCueRow["gradient"], "preset">;
-  },
-): { background: string; opacity: number; isOwnColor: boolean } {
-  const cueEt = cue.effect.type as EffectType;
-  const isOwnColor = effectUsesOwnColor(cueEt, cue.gradient.preset);
-  return {
-    isOwnColor,
-    background: isOwnColor
-      ? "rgb(80, 85, 100)"
-      : `rgb(${cue.color.r},${cue.color.g},${cue.color.b})`,
-    opacity: Math.max(isOwnColor ? 0.45 : 0.12, cue.intensity),
-  };
-}
-
-/**
- * A cue with its colour leaned toward the theme.
- *
- * Applied to the cue rather than over it. Filters and blend overlays both
- * covered the whole block, which squared off its rounded corners and, on the
- * hint strip, painted the gaps between cues -- and both replaced the cue's
- * hue outright instead of adapting it. Rewriting the colour before anything
- * draws leaves the geometry alone entirely.
- */
-function adaptCueToTheme(cue: LightCueRow, themeColor: string): LightCueRow {
-  const hex = rgbToHexTriple(cue.color.r, cue.color.g, cue.color.b);
-  const out = themeAdaptedColor(hex, themeColor);
-  const n = parseInt(out.slice(1), 16);
-  return {
-    ...cue,
-    color: {
-      ...cue.color,
-      r: (n >> 16) & 0xff,
-      g: (n >> 8) & 0xff,
-      b: n & 0xff,
-    },
-  };
-}
-
-function rgbToHexTriple(r: number, g: number, b: number): string {
-  const c = (v: number) =>
-    Math.max(0, Math.min(255, Math.round(v)))
-      .toString(16)
-      .padStart(2, "0");
-  return `#${c(r)}${c(g)}${c(b)}`;
-}
-
-/** Selection chrome — outline only when selected (no default border). */
-function lightCueSelectionStyle(
-  selected: boolean,
-  accentColor: string,
-): React.CSSProperties {
-  // Same crossfade as the body: switching colour modes should read as one
-  // deliberate change, not as the lane blinking.
-  const transition = "border-color 260ms ease-out, box-shadow 260ms ease-out";
-  if (!selected) return { border: "none", transition };
-  return {
-    border: `1.5px solid ${accentColor}`,
-    boxShadow: `0 0 0 1px ${withHexAlpha(accentColor, "aa")}, 0 0 8px ${withHexAlpha(accentColor, "44")}`,
-    transition,
-  };
-}
-
-/**
- * Decorative cue body (fill + fade clip + optional label). Used by both the
- * interactive timeline lane and the non-interactive hint/player preview so
- * the two never diverge (borders, colors, fade shape).
- */
-function LightCueBody({
-  cue,
-  pxPerSec,
-  widthPx,
-  label,
-  showLabel = true,
-}: {
-  cue: LightCueRow;
-  pxPerSec: number;
-  widthPx: number;
-  label?: string;
-  showLabel?: boolean;
-}) {
-  const fill = lightCueFill(cue);
-  const clip = cueClipPath(cue, pxPerSec);
-  const labelText =
-    (label ?? cue.label) ||
-    (cue.effect.type && cue.effect.type !== "none"
-      ? EFFECT_META[cue.effect.type as EffectType]?.label || cue.effect.type
-      : "");
-  const labelShown = showLabel && Boolean(labelText) && widthPx > 24;
-
-  return (
-    <>
-      <div
-        className="absolute inset-0 rounded-sm pointer-events-none"
-        style={{
-          background: fill.background,
-          opacity: fill.opacity,
-          clipPath: clip,
-          // Flipping between theme-adapted and true colours is a deliberate
-          // switch, not a state change to be noticed -- so the colours cross
-          // over rather than cutting.
-          transition:
-            "background-color 260ms ease-out, background 260ms ease-out",
-        }}
-      />
-      {labelShown && (
-        <span
-          className="absolute top-0.5 left-1.5 truncate text-[9px] font-semibold pointer-events-none select-none"
-          style={{
-            color: "#ffffffdd",
-            textShadow: "0 1px 2px rgba(0,0,0,0.8)",
-            maxWidth: `calc(100% - ${CUE_EDGE_PX + 2}px)`,
-          }}
-        >
-          {labelText}
-        </span>
-      )}
-    </>
-  );
 }
 
 // Audio mode: a dimmed, non-interactive strip near the top showing that light
