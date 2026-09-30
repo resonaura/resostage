@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { builder } from "@/lib/state/api";
-import { IS_EMBEDDED } from "@/lib/platform/embedded";
 import type {
   AllPeaksResponse,
   MidiRegionRow,
@@ -39,6 +38,7 @@ import {
 } from "@/screens/editor/timeline/regions/logic/regionUtils";
 import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 import { toolCursor, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import { useTrackAudioImport } from "@/screens/editor/timeline/tracks/hooks/useTrackAudioImport";
 
 export function AudioTrackLanes({
   state,
@@ -107,11 +107,8 @@ export function AudioTrackLanes({
   const [midiContextMenu, setMidiContextMenu] =
     useState<MidiRegionContextMenuState | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const pendingImportRef = useRef<{
-    songIndex: number;
-    trackIndex: number;
-  } | null>(null);
+  const { fileInputRef, openTrackAudioImport, handleFileChange } =
+    useTrackAudioImport();
 
   // One resolver per song: region -> waveform data, including the by-file
   // fallback that lets a fresh split draw immediately. See regionPeaks.ts.
@@ -127,18 +124,6 @@ export function AudioTrackLanes({
     [songs, allPeaks, peaks, state.songIndex],
   );
 
-  const openWavPicker = (songIndex: number, trackIndex: number) => {
-    // Embedded in the native app's webview: pop the OS's own "Open Audio
-    // File" dialog through Core (shows up in the same window, matches
-    // project.loadDialog). A plain browser tab has no native window to show
-    // the dialog in, so it keeps the <input type=file> upload fallback.
-    if (IS_EMBEDDED) {
-      void builder.trackImportWavDialog(songIndex, trackIndex);
-      return;
-    }
-    pendingImportRef.current = { songIndex, trackIndex };
-    fileInputRef.current?.click();
-  };
   if (rows.length === 0) {
     return (
       <div className="flex h-20 items-center justify-center text-sm text-foreground/40">
@@ -159,18 +144,7 @@ export function AudioTrackLanes({
         type="file"
         accept="audio/wav,audio/*"
         className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          e.target.value = "";
-          const pending = pendingImportRef.current;
-          pendingImportRef.current = null;
-          if (!file || !pending) return;
-          void builder.trackImportWav(
-            pending.songIndex,
-            pending.trackIndex,
-            file,
-          );
-        }}
+        onChange={handleFileChange}
       />
       {rows.map((row, rowIndex) => {
         const track = state.tracks.find(
@@ -255,7 +229,8 @@ export function AudioTrackLanes({
                 });
                 return;
               }
-              if (trackKind === "audio") openWavPicker(songIndex, trackIndex);
+              if (trackKind === "audio")
+                openTrackAudioImport(songIndex, trackIndex);
             }}
           >
             {(() => {
