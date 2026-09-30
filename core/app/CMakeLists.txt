@@ -83,6 +83,7 @@ target_sources(ResoStage PRIVATE
   engine/AudioEngineTimeline.cpp
   engine/AudioEngineTransport.cpp
   engine/OfflineRenderer.cpp
+  engine/OfflineWavWriter.cpp
   light/LightEngine.cpp
   light/LightHardwareServer.cpp
   events/EventDispatcher.cpp
