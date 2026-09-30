@@ -55,6 +55,7 @@ target_sources(ResoStage PRIVATE
   main/MainComponentBuilder.cpp
   main/builder/MainComponentBuilderAutomation.cpp
   main/builder/MainComponentBuilderSongs.cpp
+  main/builder/MainComponentBuilderTracks.cpp
   main/MainComponentSettings.cpp
   main/MainComponentTimeline.cpp
   main/MainComponentLighting.cpp
