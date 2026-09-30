@@ -13,8 +13,8 @@
  * hold after silence.
  */
 
-import { isRenderActive, setTransportPlaying } from "../state/appActivity";
-import { addRafTask } from "../state/rafLoop";
+import { isRenderActive, setTransportPlaying } from "@/lib/state/appActivity";
+import { addRafTask } from "@/lib/state/rafLoop";
 
 /**
  * A meter as the UI reads it.

@@ -4,14 +4,14 @@ import {
   type MeterRow,
   sourceOutputBusId,
   type WebUiState,
-} from "../../../lib/state/types";
+} from "@/lib/state/types";
 import {
   busCycleColor,
   extOutColor,
   masterColor,
   monoOutColor,
   sendColor,
-} from "../../../lib/theme/mixerColors";
+} from "@/lib/theme/mixerColors";
 
 export type BusMeterGroup = {
   id: string;

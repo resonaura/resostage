@@ -1,7 +1,7 @@
 import { Slider as HeroSlider } from "@heroui/react";
 import { useRef, type ComponentProps } from "react";
-import { triggerHaptic } from "../../lib/interaction/haptics";
-import { withTone, type Tone } from "./tones";
+import { triggerHaptic } from "@/lib/interaction/haptics";
+import { withTone, type Tone } from "@/components/ui/tones";
 
 /**
  * Slider with a colour tone.

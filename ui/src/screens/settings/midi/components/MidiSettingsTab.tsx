@@ -1,21 +1,21 @@
 import { Tooltip } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
-import { FontIcon } from "../../../../components/common/FontIcon";
-import { Button, KeyHint, ToggleButton } from "../../../../components/ui";
-import { settings as settingsApi } from "../../../../lib/state/api";
-import type { MidiBindingRow, WebUiState } from "../../../../lib/state/types";
-import { hotkeyManager } from "../../../../lib/interaction/HotkeyManager";
-import { keyEventToDescription } from "../../../../lib/interaction/keyEvents";
-import { sendKeyCaptureActive } from "../../../../lib/platform/electronBridge";
+import { FontIcon } from "@/components/common/FontIcon";
+import { Button, KeyHint, ToggleButton } from "@/components/ui";
+import { settings as settingsApi } from "@/lib/state/api";
+import type { MidiBindingRow, WebUiState } from "@/lib/state/types";
+import { hotkeyManager } from "@/lib/interaction/HotkeyManager";
+import { keyEventToDescription } from "@/lib/interaction/keyEvents";
+import { sendKeyCaptureActive } from "@/lib/platform/electronBridge";
 import {
   SettingsField,
   SettingsSection,
-} from "../../components/SettingsPrimitives";
+} from "@/screens/settings/components/SettingsPrimitives";
 import {
   sameDeviceSelection,
   toggleDeviceSelection,
   toggleMidiInputSelection,
-} from "../logic/deviceSelection";
+} from "@/screens/settings/midi/logic/deviceSelection";
 
 /** Human labels for the action catalogue (transport / mode / sections). */
 const ACTION_LABELS: Record<string, string> = {

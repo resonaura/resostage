@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { addRafTask } from "../../lib/state/rafLoop";
+import { addRafTask } from "@/lib/state/rafLoop";
 import {
   clipColor,
   CLIP_GLOW_BLUR_PX,
@@ -11,7 +11,7 @@ import {
   normFor,
   RANGE_LOW_DB,
   stepBallistics,
-} from "./meterBallistics";
+} from "@/components/daw/meterBallistics";
 
 // Ballistic peak meter: instant attack, release, peak-hold, clip latch at
 // the TOP only (never paints the whole bar red). Stereo L/R; solid track

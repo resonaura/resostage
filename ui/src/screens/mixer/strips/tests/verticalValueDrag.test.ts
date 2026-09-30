@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getVerticalDragValue,
   type VerticalValueDragOptions,
-} from "../logic/verticalValueDrag";
+} from "@/screens/mixer/strips/logic/verticalValueDrag";
 
 const trimOptions: VerticalValueDragOptions = {
   min: -24,

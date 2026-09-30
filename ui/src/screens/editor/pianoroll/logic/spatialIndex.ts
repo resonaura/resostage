@@ -1,4 +1,4 @@
-import type { MidiNoteRow } from "../../../../lib/state/types";
+import type { MidiNoteRow } from "@/lib/state/types";
 
 export interface HitTestResult {
   note: MidiNoteRow;

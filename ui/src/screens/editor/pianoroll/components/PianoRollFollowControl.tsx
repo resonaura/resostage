@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Locate, LocateFixed, LocateOff } from "lucide-react";
-import { ToggleButton } from "../../../../components/ui";
+import { ToggleButton } from "@/components/ui";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../../../../components/common/ContextMenu";
-import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
+} from "@/components/common/ContextMenu";
+import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
 
 interface PianoRollFollowControlProps {
   followMode?: TimelineFollowMode;

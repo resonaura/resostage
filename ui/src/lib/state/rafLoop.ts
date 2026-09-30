@@ -22,7 +22,7 @@
  * latency either way, but it is the desirable order and it is stable.
  */
 
-import { isRenderActive, subscribeRenderActive } from "./appActivity";
+import { isRenderActive, subscribeRenderActive } from "@/lib/state/appActivity";
 
 /**
  * @param nowMs  performance.now() for this frame -- shared by every task, so

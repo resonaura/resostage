@@ -1,39 +1,39 @@
 import { Plus } from "lucide-react";
 import { useState } from "react";
-import { Button } from "../../../../../components/ui";
+import { Button } from "@/components/ui";
 import type {
   LightFixtureRow,
   LightTrackRow,
   TrackRow,
   WebUiState,
-} from "../../../../../lib/state/types";
-import { builder, lighting } from "../../../../../lib/state/api";
+} from "@/lib/state/types";
+import { builder, lighting } from "@/lib/state/api";
 import {
   LightTrackHeader,
   AUDIO_HINT_HEIGHT,
   LIGHT_HINT_HEIGHT,
-} from "../../../../light/components/LightTimeline";
-import { laneHeightPx } from "../../layout/logic/laneDimensions";
-import { EVENT_LANE_HEIGHT } from "../../events/logic/constants";
-import { RULER_HEIGHT } from "../../ruler/logic/constants";
-import { SECTION_LANE_HEIGHT } from "../../sections/logic/constants";
-import { SIDEBAR_WIDTH } from "../logic/constants";
-import type { TimelineRow } from "../../layout/logic/rows";
-import { TimelineRowLabel } from "./TimelineRowLabel";
-import type { TimelineViewMode } from "../../toolbar/logic/types";
-import { TrackHeaderControl } from "./TrackHeaderControl";
+} from "@/screens/light/components/LightTimeline";
+import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
+import { EVENT_LANE_HEIGHT } from "@/screens/editor/timeline/events/logic/constants";
+import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
+import { SECTION_LANE_HEIGHT } from "@/screens/editor/timeline/sections/logic/constants";
+import { SIDEBAR_WIDTH } from "@/screens/editor/timeline/tracks/logic/constants";
+import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
+import { TimelineRowLabel } from "@/screens/editor/timeline/tracks/components/TimelineRowLabel";
+import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
+import { TrackHeaderControl } from "@/screens/editor/timeline/tracks/components/TrackHeaderControl";
 import {
   trackSelectionGesture,
   type TrackSelectionGesture,
-} from "../logic/trackSelection";
-import { useTrackReorder } from "../hooks/useTrackReorder";
+} from "@/screens/editor/timeline/tracks/logic/trackSelection";
+import { useTrackReorder } from "@/screens/editor/timeline/tracks/hooks/useTrackReorder";
 import {
   TimelineSidebarMenus,
   type SidebarLightTrackMenuState,
   type SidebarMenuPosition,
   type SidebarRenameState,
   type SidebarTrackMenuState,
-} from "./TimelineSidebarMenus";
+} from "@/screens/editor/timeline/tracks/components/TimelineSidebarMenus";
 
 const laneHeaderCls =
   "shrink-0 border-b border-default/30 px-2.5 font-bold uppercase flex items-center bg-background-tertiary";

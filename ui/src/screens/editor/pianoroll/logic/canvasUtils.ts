@@ -1,5 +1,5 @@
-import type { AutomationLaneRow } from "../../../../lib/state/types";
-import type { PianoRollBottomLane } from "./types";
+import type { AutomationLaneRow } from "@/lib/state/types";
+import type { PianoRollBottomLane } from "@/screens/editor/pianoroll/logic/types";
 
 export function isPrimaryModifier(
   event: Pick<PointerEvent, "metaKey" | "ctrlKey">,

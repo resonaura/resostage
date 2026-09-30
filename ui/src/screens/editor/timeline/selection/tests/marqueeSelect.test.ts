@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { SongRow } from "../../../../../lib/state/types";
+import type { SongRow } from "@/lib/state/types";
 import {
   marqueeHitRegions,
   resolveMarqueeSelection,
-} from "../logic/marqueeSelect";
+} from "@/screens/editor/timeline/selection/logic/marqueeSelect";
 
 describe("timeline region marquee", () => {
   it("selects MIDI regions using beat placement and the song tempo", () => {

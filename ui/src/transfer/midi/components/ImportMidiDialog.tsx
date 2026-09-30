@@ -6,10 +6,10 @@ import {
   parseStandardMidiFile,
   songSecondsAtBeat,
   type ImportedMidiFile,
-} from "../../../lib/midi/standardMidiFile";
-import { builder } from "../../../lib/state/api";
-import type { WebUiState } from "../../../lib/state/types";
-import { Button, Modal } from "../../../components/ui";
+} from "@/lib/midi/standardMidiFile";
+import { builder } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
+import { Button, Modal } from "@/components/ui";
 
 export type MidiTempoChoice = "keep-beats" | "fit-project-tempo" | "use-midi-tempo";
 

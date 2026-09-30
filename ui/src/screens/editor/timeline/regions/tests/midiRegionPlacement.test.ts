@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { midiRegionPlacementAt } from "../logic/midiRegionPlacement";
+import { midiRegionPlacementAt } from "@/screens/editor/timeline/regions/logic/midiRegionPlacement";
 
 describe("MIDI pencil placement", () => {
   it("snaps the start and creates one bar in 4/4", () => {

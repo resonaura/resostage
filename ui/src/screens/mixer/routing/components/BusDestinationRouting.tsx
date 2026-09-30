@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
-import { isMainBusId } from "../../logic/mixerIds";
-import { builder } from "../../../../lib/state/api";
-import { Select, type SelectOption } from "../../../../components/ui";
-import type { BusRow, SettingsState } from "../../../../lib/state/types";
-import { EXT_OUTPUT_VALUE, ROUTING_SELECT_SIZE } from "../../logic/constants";
-import { RoutingSlotPlaceholder } from "./RoutingSlotPlaceholder";
+import { isMainBusId } from "@/screens/mixer/logic/mixerIds";
+import { builder } from "@/lib/state/api";
+import { Select, type SelectOption } from "@/components/ui";
+import type { BusRow, SettingsState } from "@/lib/state/types";
+import { EXT_OUTPUT_VALUE, ROUTING_SELECT_SIZE } from "@/screens/mixer/logic/constants";
+import { RoutingSlotPlaceholder } from "@/screens/mixer/routing/components/RoutingSlotPlaceholder";
 import {
   directOutputOptions,
   matchOptionId,
   parseOptionId,
   channelAvailable,
-} from "../logic/directOutput";
-import { missingOutputSelectProps } from "./MissingOutputSelect";
-import { missingRouteLabel, missingRouteOptionId } from "../logic/missingOutputUtils";
+} from "@/screens/mixer/routing/logic/directOutput";
+import { missingOutputSelectProps } from "@/screens/mixer/routing/components/MissingOutputSelect";
+import { missingRouteLabel, missingRouteOptionId } from "@/screens/mixer/routing/logic/missingOutputUtils";
 
 export function BusDestinationRouting({
   bus,

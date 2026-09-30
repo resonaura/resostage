@@ -1,6 +1,6 @@
 import { Tabs as HeroTabs } from "@heroui/react";
 import { createContext, use, useMemo, type ComponentProps } from "react";
-import { isTone, type Tone } from "./tones";
+import { isTone, type Tone } from "@/components/ui/tones";
 
 type HeroTabsRootProps = ComponentProps<typeof HeroTabs.Root>;
 

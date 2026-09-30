@@ -1,4 +1,4 @@
-import type { LightFixtureRow } from "../../../lib/state/types";
+import type { LightFixtureRow } from "@/lib/state/types";
 
 export type FixtureLayoutPosition = { id: string; posX: number; posZ: number };
 

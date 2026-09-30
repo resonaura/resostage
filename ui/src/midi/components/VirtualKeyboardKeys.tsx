@@ -1,5 +1,5 @@
 import type { PointerEvent } from "react";
-import type { VirtualKeyboardKey } from "../logic/keyboardLayout";
+import type { VirtualKeyboardKey } from "@/midi/logic/keyboardLayout";
 
 export function VirtualKeyboardKeys({
   keys,

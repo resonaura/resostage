@@ -1,4 +1,4 @@
-import { keyEventToDescription } from "./keyEvents";
+import { keyEventToDescription } from "@/lib/interaction/keyEvents";
 
 /** Application-wide shortcut domains. A command only fires in its active domain. */
 export const HotkeyScope = {

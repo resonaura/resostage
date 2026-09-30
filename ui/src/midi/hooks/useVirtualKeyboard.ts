@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
+import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
 
 /** Synchronizes the keyboard toggle across the renderer, hotkeys, and Electron window. */
 export function useVirtualKeyboard() {

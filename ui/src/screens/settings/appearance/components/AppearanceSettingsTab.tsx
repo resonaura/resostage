@@ -2,10 +2,10 @@ import {
   THEME_LABELS,
   THEME_NAMES,
   type ThemeName,
-} from "../../../../lib/theme";
-import { ToggleButton } from "../../../../components/ui";
-import { SettingsSection } from "../../components/SettingsPrimitives";
-import type { ThemeControls } from "../../types";
+} from "@/lib/theme";
+import { ToggleButton } from "@/components/ui";
+import { SettingsSection } from "@/screens/settings/components/SettingsPrimitives";
+import type { ThemeControls } from "@/screens/settings/types";
 
 /**
  * A theme swatch: the accent over the panel colour, plus three track colours.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PluginCatalogEntry } from "../../../../lib/state/api";
-import { groupPluginFamilies } from "../logic/pluginFamilies";
+import type { PluginCatalogEntry } from "@/lib/state/api";
+import { groupPluginFamilies } from "@/screens/settings/plugins/logic/pluginFamilies";
 
 function plugin(
   overrides: Partial<PluginCatalogEntry> = {},

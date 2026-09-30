@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   horizontalWindow,
   type WindowResult,
-} from "../logic/horizontalWindow";
+} from "@/screens/mixer/logic/horizontalWindow";
 
 /**
  * Mount only the part of a fixed-pitch horizontal row that is near the

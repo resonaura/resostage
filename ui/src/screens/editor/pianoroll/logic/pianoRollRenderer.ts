@@ -1,14 +1,14 @@
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "../../../../lib/state/types";
-import { resolveCssVar } from "../../../../lib/theme/cssColor";
-import { RULER_HEIGHT } from "../../timeline/ruler/logic/constants";
+import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import { resolveCssVar } from "@/lib/theme/cssColor";
+import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
 import {
   midiRegionContainsLoopSourceBeat,
   midiRegionLoopOccurrence,
   midiRegionNotePlaybackDuration,
-} from "../../../../lib/midi/midiRegionTiming";
-import { isBlackKey, isPitchInScale, pitchToName } from "./scales";
-import type { DraggingState, PianoRollBottomLane, PianoRollViewport, ScaleMode } from "./types";
-import type { SpatialNoteIndex } from "./spatialIndex";
+} from "@/lib/midi/midiRegionTiming";
+import { isBlackKey, isPitchInScale, pitchToName } from "@/screens/editor/pianoroll/logic/scales";
+import type { DraggingState, PianoRollBottomLane, PianoRollViewport, ScaleMode } from "@/screens/editor/pianoroll/logic/types";
+import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 
 interface PianoRollRenderParams {
   canvasElement: HTMLCanvasElement | null;

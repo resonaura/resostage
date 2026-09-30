@@ -1,4 +1,4 @@
-import type { LightCueRow } from "../state/types";
+import type { LightCueRow } from "@/lib/state/types";
 
 export interface LightCueValue {
   r: number;

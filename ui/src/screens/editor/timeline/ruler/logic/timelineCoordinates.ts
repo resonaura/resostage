@@ -1,5 +1,5 @@
-import type { SongRow } from "../../../../../lib/state/types";
-import { snapToGridSec } from "./geometry";
+import type { SongRow } from "@/lib/state/types";
+import { snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
 
 export interface TimelineSongPosition {
   songIndex: number;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveLightCueValue } from "../lightCueInterpolation";
-import type { LightCueRow } from "../../state/types";
+import { resolveLightCueValue } from "@/lib/light/lightCueInterpolation";
+import type { LightCueRow } from "@/lib/state/types";
 
 function makeCue(
   start: number,

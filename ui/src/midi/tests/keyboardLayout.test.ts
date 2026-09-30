@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createVirtualKeyboardLayout,
   MUSICAL_TYPING_KEY_MAP,
-} from "../logic/keyboardLayout";
+} from "@/midi/logic/keyboardLayout";
 
 describe("virtual MIDI keyboard layout", () => {
   it("preserves the musical-typing keyboard mapping", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCoalescedCommit, type CommitScheduler } from "../optimistic";
+import { createCoalescedCommit, type CommitScheduler } from "@/lib/state/optimistic";
 
 /** A hand-cranked clock: nothing runs until the test says so. */
 function fakeScheduler() {

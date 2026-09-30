@@ -1,5 +1,5 @@
-import type { SettingsState } from "../../../../lib/state/types";
-import { extOutTarget, parseOutputLanes } from "../../logic/mixerIds";
+import type { SettingsState } from "@/lib/state/types";
+import { extOutTarget, parseOutputLanes } from "@/screens/mixer/logic/mixerIds";
 
 export type DirectOutOption = {
   /** Unique option id — must not collide when both pair and single share a start channel. */

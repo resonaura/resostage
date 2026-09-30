@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewDropReorder } from "../logic/dropPreview";
+import { previewDropReorder } from "@/screens/editor/timeline/tracks/logic/dropPreview";
 
 describe("previewDropReorder", () => {
   it("previews forward movement using the pre-removal drop slot", () => {

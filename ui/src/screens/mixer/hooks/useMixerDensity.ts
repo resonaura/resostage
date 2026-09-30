@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { MixerDensity } from "../logic/constants";
+import type { MixerDensity } from "@/screens/mixer/logic/constants";
 
 const STORAGE_KEY = "resostage:mixer-density";
 

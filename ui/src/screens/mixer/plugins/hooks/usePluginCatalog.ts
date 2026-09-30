@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   pluginCatalog as pluginCatalogApi,
   type PluginCatalogEntry,
-} from "../../../../lib/state/api";
+} from "@/lib/state/api";
 
 /**
  * Shares one device-local plug-in catalog request across all mixer strips.

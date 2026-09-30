@@ -1,13 +1,13 @@
 import { useRef } from "react";
-import { beginCancellableDrag, type CancellableDrag } from "../../../../../lib/interaction/dragCancel";
-import { transport } from "../../../../../lib/state/api";
-import type { SongRow } from "../../../../../lib/state/types";
-import { isPositionVisible } from "../../logic/timelineVisibility";
+import { beginCancellableDrag, type CancellableDrag } from "@/lib/interaction/dragCancel";
+import { transport } from "@/lib/state/api";
+import type { SongRow } from "@/lib/state/types";
+import { isPositionVisible } from "@/screens/editor/timeline/logic/timelineVisibility";
 import {
   resolveTimelineSong,
   snapSongLocalSeconds,
   timelineSecondsAtClientX,
-} from "../logic/timelineCoordinates";
+} from "@/screens/editor/timeline/ruler/logic/timelineCoordinates";
 
 interface TimelineScrubOptions {
   hasSongs: boolean;

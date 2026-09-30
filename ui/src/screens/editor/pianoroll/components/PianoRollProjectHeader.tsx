@@ -1,9 +1,9 @@
 import type { ComponentProps } from "react";
-import type { MidiRegionRow, SongRow } from "../../../../lib/state/types";
-import type { PianoRollViewport } from "../logic/types";
-import { Ruler } from "../../timeline/ruler/components/Ruler";
-import { CycleStrip } from "../../timeline/cycle/components/CycleStrip";
-import type { CycleLocators } from "../../timeline/cycle/hooks/useCycleState";
+import type { MidiRegionRow, SongRow } from "@/lib/state/types";
+import type { PianoRollViewport } from "@/screens/editor/pianoroll/logic/types";
+import { Ruler } from "@/screens/editor/timeline/ruler/components/Ruler";
+import { CycleStrip } from "@/screens/editor/timeline/cycle/components/CycleStrip";
+import type { CycleLocators } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 
 type CycleStripProps = ComponentProps<typeof CycleStrip>;
 export type PianoRollCycleSetRange = CycleStripProps["onSetRange"];

@@ -2,21 +2,21 @@ import { useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuItem,
-} from "../../../components/common/ContextMenu";
+} from "@/components/common/ContextMenu";
 import {
   SEND_CEILING_DB,
   SEND_FLOOR_DB,
   SendArcKnob,
-} from "../../../components/daw";
-import { mixer } from "../../../lib/state/api";
-import { createEditGesture } from "../../../lib/interaction/editGesture";
+} from "@/components/daw";
+import { mixer } from "@/lib/state/api";
+import { createEditGesture } from "@/lib/interaction/editGesture";
 import {
   sendDbToLevel,
   sendLevelToDb,
   type BusRow,
   type ClickSendRow,
   type SendTapMode,
-} from "../../../lib/state/types";
+} from "@/lib/state/types";
 
 type SendMenu = {
   x: number;

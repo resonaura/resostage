@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { isRenderActive, setTransportPlaying } from "./appActivity";
-import { wsUrl, onBackendChange, apiFetch } from "./backend";
+import { isRenderActive, setTransportPlaying } from "@/lib/state/appActivity";
+import { wsUrl, onBackendChange, apiFetch } from "@/lib/state/backend";
 import {
   pushLiveLevels,
   pushLiveBinaryFrame,
@@ -15,19 +15,19 @@ import {
   hasActiveMidiTelemetrySnapshot,
   getLastMixerFlagsMs,
   getLastUdpFrameMs,
-} from "../audio/liveLevels";
-import type { LiveMixerFlags } from "../audio/liveLevels";
+} from "@/lib/audio/liveLevels";
+import type { LiveMixerFlags } from "@/lib/audio/liveLevels";
 import {
   registerRefetchHandler,
   unregisterRefetchHandler,
   registerLiveMidiSender,
   unregisterLiveMidiSender,
   clearApiCaches,
-} from "./api";
-import { shareStructure } from "./structuralShare";
-import { IS_ELECTRON } from "../platform/electron";
-import { IS_EMBEDDED } from "../platform/embedded";
-import { emptyState, type WebUiState } from "./types";
+} from "@/lib/state/api";
+import { shareStructure } from "@/lib/state/structuralShare";
+import { IS_ELECTRON } from "@/lib/platform/electron";
+import { IS_EMBEDDED } from "@/lib/platform/embedded";
+import { emptyState, type WebUiState } from "@/lib/state/types";
 
 export type ConnectionStatus = "connecting" | "live" | "reconnecting";
 /** Live-state transport: UDP in embedded (Electron) mode, WS in remote browser mode. */

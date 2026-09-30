@@ -20,7 +20,7 @@ import {
   subscribeLiveTransport,
   subscribeLiveActiveMidiNotes,
   resetLiveTelemetrySequence,
-} from "../liveLevels";
+} from "@/lib/audio/liveLevels";
 
 /** One v2 telemetry frame carrying only per-fixture LED rows. */
 function buildFrame(fixtures: number[][][]): ArrayBuffer {

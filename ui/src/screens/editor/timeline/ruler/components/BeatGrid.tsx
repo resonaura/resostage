@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
-import { getTickConfig } from "../logic/geometry";
+import { getTickConfig } from "@/screens/editor/timeline/ruler/logic/geometry";
 
 /** Beat/bar vertical grid lines drawn on a viewport-sliced canvas. */
 export function BeatGrid({

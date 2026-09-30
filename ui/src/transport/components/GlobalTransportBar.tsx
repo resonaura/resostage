@@ -8,15 +8,15 @@ import {
   Square,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { FontIcon } from "../../components/common/FontIcon";
-import { patchClickFields } from "../../screens/mixer/logic/mixerUtils";
-import { transport } from "../../lib/state/api";
-import { useContinuousPlayhead } from "../../lib/state/optimistic";
-import type { WebUiState } from "../../lib/state/types";
-import { TimeDisplay } from "../../components/daw";
-import { CountInControl } from "./CountInControl";
-import { SongTempoControl } from "./SongTempoControl";
-import { ToggleButton, ToggleButtonGroup } from "../../components/ui";
+import { FontIcon } from "@/components/common/FontIcon";
+import { patchClickFields } from "@/screens/mixer/logic/mixerUtils";
+import { transport } from "@/lib/state/api";
+import { useContinuousPlayhead } from "@/lib/state/optimistic";
+import type { WebUiState } from "@/lib/state/types";
+import { TimeDisplay } from "@/components/daw";
+import { CountInControl } from "@/transport/components/CountInControl";
+import { SongTempoControl } from "@/transport/components/SongTempoControl";
+import { ToggleButton, ToggleButtonGroup } from "@/components/ui";
 
 /**
  * Compact transport for the app header (non-Player tabs): clock chip, song +

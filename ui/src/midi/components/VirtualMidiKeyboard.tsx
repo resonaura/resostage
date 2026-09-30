@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { mixer } from "../../lib/state/api";
-import type { WebUiState } from "../../lib/state/types";
-import { useThemeVersion } from "../../hooks/useThemeVersion";
-import { getTrackColor } from "../../lib/theme";
-import { getActiveMidiPitches } from "../../lib/midi/activeMidiPitches";
-import { VirtualKeyboardHeader } from "./VirtualKeyboardHeader";
-import { VirtualKeyboardKeys } from "./VirtualKeyboardKeys";
-import { useVirtualKeyboardInput } from "../hooks/useVirtualKeyboardInput";
-import { useVirtualKeyboardPosition } from "../hooks/useVirtualKeyboardPosition";
-import { createVirtualKeyboardLayout } from "../logic/keyboardLayout";
+import { mixer } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
+import { useThemeVersion } from "@/hooks/useThemeVersion";
+import { getTrackColor } from "@/lib/theme";
+import { getActiveMidiPitches } from "@/lib/midi/activeMidiPitches";
+import { VirtualKeyboardHeader } from "@/midi/components/VirtualKeyboardHeader";
+import { VirtualKeyboardKeys } from "@/midi/components/VirtualKeyboardKeys";
+import { useVirtualKeyboardInput } from "@/midi/hooks/useVirtualKeyboardInput";
+import { useVirtualKeyboardPosition } from "@/midi/hooks/useVirtualKeyboardPosition";
+import { createVirtualKeyboardLayout } from "@/midi/logic/keyboardLayout";
 
 export function VirtualMidiKeyboard({
   isOpen = true,

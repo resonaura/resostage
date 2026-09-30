@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { subscribeTheme, themeVersion } from "../lib/theme";
+import { subscribeTheme, themeVersion } from "@/lib/theme";
 
 /**
  * A number that changes when the theme does.

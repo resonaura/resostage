@@ -3,10 +3,10 @@ import {
   OpenConfirmDialog,
   QuitConfirmDialog,
   QuitOverlay,
-} from "../overlays/components/AppOverlays";
-import type { WebUiState } from "../../lib/state/types";
-import { TransferDialogs } from "../../transfer/workflows/components/TransferDialogs";
-import type { TransferWorkflows } from "../../transfer/workflows/hooks/useTransferWorkflows";
+} from "@/shell/overlays/components/AppOverlays";
+import type { WebUiState } from "@/lib/state/types";
+import { TransferDialogs } from "@/transfer/workflows/components/TransferDialogs";
+import type { TransferWorkflows } from "@/transfer/workflows/hooks/useTransferWorkflows";
 
 /** Mounts app-wide confirmation, quit, and file-transfer dialogs. */
 export function AppDialogLayer({

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { SongRow } from "../../../../../lib/state/types";
+import type { SongRow } from "@/lib/state/types";
 import {
   resolveTimelineSong,
   snapSongLocalSeconds,
   timelineSecondsAtClientX,
-} from "../logic/timelineCoordinates";
+} from "@/screens/editor/timeline/ruler/logic/timelineCoordinates";
 
 const songs = [
   { bpm: 120, tsNum: 4 },

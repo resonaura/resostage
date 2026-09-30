@@ -1,8 +1,8 @@
-import { Card, ScrollShadow } from "../../../../components/ui";
-import type { PluginCatalogEntry, PluginCatalogResponse } from "../../../../lib/state/api";
-import type { ScopeFilterDef } from "../../../../lib/plugins/pluginCategories";
-import { PluginFamilyRow } from "./PluginFamilyRow";
-import type { PluginFamily } from "../logic/pluginFamilies";
+import { Card, ScrollShadow } from "@/components/ui";
+import type { PluginCatalogEntry, PluginCatalogResponse } from "@/lib/state/api";
+import type { ScopeFilterDef } from "@/lib/plugins/pluginCategories";
+import { PluginFamilyRow } from "@/screens/settings/plugins/components/PluginFamilyRow";
+import type { PluginFamily } from "@/screens/settings/plugins/logic/pluginFamilies";
 
 function PluginQuarantineRow({ path }: { path: string }) {
   return (

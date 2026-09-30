@@ -26,10 +26,10 @@ import {
 } from "@heroui/react";
 import { Lightbulb, Link2, Link2Off, Palette, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
-import { Alert, Button, ToggleButton, ToggleButtonGroup } from "../../../components/ui";
+import { Alert, Button, ToggleButton, ToggleButtonGroup } from "@/components/ui";
 
-import { lighting } from "../../../lib/state/api";
-import type { LightCueValue } from "../../../lib/light/lightCueInterpolation";
+import { lighting } from "@/lib/state/api";
+import type { LightCueValue } from "@/lib/light/lightCueInterpolation";
 import type {
   BusRow,
   LightCueRow,
@@ -37,9 +37,9 @@ import type {
   LightTrackRow,
   TrackRow,
   WebUiState,
-} from "../../../lib/state/types";
-import { SidePanelShell } from "../../../components/common/SidePanelShell";
-import { ResoLightStage3D } from "./LazyResoLightStage3D";
+} from "@/lib/state/types";
+import { SidePanelShell } from "@/components/common/SidePanelShell";
+import { ResoLightStage3D } from "@/screens/light/components/LazyResoLightStage3D";
 import {
   EffectTypeGrid,
   Field,
@@ -49,7 +49,7 @@ import {
   LightColorPicker,
   NumberFieldControl,
   TextFieldControl,
-} from "./LightControls";
+} from "@/screens/light/components/LightControls";
 import {
   CUE_EFFECT_TYPES,
   EFFECT_META,
@@ -59,13 +59,13 @@ import {
   type GradientPreset,
   type SourceType,
   type TempoSubdiv,
-} from "../logic/lightEffectMeta";
+} from "@/screens/light/logic/lightEffectMeta";
 import {
   CAPTION_CLS,
   CHIP_TOGGLE_CLS,
   TIGHT_TOGGLE_CLS,
   TOGGLE_GROUP_CLS,
-} from "../logic/lightStyles";
+} from "@/screens/light/logic/lightStyles";
 
 export type { GradientPreset, SourceType, TempoSubdiv };
 

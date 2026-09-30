@@ -3,22 +3,22 @@ import {
   useEffect,
   useState,
 } from "react";
-import { Timeline } from "../editor/timeline";
-import { useSongLayout } from "../editor/timeline/layout/hooks/useSongLayout";
-import { Card } from "../../components/ui";
-import { transport } from "../../lib/state/api";
-import { useContinuousPlayhead } from "../../lib/state/optimistic";
+import { Timeline } from "@/screens/editor/timeline";
+import { useSongLayout } from "@/screens/editor/timeline/layout/hooks/useSongLayout";
+import { Card } from "@/components/ui";
+import { transport } from "@/lib/state/api";
+import { useContinuousPlayhead } from "@/lib/state/optimistic";
 import {
   type AllPeaksResponse,
   type LightFixtureRow,
   type PeaksResponse,
   type WebUiState,
-} from "../../lib/state/types";
-import { useIsCompact } from "../../hooks/useMediaQuery";
-import { BusMetersPanel } from "./components/BusMetersPanel";
-import { SetlistPanel } from "./components/SetlistPanel";
-import { PlayerLightStagePreview } from "./components/PlayerLightStagePreview";
-import { PlayerTransportHeader } from "./components/PlayerTransportHeader";
+} from "@/lib/state/types";
+import { useIsCompact } from "@/hooks/useMediaQuery";
+import { BusMetersPanel } from "@/screens/player/components/BusMetersPanel";
+import { SetlistPanel } from "@/screens/player/components/SetlistPanel";
+import { PlayerLightStagePreview } from "@/screens/player/components/PlayerLightStagePreview";
+import { PlayerTransportHeader } from "@/screens/player/components/PlayerTransportHeader";
 
 /** Stable empty roster so a rig with no fixtures doesn't churn the memo. */
 const EMPTY_FIXTURES: LightFixtureRow[] = [];

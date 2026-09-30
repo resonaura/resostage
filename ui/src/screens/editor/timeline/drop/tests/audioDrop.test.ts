@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeAudioDropPosition } from "../logic/audioDrop";
+import { computeAudioDropPosition } from "@/screens/editor/timeline/drop/logic/audioDrop";
 
 describe("timeline audio drop placement", () => {
   const baseArgs = {

@@ -1,16 +1,16 @@
 import React from "react";
-import type { MidiRegionRow, TrackRow } from "../../../../../lib/state/types";
-import { isCompactLane } from "../../layout/logic/laneDimensions";
-import { RegionLoopBoundaries } from "./RegionLoopBoundaries";
-import { TimelineRegionFrame } from "./TimelineRegionFrame";
-import type { TimelineTool } from "../../toolbar/logic/tools";
-import type { RegionDragMode } from "../logic/regionDrag";
-import type { RegionGeomDraft } from "../logic/regionDrag";
+import type { MidiRegionRow, TrackRow } from "@/lib/state/types";
+import { isCompactLane } from "@/screens/editor/timeline/layout/logic/laneDimensions";
+import { RegionLoopBoundaries } from "@/screens/editor/timeline/regions/components/RegionLoopBoundaries";
+import { TimelineRegionFrame } from "@/screens/editor/timeline/regions/components/TimelineRegionFrame";
+import type { TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import type { RegionDragMode } from "@/screens/editor/timeline/regions/logic/regionDrag";
+import type { RegionGeomDraft } from "@/screens/editor/timeline/regions/logic/regionDrag";
 import {
   midiRegionContainsLoopSourceBeat,
   midiRegionLoopOccurrence,
   midiRegionNotePlaybackDuration,
-} from "../../../../../lib/midi/midiRegionTiming";
+} from "@/lib/midi/midiRegionTiming";
 
 export interface MidiRegionBlockProps {
   midiRegion: MidiRegionRow;

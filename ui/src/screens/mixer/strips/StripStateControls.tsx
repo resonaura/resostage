@@ -1,4 +1,4 @@
-import { StripButton } from "./StripButton";
+import { StripButton } from "@/screens/mixer/strips/StripButton";
 
 export function StripStateControls({
   isNarrow,

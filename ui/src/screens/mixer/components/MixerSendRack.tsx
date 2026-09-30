@@ -1,13 +1,13 @@
 import { Plus } from "lucide-react";
 import type { RefObject } from "react";
-import type { PluginCatalogEntry } from "../../../lib/state/api";
-import type { BusRow, WebUiState } from "../../../lib/state/types";
-import { Button } from "../../../components/ui";
-import { ConsolePane } from "./ConsolePane";
-import type { WindowResult } from "../logic/horizontalWindow";
-import { BusStrip } from "../strips/BusStrip";
-import type { MixerDensity } from "../logic/constants";
-import type { StripMenuTarget } from "../strips/StripContextMenu";
+import type { PluginCatalogEntry } from "@/lib/state/api";
+import type { BusRow, WebUiState } from "@/lib/state/types";
+import { Button } from "@/components/ui";
+import { ConsolePane } from "@/screens/mixer/components/ConsolePane";
+import type { WindowResult } from "@/screens/mixer/logic/horizontalWindow";
+import { BusStrip } from "@/screens/mixer/strips/BusStrip";
+import type { MixerDensity } from "@/screens/mixer/logic/constants";
+import type { StripMenuTarget } from "@/screens/mixer/strips/StripContextMenu";
 
 type SendRackState = Pick<WebUiState, "busses" | "meters" | "settings">;
 

@@ -4,7 +4,7 @@ import {
   Select as HeroSelect,
 } from "@heroui/react";
 import { useMemo, type ComponentProps, type ReactNode } from "react";
-import { toneClass, type Tone } from "./tones";
+import { toneClass, type Tone } from "@/components/ui/tones";
 
 /**
  * Select driven by a plain option list.

@@ -7,7 +7,7 @@ import {
   overlapSeconds,
   planTrackCrossfades,
   type CrossfadeRegion,
-} from "../logic/crossfade";
+} from "@/screens/editor/timeline/crossfade/logic/crossfade";
 
 const region = (
   id: string,

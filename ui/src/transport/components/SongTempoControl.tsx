@@ -1,10 +1,10 @@
 import { Footprints } from "lucide-react";
 import { Popover, Tooltip } from "@heroui/react";
 import { useEffect, useRef, useState } from "react";
-import { patchClickFields } from "../../screens/mixer/logic/mixerUtils";
-import type { SongRow, WebUiState } from "../../lib/state/types";
-import { ToggleButton } from "../../components/ui";
-import { recordTempoTap } from "../logic/tapTempo";
+import { patchClickFields } from "@/screens/mixer/logic/mixerUtils";
+import type { SongRow, WebUiState } from "@/lib/state/types";
+import { ToggleButton } from "@/components/ui";
+import { recordTempoTap } from "@/transport/logic/tapTempo";
 
 /** Tempo, meter, and Tap Tempo controls for the currently focused song. */
 export function SongTempoControl({

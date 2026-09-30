@@ -3,12 +3,12 @@ import {
   resolveLightCueValue,
   type BlendMode,
   type LightCueValue,
-} from "../../../lib/light/lightCueInterpolation";
+} from "@/lib/light/lightCueInterpolation";
 import type {
   LightCueRow,
   LightFixtureRow,
   LightTrackRow,
-} from "../../../lib/state/types";
+} from "@/lib/state/types";
 
 const effective = (v: LightCueValue, ch: 0 | 1 | 2) => {
   const c = ch === 0 ? v.r : ch === 1 ? v.g : v.b;

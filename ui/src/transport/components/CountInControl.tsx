@@ -1,10 +1,10 @@
 import { Tooltip } from "@heroui/react";
 import { ListOrdered } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { settings as settingsApi } from "../../lib/state/api";
-import type { WebUiState } from "../../lib/state/types";
-import { ToggleButton } from "../../components/ui";
-import { CountInContextMenu } from "./CountInContextMenu";
+import { settings as settingsApi } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
+import { ToggleButton } from "@/components/ui";
+import { CountInContextMenu } from "@/transport/components/CountInContextMenu";
 
 /** Device-wide count-in toggle; its context menu selects the effective length. */
 export function CountInControl({

@@ -12,7 +12,7 @@
  * to know this table exists.
  */
 
-import type { LightFixtureRow } from "../../../lib/state/types";
+import type { LightFixtureRow } from "@/lib/state/types";
 
 export type FixtureShape = LightFixtureRow["shape"];
 

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { CROSSFADE_SHAPES, type CrossfadeShape } from "../logic/crossfade";
+import { CROSSFADE_SHAPES, type CrossfadeShape } from "@/screens/editor/timeline/crossfade/logic/crossfade";
 
 /**
  * The X drawn over the span where two regions on a track overlap.

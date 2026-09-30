@@ -1,4 +1,4 @@
-import { roleColor, type ColorRole } from "../../../../../lib/theme";
+import { roleColor, type ColorRole } from "@/lib/theme";
 
 /** Event type on the wire -> the role that names its colour. */
 const EVENT_COLOR_ROLES: Record<string, ColorRole> = {

@@ -1,11 +1,11 @@
 import {
   ContextMenu,
   ContextMenuItem,
-} from "../../../components/common/ContextMenu";
+} from "@/components/common/ContextMenu";
 import {
   getTrackPolarityOptions,
   type TrackPolarity,
-} from "../logic/polarity";
+} from "@/screens/mixer/logic/polarity";
 
 export function PolarityContextMenu({
   position,

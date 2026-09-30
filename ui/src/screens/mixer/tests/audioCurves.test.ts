@@ -6,7 +6,7 @@ import {
   formatFrequency,
   ControllerTakeover,
   FADER_UNITY_POSITION,
-} from "../logic/audioCurves";
+} from "@/screens/mixer/logic/audioCurves";
 
 describe("audioCurves", () => {
   describe("FaderLaw", () => {

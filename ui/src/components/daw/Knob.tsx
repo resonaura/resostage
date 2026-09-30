@@ -1,4 +1,4 @@
-import { useKnobDrag } from "../../hooks/useKnobDrag";
+import { useKnobDrag } from "@/hooks/useKnobDrag";
 
 /**
  * Shared rotary knob (mixer canonical). Vertical drag maps to value;

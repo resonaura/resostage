@@ -1,12 +1,12 @@
 import type { RefObject } from "react";
-import type { PluginCatalogEntry } from "../../../lib/state/api";
-import type { BusRow, WebUiState } from "../../../lib/state/types";
-import { ConsolePane } from "./ConsolePane";
-import type { WindowResult } from "../logic/horizontalWindow";
-import { TrackStrip } from "../strips/TrackStrip";
-import type { TrackStripProps } from "../strips/types";
-import type { MixerDensity } from "../logic/constants";
-import type { StripMenuTarget } from "../strips/StripContextMenu";
+import type { PluginCatalogEntry } from "@/lib/state/api";
+import type { BusRow, WebUiState } from "@/lib/state/types";
+import { ConsolePane } from "@/screens/mixer/components/ConsolePane";
+import type { WindowResult } from "@/screens/mixer/logic/horizontalWindow";
+import { TrackStrip } from "@/screens/mixer/strips/TrackStrip";
+import type { TrackStripProps } from "@/screens/mixer/strips/types";
+import type { MixerDensity } from "@/screens/mixer/logic/constants";
+import type { StripMenuTarget } from "@/screens/mixer/strips/StripContextMenu";
 
 type TrackRackState = Pick<
   WebUiState,

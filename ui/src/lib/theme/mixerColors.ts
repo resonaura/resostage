@@ -1,4 +1,4 @@
-import { paletteColor, roleColor } from "./theme";
+import { paletteColor, roleColor } from "@/lib/theme/theme";
 
 /**
  * Mixer role accents.

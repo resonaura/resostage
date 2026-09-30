@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { analyzeMidi1ExportLoss, writeSongsMidiFile, type MidiExportTrack } from "../../../lib/midi/standardMidiFile";
-import type { WebUiState } from "../../../lib/state/types";
-import { Button, Modal, Switch } from "../../../components/ui";
+import { analyzeMidi1ExportLoss, writeSongsMidiFile, type MidiExportTrack } from "@/lib/midi/standardMidiFile";
+import type { WebUiState } from "@/lib/state/types";
+import { Button, Modal, Switch } from "@/components/ui";
 
 export type MidiExportIntent = { kind: "all-midi" | "track" | "region"; trackId?: string; regionId?: string; songIndex?: number };
 

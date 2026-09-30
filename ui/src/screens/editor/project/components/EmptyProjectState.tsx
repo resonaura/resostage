@@ -1,7 +1,7 @@
 import { EmptyState } from "@heroui/react";
 import { FolderUp, Music4, Plus } from "lucide-react";
 import type { ReactNode } from "react";
-import { Button } from "../../../../components/ui";
+import { Button } from "@/components/ui";
 
 /**
  * What an empty project offers instead of describing itself.

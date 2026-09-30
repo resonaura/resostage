@@ -1,24 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import { builder } from "../../../../../lib/state/api";
+import { builder } from "@/lib/state/api";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../../../../lib/interaction/dragCancel";
-import { triggerHaptic } from "../../../../../lib/interaction/haptics";
-import type { SectionRow, SongRow } from "../../../../../lib/state/types";
+} from "@/lib/interaction/dragCancel";
+import { triggerHaptic } from "@/lib/interaction/haptics";
+import type { SectionRow, SongRow } from "@/lib/state/types";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../../../../../components/common/ContextMenu";
-import { InlineNamePrompt } from "../../../../../components/common/InlineNamePrompt";
-import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "../logic/constants";
+} from "@/components/common/ContextMenu";
+import { InlineNamePrompt } from "@/components/common/InlineNamePrompt";
+import { SECTION_LANE_HEIGHT, SECTION_PRESETS } from "@/screens/editor/timeline/sections/logic/constants";
 import {
   crossedDetent,
   songDetents,
   type CycleLocatorsForDetents,
-} from "../../snapping/logic/detents";
-import { formatTimeShort, snapToGridSec } from "../../ruler/logic/geometry";
+} from "@/screens/editor/timeline/snapping/logic/detents";
+import { formatTimeShort, snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
 
 /** Neutral marker chrome — no per-section accent colours. */
 const SECTION_LINE = "rgba(255,255,255,0.22)";

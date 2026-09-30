@@ -1,7 +1,7 @@
 import { ScrollShadow } from "@heroui/react";
 import { memo } from "react";
-import { Card } from "../../../components/ui";
-import type { SongRow } from "../../../lib/state/types";
+import { Card } from "@/components/ui";
+import type { SongRow } from "@/lib/state/types";
 
 // The setlist is pure project data plus two booleans, but it used to be
 // rebuilt -- one <button> subtree per song -- on every telemetry frame simply

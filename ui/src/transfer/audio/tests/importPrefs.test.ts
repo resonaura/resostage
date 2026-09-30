@@ -4,7 +4,7 @@ import {
   overrunsSong,
   readLongImportPreference,
   writeLongImportPreference,
-} from "../logic/importPrefs";
+} from "@/transfer/audio/logic/importPrefs";
 
 describe("long import preference", () => {
   beforeEach(() => localStorage.clear());

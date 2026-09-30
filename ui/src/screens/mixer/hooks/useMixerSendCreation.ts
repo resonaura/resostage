@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
-import { builder } from "../../../lib/state/api";
-import type { BusRow } from "../../../lib/state/types";
+import { builder } from "@/lib/state/api";
+import type { BusRow } from "@/lib/state/types";
 import {
   resolvePendingBusJobs,
   type PendingBusJob,
-} from "../logic/pendingBusJobs";
+} from "@/screens/mixer/logic/pendingBusJobs";
 
 /** Create aux/send buses and finalize each after Core publishes its new row. */
 export function useMixerSendCreation({

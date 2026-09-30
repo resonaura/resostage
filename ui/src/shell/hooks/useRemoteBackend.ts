@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { getRemoteBackend, setRemoteBackend } from "../../lib/state/backend";
-import { IS_ELECTRON } from "../../lib/platform/electron";
+import { getRemoteBackend, setRemoteBackend } from "@/lib/state/backend";
+import { IS_ELECTRON } from "@/lib/platform/electron";
 
 /** Tracks the shell's remote Core connection and provides the matching disconnect action. */
 export function useRemoteBackend() {

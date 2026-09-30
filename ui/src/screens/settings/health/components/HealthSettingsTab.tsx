@@ -1,10 +1,10 @@
-import { Alert } from "../../../../components/ui";
-import type { WebUiState } from "../../../../lib/state/types";
+import { Alert } from "@/components/ui";
+import type { WebUiState } from "@/lib/state/types";
 import {
   SettingsSection,
   SettingsStat,
-} from "../../components/SettingsPrimitives";
-import { formatBytes } from "../../logic/formatBytes";
+} from "@/screens/settings/components/SettingsPrimitives";
+import { formatBytes } from "@/screens/settings/logic/formatBytes";
 
 export function HealthSettingsTab({ state }: { state: WebUiState }) {
   const health = state.health;

@@ -4,13 +4,13 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
   ContextMenuSubmenu,
-} from "../../../components/common/ContextMenu";
+} from "@/components/common/ContextMenu";
 import {
   pluginChains,
   type PluginCatalogEntry,
-} from "../../../lib/state/api";
-import type { PluginSlotRow } from "../../../lib/state/types";
-import { groupInstruments } from "./logic/pluginGroups";
+} from "@/lib/state/api";
+import type { PluginSlotRow } from "@/lib/state/types";
+import { groupInstruments } from "@/screens/mixer/plugins/logic/pluginGroups";
 
 export function InstrumentContextMenu({
   trackId,

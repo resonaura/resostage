@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recordTempoTap } from "../logic/tapTempo";
+import { recordTempoTap } from "@/transport/logic/tapTempo";
 
 describe("tap tempo", () => {
   it("waits for a second tap and computes BPM from the interval", () => {

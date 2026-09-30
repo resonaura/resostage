@@ -1,8 +1,8 @@
 import type {
   PerformanceSettings,
   PerformanceTier,
-} from "../../performance/logic/performance";
-import type { ThemeName } from "../../lib/theme";
+} from "@/performance/logic/performance";
+import type { ThemeName } from "@/lib/theme";
 
 export interface ThemeControls {
   name: ThemeName;

@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { SongRow } from "../../../../../lib/state/types";
-import type { CueSelKey } from "../../../../light/components/LightTimeline";
+import type { SongRow } from "@/lib/state/types";
+import type { CueSelKey } from "@/screens/light/components/LightTimeline";
 import {
   deleteCues,
   duplicateCue,
@@ -9,13 +9,13 @@ import {
   pasteCues,
   splitCueAtPlayhead,
   type CueClipboardEntry,
-} from "./cueEdit";
+} from "@/screens/editor/timeline/selection/logic/cueEdit";
 import {
   getClipboardCues,
   getClipboardRegions,
   setClipboardCues,
   setClipboardRegions,
-} from "./timelineClipboard";
+} from "@/screens/editor/timeline/selection/logic/timelineClipboard";
 // Clipboards live in a module, not in this component -- see
 // timelineClipboard.ts: Timeline unmounts on a tab switch, and a clipboard
 // that empties because you looked at the Player is not a clipboard.
@@ -26,12 +26,12 @@ import {
   resolveSelectedRegions,
   resolveSongLocal,
   selectRegionKeys,
-} from "../../regions/logic/regionEdit";
-import { lookupAnyRegion, type RegionSelKey } from "../../regions/logic/regionUtils";
+} from "@/screens/editor/timeline/regions/logic/regionEdit";
+import { lookupAnyRegion, type RegionSelKey } from "@/screens/editor/timeline/regions/logic/regionUtils";
 import {
   trackSelectionGesture,
   type TrackSelectionGesture,
-} from "../../tracks/logic/trackSelection";
+} from "@/screens/editor/timeline/tracks/logic/trackSelection";
 
 interface SelectionActionOptions {
   songs: SongRow[];

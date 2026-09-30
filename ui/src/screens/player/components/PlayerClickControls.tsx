@@ -1,15 +1,15 @@
 import { Popover, Tooltip } from "@heroui/react";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { FontIcon } from "../../../components/common/FontIcon";
-import { ToggleButton, ToggleButtonGroup } from "../../../components/ui";
-import { builder } from "../../../lib/state/api";
+import { FontIcon } from "@/components/common/FontIcon";
+import { ToggleButton, ToggleButtonGroup } from "@/components/ui";
+import { builder } from "@/lib/state/api";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
   type ClickSendRow,
   type WebUiState,
-} from "../../../lib/state/types";
+} from "@/lib/state/types";
 
 /** Project-global metronome toggle and its independent output/send routing. */
 export function PlayerClickControls({ state }: { state: WebUiState }) {

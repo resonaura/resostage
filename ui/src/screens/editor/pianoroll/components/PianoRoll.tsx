@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PianoRollCanvas } from "./PianoRollCanvas";
-import { PianoRollToolbar } from "./PianoRollToolbar";
-import { hotkeyManager, HotkeyScope } from "../../../../lib/interaction/HotkeyManager";
-import { applyLegato, applyOverlapTrim, generateNoteId, sliceNote } from "../logic/pianoRollModel";
-import { snapPitchToScale } from "../logic/scales";
-import { getRegionActivePitches } from "../../../../lib/midi/activeMidiPitches";
-import type { MidiNoteRow } from "../../../../lib/state/types";
-import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
-import { useCycleState } from "../../timeline/cycle/hooks/useCycleState";
-import { timelineHistory } from "../../../../lib/state/api";
-import { getTrackColor } from "../../../../lib/theme";
-import { TrackStateButtons } from "../../../../components/daw/TrackStateButtons";
-import { useThemeVersion } from "../../../../hooks/useThemeVersion";
+import { PianoRollCanvas } from "@/screens/editor/pianoroll/components/PianoRollCanvas";
+import { PianoRollToolbar } from "@/screens/editor/pianoroll/components/PianoRollToolbar";
+import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
+import { applyLegato, applyOverlapTrim, generateNoteId, sliceNote } from "@/screens/editor/pianoroll/logic/pianoRollModel";
+import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
+import { getRegionActivePitches } from "@/lib/midi/activeMidiPitches";
+import type { MidiNoteRow } from "@/lib/state/types";
+import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
+import { useCycleState } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
+import { timelineHistory } from "@/lib/state/api";
+import { getTrackColor } from "@/lib/theme";
+import { TrackStateButtons } from "@/components/daw/TrackStateButtons";
+import { useThemeVersion } from "@/hooks/useThemeVersion";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
@@ -19,7 +19,7 @@ import type {
   PianoRollTool,
   PianoRollViewport,
   ScaleMode,
-} from "../logic/types";
+} from "@/screens/editor/pianoroll/logic/types";
 
 const DEFAULT_VIEWPORT: PianoRollViewport = {
   pixelsPerBeat: 80,

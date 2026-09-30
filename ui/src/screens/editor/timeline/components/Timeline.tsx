@@ -6,99 +6,99 @@ import {
   useRef,
   useState,
 } from "react";
-import { builder } from "../../../../lib/state/api";
+import { builder } from "@/lib/state/api";
 import {
   useContinuousPlayhead,
   type CycleWrapRange,
-} from "../../../../lib/state/optimistic";
-import { useThemeVersion } from "../../../../hooks/useThemeVersion";
-import { addRafTask } from "../../../../lib/state/rafLoop";
+} from "@/lib/state/optimistic";
+import { useThemeVersion } from "@/hooks/useThemeVersion";
+import { addRafTask } from "@/lib/state/rafLoop";
 import { useScrollShadow } from "@heroui/react";
-import { isPositionVisible } from "../logic/timelineVisibility";
-import { useTimelineFileDrop } from "../drop/hooks/useTimelineFileDrop";
-import { hasClipboard } from "../selection/logic/timelineClipboard";
-import { useTimelineGestureActivity } from "../viewport/hooks/useTimelineGestureActivity";
-import { RegionSidePanel } from "../regions/components/RegionSidePanel";
+import { isPositionVisible } from "@/screens/editor/timeline/logic/timelineVisibility";
+import { useTimelineFileDrop } from "@/screens/editor/timeline/drop/hooks/useTimelineFileDrop";
+import { hasClipboard } from "@/screens/editor/timeline/selection/logic/timelineClipboard";
+import { useTimelineGestureActivity } from "@/screens/editor/timeline/viewport/hooks/useTimelineGestureActivity";
+import { RegionSidePanel } from "@/screens/editor/timeline/regions/components/RegionSidePanel";
 import {
   quantizeScrollWindow,
   sameScrollWindow,
   type ScrollWindow,
-} from "../layout/logic/scrollWindow";
+} from "@/screens/editor/timeline/layout/logic/scrollWindow";
 import type {
   AllPeaksResponse,
   PeaksResponse,
   WebUiState,
-} from "../../../../lib/state/types";
-import { LightSidePanel } from "../../../light/components/LightSidePanel";
-import type { CueSelKey, LightCueDragState } from "../../../light/components/LightTimeline";
+} from "@/lib/state/types";
+import { LightSidePanel } from "@/screens/light/components/LightSidePanel";
+import type { CueSelKey, LightCueDragState } from "@/screens/light/components/LightTimeline";
 import {
   AUDIO_HINT_HEIGHT,
   AudioHintStrip,
   LIGHT_HINT_HEIGHT,
   LightHintStrip,
-} from "../../../light/components/LightTimeline";
+} from "@/screens/light/components/LightTimeline";
 import {
   emptyProjectActions,
   EmptyProjectState,
-} from "../../project/components/EmptyProjectState";
-import { AudioDropGhost } from "../drop/components/AudioDropGhost";
-import { AudioTrackLanes } from "../tracks/components/AudioTrackLanes";
-import { BeatGrid } from "../ruler/components/BeatGrid";
-import { EVENT_LANE_HEIGHT } from "../events/logic/constants";
+} from "@/screens/editor/project/components/EmptyProjectState";
+import { AudioDropGhost } from "@/screens/editor/timeline/drop/components/AudioDropGhost";
+import { AudioTrackLanes } from "@/screens/editor/timeline/tracks/components/AudioTrackLanes";
+import { BeatGrid } from "@/screens/editor/timeline/ruler/components/BeatGrid";
+import { EVENT_LANE_HEIGHT } from "@/screens/editor/timeline/events/logic/constants";
 import {
   TRAILING_SLACK_MIN_PX,
   TRAILING_SLACK_SECONDS,
-} from "../layout/logic/projectBounds";
-import { SECTION_LANE_HEIGHT } from "../sections/logic/constants";
-import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "../viewport/logic/zoomLimits";
-import { EventMarkerLane } from "../events/components/EventMarkerLane";
-import { LongImportPrompt } from "../overrun/components/LongImportPrompt";
-import { OutOfBoundsOverlay } from "../layout/components/OutOfBoundsOverlay";
-import { songDetents } from "../snapping/logic/detents";
-import { resolveCycleWrapRange } from "../cycle/logic/resolveCycleWrapRange";
+} from "@/screens/editor/timeline/layout/logic/projectBounds";
+import { SECTION_LANE_HEIGHT } from "@/screens/editor/timeline/sections/logic/constants";
+import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "@/screens/editor/timeline/viewport/logic/zoomLimits";
+import { EventMarkerLane } from "@/screens/editor/timeline/events/components/EventMarkerLane";
+import { LongImportPrompt } from "@/screens/editor/timeline/overrun/components/LongImportPrompt";
+import { OutOfBoundsOverlay } from "@/screens/editor/timeline/layout/components/OutOfBoundsOverlay";
+import { songDetents } from "@/screens/editor/timeline/snapping/logic/detents";
+import { resolveCycleWrapRange } from "@/screens/editor/timeline/cycle/logic/resolveCycleWrapRange";
 import {
   snapSongLocalSeconds,
   timelineSecondsAtClientX,
-} from "../ruler/logic/timelineCoordinates";
-import { useSongEndDrag } from "../ruler/hooks/useSongEndDrag";
-import { laneHeightPx } from "../layout/logic/laneDimensions";
-import { LightTrackLanes } from "../tracks/components/LightTrackLanes";
+} from "@/screens/editor/timeline/ruler/logic/timelineCoordinates";
+import { useSongEndDrag } from "@/screens/editor/timeline/ruler/hooks/useSongEndDrag";
+import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
+import { LightTrackLanes } from "@/screens/editor/timeline/tracks/components/LightTrackLanes";
 import {
   RegionContextMenu,
   type RegionContextMenuState,
-} from "../regions/components/RegionContextMenu";
-import { splitRegionsAtPlayhead } from "../regions/logic/regionEdit";
+} from "@/screens/editor/timeline/regions/components/RegionContextMenu";
+import { splitRegionsAtPlayhead } from "@/screens/editor/timeline/regions/logic/regionEdit";
 import {
   type RegionSelKey,
   type RegionUiState,
-} from "../regions/logic/regionUtils";
-import { buildRows, songContentSeconds } from "../layout/logic/rows";
-import { previewDropReorder } from "../tracks/logic/dropPreview";
-import { SectionMarkerLane } from "../sections/components/SectionMarkerLane";
-import { SelectionContextMenu } from "../selection/components/SelectionContextMenu";
-import { SongRulerHeader } from "../ruler/components/SongRulerHeader";
-import { TimelineSidebar } from "../tracks/components/TimelineSidebar";
-import { TimelineToolbar } from "../toolbar/components/TimelineToolbar";
-import { ToastContainer } from "../toast/components/ToastContainer";
-import { useTimelineToasts } from "../toast/hooks/useTimelineToasts";
-import { useCycleState } from "../cycle/hooks/useCycleState";
-import { useRegionDrag } from "../regions/hooks/useRegionDrag";
-import { useLongImportGuard } from "../overrun/hooks/useLongImportGuard";
-import { useRegionSelectionLifecycle } from "../regions/hooks/useRegionSelectionLifecycle";
-import { useSongLayout } from "../layout/hooks/useSongLayout";
-import { useTimelineKeyboard } from "../selection/hooks/useTimelineKeyboard";
-import { useTimelineMarquee } from "../selection/hooks/useTimelineMarquee";
-import { useTimelineScrub } from "../ruler/hooks/useTimelineScrub";
-import { useTimelineTrackFocus } from "../tracks/hooks/useTimelineTrackFocus";
-import { useTimelineZoomGestures } from "../viewport/hooks/useTimelineZoomGestures";
-import { hotkeyManager, HotkeyScope } from "../../../../lib/interaction/HotkeyManager";
-import { useTimelinePrefs } from "../toolbar/hooks/useTimelinePrefs";
-import type { TrackSelectionGesture } from "../tracks/logic/trackSelection";
-import { createTimelineSelectionActions } from "../selection/logic/selectionActions";
+} from "@/screens/editor/timeline/regions/logic/regionUtils";
+import { buildRows, songContentSeconds } from "@/screens/editor/timeline/layout/logic/rows";
+import { previewDropReorder } from "@/screens/editor/timeline/tracks/logic/dropPreview";
+import { SectionMarkerLane } from "@/screens/editor/timeline/sections/components/SectionMarkerLane";
+import { SelectionContextMenu } from "@/screens/editor/timeline/selection/components/SelectionContextMenu";
+import { SongRulerHeader } from "@/screens/editor/timeline/ruler/components/SongRulerHeader";
+import { TimelineSidebar } from "@/screens/editor/timeline/tracks/components/TimelineSidebar";
+import { TimelineToolbar } from "@/screens/editor/timeline/toolbar/components/TimelineToolbar";
+import { ToastContainer } from "@/screens/editor/timeline/toast/components/ToastContainer";
+import { useTimelineToasts } from "@/screens/editor/timeline/toast/hooks/useTimelineToasts";
+import { useCycleState } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
+import { useRegionDrag } from "@/screens/editor/timeline/regions/hooks/useRegionDrag";
+import { useLongImportGuard } from "@/screens/editor/timeline/overrun/hooks/useLongImportGuard";
+import { useRegionSelectionLifecycle } from "@/screens/editor/timeline/regions/hooks/useRegionSelectionLifecycle";
+import { useSongLayout } from "@/screens/editor/timeline/layout/hooks/useSongLayout";
+import { useTimelineKeyboard } from "@/screens/editor/timeline/selection/hooks/useTimelineKeyboard";
+import { useTimelineMarquee } from "@/screens/editor/timeline/selection/hooks/useTimelineMarquee";
+import { useTimelineScrub } from "@/screens/editor/timeline/ruler/hooks/useTimelineScrub";
+import { useTimelineTrackFocus } from "@/screens/editor/timeline/tracks/hooks/useTimelineTrackFocus";
+import { useTimelineZoomGestures } from "@/screens/editor/timeline/viewport/hooks/useTimelineZoomGestures";
+import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
+import { useTimelinePrefs } from "@/screens/editor/timeline/toolbar/hooks/useTimelinePrefs";
+import type { TrackSelectionGesture } from "@/screens/editor/timeline/tracks/logic/trackSelection";
+import { createTimelineSelectionActions } from "@/screens/editor/timeline/selection/logic/selectionActions";
 import {
   useTimelineLightingState,
   type TimelineTrackReorderPreview,
-} from "../lighting/hooks/useTimelineLightingState";
+} from "@/screens/editor/timeline/lighting/hooks/useTimelineLightingState";
 
 // ------- Timeline (continuous multi-song arrangement) -------------------
 

@@ -1,14 +1,14 @@
 import { Tooltip } from "@heroui/react";
 import { Keyboard } from "lucide-react";
-import { Button } from "../../components/ui";
-import { GlobalTransportBar } from "../../transport/components/GlobalTransportBar";
-import { ProjectMenu } from "../../project/components/ProjectMenu";
-import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
-import type { WebUiState } from "../../lib/state/types";
-import { IS_ELECTRON } from "../../lib/platform/electron";
-import { IS_EMBEDDED } from "../../lib/platform/embedded";
-import type { TransportKind } from "../../lib/state/useLiveState";
-import { ConnectionBadge } from "./ConnectionBadge";
+import { Button } from "@/components/ui";
+import { GlobalTransportBar } from "@/transport/components/GlobalTransportBar";
+import { ProjectMenu } from "@/project/components/ProjectMenu";
+import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
+import type { WebUiState } from "@/lib/state/types";
+import { IS_ELECTRON } from "@/lib/platform/electron";
+import { IS_EMBEDDED } from "@/lib/platform/embedded";
+import type { TransportKind } from "@/lib/state/useLiveState";
+import { ConnectionBadge } from "@/shell/components/ConnectionBadge";
 
 export function AppHeader({
   state,

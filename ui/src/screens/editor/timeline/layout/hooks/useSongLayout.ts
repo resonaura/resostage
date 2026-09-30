@@ -3,8 +3,8 @@ import type {
   AllPeaksResponse,
   PeaksResponse,
   SongRow,
-} from "../../../../../lib/state/types";
-import { songDurationSeconds } from "../logic/rows";
+} from "@/lib/state/types";
+import { songDurationSeconds } from "@/screens/editor/timeline/layout/logic/rows";
 
 /**
  * Per-song duration/offset in absolute project time. Uses allPeaks (every

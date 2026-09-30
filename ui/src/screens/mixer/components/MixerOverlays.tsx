@@ -1,10 +1,10 @@
-import type { RenderDialogIntent } from "../../../transfer/render/components/RenderAudioDialog";
-import type { WebUiState } from "../../../lib/state/types";
-import { PluginChainModal } from "../plugins/PluginChainModal";
+import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
+import type { WebUiState } from "@/lib/state/types";
+import { PluginChainModal } from "@/screens/mixer/plugins/PluginChainModal";
 import {
   StripContextMenu,
   type StripMenuTarget,
-} from "../strips/StripContextMenu";
+} from "@/screens/mixer/strips/StripContextMenu";
 
 export interface PluginTarget {
   stripId: string;

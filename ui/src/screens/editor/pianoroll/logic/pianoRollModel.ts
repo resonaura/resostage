@@ -1,4 +1,4 @@
-import type { AutomationPointRow, MidiNoteRow } from "../../../../lib/state/types";
+import type { AutomationPointRow, MidiNoteRow } from "@/lib/state/types";
 
 /** A controller gesture adds at most one endpoint; keep saved lanes bounded. */
 export const MAX_CONTROLLER_POINTS = 4096;

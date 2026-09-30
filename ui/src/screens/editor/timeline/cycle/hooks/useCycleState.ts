@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { builder } from "../../../../../lib/state/api";
-import type { ProjectCycleRow } from "../../../../../lib/state/types";
+import { builder } from "@/lib/state/api";
+import type { ProjectCycleRow } from "@/lib/state/types";
 
 /**
  * Single project-wide Logic-style cycle (song-local seconds on songIndex).

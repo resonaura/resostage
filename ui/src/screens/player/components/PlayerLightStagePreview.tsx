@@ -1,7 +1,7 @@
 import { memo } from "react";
-import { Card } from "../../../components/ui";
-import { ResoLightStage3D } from "../../light/components/LazyResoLightStage3D";
-import type { LightFixtureRow } from "../../../lib/state/types";
+import { Card } from "@/components/ui";
+import { ResoLightStage3D } from "@/screens/light/components/LazyResoLightStage3D";
+import type { LightFixtureRow } from "@/lib/state/types";
 
 // Memoized on the fixture roster alone. That roster is shipped on every
 // telemetry frame ("lighting ... always shipped" in WebServer.cpp) but rarely

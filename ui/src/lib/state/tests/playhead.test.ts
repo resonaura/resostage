@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { advancePlayhead, type PlayheadStep } from "../optimistic";
+import { advancePlayhead, type PlayheadStep } from "@/lib/state/optimistic";
 
 const FRAME = 1 / 60;
 

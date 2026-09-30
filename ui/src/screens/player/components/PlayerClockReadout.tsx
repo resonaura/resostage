@@ -1,9 +1,9 @@
 import {
   formatClockPrecise as formatTime,
   LiveReadout,
-} from "../../../components/daw";
-import { barBeat, globalBarBeat } from "../logic/timeDisplay";
-import type { WebUiState } from "../../../lib/state/types";
+} from "@/components/daw";
+import { barBeat, globalBarBeat } from "@/screens/player/logic/timeDisplay";
+import type { WebUiState } from "@/lib/state/types";
 
 type PlayerClockReadoutProps = {
   playing: boolean;

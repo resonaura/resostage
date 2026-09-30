@@ -1,8 +1,8 @@
 import { useCallback, useRef } from "react";
-import { mixer } from "../../../lib/state/api";
-import type { WebUiState } from "../../../lib/state/types";
-import { extOutTarget } from "../logic/mixerIds";
-import { patchClickFields } from "../logic/mixerUtils";
+import { mixer } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
+import { extOutTarget } from "@/screens/mixer/logic/mixerIds";
+import { patchClickFields } from "@/screens/mixer/logic/mixerUtils";
 
 /** Direct track and metronome routing to device output lanes. */
 export function useMixerDirectOutput(state: WebUiState) {

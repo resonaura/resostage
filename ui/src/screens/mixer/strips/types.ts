@@ -1,4 +1,4 @@
-import type { PluginCatalogEntry } from "../../../lib/state/api";
+import type { PluginCatalogEntry } from "@/lib/state/api";
 import type {
   BusRow,
   ClickSendRow,
@@ -6,11 +6,11 @@ import type {
   PluginSlotRow,
   SettingsState,
   TrackRow,
-} from "../../../lib/state/types";
+} from "@/lib/state/types";
 import type {
   StripFormatToggle,
   StripInputRouting,
-} from "./StripInputControls";
+} from "@/screens/mixer/strips/StripInputControls";
 
 export type ChannelStripProps = {
   stripId: string;

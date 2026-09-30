@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { mixer } from "../../../lib/state/api";
-import type { WebUiState } from "../../../lib/state/types";
+import { mixer } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
 import {
   resolveTrackSelection,
   type TrackSelectionGesture,
-} from "../timeline/tracks/logic/trackSelection";
+} from "@/screens/editor/timeline/tracks/logic/trackSelection";
 
 /** Owns the editor's range/toggle selection and its synchronization with Core focus. */
 export function useEditorTrackSelection(state: WebUiState) {

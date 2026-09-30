@@ -1,5 +1,5 @@
-import { VirtualMidiKeyboard } from "./VirtualMidiKeyboard";
-import type { WebUiState } from "../../lib/state/types";
+import { VirtualMidiKeyboard } from "@/midi/components/VirtualMidiKeyboard";
+import type { WebUiState } from "@/lib/state/types";
 
 export function StandaloneKeyboardWindow({ state }: { state: WebUiState }) {
   return (

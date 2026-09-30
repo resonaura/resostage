@@ -1,13 +1,13 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { ConfirmDialog } from "../../shell/dialogs/components/ConfirmDialog";
-import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "../../components/common/ContextMenu";
-import { Button } from "../../components/ui";
-import { project } from "../../lib/state/api";
-import { IS_EMBEDDED } from "../../lib/platform/embedded";
-import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
-import type { WebUiState } from "../../lib/state/types";
-import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
+import { ConfirmDialog } from "@/shell/dialogs/components/ConfirmDialog";
+import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "@/components/common/ContextMenu";
+import { Button } from "@/components/ui";
+import { project } from "@/lib/state/api";
+import { IS_EMBEDDED } from "@/lib/platform/embedded";
+import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
+import type { WebUiState } from "@/lib/state/types";
+import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
 
 export function ProjectMenu({
   state,

@@ -1,5 +1,5 @@
-import { mixer } from "../../lib/state/api";
-import type { TrackRow } from "../../lib/state/types";
+import { mixer } from "@/lib/state/api";
+import type { TrackRow } from "@/lib/state/types";
 
 /** The four authoritative Core track switches, shared by compact editor surfaces. */
 export function TrackStateButtons({

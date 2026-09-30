@@ -3,7 +3,7 @@ import {
   audioRender,
   type AudioRenderOptions,
   type AudioRenderStatus,
-} from "../../../lib/state/api";
+} from "@/lib/state/api";
 
 const initialStatus: AudioRenderStatus = {
   state: "rendering",

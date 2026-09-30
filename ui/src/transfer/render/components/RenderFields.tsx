@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { Button } from "../../../components/ui";
-import type { AudioRenderStatus } from "../../../lib/state/api";
-import { formatDuration } from "../logic/renderModel";
+import { Button } from "@/components/ui";
+import type { AudioRenderStatus } from "@/lib/state/api";
+import { formatDuration } from "@/transfer/render/logic/renderModel";
 
 export function Section({
   title,

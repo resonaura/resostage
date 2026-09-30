@@ -7,7 +7,7 @@ import {
   paletteSize,
   ROLE_COLORS,
   type PaletteName,
-} from "../theme";
+} from "@/lib/theme/theme";
 
 /**
  * The fallbacks in theme.ts and the custom properties in theme.css are two

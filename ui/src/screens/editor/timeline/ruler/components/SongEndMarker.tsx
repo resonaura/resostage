@@ -2,9 +2,9 @@ import { useRef } from "react";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../../../../lib/interaction/dragCancel";
-import { RULER_HEIGHT } from "../logic/constants";
-import { snapToGridSec } from "../logic/geometry";
+} from "@/lib/interaction/dragCancel";
+import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
+import { snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
 
 /**
  * The draggable end of a song.

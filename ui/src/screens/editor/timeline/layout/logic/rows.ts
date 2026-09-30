@@ -1,5 +1,5 @@
-import type { SongRow, TrackRow } from "../../../../../lib/state/types";
-import { getTrackColor } from "../../../../../lib/theme";
+import type { SongRow, TrackRow } from "@/lib/state/types";
+import { getTrackColor } from "@/lib/theme";
 
 // One row per unique track NAME across the whole project (tracks belong to
 // individual songs in this schema, so "continuous" means aligning

@@ -1,4 +1,4 @@
-import type { WebUiState } from "../../lib/state/types";
+import type { WebUiState } from "@/lib/state/types";
 
 export function AppFooter({ state }: { state: WebUiState }) {
   return (

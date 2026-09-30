@@ -8,7 +8,7 @@
 // measure. These tests pin the rule from both sides.
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { isRenderActive, setTransportPlaying } from "../appActivity";
+import { isRenderActive, setTransportPlaying } from "@/lib/state/appActivity";
 
 function shell(event: "resoshell-idle" | "resoshell-active") {
   window.dispatchEvent(new CustomEvent(event));

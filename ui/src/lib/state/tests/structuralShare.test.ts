@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shareStructure } from "../structuralShare";
+import { shareStructure } from "@/lib/state/structuralShare";
 
 describe("shareStructure", () => {
   it("returns the previous graph when nothing changed", () => {

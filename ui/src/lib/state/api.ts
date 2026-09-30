@@ -1,12 +1,12 @@
-import { apiUrl, apiFetch } from "./backend";
-import type { MixGraphPayload } from "../audio/mixGraph";
+import { apiUrl, apiFetch } from "@/lib/state/backend";
+import type { MixGraphPayload } from "@/lib/audio/mixGraph";
 import type {
   AllPeaksResponse,
   EventTypeWire,
   LightCueRow,
   LivePeakChunkResponse,
   PeaksResponse,
-} from "./types";
+} from "@/lib/state/types";
 
 // ── Immediate-refetch hook ────────────────────────────────────────────────────
 // In UDP/embedded mode the structural state arrives via a 1 s HTTP poll. Any
@@ -534,7 +534,7 @@ export const mixer = {
     enabled?: boolean,
     /** Collapses a knob drag into one undo entry -- see lib/editGesture. */
     gestureId?: string,
-    tap?: import("./types").SendTapMode,
+    tap?: import("@/lib/state/types").SendTapMode,
   ) =>
     postContinuous("/api/v1/mixer/track/send", {
       trackIndex,
@@ -670,7 +670,7 @@ export const builder = {
   trackAdd: (
     songIndex: number,
     params?: {
-      kind?: import("./types").TrackKindWire;
+      kind?: import("@/lib/state/types").TrackKindWire;
       name?: string;
       channels?: number;
       instrumentPluginId?: string;
@@ -759,10 +759,10 @@ export const builder = {
     loopStartBeats?: number;
     muted?: boolean;
     color?: string;
-    notes?: import("./types").MidiNoteRow[];
-    events?: import("./types").MidiClipEventRow[];
-    umpEvents?: import("./types").MidiUmpEventRow[];
-    automationLanes?: import("./types").AutomationLaneRow[];
+    notes?: import("@/lib/state/types").MidiNoteRow[];
+    events?: import("@/lib/state/types").MidiClipEventRow[];
+    umpEvents?: import("@/lib/state/types").MidiUmpEventRow[];
+    automationLanes?: import("@/lib/state/types").AutomationLaneRow[];
     gestureId?: string;
   }) => post("/api/v1/builder/midi-region/add", patch),
   midiRegionRemove: (songIndex: number, regionId: string, gestureId?: string) =>
@@ -784,25 +784,25 @@ export const builder = {
     loopStartBeats?: number;
     muted?: boolean;
     color?: string;
-    notes?: import("./types").MidiNoteRow[];
-    events?: import("./types").MidiClipEventRow[];
-    umpEvents?: import("./types").MidiUmpEventRow[];
-    automationLanes?: import("./types").AutomationLaneRow[];
+    notes?: import("@/lib/state/types").MidiNoteRow[];
+    events?: import("@/lib/state/types").MidiClipEventRow[];
+    umpEvents?: import("@/lib/state/types").MidiUmpEventRow[];
+    automationLanes?: import("@/lib/state/types").AutomationLaneRow[];
     gestureId?: string;
   }) => post("/api/v1/builder/midi-region/update", patch),
 
   automationLaneAdd: (patch: {
     songIndex: number;
     regionId?: string;
-    domain: import("./types").AutomationDomain;
+    domain: import("@/lib/state/types").AutomationDomain;
     entityId: string;
     parameterId: string;
-    valueType?: import("./types").ParameterValueType;
+    valueType?: import("@/lib/state/types").ParameterValueType;
     defaultValue?: number;
     minValue?: number;
     maxValue?: number;
-    scope?: import("./types").AutomationScope;
-    writeMode?: import("./types").AutomationWriteMode;
+    scope?: import("@/lib/state/types").AutomationScope;
+    writeMode?: import("@/lib/state/types").AutomationWriteMode;
     enabled?: boolean;
     muted?: boolean;
     initialTimeBeats?: number;
@@ -824,7 +824,7 @@ export const builder = {
     laneId: string;
     enabled?: boolean;
     muted?: boolean;
-    writeMode?: import("./types").AutomationWriteMode;
+    writeMode?: import("@/lib/state/types").AutomationWriteMode;
     gestureId?: string;
   }) => post("/api/v1/builder/automation-lane/update", patch),
   automationPointAdd: (patch: {

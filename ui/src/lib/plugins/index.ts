@@ -1,1 +1,1 @@
-export * from "./pluginCategories";
+export * from "@/lib/plugins/pluginCategories";

@@ -1,9 +1,9 @@
-import { ToggleButton, ToggleButtonGroup } from "../../../../components/ui";
+import { ToggleButton, ToggleButtonGroup } from "@/components/ui";
 import {
   SCOPE_FILTERS,
   type CategoryFilterDef,
   type ScopeFilterDef,
-} from "../../../../lib/plugins/pluginCategories";
+} from "@/lib/plugins/pluginCategories";
 
 export function PluginCatalogFilters({
   scopeFilter,

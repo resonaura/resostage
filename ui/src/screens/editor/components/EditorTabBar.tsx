@@ -2,7 +2,7 @@ import {
   Button,
   ToggleButton,
   ToggleButtonGroup,
-} from "../../../components/ui";
+} from "@/components/ui";
 import { Gauge, ListMusic, Music, Sliders } from "lucide-react";
 
 export type EditorTab = "timeline" | "pianoroll" | "songs";

@@ -5,9 +5,9 @@
 import { ScrollShadow } from "@heroui/react";
 import { ChevronDown, ChevronUp, Plus, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
-import { Button, Card } from "../../../components/ui";
-import { builder } from "../../../lib/state/api";
-import type { SongRow } from "../../../lib/state/types";
+import { Button, Card } from "@/components/ui";
+import { builder } from "@/lib/state/api";
+import type { SongRow } from "@/lib/state/types";
 
 const inputCls =
   "w-full rounded-lg border border-default/60 bg-default/20 px-2 py-1.5 text-sm outline-none focus:border-accent";

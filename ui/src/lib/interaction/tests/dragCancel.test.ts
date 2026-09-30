@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { activeDragCount, beginCancellableDrag } from "../dragCancel";
+import { activeDragCount, beginCancellableDrag } from "@/lib/interaction/dragCancel";
 
 const esc = () =>
   window.dispatchEvent(

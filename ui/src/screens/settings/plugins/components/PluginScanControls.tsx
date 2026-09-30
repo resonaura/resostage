@@ -1,6 +1,6 @@
 import { Plug, Search, Square, X } from "lucide-react";
-import { Alert, Button, Card } from "../../../../components/ui";
-import type { PluginCatalogResponse } from "../../../../lib/state/api";
+import { Alert, Button, Card } from "@/components/ui";
+import type { PluginCatalogResponse } from "@/lib/state/api";
 
 export function PluginScanControls({
   catalog,

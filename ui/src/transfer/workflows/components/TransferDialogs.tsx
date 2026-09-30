@@ -1,9 +1,9 @@
-import { ExportMidiDialog } from "../../midi/components/ExportMidiDialog";
-import { ImportMidiDialog } from "../../midi/components/ImportMidiDialog";
-import { ImportAudioBatchDialog } from "../../audio/components/ImportAudioBatchDialog";
-import { RenderAudioDialog } from "../../render/components/RenderAudioDialog";
-import type { WebUiState } from "../../../lib/state/types";
-import type { TransferWorkflows } from "../hooks/useTransferWorkflows";
+import { ExportMidiDialog } from "@/transfer/midi/components/ExportMidiDialog";
+import { ImportMidiDialog } from "@/transfer/midi/components/ImportMidiDialog";
+import { ImportAudioBatchDialog } from "@/transfer/audio/components/ImportAudioBatchDialog";
+import { RenderAudioDialog } from "@/transfer/render/components/RenderAudioDialog";
+import type { WebUiState } from "@/lib/state/types";
+import type { TransferWorkflows } from "@/transfer/workflows/hooks/useTransferWorkflows";
 
 export function TransferDialogs({
   state,

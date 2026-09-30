@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import type { CoreExitInfo } from "../hooks/useCoreExit";
+import type { CoreExitInfo } from "@/shell/hooks/useCoreExit";
 
 export function BackendStatusBanner({
   coreExit,

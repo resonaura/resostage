@@ -1,5 +1,5 @@
-import { Knob } from "../../../components/daw";
-import { createVerticalValueDragHandler } from "./logic/verticalValueDrag";
+import { Knob } from "@/components/daw";
+import { createVerticalValueDragHandler } from "@/screens/mixer/strips/logic/verticalValueDrag";
 
 function formatPan(value: number): string {
   if (Math.abs(value) < 0.05) return "C";

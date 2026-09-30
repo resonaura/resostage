@@ -1,10 +1,10 @@
 import { Tooltip } from "@heroui/react";
 import { Trash2, TriangleAlert } from "lucide-react";
 import type { ComponentType } from "react";
-import { useLiveFixtureColor } from "../hooks/useLiveFixtureColor";
-import type { LightFixtureRow } from "../../../lib/state/types";
-import type { PreviewColor } from "./LazyResoLightStage3D";
-import { Button, ToggleButton } from "../../../components/ui";
+import { useLiveFixtureColor } from "@/screens/light/hooks/useLiveFixtureColor";
+import type { LightFixtureRow } from "@/lib/state/types";
+import type { PreviewColor } from "@/screens/light/components/LazyResoLightStage3D";
+import { Button, ToggleButton } from "@/components/ui";
 // ─── Fixture row ──────────────────────────────────────────────────────────
 
 /**

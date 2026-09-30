@@ -1,17 +1,17 @@
-import { Alert, Switch, ToggleButton } from "../../../../components/ui";
-import type { WebUiState } from "../../../../lib/state/types";
+import { Alert, Switch, ToggleButton } from "@/components/ui";
+import type { WebUiState } from "@/lib/state/types";
 import {
   TIER_DESCRIPTION,
   TIER_FPS,
   TIER_LABEL,
   type PerformanceTier,
-} from "../../../../performance/logic/performance";
+} from "@/performance/logic/performance";
 import {
   SettingsSection,
   SettingsStat,
-} from "../../components/SettingsPrimitives";
-import { formatBytes } from "../../logic/formatBytes";
-import type { PerformanceControls } from "../../types";
+} from "@/screens/settings/components/SettingsPrimitives";
+import { formatBytes } from "@/screens/settings/logic/formatBytes";
+import type { PerformanceControls } from "@/screens/settings/types";
 
 function formatRate(bytesPerSecond: number): string {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "0 B/s";

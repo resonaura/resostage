@@ -6,8 +6,8 @@ import {
   DEFAULT_INSPECTOR_OVERFLOW_WIDTH,
   DEFAULT_INSPECTOR_WIDTH,
   resolveInspectorBusses,
-} from "../logic/inspectorRouting";
-import type { BusRow, TrackRow } from "../../../lib/state/types";
+} from "@/screens/editor/logic/inspectorRouting";
+import type { BusRow, TrackRow } from "@/lib/state/types";
 
 describe("resolveInspectorBusses", () => {
   const masterBus: BusRow = {

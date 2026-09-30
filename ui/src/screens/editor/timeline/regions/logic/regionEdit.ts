@@ -1,11 +1,11 @@
-import { builder } from "../../../../../lib/state/api";
-import type { MidiNoteRow, SongRow } from "../../../../../lib/state/types";
+import { builder } from "@/lib/state/api";
+import type { MidiNoteRow, SongRow } from "@/lib/state/types";
 import {
   allRegionSelKeys,
   lookupAnyRegion,
   type RegionClipboardEntry,
   type RegionSelKey,
-} from "./regionUtils";
+} from "@/screens/editor/timeline/regions/logic/regionUtils";
 
 export function resolveSelectedRegions(
   selectedRegionKeys: RegionSelKey[],

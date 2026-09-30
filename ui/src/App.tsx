@@ -1,23 +1,23 @@
 import { useState } from "react";
-import { useGlobalHotkeys } from "./shell/hooks/useGlobalHotkeys";
-import { useTheme } from "./shell/hooks/useTheme";
-import { useVirtualKeyboard } from "./midi/hooks/useVirtualKeyboard";
-import { StandaloneKeyboardWindow } from "./midi/components/StandaloneKeyboardWindow";
-import { VirtualMidiKeyboard } from "./midi/components/VirtualMidiKeyboard";
-import { usePerformanceMode } from "./performance/hooks/usePerformanceMode";
-import { useProjectPeaks } from "./project/hooks/useProjectPeaks";
-import { useTransferWorkflows } from "./transfer/workflows/hooks/useTransferWorkflows";
-import { AppDialogLayer } from "./shell/components/AppDialogLayer";
-import { AppFooter } from "./shell/components/AppFooter";
-import { AppHeader } from "./shell/components/AppHeader";
-import { AppNavigation } from "./shell/components/AppNavigation";
-import { BackendStatusBanner } from "./shell/components/BackendStatusBanner";
-import { HardwareAlarmToasts } from "./shell/components/HardwareAlarmToasts";
-import { useCoreExit } from "./shell/hooks/useCoreExit";
-import { useHardwareAlarmToasts } from "./shell/hooks/useHardwareAlarmToasts";
-import { useRemoteBackend } from "./shell/hooks/useRemoteBackend";
-import { useAppShellSync } from "./shell/hooks/useAppShellSync";
-import { useLiveState } from "./lib/state/useLiveState";
+import { useGlobalHotkeys } from "@/shell/hooks/useGlobalHotkeys";
+import { useTheme } from "@/shell/hooks/useTheme";
+import { useVirtualKeyboard } from "@/midi/hooks/useVirtualKeyboard";
+import { StandaloneKeyboardWindow } from "@/midi/components/StandaloneKeyboardWindow";
+import { VirtualMidiKeyboard } from "@/midi/components/VirtualMidiKeyboard";
+import { usePerformanceMode } from "@/performance/hooks/usePerformanceMode";
+import { useProjectPeaks } from "@/project/hooks/useProjectPeaks";
+import { useTransferWorkflows } from "@/transfer/workflows/hooks/useTransferWorkflows";
+import { AppDialogLayer } from "@/shell/components/AppDialogLayer";
+import { AppFooter } from "@/shell/components/AppFooter";
+import { AppHeader } from "@/shell/components/AppHeader";
+import { AppNavigation } from "@/shell/components/AppNavigation";
+import { BackendStatusBanner } from "@/shell/components/BackendStatusBanner";
+import { HardwareAlarmToasts } from "@/shell/components/HardwareAlarmToasts";
+import { useCoreExit } from "@/shell/hooks/useCoreExit";
+import { useHardwareAlarmToasts } from "@/shell/hooks/useHardwareAlarmToasts";
+import { useRemoteBackend } from "@/shell/hooks/useRemoteBackend";
+import { useAppShellSync } from "@/shell/hooks/useAppShellSync";
+import { useLiveState } from "@/lib/state/useLiveState";
 
 export default function App() {
   const isStandaloneKeyboardWindow =

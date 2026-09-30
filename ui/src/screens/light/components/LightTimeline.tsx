@@ -1,16 +1,16 @@
 import { TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { lighting } from "../../../lib/state/api";
-import { withHexAlpha } from "../../../lib/theme/cssColor";
-import { roleColor } from "../../../lib/theme";
-import { themeAdaptedColor } from "../logic/tintFilter";
-import { useThemeVersion } from "../../../hooks/useThemeVersion";
+import { lighting } from "@/lib/state/api";
+import { withHexAlpha } from "@/lib/theme/cssColor";
+import { roleColor } from "@/lib/theme";
+import { themeAdaptedColor } from "@/screens/light/logic/tintFilter";
+import { useThemeVersion } from "@/hooks/useThemeVersion";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../../lib/interaction/dragCancel";
-import { triggerHaptic } from "../../../lib/interaction/haptics";
-import { edgesCrossedDetent } from "../../editor/timeline/snapping/logic/detents";
+} from "@/lib/interaction/dragCancel";
+import { triggerHaptic } from "@/lib/interaction/haptics";
+import { edgesCrossedDetent } from "@/screens/editor/timeline/snapping/logic/detents";
 import type {
   AllPeaksResponse,
   LightCueRow,
@@ -19,19 +19,19 @@ import type {
   PeaksResponse,
   SongRow,
   WebUiState,
-} from "../../../lib/state/types";
-import { ContextMenu, ContextMenuItem } from "../../../components/common/ContextMenu";
-import { splitCueAtPlayhead } from "../../editor/timeline/selection/logic/cueEdit";
+} from "@/lib/state/types";
+import { ContextMenu, ContextMenuItem } from "@/components/common/ContextMenu";
+import { splitCueAtPlayhead } from "@/screens/editor/timeline/selection/logic/cueEdit";
 import {
   COMPACT_LANE_MAX_PX,
   LANE_HEIGHT,
   laneHeightPx,
-} from "../../editor/timeline/layout/logic/laneDimensions";
-import { buildSongPeakLookup } from "../../editor/timeline/regions/logic/regionPeaks";
-import { toolCursor, type TimelineTool } from "../../editor/timeline/toolbar/logic/tools";
-import { TrackWaveformLane } from "../../editor/timeline/waveform/components/TrackWaveformLane";
-import { EFFECT_META, effectUsesOwnColor } from "../logic/lightEffectMeta";
-import type { EffectType } from "./LightSidePanel";
+} from "@/screens/editor/timeline/layout/logic/laneDimensions";
+import { buildSongPeakLookup } from "@/screens/editor/timeline/regions/logic/regionPeaks";
+import { toolCursor, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import { TrackWaveformLane } from "@/screens/editor/timeline/waveform/components/TrackWaveformLane";
+import { EFFECT_META, effectUsesOwnColor } from "@/screens/light/logic/lightEffectMeta";
+import type { EffectType } from "@/screens/light/components/LightSidePanel";
 
 // Fixed heights for the cross-mode hint strips (one strip per mode, the
 // opposite mode's content shown dimmed and non-clickable -- the "for the lighting

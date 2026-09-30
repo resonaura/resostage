@@ -4,7 +4,7 @@ import {
   controllerYFromValue,
   isControllerLane,
   noteTextColor,
-} from "../logic/canvasUtils";
+} from "@/screens/editor/pianoroll/logic/canvasUtils";
 
 describe("piano roll canvas utilities", () => {
   it("chooses readable text against the velocity-tinted note color", () => {

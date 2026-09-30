@@ -4,9 +4,9 @@ import type {
   MeterRow,
   SettingsState,
   TrackRow,
-} from "../../../../lib/state/types";
-import { areTrackStripPropsEqual } from "../logic/trackStripMemo";
-import type { TrackStripProps } from "../types";
+} from "@/lib/state/types";
+import { areTrackStripPropsEqual } from "@/screens/mixer/strips/logic/trackStripMemo";
+import type { TrackStripProps } from "@/screens/mixer/strips/types";
 
 const settings: SettingsState = {
   currentOutputDevice: "Default Output",

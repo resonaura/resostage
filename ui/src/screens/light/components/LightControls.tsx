@@ -22,7 +22,7 @@ import {
   parseColor,
   type Color,
 } from "@heroui/react";
-import { Button, Slider, ToggleButton, ToggleButtonGroup } from "../../../components/ui";
+import { Button, Slider, ToggleButton, ToggleButtonGroup } from "@/components/ui";
 import { ChevronDown, FlipHorizontal2, Plus, X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
@@ -30,26 +30,26 @@ import {
   builtinPalette,
   parseGradientStops,
   type GradientStop,
-} from "../../../lib/light/lightCueInterpolation";
+} from "@/lib/light/lightCueInterpolation";
 import {
   useCoalescedCommit,
   useFocusDraft,
   useLiveValue,
-} from "../../../lib/state/optimistic";
-import { useEscRevert } from "../../../hooks/useEscRevert";
+} from "@/lib/state/optimistic";
+import { useEscRevert } from "@/hooks/useEscRevert";
 import {
   EFFECT_META,
   GRADIENT_META,
   effectRequiresAddressable,
   type GradientPreset,
-} from "../logic/lightEffectMeta";
-import type { EffectType } from "./LightSidePanel";
+} from "@/screens/light/logic/lightEffectMeta";
+import type { EffectType } from "@/screens/light/components/LightSidePanel";
 import {
   CAPTION_CLS,
   CELL_TOGGLE_CLS,
   TILE_TOGGLE_CLS,
   TOGGLE_GROUP_CLS,
-} from "../logic/lightStyles";
+} from "@/screens/light/logic/lightStyles";
 
 // ─── Field scaffolding ────────────────────────────────────────────────────
 

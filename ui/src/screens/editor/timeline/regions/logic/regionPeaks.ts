@@ -3,7 +3,7 @@ import type {
   PeakLevelData,
   RegionRow,
   TrackPeaks,
-} from "../../../../../lib/state/types";
+} from "@/lib/state/types";
 
 /** What a region actually needs to draw a waveform. */
 export interface ResolvedPeaks {

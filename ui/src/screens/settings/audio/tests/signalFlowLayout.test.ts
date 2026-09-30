@@ -11,7 +11,7 @@ import {
   type MixGraphPayload,
   type MixGraphStrip,
   type MixStripKind,
-} from "../logic/signalFlowLayout";
+} from "@/screens/settings/audio/logic/signalFlowLayout";
 
 function strip(
   id: string,

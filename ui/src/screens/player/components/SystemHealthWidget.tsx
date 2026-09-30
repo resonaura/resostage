@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useRef } from "react";
-import { addRafTask } from "../../../lib/state/rafLoop";
-import type { WebUiState } from "../../../lib/state/types";
+import { addRafTask } from "@/lib/state/rafLoop";
+import type { WebUiState } from "@/lib/state/types";
 
 /**
  * One health sparkline.

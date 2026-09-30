@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import {
   getLiveLedOutputs,
   subscribeLiveLedOutputs,
-} from "../../../lib/audio/liveLevels";
-import type { PreviewColor } from "../components/ResoLightStage3D";
+} from "@/lib/audio/liveLevels";
+import type { PreviewColor } from "@/screens/light/components/ResoLightStage3D";
 
 /**
  * One fixture's live per-LED colours off the binary telemetry stream.

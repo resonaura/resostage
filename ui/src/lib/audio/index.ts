@@ -1,2 +1,2 @@
-export * from "./liveLevels";
-export * from "./levelFields";
+export * from "@/lib/audio/liveLevels";
+export * from "@/lib/audio/levelFields";

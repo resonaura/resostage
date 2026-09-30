@@ -8,9 +8,9 @@ import {
   Zap,
 } from "lucide-react";
 import type { Dispatch, PointerEvent, SetStateAction } from "react";
-import { TrackStateButtons } from "../../components/daw/TrackStateButtons";
-import { Slider } from "../../components/ui";
-import type { TrackRow } from "../../lib/state/types";
+import { TrackStateButtons } from "@/components/daw/TrackStateButtons";
+import { Slider } from "@/components/ui";
+import type { TrackRow } from "@/lib/state/types";
 
 export function VirtualKeyboardHeader({
   standalone,

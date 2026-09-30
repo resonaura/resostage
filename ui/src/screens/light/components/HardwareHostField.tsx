@@ -1,8 +1,8 @@
 import { Description, Input, Label, TextField } from "@heroui/react";
 import { useState } from "react";
-import { lighting } from "../../../lib/state/api";
-import type { LightFixtureRow } from "../../../lib/state/types";
-import { CAPTION_CLS } from "../logic/lightStyles";
+import { lighting } from "@/lib/state/api";
+import type { LightFixtureRow } from "@/lib/state/types";
+import { CAPTION_CLS } from "@/screens/light/logic/lightStyles";
 
 /** Local-draft host so typing an IP doesn't fight live WS re-renders, and so
  *  a half-typed address is never dialled -- commit lands on blur/Enter only.

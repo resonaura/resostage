@@ -9,7 +9,7 @@ import {
   type HealthSample,
   TIER_FPS,
   type PerformanceTier,
-} from "../logic/performance";
+} from "@/performance/logic/performance";
 
 const start = (effective: PerformanceTier = "full"): AutoState => ({
   effective,

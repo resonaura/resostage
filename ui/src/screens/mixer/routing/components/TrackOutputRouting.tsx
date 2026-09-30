@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { isMainBusId } from "../../logic/mixerIds";
-import { Select, type SelectOption } from "../../../../components/ui";
-import type { BusRow, SettingsState } from "../../../../lib/state/types";
+import { isMainBusId } from "@/screens/mixer/logic/mixerIds";
+import { Select, type SelectOption } from "@/components/ui";
+import type { BusRow, SettingsState } from "@/lib/state/types";
 import {
   EXT_OUTPUT_VALUE,
   ROUTING_SELECT_SIZE,
   SENDS_ONLY_VALUE,
-} from "../../logic/constants";
+} from "@/screens/mixer/logic/constants";
 import {
   directOutputOptions,
   matchOptionId,
@@ -14,9 +14,9 @@ import {
   parseDirectLanes,
   routeToOptionId,
   channelAvailable,
-} from "../logic/directOutput";
-import { missingOutputSelectProps } from "./MissingOutputSelect";
-import { RoutingSlotPlaceholder } from "./RoutingSlotPlaceholder";
+} from "@/screens/mixer/routing/logic/directOutput";
+import { missingOutputSelectProps } from "@/screens/mixer/routing/components/MissingOutputSelect";
+import { RoutingSlotPlaceholder } from "@/screens/mixer/routing/components/RoutingSlotPlaceholder";
 
 type PendingRouting = {
   /** Primary select: bus id, SENDS_ONLY_VALUE, or EXT_OUTPUT_VALUE. */

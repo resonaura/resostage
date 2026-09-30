@@ -1,8 +1,8 @@
 import {
   rowsSameExceptLevels,
   sameExceptLevels,
-} from "../../../../lib/audio/levelFields";
-import type { TrackStripProps } from "../types";
+} from "@/lib/audio/levelFields";
+import type { TrackStripProps } from "@/screens/mixer/strips/types";
 
 /**
  * A strip is expensive -- two routing selects, a send knob per aux, a fader --

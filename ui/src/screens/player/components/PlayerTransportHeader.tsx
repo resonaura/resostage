@@ -1,11 +1,11 @@
-import { Card } from "../../../components/ui";
-import { CountInControl } from "../../../transport/components/CountInControl";
-import type { WebUiState } from "../../../lib/state/types";
-import { DriftReadout } from "./DriftReadout";
-import { PlayerClickControls } from "./PlayerClickControls";
-import { PlayerClockReadout } from "./PlayerClockReadout";
-import { PlayerTransportButtons } from "./PlayerTransportButtons";
-import { SystemHealthWidget } from "./SystemHealthWidget";
+import { Card } from "@/components/ui";
+import { CountInControl } from "@/transport/components/CountInControl";
+import type { WebUiState } from "@/lib/state/types";
+import { DriftReadout } from "@/screens/player/components/DriftReadout";
+import { PlayerClickControls } from "@/screens/player/components/PlayerClickControls";
+import { PlayerClockReadout } from "@/screens/player/components/PlayerClockReadout";
+import { PlayerTransportButtons } from "@/screens/player/components/PlayerTransportButtons";
+import { SystemHealthWidget } from "@/screens/player/components/SystemHealthWidget";
 
 type PlayerSong = WebUiState["songs"][number] | null;
 

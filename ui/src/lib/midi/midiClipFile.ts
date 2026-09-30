@@ -1,6 +1,6 @@
-import type { MidiNoteRow } from "../state/types";
-import type { ImportedMidiFile, ImportedMidiTrack, MidiExportOptions, MidiExportTrack } from "./standardMidiFile";
-import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "./midiRegionTiming";
+import type { MidiNoteRow } from "@/lib/state/types";
+import type { ImportedMidiFile, ImportedMidiTrack, MidiExportOptions, MidiExportTrack } from "@/lib/midi/standardMidiFile";
+import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";
 
 const MAGIC = "SMF2CLIP";
 const MAX_BYTES = 32 * 1024 * 1024;

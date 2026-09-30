@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { MidiRegionRow, WebUiState } from "../../state/types";
-import { getActiveMidiPitches } from "../activeMidiPitches";
+import type { MidiRegionRow, WebUiState } from "@/lib/state/types";
+import { getActiveMidiPitches } from "@/lib/midi/activeMidiPitches";
 
 function midiRegion(
   id: string,

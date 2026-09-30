@@ -28,19 +28,19 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   CollapsibleInline,
-} from "../../../../../components/ui";
+} from "@/components/ui";
 
-import { timelineHistory } from "../../../../../lib/state/api";
-import { useEscRevert } from "../../../../../hooks/useEscRevert";
+import { timelineHistory } from "@/lib/state/api";
+import { useEscRevert } from "@/hooks/useEscRevert";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../../../../../components/common/ContextMenu";
-import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "../../viewport/logic/zoomLimits";
-import { formatTimeShort } from "../../ruler/logic/geometry";
-import { TIMELINE_TOOLS, type TimelineTool } from "../logic/tools";
-import type { TimelineFollowMode, TimelineViewMode } from "../logic/types";
+} from "@/components/common/ContextMenu";
+import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "@/screens/editor/timeline/viewport/logic/zoomLimits";
+import { formatTimeShort } from "@/screens/editor/timeline/ruler/logic/geometry";
+import { TIMELINE_TOOLS, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import type { TimelineFollowMode, TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
 
 const TOOL_ICONS: Record<TimelineTool, React.ReactNode> = {
   pointer: <MousePointer2 size={13} />,

@@ -3,7 +3,7 @@ import {
   getTrackPolarityOptions,
   resolveTrackPolarity,
   toggleTrackPolarity,
-} from "../logic/polarity";
+} from "@/screens/mixer/logic/polarity";
 
 describe("track polarity", () => {
   it("resolves optimistic state before persisted and legacy state", () => {

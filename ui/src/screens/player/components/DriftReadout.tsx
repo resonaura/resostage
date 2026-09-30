@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { CollapsibleInline } from "../../../components/ui";
+import { CollapsibleInline } from "@/components/ui";
 
 /**
  * The drift figure, which appears and disappears while the transport runs.

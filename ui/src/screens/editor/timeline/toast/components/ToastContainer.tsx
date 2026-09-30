@@ -1,6 +1,6 @@
-import type { Toast } from "../logic/types";
+import type { Toast } from "@/screens/editor/timeline/toast/logic/types";
 
-export type { Toast } from "../logic/types";
+export type { Toast } from "@/screens/editor/timeline/toast/logic/types";
 
 export function ToastContainer({
   toasts,

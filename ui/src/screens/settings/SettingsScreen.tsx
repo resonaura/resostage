@@ -8,16 +8,16 @@ import {
   SlidersHorizontal,
   Zap,
 } from "lucide-react";
-import { Tabs } from "../../components/ui";
-import type { WebUiState } from "../../lib/state/types";
-import { AudioSettingsTab } from "./audio/components/AudioSettingsTab";
-import { HealthSettingsTab } from "./health/components/HealthSettingsTab";
-import { MidiSettingsTab } from "./midi/components/MidiSettingsTab";
-import { PerformanceSettingsTab } from "./performance/components/PerformanceSettingsTab";
-import { PluginsTab } from "./plugins/components/PluginsTab";
-import { RemoteSettingsSection } from "./remote/components/RemoteSettingsSection";
-import { AppearanceSettingsTab } from "./appearance/components/AppearanceSettingsTab";
-import type { PerformanceControls, ThemeControls } from "./types";
+import { Tabs } from "@/components/ui";
+import type { WebUiState } from "@/lib/state/types";
+import { AudioSettingsTab } from "@/screens/settings/audio/components/AudioSettingsTab";
+import { HealthSettingsTab } from "@/screens/settings/health/components/HealthSettingsTab";
+import { MidiSettingsTab } from "@/screens/settings/midi/components/MidiSettingsTab";
+import { PerformanceSettingsTab } from "@/screens/settings/performance/components/PerformanceSettingsTab";
+import { PluginsTab } from "@/screens/settings/plugins/components/PluginsTab";
+import { RemoteSettingsSection } from "@/screens/settings/remote/components/RemoteSettingsSection";
+import { AppearanceSettingsTab } from "@/screens/settings/appearance/components/AppearanceSettingsTab";
+import type { PerformanceControls, ThemeControls } from "@/screens/settings/types";
 
 type SettingsTab =
   | "audio"

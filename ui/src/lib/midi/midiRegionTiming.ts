@@ -1,4 +1,4 @@
-import type { MidiRegionRow } from "../state/types";
+import type { MidiRegionRow } from "@/lib/state/types";
 
 const positiveModulo = (value: number, length: number): number => {
   if (!(length > 1e-9) || !Number.isFinite(value) || !Number.isFinite(length))

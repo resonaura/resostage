@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { builder } from "../../../../../lib/state/api";
-import { IS_EMBEDDED } from "../../../../../lib/platform/embedded";
+import { builder } from "@/lib/state/api";
+import { IS_EMBEDDED } from "@/lib/platform/embedded";
 import type {
   AllPeaksResponse,
   MidiRegionRow,
@@ -9,18 +9,18 @@ import type {
   SongRow,
   TrackRow,
   WebUiState,
-} from "../../../../../lib/state/types";
-import { isCompactLane, laneHeightPx } from "../../layout/logic/laneDimensions";
-import { AudioRegionBlock } from "../../regions/components/AudioRegionBlock";
-import { MidiRegionBlock } from "../../regions/components/MidiRegionBlock";
-import { LiveRecordingRegion } from "../../regions/components/LiveRecordingRegion";
+} from "@/lib/state/types";
+import { isCompactLane, laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
+import { AudioRegionBlock } from "@/screens/editor/timeline/regions/components/AudioRegionBlock";
+import { MidiRegionBlock } from "@/screens/editor/timeline/regions/components/MidiRegionBlock";
+import { LiveRecordingRegion } from "@/screens/editor/timeline/regions/components/LiveRecordingRegion";
 import {
   MidiRegionContextMenu,
   type MidiRegionContextMenuState,
-} from "../../regions/components/MidiRegionContextMenu";
-import { CrossfadeOverlay } from "../../crossfade/components/CrossfadeOverlay";
-import { buildCrossfadeLayout } from "../../crossfade/logic/crossfadeLayout";
-import { resizeCrossfade } from "../../crossfade/logic/crossfadeResize";
+} from "@/screens/editor/timeline/regions/components/MidiRegionContextMenu";
+import { CrossfadeOverlay } from "@/screens/editor/timeline/crossfade/components/CrossfadeOverlay";
+import { buildCrossfadeLayout } from "@/screens/editor/timeline/crossfade/logic/crossfadeLayout";
+import { resizeCrossfade } from "@/screens/editor/timeline/crossfade/logic/crossfadeResize";
 import {
   buildRegionDragSession,
   regionStretchEdge,
@@ -29,17 +29,17 @@ import {
   type RegionDragMode,
   type RegionDragSession,
   type RegionGeomDraft,
-} from "../../regions/logic/regionDrag";
-import { splitRegionsAtPlayhead } from "../../regions/logic/regionEdit";
-import { midiRegionPlacementAt } from "../../regions/logic/midiRegionPlacement";
-import { buildSongPeakLookup } from "../../regions/logic/regionPeaks";
+} from "@/screens/editor/timeline/regions/logic/regionDrag";
+import { splitRegionsAtPlayhead } from "@/screens/editor/timeline/regions/logic/regionEdit";
+import { midiRegionPlacementAt } from "@/screens/editor/timeline/regions/logic/midiRegionPlacement";
+import { buildSongPeakLookup } from "@/screens/editor/timeline/regions/logic/regionPeaks";
 import {
   regionSelKey,
   type RegionSelKey,
   type RegionUiState,
-} from "../../regions/logic/regionUtils";
-import type { TimelineRow } from "../../layout/logic/rows";
-import { toolCursor, type TimelineTool } from "../../toolbar/logic/tools";
+} from "@/screens/editor/timeline/regions/logic/regionUtils";
+import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
+import { toolCursor, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
 
 /** Geometry captured when a crossfade drag begins; see applyResize. */
 interface CrossfadeDragBase {

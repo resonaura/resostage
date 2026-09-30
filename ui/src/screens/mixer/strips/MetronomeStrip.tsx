@@ -1,15 +1,15 @@
 import { memo } from "react";
-import { builder, mixer, type PluginCatalogEntry } from "../../../lib/state/api";
-import { rowsSameExceptLevels } from "../../../lib/audio/levelFields";
-import { getClickPeaks } from "../../../lib/audio/liveLevels";
+import { builder, mixer, type PluginCatalogEntry } from "@/lib/state/api";
+import { rowsSameExceptLevels } from "@/lib/audio/levelFields";
+import { getClickPeaks } from "@/lib/audio/liveLevels";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
   type WebUiState,
-} from "../../../lib/state/types";
-import { ChannelStrip } from "./ChannelStrip";
-import { metronomeColor } from "../logic/constants";
-import { isMainBusId } from "../logic/mixerIds";
+} from "@/lib/state/types";
+import { ChannelStrip } from "@/screens/mixer/strips/ChannelStrip";
+import { metronomeColor } from "@/screens/mixer/logic/constants";
+import { isMainBusId } from "@/screens/mixer/logic/mixerIds";
 
 function MetronomeStripInner({
   state,

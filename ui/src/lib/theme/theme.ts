@@ -1,5 +1,5 @@
-import { clearCssColorCache, resolveCssVar } from "./cssColor";
-import { clearToneColorCache } from "../../components/ui/tones";
+import { clearCssColorCache, resolveCssVar } from "@/lib/theme/cssColor";
+import { clearToneColorCache } from "@/components/ui/tones";
 
 /**
  * Every colour the app names, in one place.

@@ -1,15 +1,15 @@
 import { Gauge, Lightbulb, Music4, Settings2, Sliders } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
-import { Tabs } from "../../components/ui";
-import type { AllPeaksResponse, PeaksResponse, WebUiState } from "../../lib/state/types";
-import { EditorScreen } from "../../screens/editor/EditorScreen";
-import { LightScreen } from "../../screens/light/LightScreen";
-import { MixerScreen } from "../../screens/mixer";
-import { PlayerScreen } from "../../screens/player/PlayerScreen";
-import { SettingsScreen } from "../../screens/settings/SettingsScreen";
-import type { usePerformanceMode } from "../../performance/hooks/usePerformanceMode";
-import type { useTheme } from "../hooks/useTheme";
-import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
+import { Tabs } from "@/components/ui";
+import type { AllPeaksResponse, PeaksResponse, WebUiState } from "@/lib/state/types";
+import { EditorScreen } from "@/screens/editor/EditorScreen";
+import { LightScreen } from "@/screens/light/LightScreen";
+import { MixerScreen } from "@/screens/mixer";
+import { PlayerScreen } from "@/screens/player/PlayerScreen";
+import { SettingsScreen } from "@/screens/settings/SettingsScreen";
+import type { usePerformanceMode } from "@/performance/hooks/usePerformanceMode";
+import type { useTheme } from "@/shell/hooks/useTheme";
+import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
 
 export function AppNavigation({
   tab,

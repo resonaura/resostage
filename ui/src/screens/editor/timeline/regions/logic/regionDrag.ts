@@ -1,10 +1,10 @@
-import type { RegionRow, SongRow, TrackRow } from "../../../../../lib/state/types";
-import { laneHeightPx } from "../../layout/logic/laneDimensions";
-import type { CycleLocatorsForDetents } from "../../snapping/logic/detents";
+import type { RegionRow, SongRow, TrackRow } from "@/lib/state/types";
+import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
+import type { CycleLocatorsForDetents } from "@/screens/editor/timeline/snapping/logic/detents";
 
-import { snapToGridSec } from "../../ruler/logic/geometry";
-import type { RegionSelKey } from "./regionUtils";
-import type { TimelineRow } from "../../layout/logic/rows";
+import { snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
+import type { RegionSelKey } from "@/screens/editor/timeline/regions/logic/regionUtils";
+import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 
 /** Edge hit zone width (fade / trim / loop / duration). */
 const EDGE_PX = 12;

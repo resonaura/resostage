@@ -1,4 +1,4 @@
-import { getTrackColor } from "../../../lib/theme";
+import { getTrackColor } from "@/lib/theme";
 
 export type MixerDensity = "narrow" | "standard" | "wide";
 
@@ -10,7 +10,7 @@ export {
   metronomeColor,
   monoOutColor,
   sendColor,
-} from "../../../lib/theme/mixerColors";
+} from "@/lib/theme/mixerColors";
 
 // Sentinel for the primary routing select: picking it reveals the channel
 // list in the secondary select (two-step Ext. Out UX).

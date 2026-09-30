@@ -1,3 +1,3 @@
-export * from "./electron";
-export * from "./electronBridge";
-export * from "./embedded";
+export * from "@/lib/platform/electron";
+export * from "@/lib/platform/electronBridge";
+export * from "@/lib/platform/embedded";

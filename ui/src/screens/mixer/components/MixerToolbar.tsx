@@ -1,6 +1,6 @@
-import type { MixerDensity } from "../logic/constants";
+import type { MixerDensity } from "@/screens/mixer/logic/constants";
 
-export type { MixerDensity } from "../logic/constants";
+export type { MixerDensity } from "@/screens/mixer/logic/constants";
 
 export function MixerToolbar({
   trackCount,

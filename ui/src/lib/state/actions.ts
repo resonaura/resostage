@@ -1,5 +1,5 @@
-import { transport, timelineHistory } from "./api";
-import type { WebUiState } from "./types";
+import { transport, timelineHistory } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
 
 export const ACTION_IDS = [
   "play",

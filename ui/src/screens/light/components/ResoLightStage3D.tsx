@@ -1,5 +1,5 @@
 import { Grid, OrbitControls, Text } from "@react-three/drei";
-import { addRafTask } from "../../../lib/state/rafLoop";
+import { addRafTask } from "@/lib/state/rafLoop";
 import {
   Canvas,
   events as createPointerEvents,
@@ -8,13 +8,13 @@ import {
 import { Maximize2, MoveUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { useRenderActive } from "../../../lib/state/appActivity";
-import type { FixtureShape } from "../logic/dmxProfiles";
-import { beginCancellableDrag } from "../../../lib/interaction/dragCancel";
-import type { LightCueValue } from "../../../lib/light/lightCueInterpolation";
-import type { LiveLedColor } from "../../../lib/audio/liveLevels";
-import type { LightFixtureRow } from "../../../lib/state/types";
-import { Button } from "../../../components/ui";
+import { useRenderActive } from "@/lib/state/appActivity";
+import type { FixtureShape } from "@/screens/light/logic/dmxProfiles";
+import { beginCancellableDrag } from "@/lib/interaction/dragCancel";
+import type { LightCueValue } from "@/lib/light/lightCueInterpolation";
+import type { LiveLedColor } from "@/lib/audio/liveLevels";
+import type { LightFixtureRow } from "@/lib/state/types";
+import { Button } from "@/components/ui";
 
 // One stage-grid cell is deliberately small enough for practical placement,
 // while still guaranteeing panels never slowly drift off the visual grid.
@@ -781,7 +781,7 @@ export type PreviewColor = LightCueValue & {
 // React state update (not a ref+useFrame mutation) -- but it's now scoped to
 // exactly the one fixture whose color actually changed, instead of cascading
 // through the whole scene, every OTHER fixture, and the parent screen too.
-import { useLiveFixtureColor } from "../hooks/useLiveFixtureColor";
+import { useLiveFixtureColor } from "@/screens/light/hooks/useLiveFixtureColor";
 
 // Dark housing when a fixture has no live output (unbound, empty track,
 // blackout). Ambient/directional still pick up a faint charcoal so the

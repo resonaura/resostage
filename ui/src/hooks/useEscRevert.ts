@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { beginCancellableDrag, type CancellableDrag } from "../lib/interaction/dragCancel";
+import { beginCancellableDrag, type CancellableDrag } from "@/lib/interaction/dragCancel";
 
 type PointerHandlers = {
   onPointerDown: (e: React.PointerEvent) => void;

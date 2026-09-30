@@ -1,7 +1,7 @@
-import { Checkbox } from "../../../../components/ui";
-import type { PluginCatalogEntry } from "../../../../lib/state/api";
-import { displayFormat } from "../../../../lib/plugins/pluginCategories";
-import type { PluginFamily } from "../logic/pluginFamilies";
+import { Checkbox } from "@/components/ui";
+import type { PluginCatalogEntry } from "@/lib/state/api";
+import { displayFormat } from "@/lib/plugins/pluginCategories";
+import type { PluginFamily } from "@/screens/settings/plugins/logic/pluginFamilies";
 
 export function PluginFamilyRow({
   family,

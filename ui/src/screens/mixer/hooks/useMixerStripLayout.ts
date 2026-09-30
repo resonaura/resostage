@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import type { WebUiState } from "../../../lib/state/types";
-import { useHorizontalWindow } from "./useHorizontalWindow";
-import { isMainBusId } from "../logic/mixerIds";
-import type { MixerDensity } from "../logic/constants";
+import type { WebUiState } from "@/lib/state/types";
+import { useHorizontalWindow } from "@/screens/mixer/hooks/useHorizontalWindow";
+import { isMainBusId } from "@/screens/mixer/logic/mixerIds";
+import type { MixerDensity } from "@/screens/mixer/logic/constants";
 
 /**
  * Density-dependent strip pitch: strip width + 8px gap.

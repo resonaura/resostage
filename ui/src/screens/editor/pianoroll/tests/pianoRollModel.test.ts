@@ -4,8 +4,8 @@ import {
   isPitchInScale,
   pitchToName,
   snapPitchToScale,
-} from "../logic/scales";
-import { SpatialNoteIndex } from "../logic/spatialIndex";
+} from "@/screens/editor/pianoroll/logic/scales";
+import { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import {
   applyLegato,
   applyOverlapTrim,
@@ -15,8 +15,8 @@ import {
   paintBrushNote,
   resolveDrawNoteDuration,
   sliceNote,
-} from "../logic/pianoRollModel";
-import type { MidiNoteRow } from "../../../../lib/state/types";
+} from "@/screens/editor/pianoroll/logic/pianoRollModel";
+import type { MidiNoteRow } from "@/lib/state/types";
 
 describe("Piano Roll canvas geometry", () => {
   it("hit-tests the rendered semitone after fractional vertical scrolling", () => {

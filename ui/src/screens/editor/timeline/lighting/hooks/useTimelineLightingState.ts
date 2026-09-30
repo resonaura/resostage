@@ -1,12 +1,12 @@
 import { useEffect, useMemo } from "react";
-import type { LightCueValue } from "../../../../../lib/light/lightCueInterpolation";
-import type { WebUiState } from "../../../../../lib/state/types";
-import { getLightColor } from "../../../../light/logic/lightColors";
-import type { LightSidePanelSelection } from "../../../../light/components/LightSidePanel";
-import type { CueSelKey } from "../../../../light/components/LightTimeline";
-import { resolveLightSidePanelSelection } from "../../selection/logic/resolveLightSidePanelSelection";
-import { previewDropReorder } from "../../tracks/logic/dropPreview";
-import type { TimelineViewMode } from "../../toolbar/logic/types";
+import type { LightCueValue } from "@/lib/light/lightCueInterpolation";
+import type { WebUiState } from "@/lib/state/types";
+import { getLightColor } from "@/screens/light/logic/lightColors";
+import type { LightSidePanelSelection } from "@/screens/light/components/LightSidePanel";
+import type { CueSelKey } from "@/screens/light/components/LightTimeline";
+import { resolveLightSidePanelSelection } from "@/screens/editor/timeline/selection/logic/resolveLightSidePanelSelection";
+import { previewDropReorder } from "@/screens/editor/timeline/tracks/logic/dropPreview";
+import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
 
 export interface TimelineTrackReorderPreview {
   index: number;

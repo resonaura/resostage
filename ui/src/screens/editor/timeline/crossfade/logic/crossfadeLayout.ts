@@ -1,4 +1,4 @@
-import { MIN_CROSSFADE_SECONDS } from "./crossfade";
+import { MIN_CROSSFADE_SECONDS } from "@/screens/editor/timeline/crossfade/logic/crossfade";
 
 interface PositionedRegion<TId extends string = string> {
   region: { id: TId };

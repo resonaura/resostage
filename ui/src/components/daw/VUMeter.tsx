@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { addRafTask } from "../../lib/state/rafLoop";
-import { onThemeChanged, roleColor } from "../../lib/theme";
+import { addRafTask } from "@/lib/state/rafLoop";
+import { onThemeChanged, roleColor } from "@/lib/theme";
 
 const VU_MIN_DB = -40;
 const VU_MAX_DB = 7;

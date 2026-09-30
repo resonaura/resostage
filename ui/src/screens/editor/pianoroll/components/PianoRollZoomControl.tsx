@@ -1,5 +1,5 @@
 import { MoveHorizontalIcon, MoveVerticalIcon } from "lucide-react";
-import { Slider } from "../../../../components/ui";
+import { Slider } from "@/components/ui";
 
 interface PianoRollZoomControlProps {
   pixelsPerBeat: number;

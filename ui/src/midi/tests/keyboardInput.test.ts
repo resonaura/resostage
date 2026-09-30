@@ -2,8 +2,8 @@
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { sendLiveMidi } from "../../lib/state/api";
-import { useVirtualKeyboardInput } from "../hooks/useVirtualKeyboardInput";
+import { sendLiveMidi } from "@/lib/state/api";
+import { useVirtualKeyboardInput } from "@/midi/hooks/useVirtualKeyboardInput";
 
 vi.mock("../../lib/state/api", () => ({
   sendLiveMidi: vi.fn(),

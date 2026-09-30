@@ -3,8 +3,8 @@ import {
   RULER_BEAT_HEIGHT,
   RULER_CYCLE_HEIGHT,
   RULER_HEIGHT,
-} from "../logic/constants";
-import { formatTimeShort, getTickConfig } from "../logic/geometry";
+} from "@/screens/editor/timeline/ruler/logic/constants";
+import { formatTimeShort, getTickConfig } from "@/screens/editor/timeline/ruler/logic/geometry";
 
 export type RulerLayer = "backdrop" | "labels" | "full";
 

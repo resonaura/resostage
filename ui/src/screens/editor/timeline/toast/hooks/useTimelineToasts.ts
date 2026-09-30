@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { Toast } from "../logic/types";
+import type { Toast } from "@/screens/editor/timeline/toast/logic/types";
 
 export function useTimelineToasts() {
   const [toasts, setToasts] = useState<Toast[]>([]);

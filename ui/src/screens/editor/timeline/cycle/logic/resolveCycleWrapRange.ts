@@ -1,5 +1,5 @@
-import type { ProjectCycleRow } from "../../../../../lib/state/types";
-import type { CycleWrapRange } from "../../../../../lib/state/optimistic";
+import type { ProjectCycleRow } from "@/lib/state/types";
+import type { CycleWrapRange } from "@/lib/state/optimistic";
 
 /** Convert the project's song-local loop locators to absolute playhead bounds. */
 export function resolveCycleWrapRange(

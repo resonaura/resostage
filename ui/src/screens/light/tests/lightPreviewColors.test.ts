@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   computeFixturePreviewColors,
   fixturePreviewColor,
-} from "../logic/lightPreviewColors";
+} from "@/screens/light/logic/lightPreviewColors";
 import type {
   LightCueRow,
   LightFixtureRow,
   LightTrackRow,
-} from "../../../lib/state/types";
+} from "@/lib/state/types";
 
 function makeFixture(id: string): LightFixtureRow {
   return {

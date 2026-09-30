@@ -1,17 +1,17 @@
-import { Button } from "../../../../components/ui";
+import { Button } from "@/components/ui";
 import { Music, Plus } from "lucide-react";
-import { emptyProjectActions, EmptyProjectState } from "../../project/components/EmptyProjectState";
-import { builder, timelineHistory, transport } from "../../../../lib/state/api";
-import { getTrackColor } from "../../../../lib/theme";
-import { songDurationSeconds } from "../../timeline/layout/logic/rows";
+import { emptyProjectActions, EmptyProjectState } from "@/screens/editor/project/components/EmptyProjectState";
+import { builder, timelineHistory, transport } from "@/lib/state/api";
+import { getTrackColor } from "@/lib/theme";
+import { songDurationSeconds } from "@/screens/editor/timeline/layout/logic/rows";
 import type {
   MidiNoteRow,
   PeaksResponse,
   WebUiState,
-} from "../../../../lib/state/types";
-import { MidiRegionSidePanel } from "./MidiRegionSidePanel";
-import { PianoRoll } from "./PianoRoll";
-import type { PendingMidiRegionCreation } from "../../hooks/useMidiRegionEditorState";
+} from "@/lib/state/types";
+import { MidiRegionSidePanel } from "@/screens/editor/pianoroll/components/MidiRegionSidePanel";
+import { PianoRoll } from "@/screens/editor/pianoroll/components/PianoRoll";
+import type { PendingMidiRegionCreation } from "@/screens/editor/hooks/useMidiRegionEditorState";
 
 interface PianoRollEditorTabProps {
   state: WebUiState;

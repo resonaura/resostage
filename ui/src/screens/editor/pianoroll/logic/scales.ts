@@ -1,4 +1,4 @@
-import type { ScaleMode } from "./types";
+import type { ScaleMode } from "@/screens/editor/pianoroll/logic/types";
 
 export const NOTE_NAMES = [
   "C",

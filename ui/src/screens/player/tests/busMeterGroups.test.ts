@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { BusRow, MeterRow, WebUiState } from "../../../lib/state/types";
-import { busMeterGroups } from "../logic/busMeterGroups";
+import type { BusRow, MeterRow, WebUiState } from "@/lib/state/types";
+import { busMeterGroups } from "@/screens/player/logic/busMeterGroups";
 
 const meter = (id: string): MeterRow => ({
   id,

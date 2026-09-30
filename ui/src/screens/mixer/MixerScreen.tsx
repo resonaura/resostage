@@ -1,18 +1,18 @@
 import { useCallback, useState } from "react";
-import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
-import { useMixerDensity } from "./hooks/useMixerDensity";
-import type { WebUiState } from "../../lib/state/types";
-import { useIsCompact } from "../../hooks/useMediaQuery";
-import { usePluginCatalog } from "./plugins/hooks/usePluginCatalog";
-import type { StripMenuTarget } from "./strips/StripContextMenu";
-import { MixerToolbar } from "./components/MixerToolbar";
-import { MixerClickMasterLane } from "./components/MixerClickMasterLane";
-import { MixerTrackRack } from "./components/MixerTrackRack";
-import { MixerSendRack } from "./components/MixerSendRack";
-import { MixerOverlays, type PluginTarget } from "./components/MixerOverlays";
-import { useMixerSendCreation } from "./hooks/useMixerSendCreation";
-import { useMixerStripLayout } from "./hooks/useMixerStripLayout";
-import { useMixerDirectOutput } from "./hooks/useMixerDirectOutput";
+import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
+import { useMixerDensity } from "@/screens/mixer/hooks/useMixerDensity";
+import type { WebUiState } from "@/lib/state/types";
+import { useIsCompact } from "@/hooks/useMediaQuery";
+import { usePluginCatalog } from "@/screens/mixer/plugins/hooks/usePluginCatalog";
+import type { StripMenuTarget } from "@/screens/mixer/strips/StripContextMenu";
+import { MixerToolbar } from "@/screens/mixer/components/MixerToolbar";
+import { MixerClickMasterLane } from "@/screens/mixer/components/MixerClickMasterLane";
+import { MixerTrackRack } from "@/screens/mixer/components/MixerTrackRack";
+import { MixerSendRack } from "@/screens/mixer/components/MixerSendRack";
+import { MixerOverlays, type PluginTarget } from "@/screens/mixer/components/MixerOverlays";
+import { useMixerSendCreation } from "@/screens/mixer/hooks/useMixerSendCreation";
+import { useMixerStripLayout } from "@/screens/mixer/hooks/useMixerStripLayout";
+import { useMixerDirectOutput } from "@/screens/mixer/hooks/useMixerDirectOutput";
 
 export function MixerScreen({
   state,

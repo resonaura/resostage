@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 import { ScrollShadow } from "@heroui/react";
-import { Button, Modal } from "../../../components/ui";
+import { Button, Modal } from "@/components/ui";
 import { Check, FolderUp, Layers, Music } from "lucide-react";
-import type { WebUiState } from "../../../lib/state/types";
+import type { WebUiState } from "@/lib/state/types";
 import {
   autoDetectBpm,
   autoDetectSongName,
   autoDetectStemType,
   executeStemImport,
   type StemImportItem,
-} from "../logic/stemImport";
+} from "@/transfer/audio/logic/stemImport";
 
 const STANDARD_TRACK_NAMES = [
   "Click",

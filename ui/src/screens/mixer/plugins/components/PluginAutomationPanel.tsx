@@ -1,10 +1,10 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { builder, pluginChains } from "../../../../lib/state/api";
-import { createEditGesture } from "../../../../lib/interaction/editGesture";
-import type { PluginSlotRow, SongRow } from "../../../../lib/state/types";
-import { Button } from "../../../../components/ui";
-import { AutomationMiniGraph } from "./AutomationMiniGraph";
+import { builder, pluginChains } from "@/lib/state/api";
+import { createEditGesture } from "@/lib/interaction/editGesture";
+import type { PluginSlotRow, SongRow } from "@/lib/state/types";
+import { Button } from "@/components/ui";
+import { AutomationMiniGraph } from "@/screens/mixer/plugins/components/AutomationMiniGraph";
 
 interface PluginParameter {
   index: number;

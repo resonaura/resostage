@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { emptyState, type WebUiState } from "../../../lib/state/types";
-import { ExportMidiDialog } from "../components/ExportMidiDialog";
+import { emptyState, type WebUiState } from "@/lib/state/types";
+import { ExportMidiDialog } from "@/transfer/midi/components/ExportMidiDialog";
 
 describe("ExportMidiDialog", () => {
   it("does not crash while closed when Core publishes a song with MIDI regions", () => {

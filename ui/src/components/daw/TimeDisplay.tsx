@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import { LiveReadout } from "./LiveReadout";
-import { formatBarBeat, formatClock } from "./timeFormat";
+import { LiveReadout } from "@/components/daw/LiveReadout";
+import { formatBarBeat, formatClock } from "@/components/daw/timeFormat";
 
 /**
  * Fixed-width transport clock chip; click toggles time ↔ bar|beat.

@@ -16,17 +16,17 @@ import {
   Undo2,
   Redo2,
 } from "lucide-react";
-import { Button, ToggleButton } from "../../../../components/ui";
-import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
-import { PianoRollFollowControl } from "./PianoRollFollowControl";
-import { PianoRollZoomControl } from "./PianoRollZoomControl";
-import { NOTE_NAMES, SCALE_LABELS } from "../logic/scales";
+import { Button, ToggleButton } from "@/components/ui";
+import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
+import { PianoRollFollowControl } from "@/screens/editor/pianoroll/components/PianoRollFollowControl";
+import { PianoRollZoomControl } from "@/screens/editor/pianoroll/components/PianoRollZoomControl";
+import { NOTE_NAMES, SCALE_LABELS } from "@/screens/editor/pianoroll/logic/scales";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
   PianoRollTool,
   ScaleMode,
-} from "../logic/types";
+} from "@/screens/editor/pianoroll/logic/types";
 
 interface PianoRollToolbarProps {
   tool: PianoRollTool;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { PluginCatalogEntry } from "../../../../lib/state/api";
-import { groupEffects, groupInstruments } from "../logic/pluginGroups";
+import type { PluginCatalogEntry } from "@/lib/state/api";
+import { groupEffects, groupInstruments } from "@/screens/mixer/plugins/logic/pluginGroups";
 
 const plugin = (
   partial: Partial<PluginCatalogEntry> & Pick<PluginCatalogEntry, "id" | "name">,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { LightFixtureRow } from "../../../lib/state/types";
-import { autoLayoutPositions, findDmxChannelConflicts } from "../logic/fixtureLayout";
+import type { LightFixtureRow } from "@/lib/state/types";
+import { autoLayoutPositions, findDmxChannelConflicts } from "@/screens/light/logic/fixtureLayout";
 
 function genericFixture(
   id: string,

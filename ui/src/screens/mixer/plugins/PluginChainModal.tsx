@@ -14,14 +14,14 @@ import {
   pluginCatalog,
   pluginChains,
   type PluginCatalogResponse,
-} from "../../../lib/state/api";
-import type { PluginSlotRow, SongRow, TrackRow } from "../../../lib/state/types";
-import { Alert, Button, Modal } from "../../../components/ui";
-import { PluginAutomationPanel } from "./components/PluginAutomationPanel";
+} from "@/lib/state/api";
+import type { PluginSlotRow, SongRow, TrackRow } from "@/lib/state/types";
+import { Alert, Button, Modal } from "@/components/ui";
+import { PluginAutomationPanel } from "@/screens/mixer/plugins/components/PluginAutomationPanel";
 import {
   deduplicatePlugins,
   displayFormat,
-} from "../../../lib/plugins/pluginCategories";
+} from "@/lib/plugins/pluginCategories";
 
 export function PluginChainModal({
   open,

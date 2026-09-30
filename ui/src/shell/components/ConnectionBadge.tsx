@@ -1,5 +1,5 @@
-import { SHOW_TRANSPORT_LABEL } from "../../lib/state/devFlags";
-import type { TransportKind } from "../../lib/state/useLiveState";
+import { SHOW_TRANSPORT_LABEL } from "@/lib/state/devFlags";
+import type { TransportKind } from "@/lib/state/useLiveState";
 
 export function ConnectionBadge({
   status,

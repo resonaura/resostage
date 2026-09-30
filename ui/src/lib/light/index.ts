@@ -1,1 +1,1 @@
-export * from "./lightCueInterpolation";
+export * from "@/lib/light/lightCueInterpolation";

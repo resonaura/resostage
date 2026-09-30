@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barBeat, globalBarBeat } from "../logic/timeDisplay";
+import { barBeat, globalBarBeat } from "@/screens/player/logic/timeDisplay";
 
 describe("player time display", () => {
   it("formats song-local seconds as one-based bars and beats", () => {

@@ -6,24 +6,24 @@ import {
   Switch,
   ToggleButton,
   type SelectOption,
-} from "../../../../components/ui";
-import { settings as settingsApi } from "../../../../lib/state/api";
-import type { WebUiState } from "../../../../lib/state/types";
+} from "@/components/ui";
+import { settings as settingsApi } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
 import {
   readLongImportPreference,
   writeLongImportPreference,
   type LongImportPreference,
-} from "../../../../transfer/audio/logic/importPrefs";
+} from "@/transfer/audio/logic/importPrefs";
 import {
   SettingsField,
   SettingsSection,
   SettingsStat,
-} from "../../components/SettingsPrimitives";
+} from "@/screens/settings/components/SettingsPrimitives";
 
 // @xyflow/react is a heavy graph library behind exactly one modal. Loading it
 // on demand keeps it out of the startup bundle entirely.
 const SignalFlowDialog = lazy(() =>
-  import("./SignalFlowDialog").then((m) => ({
+  import("@/screens/settings/audio/components/SignalFlowDialog").then((m) => ({
     default: m.SignalFlowDialog,
   })),
 );

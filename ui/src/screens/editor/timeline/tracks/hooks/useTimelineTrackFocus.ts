@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import type { LightTrackRow, TrackRow } from "../../../../../lib/state/types";
-import type { CueSelKey } from "../../../../light/components/LightTimeline";
+import type { LightTrackRow, TrackRow } from "@/lib/state/types";
+import type { CueSelKey } from "@/screens/light/components/LightTimeline";
 
 interface TimelineTrackFocusOptions {
   tracks: TrackRow[];

@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from "react";
-import { builder } from "../../../../lib/state/api";
-import { createEditGesture } from "../../../../lib/interaction/editGesture";
-import { songBeatsAtSeconds } from "../../../../lib/midi/standardMidiFile";
-import type { AutomationLaneRow, SongRow } from "../../../../lib/state/types";
+import { builder } from "@/lib/state/api";
+import { createEditGesture } from "@/lib/interaction/editGesture";
+import { songBeatsAtSeconds } from "@/lib/midi/standardMidiFile";
+import type { AutomationLaneRow, SongRow } from "@/lib/state/types";
 
 const WIDTH = 360;
 const HEIGHT = 88;

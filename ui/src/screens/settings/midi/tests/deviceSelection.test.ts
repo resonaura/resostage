@@ -3,7 +3,7 @@ import {
   sameDeviceSelection,
   toggleDeviceSelection,
   toggleMidiInputSelection,
-} from "../logic/deviceSelection";
+} from "@/screens/settings/midi/logic/deviceSelection";
 
 describe("MIDI device selections", () => {
   it("toggles individual endpoints without dropping other selections", () => {

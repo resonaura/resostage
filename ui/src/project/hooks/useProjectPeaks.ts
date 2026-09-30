@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { fetchAllPeaks, fetchPeaks } from "../../lib/state/api";
-import type { AllPeaksResponse, PeaksResponse, WebUiState } from "../../lib/state/types";
+import { fetchAllPeaks, fetchPeaks } from "@/lib/state/api";
+import type { AllPeaksResponse, PeaksResponse, WebUiState } from "@/lib/state/types";
 
 /** Shared peak data and zoom for the Player and Editor timelines. */
 export function useProjectPeaks(state: WebUiState) {

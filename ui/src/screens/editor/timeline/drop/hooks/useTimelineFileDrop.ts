@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { songBeatsAtSeconds } from "../../../../../lib/midi/standardMidiFile";
-import { builder } from "../../../../../lib/state/api";
-import type { SongRow, TrackRow } from "../../../../../lib/state/types";
-import { laneHeightPx } from "../../layout/logic/laneDimensions";
+import { songBeatsAtSeconds } from "@/lib/midi/standardMidiFile";
+import { builder } from "@/lib/state/api";
+import type { SongRow, TrackRow } from "@/lib/state/types";
+import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import {
   audioDragInfo,
   audioFileDropEvent,
@@ -11,8 +11,8 @@ import {
   loadAudioPreview,
   type AudioDropPosition,
   type AudioPreview,
-} from "../logic/audioDrop";
-import type { TimelineRow } from "../../layout/logic/rows";
+} from "@/screens/editor/timeline/drop/logic/audioDrop";
+import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 
 interface TimelineFileDropOptions {
   readOnly: boolean;

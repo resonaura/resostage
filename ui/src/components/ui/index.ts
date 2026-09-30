@@ -1,41 +1,41 @@
 /**
  * Local wrappers around HeroUI controls to unify colors, tones, and variants.
  */
-export { Alert } from "./Alert";
-export type { AlertProps } from "./Alert";
+export { Alert } from "@/components/ui/Alert";
+export type { AlertProps } from "@/components/ui/Alert";
 
-export { Button, ButtonGroup } from "./Button";
-export type { ButtonGroupProps, ButtonProps, ButtonVariant } from "./Button";
+export { Button, ButtonGroup } from "@/components/ui/Button";
+export type { ButtonGroupProps, ButtonProps, ButtonVariant } from "@/components/ui/Button";
 
-export { Card } from "./Card";
-export type { CardProps } from "./Card";
+export { Card } from "@/components/ui/Card";
+export type { CardProps } from "@/components/ui/Card";
 
-export { Checkbox } from "./Checkbox";
+export { Checkbox } from "@/components/ui/Checkbox";
 
-export { Modal } from "./Modal";
-export type { ModalBackdropProps, ModalDialogProps, ModalProps } from "./Modal";
+export { Modal } from "@/components/ui/Modal";
+export type { ModalBackdropProps, ModalDialogProps, ModalProps } from "@/components/ui/Modal";
 
-export { ToggleButton, ToggleButtonGroup } from "./ToggleButton";
+export { ToggleButton, ToggleButtonGroup } from "@/components/ui/ToggleButton";
 export type {
   ToggleButtonGroupProps,
   ToggleButtonProps,
   ToggleButtonSize,
   ToggleButtonVariant,
-} from "./ToggleButton";
+} from "@/components/ui/ToggleButton";
 
-export { Select } from "./Select";
-export type { SelectOption, SelectProps, SelectSize } from "./Select";
+export { Select } from "@/components/ui/Select";
+export type { SelectOption, SelectProps, SelectSize } from "@/components/ui/Select";
 
-export { Slider } from "./Slider";
-export type { SliderProps } from "./Slider";
+export { Slider } from "@/components/ui/Slider";
+export type { SliderProps } from "@/components/ui/Slider";
 
-export { Switch } from "./Switch";
-export type { SwitchProps } from "./Switch";
+export { Switch } from "@/components/ui/Switch";
+export type { SwitchProps } from "@/components/ui/Switch";
 
-export { ScrollShadow } from "./ScrollShadow";
+export { ScrollShadow } from "@/components/ui/ScrollShadow";
 
-export { Tabs } from "./Tabs";
-export type { TabsProps, TabsVariant } from "./Tabs";
+export { Tabs } from "@/components/ui/Tabs";
+export type { TabsProps, TabsVariant } from "@/components/ui/Tabs";
 
 export {
   isTone,
@@ -43,7 +43,7 @@ export {
   toneClass,
   TONES,
   withTone,
-} from "./tones";
-export type { Tone } from "./tones";
-export { KeyHint } from "./KeyHint";
-export { CollapsibleInline } from "./CollapsibleInline";
+} from "@/components/ui/tones";
+export type { Tone } from "@/components/ui/tones";
+export { KeyHint } from "@/components/ui/KeyHint";
+export { CollapsibleInline } from "@/components/ui/CollapsibleInline";

@@ -1,13 +1,13 @@
-import type { SongRow } from "../../../../../lib/state/types";
+import type { SongRow } from "@/lib/state/types";
 import {
   RULER_BEAT_HEIGHT,
   RULER_CYCLE_HEIGHT,
   RULER_HEIGHT,
-} from "../logic/constants";
-import { CycleStrip } from "../../cycle/components/CycleStrip";
-import { Ruler } from "./Ruler";
-import { SongEndMarker, type SongEndDrag } from "./SongEndMarker";
-import type { CycleLocators } from "../../cycle/hooks/useCycleState";
+} from "@/screens/editor/timeline/ruler/logic/constants";
+import { CycleStrip } from "@/screens/editor/timeline/cycle/components/CycleStrip";
+import { Ruler } from "@/screens/editor/timeline/ruler/components/Ruler";
+import { SongEndMarker, type SongEndDrag } from "@/screens/editor/timeline/ruler/components/SongEndMarker";
+import type { CycleLocators } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 
 /**
  * Sticky two-tier bar ruler (Logic-style):

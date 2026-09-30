@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { MidiExportIntent } from "../../midi/components/ExportMidiDialog";
-import type { RenderDialogIntent } from "../../render/components/RenderAudioDialog";
-import type { WebUiState } from "../../../lib/state/types";
+import type { MidiExportIntent } from "@/transfer/midi/components/ExportMidiDialog";
+import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
+import type { WebUiState } from "@/lib/state/types";
 
 export interface MidiImportTarget {
   songIndex: number;

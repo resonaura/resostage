@@ -21,14 +21,14 @@ import {
   Volume2,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
-import { resolveCssVar, withHexAlpha } from "../../../../lib/theme/cssColor";
+import { resolveCssVar, withHexAlpha } from "@/lib/theme/cssColor";
 import {
   extOutColor,
   masterColor,
   sendColor,
-} from "../../../../lib/theme/mixerColors";
-import { roleColor } from "../../../../lib/theme";
-import { useThemeVersion } from "../../../../hooks/useThemeVersion";
+} from "@/lib/theme/mixerColors";
+import { roleColor } from "@/lib/theme";
+import { useThemeVersion } from "@/hooks/useThemeVersion";
 import {
   NODE_HEIGHT,
   NODE_WIDTH,
@@ -40,7 +40,7 @@ import {
   type MixGraphPayload,
   type MixGraphStrip,
   type MixStripKind,
-} from "../logic/signalFlowLayout";
+} from "@/screens/settings/audio/logic/signalFlowLayout";
 
 /**
  * The signal flow, drawn from the graph the audio thread is actually

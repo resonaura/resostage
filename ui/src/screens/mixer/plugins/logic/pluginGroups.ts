@@ -1,8 +1,8 @@
-import type { PluginCatalogEntry } from "../../../../lib/state/api";
+import type { PluginCatalogEntry } from "@/lib/state/api";
 import {
   deduplicatePlugins,
   displayCategory,
-} from "../../../../lib/plugins/pluginCategories";
+} from "@/lib/plugins/pluginCategories";
 
 export interface PluginGroup {
   name: string;

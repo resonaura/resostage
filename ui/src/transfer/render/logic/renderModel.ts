@@ -1,5 +1,5 @@
-import { songSecondsAtBeat } from "../../../lib/midi/standardMidiFile";
-import type { WebUiState } from "../../../lib/state/types";
+import { songSecondsAtBeat } from "@/lib/midi/standardMidiFile";
+import type { WebUiState } from "@/lib/state/types";
 
 export type RenderScope = "song" | "project" | "cycle" | "custom";
 export type TailPolicy = "cut" | "leave" | "wrap";

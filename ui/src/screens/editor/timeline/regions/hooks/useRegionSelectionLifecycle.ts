@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { allRegionSelKeys, type RegionSelKey } from "../logic/regionUtils";
-import type { SongRow } from "../../../../../lib/state/types";
+import { allRegionSelKeys, type RegionSelKey } from "@/screens/editor/timeline/regions/logic/regionUtils";
+import type { SongRow } from "@/lib/state/types";
 
 interface RegionSelectionLifecycleOptions {
   songs: SongRow[];

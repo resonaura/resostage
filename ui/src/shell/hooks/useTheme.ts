@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { applyTheme, readThemeChoice, type ThemeName } from "../../lib/theme";
-import { settings } from "../../lib/state/api";
+import { applyTheme, readThemeChoice, type ThemeName } from "@/lib/theme";
+import { settings } from "@/lib/state/api";
 
 /**
  * The live theme choice, for the one place that lets you change it.

@@ -2,9 +2,9 @@ import { Checkbox } from "@heroui/react";
 import { Scissors, MoveHorizontal } from "lucide-react";
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import type { LongImportChoice } from "../../../../../transfer/audio/logic/importPrefs";
-import { Button } from "../../../../../components/ui";
-import type { LongImportPrompt as LongImportPromptData } from "../hooks/useLongImportGuard";
+import type { LongImportChoice } from "@/transfer/audio/logic/importPrefs";
+import { Button } from "@/components/ui";
+import type { LongImportPrompt as LongImportPromptData } from "@/screens/editor/timeline/overrun/hooks/useLongImportGuard";
 
 /** mm:ss.s — short enough to read in a dialog, precise enough to compare. */
 function fmt(seconds: number): string {

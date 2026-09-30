@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { builder } from "../../../../../lib/state/api";
-import { useCoalescedCommit } from "../../../../../lib/state/optimistic";
-import type { SongEndDrag } from "../components/SongEndMarker";
+import { builder } from "@/lib/state/api";
+import { useCoalescedCommit } from "@/lib/state/optimistic";
+import type { SongEndDrag } from "@/screens/editor/timeline/ruler/components/SongEndMarker";
 
 /** Owns the optimistic song-end drag and coalesces it into one undo action. */
 export function useSongEndDrag() {

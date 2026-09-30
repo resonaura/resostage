@@ -1,10 +1,10 @@
-import { builder } from "../../../../../lib/state/api";
-import type { MidiRegionRow } from "../../../../../lib/state/types";
+import { builder } from "@/lib/state/api";
+import type { MidiRegionRow } from "@/lib/state/types";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../../../../../components/common/ContextMenu";
+} from "@/components/common/ContextMenu";
 
 export interface MidiRegionContextMenuState {
   x: number;

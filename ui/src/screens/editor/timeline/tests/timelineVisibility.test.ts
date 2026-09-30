@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPositionVisible } from "../logic/timelineVisibility";
+import { isPositionVisible } from "@/screens/editor/timeline/logic/timelineVisibility";
 
 describe("isPositionVisible", () => {
   it("is true for a position comfortably inside the viewport", () => {

@@ -1,7 +1,7 @@
 import { Spinner } from "@heroui/react";
-import { ConfirmDialog } from "../../dialogs/components/ConfirmDialog";
-import { project } from "../../../lib/state/api";
-import type { WebUiState } from "../../../lib/state/types";
+import { ConfirmDialog } from "@/shell/dialogs/components/ConfirmDialog";
+import { project } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
 
 export function QuitOverlay({ open }: { open: boolean }) {
   if (!open) return null;

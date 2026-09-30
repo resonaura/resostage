@@ -2,13 +2,13 @@ import {
   Button,
   Select,
   type SelectOption,
-} from "../../../components/ui";
-import { useLiveValue } from "../../../lib/state/optimistic";
-import type { PluginSlotRow } from "../../../lib/state/types";
-import { ROUTING_SELECT_SIZE } from "../logic/constants";
-import { MonoStereoIcon } from "./MonoStereoIcon";
-import { PluginSlotControl } from "../plugins/PluginSlotControl";
-import { createVerticalValueDragHandler } from "./logic/verticalValueDrag";
+} from "@/components/ui";
+import { useLiveValue } from "@/lib/state/optimistic";
+import type { PluginSlotRow } from "@/lib/state/types";
+import { ROUTING_SELECT_SIZE } from "@/screens/mixer/logic/constants";
+import { MonoStereoIcon } from "@/screens/mixer/strips/MonoStereoIcon";
+import { PluginSlotControl } from "@/screens/mixer/plugins/PluginSlotControl";
+import { createVerticalValueDragHandler } from "@/screens/mixer/strips/logic/verticalValueDrag";
 
 /** Stable identity so useLiveValue's commit ref doesn't churn. */
 const noop = () => {};

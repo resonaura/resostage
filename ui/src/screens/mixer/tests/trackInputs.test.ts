@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   getTrackInputOptions,
   getTrackInputState,
-} from "../logic/trackInputs";
+} from "@/screens/mixer/logic/trackInputs";
 
 describe("track input state", () => {
   it.each(["instrument", "midi", "externalMidi"] as const)(

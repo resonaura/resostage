@@ -4,7 +4,7 @@ import {
   ButtonGroup as HeroButtonGroup,
 } from "@heroui/react";
 import { createContext, use, useMemo, type ComponentProps } from "react";
-import { isTone, withTone, type Tone } from "./tones";
+import { isTone, withTone, type Tone } from "@/components/ui/tones";
 
 /**
  * Button / ButtonGroup with the full colour palette.

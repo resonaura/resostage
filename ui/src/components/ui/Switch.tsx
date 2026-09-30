@@ -1,7 +1,7 @@
 import { Switch as HeroSwitch } from "@heroui/react";
 import type { ComponentProps } from "react";
 import React from "react";
-import { withTone, type Tone } from "./tones";
+import { withTone, type Tone } from "@/components/ui/tones";
 
 type HeroSwitchProps = ComponentProps<typeof HeroSwitch>;
 

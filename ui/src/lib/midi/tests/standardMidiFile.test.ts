@@ -7,9 +7,9 @@ import {
   songBeatAtElapsedSeconds,
   writeSongsMidiFile,
   writeStandardMidiFile,
-} from "../standardMidiFile";
-import type { MidiRegionRow, SongRow } from "../../state/types";
-import { writeMidiClipFile } from "../midiClipFile";
+} from "@/lib/midi/standardMidiFile";
+import type { MidiRegionRow, SongRow } from "@/lib/state/types";
+import { writeMidiClipFile } from "@/lib/midi/midiClipFile";
 
 const region: MidiRegionRow = {
   id: "r1", trackId: "t1", name: "Pattern", startBeats: 8,

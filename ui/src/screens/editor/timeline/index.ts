@@ -1,2 +1,2 @@
 /** Timeline arrangement editor — public entry. */
-export { Timeline } from "./components/Timeline";
+export { Timeline } from "@/screens/editor/timeline/components/Timeline";

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { builder } from "../../../lib/state/api";
-import type { WebUiState } from "../../../lib/state/types";
-import { Button, Modal } from "../../../components/ui";
+import { builder } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
+import { Button, Modal } from "@/components/ui";
 
 export function ImportAudioBatchDialog({
   open, files, state, songIndex, startSeconds = 0, trackIndex, onClose,

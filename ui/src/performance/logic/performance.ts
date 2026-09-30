@@ -1,4 +1,4 @@
-import { addRafTask, setRafFrameRateCap } from "../../lib/state/rafLoop";
+import { addRafTask, setRafFrameRateCap } from "@/lib/state/rafLoop";
 
 /**
  * How hard the UI is allowed to work.

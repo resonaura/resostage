@@ -3,15 +3,15 @@ import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../../../components/common/ContextMenu";
-import { InlineNamePrompt } from "../../../components/common/InlineNamePrompt";
-import type { RenderDialogIntent } from "../../../transfer/render/components/RenderAudioDialog";
-import { builder, mixer } from "../../../lib/state/api";
+} from "@/components/common/ContextMenu";
+import { InlineNamePrompt } from "@/components/common/InlineNamePrompt";
+import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
+import { builder, mixer } from "@/lib/state/api";
 import {
   sourceOutputBusId,
   type BusRow,
   type TrackRow,
-} from "../../../lib/state/types";
+} from "@/lib/state/types";
 
 /** Kind of mixer strip — drives which menu items are visible. */
 export type StripMenuKind = "track" | "master" | "send" | "click";

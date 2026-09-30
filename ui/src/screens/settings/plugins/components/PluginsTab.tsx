@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card } from "../../../../components/ui";
+import { Card } from "@/components/ui";
 import {
   pluginCatalog as pluginCatalogApi,
   type PluginCatalogEntry,
   type PluginCatalogResponse,
-} from "../../../../lib/state/api";
+} from "@/lib/state/api";
 import {
   GLOBAL_CATEGORIES,
   type ScopeFilterDef,
-} from "../../../../lib/plugins/pluginCategories";
-import { PluginCatalogFilters } from "./PluginCatalogFilters";
-import { PluginCatalogResults } from "./PluginCatalogResults";
-import { PluginScanControls } from "./PluginScanControls";
-import { groupPluginFamilies } from "../logic/pluginFamilies";
+} from "@/lib/plugins/pluginCategories";
+import { PluginCatalogFilters } from "@/screens/settings/plugins/components/PluginCatalogFilters";
+import { PluginCatalogResults } from "@/screens/settings/plugins/components/PluginCatalogResults";
+import { PluginScanControls } from "@/screens/settings/plugins/components/PluginScanControls";
+import { groupPluginFamilies } from "@/screens/settings/plugins/logic/pluginFamilies";
 
 // ─── Plug-ins Tab ─────────────────────────────────────────────────────────
 // The catalog is intentionally fetched on demand instead of joining the 60 Hz

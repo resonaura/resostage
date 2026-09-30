@@ -1,5 +1,5 @@
-import { builder } from "../../../lib/state/api";
-import type { WebUiState } from "../../../lib/state/types";
+import { builder } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
 
 export interface StemImportItem {
   file: File;

@@ -11,9 +11,9 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Button, Card, Switch } from "../../../../components/ui";
-import { IS_ELECTRON } from "../../../../lib/platform/electron";
-import { apiFetch, setRemoteBackend } from "../../../../lib/state/backend";
+import { Button, Card, Switch } from "@/components/ui";
+import { IS_ELECTRON } from "@/lib/platform/electron";
+import { apiFetch, setRemoteBackend } from "@/lib/state/backend";
 
 interface DiscoveredDevice {
   name: string;

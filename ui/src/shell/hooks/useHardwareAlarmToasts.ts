@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { WebUiState } from "../../lib/state/types";
+import type { WebUiState } from "@/lib/state/types";
 
 export interface HardwareAlarmToast {
   id: string;

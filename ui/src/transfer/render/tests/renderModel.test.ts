@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { emptyState, type SongRow } from "../../../lib/state/types";
+import { emptyState, type SongRow } from "@/lib/state/types";
 import {
   formatBytes,
   formatDuration,
   resolveRange,
   songDuration,
-} from "../logic/renderModel";
+} from "@/transfer/render/logic/renderModel";
 
 function createSong(overrides: Partial<SongRow> = {}): SongRow {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatBarBeat, formatClock, formatClockPrecise } from "../timeFormat";
+import { formatBarBeat, formatClock, formatClockPrecise } from "@/components/daw/timeFormat";
 
 describe("formatClock", () => {
   it("formats minutes, seconds and tenths", () => {

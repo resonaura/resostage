@@ -1,9 +1,9 @@
 import { useEffect } from "react";
-import type { SongRow } from "../../../../../lib/state/types";
-import type { CueSelKey } from "../../../../light/components/LightTimeline";
-import { allRegionSelKeys, type RegionSelKey } from "../../regions/logic/regionUtils";
-import type { TimelineViewMode } from "../../toolbar/logic/types";
-import { hotkeyManager, HotkeyScope } from "../../../../../lib/interaction/HotkeyManager";
+import type { SongRow } from "@/lib/state/types";
+import type { CueSelKey } from "@/screens/light/components/LightTimeline";
+import { allRegionSelKeys, type RegionSelKey } from "@/screens/editor/timeline/regions/logic/regionUtils";
+import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
+import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
 
 type Actions = {
   // light

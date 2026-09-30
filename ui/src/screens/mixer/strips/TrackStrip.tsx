@@ -1,18 +1,18 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { mixer, pluginChains } from "../../../lib/state/api";
-import { getTrackLiveLevel } from "../../../lib/audio/liveLevels";
+import { mixer, pluginChains } from "@/lib/state/api";
+import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
-} from "../../../lib/state/types";
-import { InstrumentContextMenu } from "../plugins/InstrumentContextMenu";
-import { resolveTrackPolarity, toggleTrackPolarity } from "../logic/polarity";
-import { ChannelStrip } from "./ChannelStrip";
-import { colorForIndex } from "../logic/constants";
-import { getTrackInputOptions, getTrackInputState } from "../logic/trackInputs";
-import { PolarityContextMenu } from "./PolarityContextMenu";
-import { areTrackStripPropsEqual } from "./logic/trackStripMemo";
-import type { TrackStripProps } from "./types";
+} from "@/lib/state/types";
+import { InstrumentContextMenu } from "@/screens/mixer/plugins/InstrumentContextMenu";
+import { resolveTrackPolarity, toggleTrackPolarity } from "@/screens/mixer/logic/polarity";
+import { ChannelStrip } from "@/screens/mixer/strips/ChannelStrip";
+import { colorForIndex } from "@/screens/mixer/logic/constants";
+import { getTrackInputOptions, getTrackInputState } from "@/screens/mixer/logic/trackInputs";
+import { PolarityContextMenu } from "@/screens/mixer/strips/PolarityContextMenu";
+import { areTrackStripPropsEqual } from "@/screens/mixer/strips/logic/trackStripMemo";
+import type { TrackStripProps } from "@/screens/mixer/strips/types";
 
 function TrackStripInner({
   t,

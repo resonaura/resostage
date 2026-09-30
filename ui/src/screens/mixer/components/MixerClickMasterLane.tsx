@@ -1,15 +1,15 @@
-import type { PluginCatalogEntry } from "../../../lib/state/api";
-import { mixer } from "../../../lib/state/api";
+import type { PluginCatalogEntry } from "@/lib/state/api";
+import { mixer } from "@/lib/state/api";
 import {
   outputSendsToClickRows,
   type BusRow,
   type WebUiState,
-} from "../../../lib/state/types";
-import { patchClickFields } from "../logic/mixerUtils";
-import { BusStrip } from "../strips/BusStrip";
-import { MetronomeStrip } from "../strips/MetronomeStrip";
-import type { MixerDensity } from "../logic/constants";
-import type { StripMenuTarget } from "../strips/StripContextMenu";
+} from "@/lib/state/types";
+import { patchClickFields } from "@/screens/mixer/logic/mixerUtils";
+import { BusStrip } from "@/screens/mixer/strips/BusStrip";
+import { MetronomeStrip } from "@/screens/mixer/strips/MetronomeStrip";
+import type { MixerDensity } from "@/screens/mixer/logic/constants";
+import type { StripMenuTarget } from "@/screens/mixer/strips/StripContextMenu";
 
 /** The fixed right-hand metronome and master strips of the mixer console. */
 export function MixerClickMasterLane({

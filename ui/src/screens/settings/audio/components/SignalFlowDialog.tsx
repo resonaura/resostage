@@ -1,9 +1,9 @@
-import { Button } from "../../../../components/ui";
+import { Button } from "@/components/ui";
 import { RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { fetchMixGraph } from "../../../../lib/state/api";
-import { SignalFlowGraph } from "./SignalFlowGraph";
-import type { MixGraphPayload } from "../logic/signalFlowLayout";
+import { fetchMixGraph } from "@/lib/state/api";
+import { SignalFlowGraph } from "@/screens/settings/audio/components/SignalFlowGraph";
+import type { MixGraphPayload } from "@/screens/settings/audio/logic/signalFlowLayout";
 
 /** How often the open diagram re-reads the graph. Routing only changes when
  *  someone turns a knob, so this is about staying live during a soundcheck,

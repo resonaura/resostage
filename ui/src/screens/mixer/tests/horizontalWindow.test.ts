@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { horizontalWindow, MIN_OVERSCAN_PX } from "../logic/horizontalWindow";
+import { horizontalWindow, MIN_OVERSCAN_PX } from "@/screens/mixer/logic/horizontalWindow";
 
 const PITCH = 100;
 

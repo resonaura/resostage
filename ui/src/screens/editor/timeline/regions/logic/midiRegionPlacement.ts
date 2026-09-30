@@ -1,4 +1,4 @@
-import { snapToGridSec } from "../../ruler/logic/geometry";
+import { snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
 
 export function midiRegionPlacementAt(
   localSeconds: number,

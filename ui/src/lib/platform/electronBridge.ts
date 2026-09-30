@@ -1,6 +1,6 @@
-import { resolveCssVar } from "../theme/cssColor";
-import { IS_ELECTRON } from "./electron";
-import type { WebUiState } from "../state/types";
+import { resolveCssVar } from "@/lib/theme/cssColor";
+import { IS_ELECTRON } from "@/lib/platform/electron";
+import type { WebUiState } from "@/lib/state/types";
 
 // Electron-only bridge to the shell's main process (electron/main.js).
 //

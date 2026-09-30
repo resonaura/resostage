@@ -3,7 +3,7 @@ import {
   displayCategory,
   displayFormat,
   deduplicatePlugins,
-} from "../pluginCategories";
+} from "@/lib/plugins/pluginCategories";
 
 describe("displayCategory", () => {
   it("classifies instruments as Instrument", () => {

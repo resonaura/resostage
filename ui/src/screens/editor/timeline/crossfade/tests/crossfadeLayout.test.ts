@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MIN_CROSSFADE_SECONDS } from "../logic/crossfade";
-import { buildCrossfadeLayout } from "../logic/crossfadeLayout";
+import { MIN_CROSSFADE_SECONDS } from "@/screens/editor/timeline/crossfade/logic/crossfade";
+import { buildCrossfadeLayout } from "@/screens/editor/timeline/crossfade/logic/crossfadeLayout";
 
 describe("timeline crossfade layout", () => {
   it("orders regions and derives adjacent visible joins", () => {

@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import type { HardwareAlarmToast } from "../hooks/useHardwareAlarmToasts";
+import type { HardwareAlarmToast } from "@/shell/hooks/useHardwareAlarmToasts";
 
 export function HardwareAlarmToasts({
   notifications,

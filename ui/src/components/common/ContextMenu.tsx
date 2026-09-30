@@ -12,9 +12,9 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { IS_ELECTRON } from "../../lib/platform/electron";
-import { IS_EMBEDDED } from "../../lib/platform/embedded";
-import { hotkeyManager } from "../../lib/interaction/HotkeyManager";
+import { IS_ELECTRON } from "@/lib/platform/electron";
+import { IS_EMBEDDED } from "@/lib/platform/embedded";
+import { hotkeyManager } from "@/lib/interaction/HotkeyManager";
 
 /**
  * Wire format for Electron's native Menu (see electron main

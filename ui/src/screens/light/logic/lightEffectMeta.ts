@@ -16,7 +16,7 @@ import {
   Waves,
   Zap,
 } from "lucide-react";
-import type { EffectType } from "../components/LightSidePanel";
+import type { EffectType } from "@/screens/light/components/LightSidePanel";
 
 export type SourceType = "bus" | "track";
 export type GradientPreset =

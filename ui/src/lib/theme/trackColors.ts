@@ -1,4 +1,4 @@
-import { paletteColor, paletteSize } from "./theme";
+import { paletteColor, paletteSize } from "@/lib/theme/theme";
 
 export const TRACK_COLOR_COUNT = paletteSize("track");
 

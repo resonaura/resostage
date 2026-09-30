@@ -1,4 +1,4 @@
-import { TOGGLE_BLINK_ACCENT } from "../../../components/ui";
+import { TOGGLE_BLINK_ACCENT } from "@/components/ui";
 
 /**
  * Mute / Solo.

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Button } from "../../../components/ui";
+import { Button } from "@/components/ui";
 
 /** In-app confirm dialog (replaces native window.confirm / AlertWindow for web). */
 export function ConfirmDialog({

@@ -1,4 +1,4 @@
-import { paletteColor, paletteSize } from "../../../lib/theme";
+import { paletteColor, paletteSize } from "@/lib/theme";
 
 // Distinct palette from the audio tracks so light reads as a different layer.
 // Source of truth for both the values and the size: lib/theme's PALETTES.

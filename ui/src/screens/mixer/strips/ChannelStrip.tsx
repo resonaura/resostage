@@ -1,19 +1,19 @@
 import { useMemo } from "react";
-import { LevelMeterBar } from "../../../components/daw";
-import { Select } from "../../../components/ui";
-import { useChannelClipHold } from "../../../hooks/useChannelClipHold";
-import { useLiveValue } from "../../../lib/state/optimistic";
-import { ROUTING_SELECT_SIZE } from "../logic/constants";
-import { GainFader } from "./GainFader";
-import { GainPeakReadout } from "./GainPeakReadout";
-import { PanControl } from "./PanControl";
-import { StripInputControls } from "./StripInputControls";
-import { StripStateControls } from "./StripStateControls";
-import { PluginInsertSlots } from "../plugins/PluginInsertSlots";
-import { SendKnobs } from "./SendKnobs";
-import { TrackOutputRouting } from "../routing/components/TrackOutputRouting";
-import { RoutingSlotPlaceholder } from "../routing/components/RoutingSlotPlaceholder";
-import type { ChannelStripProps } from "./types";
+import { LevelMeterBar } from "@/components/daw";
+import { Select } from "@/components/ui";
+import { useChannelClipHold } from "@/hooks/useChannelClipHold";
+import { useLiveValue } from "@/lib/state/optimistic";
+import { ROUTING_SELECT_SIZE } from "@/screens/mixer/logic/constants";
+import { GainFader } from "@/screens/mixer/strips/GainFader";
+import { GainPeakReadout } from "@/screens/mixer/strips/GainPeakReadout";
+import { PanControl } from "@/screens/mixer/strips/PanControl";
+import { StripInputControls } from "@/screens/mixer/strips/StripInputControls";
+import { StripStateControls } from "@/screens/mixer/strips/StripStateControls";
+import { PluginInsertSlots } from "@/screens/mixer/plugins/PluginInsertSlots";
+import { SendKnobs } from "@/screens/mixer/strips/SendKnobs";
+import { TrackOutputRouting } from "@/screens/mixer/routing/components/TrackOutputRouting";
+import { RoutingSlotPlaceholder } from "@/screens/mixer/routing/components/RoutingSlotPlaceholder";
+import type { ChannelStripProps } from "@/screens/mixer/strips/types";
 
 /** Stable identity so useLiveValue's commit ref doesn't churn. */
 const noop = () => {};

@@ -8,7 +8,7 @@ import {
   apiUrl,
   apiFetch,
   onBackendChange,
-} from "../backend";
+} from "@/lib/state/backend";
 
 const NATIVE = 2899;
 

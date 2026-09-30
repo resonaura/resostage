@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
-import { builder, lighting } from "../../../../../lib/state/api";
-import { beginCancellableDrag, type CancellableDrag } from "../../../../../lib/interaction/dragCancel";
-import { triggerHaptic } from "../../../../../lib/interaction/haptics";
-import type { TrackRow } from "../../../../../lib/state/types";
-import { trackSelectionGesture, type TrackSelectionGesture } from "../logic/trackSelection";
+import { builder, lighting } from "@/lib/state/api";
+import { beginCancellableDrag, type CancellableDrag } from "@/lib/interaction/dragCancel";
+import { triggerHaptic } from "@/lib/interaction/haptics";
+import type { TrackRow } from "@/lib/state/types";
+import { trackSelectionGesture, type TrackSelectionGesture } from "@/screens/editor/timeline/tracks/logic/trackSelection";
 
 export type TrackReorderKind = "audio" | "light";
 

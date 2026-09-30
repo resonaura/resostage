@@ -1,6 +1,6 @@
 import { ChevronRight, PanelRightOpen } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button } from "../ui";
+import { Button } from "@/components/ui";
 
 /**
  * The collapsible right-hand inspector shell, shared by the light and audio

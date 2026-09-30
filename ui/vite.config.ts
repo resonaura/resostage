@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config'
 import type { PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { fileURLToPath } from 'node:url'
 
 // The native ResoStage app looks for this dev server first (see the Electron
 // shell's DEV_URL) and falls back to the last `pnpm build` output served by
@@ -35,6 +36,11 @@ const fullReloadOn = (): PluginOption => ({
 })
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   // Normal multi-file build (index.html + assets/*.js + assets/*.css, plus
   // whatever images/fonts/etc. get added later) -- buildApp copies the whole
   // dist/ tree into the app bundle's Contents/Resources/web, and

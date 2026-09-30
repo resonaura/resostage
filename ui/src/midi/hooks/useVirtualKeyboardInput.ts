@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, PointerEvent, SetStateAction } from "react";
-import { sendLiveMidi } from "../../lib/state/api";
-import { MUSICAL_TYPING_KEY_MAP } from "../logic/keyboardLayout";
+import { sendLiveMidi } from "@/lib/state/api";
+import { MUSICAL_TYPING_KEY_MAP } from "@/midi/logic/keyboardLayout";
 
 /** Owns live MIDI note, sustain, and musical-typing keyboard input lifecycles. */
 export function useVirtualKeyboardInput({

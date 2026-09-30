@@ -5,11 +5,11 @@ import {
   ContextMenuDivider,
   ContextMenuItem,
   ContextMenuSubmenu,
-} from "../../../components/common/ContextMenu";
-import { pluginChains, type PluginCatalogEntry } from "../../../lib/state/api";
-import type { PluginSlotRow } from "../../../lib/state/types";
-import { groupEffects, type PluginGroup } from "./logic/pluginGroups";
-import { PluginSlotControl } from "./PluginSlotControl";
+} from "@/components/common/ContextMenu";
+import { pluginChains, type PluginCatalogEntry } from "@/lib/state/api";
+import type { PluginSlotRow } from "@/lib/state/types";
+import { groupEffects, type PluginGroup } from "@/screens/mixer/plugins/logic/pluginGroups";
+import { PluginSlotControl } from "@/screens/mixer/plugins/PluginSlotControl";
 
 interface SlotMenu {
   x: number;

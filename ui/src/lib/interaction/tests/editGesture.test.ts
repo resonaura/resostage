@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createEditGesture } from "../editGesture";
+import { createEditGesture } from "@/lib/interaction/editGesture";
 
 describe("createEditGesture", () => {
   beforeEach(() => vi.useFakeTimers());

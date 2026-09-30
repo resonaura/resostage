@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { builder } from "../../../lib/state/api";
-import type { MidiNoteRow, WebUiState } from "../../../lib/state/types";
+import { builder } from "@/lib/state/api";
+import type { MidiNoteRow, WebUiState } from "@/lib/state/types";
 
 export interface PendingMidiRegionCreation {
   songIndex: number;

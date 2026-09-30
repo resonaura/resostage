@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ComponentProps } from "react";
-import type { ResoLightStage3D as Stage } from "./ResoLightStage3D";
+import type { ResoLightStage3D as Stage } from "@/screens/light/components/ResoLightStage3D";
 
 /**
  * The 3D stage preview, split into its own chunk.
@@ -17,10 +17,10 @@ import type { ResoLightStage3D as Stage } from "./ResoLightStage3D";
  * spinner would only add a flash of something else before that.
  */
 const Stage3D = lazy(() =>
-  import("./ResoLightStage3D").then((m) => ({ default: m.ResoLightStage3D })),
+  import("@/screens/light/components/ResoLightStage3D").then((m) => ({ default: m.ResoLightStage3D })),
 );
 
-export type { PreviewColor } from "./ResoLightStage3D";
+export type { PreviewColor } from "@/screens/light/components/ResoLightStage3D";
 
 export function ResoLightStage3D(props: ComponentProps<typeof Stage>) {
   return (

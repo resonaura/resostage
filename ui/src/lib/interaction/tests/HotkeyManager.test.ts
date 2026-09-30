@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HotkeyManager, HotkeyScope } from "../HotkeyManager";
+import { HotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
 
 const mounted: Array<() => void> = [];
 

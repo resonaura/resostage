@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { pluginCatalog, pluginChains } from "../../state/api";
-import * as backend from "../../state/backend";
+import { pluginCatalog, pluginChains } from "@/lib/state/api";
+import * as backend from "@/lib/state/backend";
 
 describe("pluginCatalog", () => {
   beforeEach(() => {

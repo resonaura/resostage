@@ -6,10 +6,10 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AudioRenderOptions } from "../../../lib/state/api";
-import type { WebUiState } from "../../../lib/state/types";
-import { Button, Modal, Select, Switch } from "../../../components/ui";
-import { useAudioRenderJob } from "../hooks/useAudioRenderJob";
+import type { AudioRenderOptions } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
+import { Button, Modal, Select, Switch } from "@/components/ui";
+import { useAudioRenderJob } from "@/transfer/render/hooks/useAudioRenderJob";
 import {
   formatBytes,
   formatDuration,
@@ -18,7 +18,7 @@ import {
   type RenderOutputChoice,
   type RenderScope,
   type TailPolicy,
-} from "../logic/renderModel";
+} from "@/transfer/render/logic/renderModel";
 import {
   Choice,
   Field,
@@ -27,7 +27,7 @@ import {
   RenderProgress,
   Section,
   SummaryRow,
-} from "./RenderFields";
+} from "@/transfer/render/components/RenderFields";
 
 export type RenderDialogIntent =
   | { kind: "generic" }

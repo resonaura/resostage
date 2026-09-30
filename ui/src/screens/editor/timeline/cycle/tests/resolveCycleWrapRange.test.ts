@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ProjectCycleRow } from "../../../../../lib/state/types";
-import { resolveCycleWrapRange } from "../logic/resolveCycleWrapRange";
+import type { ProjectCycleRow } from "@/lib/state/types";
+import { resolveCycleWrapRange } from "@/screens/editor/timeline/cycle/logic/resolveCycleWrapRange";
 
 const cycle = (
   overrides: Partial<ProjectCycleRow> = {},

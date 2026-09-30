@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   resolvePendingBusJobs,
   type PendingBusJob,
-} from "../logic/pendingBusJobs";
+} from "@/screens/mixer/logic/pendingBusJobs";
 
 const job = (
   knownIds: string[],

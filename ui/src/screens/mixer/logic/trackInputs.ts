@@ -1,4 +1,4 @@
-import type { BusRow, TrackRow } from "../../../lib/state/types";
+import type { BusRow, TrackRow } from "@/lib/state/types";
 
 export type TrackInputOption = {
   id: string;

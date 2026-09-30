@@ -23,7 +23,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { memo, useMemo, useState } from "react";
-import { lighting } from "../../../lib/state/api";
+import { lighting } from "@/lib/state/api";
 import {
   CHANNEL_PROFILES,
   DMX_GENERIC_SHAPES,
@@ -36,8 +36,8 @@ import {
   type ChannelProfile,
   type FixtureShape,
   type ResoLightColorType,
-} from "../logic/dmxProfiles";
-import type { LightingState } from "../../../lib/state/types";
+} from "@/screens/light/logic/dmxProfiles";
+import type { LightingState } from "@/lib/state/types";
 import {
   Alert,
   Button,
@@ -46,11 +46,11 @@ import {
   Switch,
   ToggleButton,
   ToggleButtonGroup,
-} from "../../../components/ui";
-import { ResoLightStage3D } from "./LazyResoLightStage3D";
-import { FixtureItem } from "./FixtureItem";
-import { HardwareHostField } from "./HardwareHostField";
-import { Section } from "./Section";
+} from "@/components/ui";
+import { ResoLightStage3D } from "@/screens/light/components/LazyResoLightStage3D";
+import { FixtureItem } from "@/screens/light/components/FixtureItem";
+import { HardwareHostField } from "@/screens/light/components/HardwareHostField";
+import { Section } from "@/screens/light/components/Section";
 import {
   EffectTypeGrid,
   Field,
@@ -60,17 +60,17 @@ import {
   LightColorPicker,
   NumberFieldControl,
   TextFieldControl,
-} from "./LightControls";
+} from "@/screens/light/components/LightControls";
 import {
   EFFECT_META,
   IDLE_EFFECT_TYPES,
   effectSupportsGradient,
   effectUsesOwnColor,
   type GradientPreset,
-} from "../logic/lightEffectMeta";
-import type { EffectType } from "./LightSidePanel";
-import { CAPTION_CLS, TOGGLE_GROUP_CLS } from "../logic/lightStyles";
-import { autoLayoutPositions, findDmxChannelConflicts } from "../logic/fixtureLayout";
+} from "@/screens/light/logic/lightEffectMeta";
+import type { EffectType } from "@/screens/light/components/LightSidePanel";
+import { CAPTION_CLS, TOGGLE_GROUP_CLS } from "@/screens/light/logic/lightStyles";
+import { autoLayoutPositions, findDmxChannelConflicts } from "@/screens/light/logic/fixtureLayout";
 
 const SHAPE_ICON: Record<
   FixtureShape,

@@ -1,6 +1,6 @@
-import type { MidiNoteRow, MidiRegionRow, SongRow } from "../state/types";
-import { isMidiClipFile, parseMidiClipFile, writeMidiClipFile } from "./midiClipFile";
-import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "./midiRegionTiming";
+import type { MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
+import { isMidiClipFile, parseMidiClipFile, writeMidiClipFile } from "@/lib/midi/midiClipFile";
+import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";
 
 const PPQN = 480;
 const MAX_BYTES = 32 * 1024 * 1024;

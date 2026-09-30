@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Label } from "@heroui/react";
-import { Card } from "../../../components/ui";
-import { CAPTION_CLS } from "../logic/lightStyles";
+import { Card } from "@/components/ui";
+import { CAPTION_CLS } from "@/screens/light/logic/lightStyles";
 
 /** One bordered block of the Lighting panel. */
 export function Section({

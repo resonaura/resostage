@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "../../../../lib/state/types";
-import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
-import { RULER_HEIGHT } from "../../timeline/ruler/logic/constants";
-import type { CycleLocators } from "../../timeline/cycle/hooks/useCycleState";
+import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
+import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
+import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
+import type { CycleLocators } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 import {
   PianoRollProjectHeader,
   type PianoRollCycleSetRange,
-} from "./PianoRollProjectHeader";
-import { triggerHaptic } from "../../../../lib/interaction/haptics";
-import { useThemeVersion } from "../../../../hooks/useThemeVersion";
-import { midiRegionSourceBeat } from "../../../../lib/midi/midiRegionTiming";
+} from "@/screens/editor/pianoroll/components/PianoRollProjectHeader";
+import { triggerHaptic } from "@/lib/interaction/haptics";
+import { useThemeVersion } from "@/hooks/useThemeVersion";
+import { midiRegionSourceBeat } from "@/lib/midi/midiRegionTiming";
 import {
   canvasYToPitch,
   editControllerPoint,
@@ -17,10 +17,10 @@ import {
   paintBrushNote,
   resolveDrawNoteDuration,
   sliceNote,
-} from "../logic/pianoRollModel";
-import { snapPitchToScale } from "../logic/scales";
-import { SpatialNoteIndex } from "../logic/spatialIndex";
-import { drawPianoRollCanvas } from "../logic/pianoRollRenderer";
+} from "@/screens/editor/pianoroll/logic/pianoRollModel";
+import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
+import { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
+import { drawPianoRollCanvas } from "@/screens/editor/pianoroll/logic/pianoRollRenderer";
 import {
   controllerParameterId,
   controllerValueFromY,
@@ -29,7 +29,7 @@ import {
   isControllerLane,
   isPrimaryModifier,
   noteTextColor,
-} from "../logic/canvasUtils";
+} from "@/screens/editor/pianoroll/logic/canvasUtils";
 import type {
   DraggingState,
   GridSnapValue,
@@ -37,7 +37,7 @@ import type {
   PianoRollTool,
   PianoRollViewport,
   ScaleMode,
-} from "../logic/types";
+} from "@/screens/editor/pianoroll/logic/types";
 
 interface PianoRollCanvasProps {
   region: MidiRegionRow;

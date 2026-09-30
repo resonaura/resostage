@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasTintableHue, themeAdaptedColor } from "../logic/tintFilter";
+import { hasTintableHue, themeAdaptedColor } from "@/screens/light/logic/tintFilter";
 
 const rgb = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);

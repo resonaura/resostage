@@ -10,7 +10,7 @@ import type {
   MixGraphEdge,
   MixGraphPayload,
   MixGraphStrip,
-} from "../../../../lib/audio/mixGraph";
+} from "@/lib/audio/mixGraph";
 
 export type {
   MixGraphEdge,
@@ -18,7 +18,7 @@ export type {
   MixGraphStrip,
   MixSoloGroup,
   MixStripKind,
-} from "../../../../lib/audio/mixGraph";
+} from "@/lib/audio/mixGraph";
 
 export interface PlacedStrip {
   strip: MixGraphStrip;

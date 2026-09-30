@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { MidiRegionRow } from "../../state/types";
+import type { MidiRegionRow } from "@/lib/state/types";
 import {
   midiRegionContainsLoopSourceBeat,
   midiRegionLoopOccurrence,
   midiRegionSourceBeat,
-} from "../midiRegionTiming";
+} from "@/lib/midi/midiRegionTiming";
 
 const region: MidiRegionRow = {
   id: "r", trackId: "t", name: "loop", startBeats: 0,

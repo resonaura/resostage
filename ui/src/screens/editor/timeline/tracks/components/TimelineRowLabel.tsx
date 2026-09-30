@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { laneHeightPx } from "../../layout/logic/laneDimensions";
+import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 
 // Read-only sidebar row for a track that only exists in a non-staged song --
 // no mixer controls, since there's no staged track index to drive them with.

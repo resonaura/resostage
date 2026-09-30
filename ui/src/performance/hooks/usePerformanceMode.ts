@@ -10,13 +10,13 @@ import {
   type HealthSample,
   type PerformanceSettings,
   type PerformanceTier,
-} from "../logic/performance";
+} from "@/performance/logic/performance";
 import {
   onPowerStateChanged,
   powerPressure,
   startPowerWatch,
-} from "../logic/powerState";
-import type { WebUiState } from "../../lib/state/types";
+} from "@/performance/logic/powerState";
+import type { WebUiState } from "@/lib/state/types";
 
 /**
  * Owns the UI's frame budget: what the user asked for, and what the machine

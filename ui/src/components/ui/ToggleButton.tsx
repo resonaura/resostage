@@ -5,7 +5,7 @@ import {
 } from "@heroui/react";
 import { toggleButtonGroupVariants } from "@heroui/styles";
 import { createContext, use, type ComponentProps } from "react";
-import { isTone, withTone, type Tone } from "./tones";
+import { isTone, withTone, type Tone } from "@/components/ui/tones";
 
 /**
  * ToggleButton / ToggleButtonGroup with a choosable selected colour.

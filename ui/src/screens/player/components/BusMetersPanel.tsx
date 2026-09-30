@@ -1,11 +1,11 @@
 import { ScrollShadow, Separator, Tooltip } from "@heroui/react";
 import { Gauge, LayoutGrid, Rows3, SignalHigh } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
-import { LevelMeterBar, VUMeter } from "../../../components/daw";
-import { rowsSameExceptLevels } from "../../../lib/audio/levelFields";
-import { getLiveLevels } from "../../../lib/audio/liveLevels";
-import { useThemeVersion } from "../../../hooks/useThemeVersion";
-import { Card, ToggleButton, ToggleButtonGroup } from "../../../components/ui";
+import { LevelMeterBar, VUMeter } from "@/components/daw";
+import { rowsSameExceptLevels } from "@/lib/audio/levelFields";
+import { getLiveLevels } from "@/lib/audio/liveLevels";
+import { useThemeVersion } from "@/hooks/useThemeVersion";
+import { Card, ToggleButton, ToggleButtonGroup } from "@/components/ui";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
@@ -13,8 +13,8 @@ import {
   type Click,
   type MeterRow,
   type WebUiState,
-} from "../../../lib/state/types";
-import { busMeterGroups, type BusMeterGroup } from "../logic/busMeterGroups";
+} from "@/lib/state/types";
+import { busMeterGroups, type BusMeterGroup } from "@/screens/player/logic/busMeterGroups";
 
 type BusMeterMode = "bars" | "vu";
 

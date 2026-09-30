@@ -1,7 +1,7 @@
 import {
   ContextMenu,
   ContextMenuItem,
-} from "../../components/common/ContextMenu";
+} from "@/components/common/ContextMenu";
 
 /** Single-choice length menu shared by the transport Count-In controls. */
 export function CountInContextMenu({

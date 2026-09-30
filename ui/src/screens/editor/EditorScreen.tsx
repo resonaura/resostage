@@ -1,21 +1,21 @@
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { ImportStemsModal } from "../../transfer/audio/components/ImportStemsModal";
-import { EditorInspector } from "./components/EditorInspector";
-import { EditorTabBar, type EditorTab } from "./components/EditorTabBar";
-import { SongsEditorTab } from "./components/SongsEditorTab";
-import { Timeline } from "./timeline";
-import { useEditorTrackSelection } from "./hooks/useEditorTrackSelection";
-import { useMidiRegionEditorState } from "./hooks/useMidiRegionEditorState";
-import { useStemFolderImport } from "./hooks/useStemFolderImport";
-import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
-import { PianoRollEditorTab } from "./pianoroll/components/PianoRollEditorTab";
-import { useIsCompact } from "../../hooks/useMediaQuery";
+import { ImportStemsModal } from "@/transfer/audio/components/ImportStemsModal";
+import { EditorInspector } from "@/screens/editor/components/EditorInspector";
+import { EditorTabBar, type EditorTab } from "@/screens/editor/components/EditorTabBar";
+import { SongsEditorTab } from "@/screens/editor/components/SongsEditorTab";
+import { Timeline } from "@/screens/editor/timeline";
+import { useEditorTrackSelection } from "@/screens/editor/hooks/useEditorTrackSelection";
+import { useMidiRegionEditorState } from "@/screens/editor/hooks/useMidiRegionEditorState";
+import { useStemFolderImport } from "@/screens/editor/hooks/useStemFolderImport";
+import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
+import { PianoRollEditorTab } from "@/screens/editor/pianoroll/components/PianoRollEditorTab";
+import { useIsCompact } from "@/hooks/useMediaQuery";
 import type {
   AllPeaksResponse,
   PeaksResponse,
   WebUiState,
-} from "../../lib/state/types";
+} from "@/lib/state/types";
 
 // ─── Root ───────────────────────────────────────────────────────────────────
 

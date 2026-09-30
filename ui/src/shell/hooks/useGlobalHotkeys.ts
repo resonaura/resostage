@@ -3,14 +3,14 @@
 // transport, typing-focus, and native-shell shortcuts converge here.
 
 import { useEffect, useRef } from "react";
-import { performAction, type ActionId } from "../../lib/state/actions";
-import { transport } from "../../lib/state/api";
-import { apiFetch } from "../../lib/state/backend";
-import { IS_ELECTRON } from "../../lib/platform/electron";
-import { IS_EMBEDDED } from "../../lib/platform/embedded";
-import { sendTypingFocus } from "../../lib/platform/electronBridge";
-import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
-import type { WebUiState } from "../../lib/state/types";
+import { performAction, type ActionId } from "@/lib/state/actions";
+import { transport } from "@/lib/state/api";
+import { apiFetch } from "@/lib/state/backend";
+import { IS_ELECTRON } from "@/lib/platform/electron";
+import { IS_EMBEDDED } from "@/lib/platform/embedded";
+import { sendTypingFocus } from "@/lib/platform/electronBridge";
+import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
+import type { WebUiState } from "@/lib/state/types";
 
 export function useGlobalHotkeys(
   state: WebUiState,

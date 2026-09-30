@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { EmptyDetailPanel, ListPanel, SongEditor } from "./SongsTab";
+import { EmptyDetailPanel, ListPanel, SongEditor } from "@/screens/editor/components/SongsTab";
 import {
   emptyProjectActions,
   EmptyProjectState,
-} from "../project/components/EmptyProjectState";
-import { builder } from "../../../lib/state/api";
-import type { WebUiState } from "../../../lib/state/types";
+} from "@/screens/editor/project/components/EmptyProjectState";
+import { builder } from "@/lib/state/api";
+import type { WebUiState } from "@/lib/state/types";
 
 export function SongsEditorTab({
   state,

@@ -1,5 +1,5 @@
-import type { PluginCatalogEntry } from "../../../../lib/state/api";
-import { displayCategory } from "../../../../lib/plugins/pluginCategories";
+import type { PluginCatalogEntry } from "@/lib/state/api";
+import { displayCategory } from "@/lib/plugins/pluginCategories";
 
 export interface PluginFamily {
   key: string;

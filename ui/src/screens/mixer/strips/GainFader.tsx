@@ -6,9 +6,9 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useEscRevert } from "../../../hooks/useEscRevert";
-import { FaderLaw } from "../logic/audioCurves";
-import { GAIN_MAX, GAIN_MIN } from "../logic/constants";
+import { useEscRevert } from "@/hooks/useEscRevert";
+import { FaderLaw } from "@/screens/mixer/logic/audioCurves";
+import { GAIN_MAX, GAIN_MIN } from "@/screens/mixer/logic/constants";
 
 interface GainFaderProps {
   /**

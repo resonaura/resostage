@@ -10,8 +10,8 @@ import {
   type RegionDragCtx,
   type RegionDragSession,
   type RegionGeom,
-} from "../logic/regionDrag";
-import type { RegionRow } from "../../../../../lib/state/types";
+} from "@/screens/editor/timeline/regions/logic/regionDrag";
+import type { RegionRow } from "@/lib/state/types";
 
 const session = (
   partial: Partial<RegionDragSession> & Pick<RegionDragSession, "mode">,

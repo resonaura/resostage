@@ -7,8 +7,8 @@ import {
   SkipForward,
   Square,
 } from "lucide-react";
-import { Button, ButtonGroup } from "../../../components/ui";
-import { transport } from "../../../lib/state/api";
+import { Button, ButtonGroup } from "@/components/ui";
+import { transport } from "@/lib/state/api";
 
 /** Playback and recording actions shared by the Player transport surface. */
 export function PlayerTransportButtons({

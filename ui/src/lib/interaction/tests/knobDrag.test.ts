@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { gateKnobMove, knobValueAt } from "../knobDrag";
+import { gateKnobMove, knobValueAt } from "@/lib/interaction/knobDrag";
 
 describe("gateKnobMove", () => {
   const held = { pointerId: 1, buttons: 1 };

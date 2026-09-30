@@ -1,1 +1,1 @@
-export { MixerScreen } from "./MixerScreen";
+export { MixerScreen } from "@/screens/mixer/MixerScreen";

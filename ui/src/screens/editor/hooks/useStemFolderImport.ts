@@ -4,8 +4,8 @@ import {
   autoDetectSongName,
   autoDetectStemMappings,
   executeStemImport,
-} from "../../../transfer/audio/logic/stemImport";
-import type { WebUiState } from "../../../lib/state/types";
+} from "@/transfer/audio/logic/stemImport";
+import type { WebUiState } from "@/lib/state/types";
 
 /** Manages importing one or more song folders from the editor's Songs tab. */
 export function useStemFolderImport(state: WebUiState) {

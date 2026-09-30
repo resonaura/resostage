@@ -1,5 +1,5 @@
 import { useEffect, useRef, type CSSProperties } from "react";
-import { addRafTask } from "../../lib/state/rafLoop";
+import { addRafTask } from "@/lib/state/rafLoop";
 
 /**
  * A number that moves, without a render behind it.

@@ -3,13 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   beginCancellableDrag,
   type CancellableDrag,
-} from "../../../../../lib/interaction/dragCancel";
-import { triggerHaptic } from "../../../../../lib/interaction/haptics";
-import type { SongRow } from "../../../../../lib/state/types";
-import { RULER_CYCLE_HEIGHT } from "../../ruler/logic/constants";
-import { crossedDetent, songDetents } from "../../snapping/logic/detents";
-import { snapToGridSec } from "../../ruler/logic/geometry";
-import type { CycleLocators } from "../hooks/useCycleState";
+} from "@/lib/interaction/dragCancel";
+import { triggerHaptic } from "@/lib/interaction/haptics";
+import type { SongRow } from "@/lib/state/types";
+import { RULER_CYCLE_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
+import { crossedDetent, songDetents } from "@/screens/editor/timeline/snapping/logic/detents";
+import { snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
+import type { CycleLocators } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 
 type DragMode = "create" | "move" | "resizeL" | "resizeR" | "click";
 

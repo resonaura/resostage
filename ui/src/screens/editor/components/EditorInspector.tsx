@@ -3,24 +3,24 @@ import {
   mixer,
   pluginCatalog as pluginCatalogApi,
   type PluginCatalogEntry,
-} from "../../../lib/state/api";
+} from "@/lib/state/api";
 import {
   type MidiRegionRow,
   type RegionRow,
   type WebUiState,
-} from "../../../lib/state/types";
-import { ScrollShadow } from "../../../components/ui";
-import { PluginChainModal } from "../../mixer/plugins/PluginChainModal";
-import { extOutTarget } from "../../mixer/logic/mixerIds";
-import { BusStrip } from "../../mixer/strips/BusStrip";
-import { TrackStrip } from "../../mixer/strips/TrackStrip";
+} from "@/lib/state/types";
+import { ScrollShadow } from "@/components/ui";
+import { PluginChainModal } from "@/screens/mixer/plugins/PluginChainModal";
+import { extOutTarget } from "@/screens/mixer/logic/mixerIds";
+import { BusStrip } from "@/screens/mixer/strips/BusStrip";
+import { TrackStrip } from "@/screens/mixer/strips/TrackStrip";
 import {
   DEFAULT_INSPECTOR_OVERFLOW_WIDTH,
   DEFAULT_INSPECTOR_WIDTH,
   MAX_INSPECTOR_WIDTH,
   MIN_INSPECTOR_WIDTH,
   resolveInspectorBusses,
-} from "../logic/inspectorRouting";
+} from "@/screens/editor/logic/inspectorRouting";
 
 export function EditorInspector({
   state,

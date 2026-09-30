@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { SongRow } from "../../../../../lib/state/types";
+import type { SongRow } from "@/lib/state/types";
 import {
   crossedDetent,
   edgesCrossedDetent,
   songDetents,
-} from "../logic/detents";
+} from "@/screens/editor/timeline/snapping/logic/detents";
 
 const song = {
   regions: [

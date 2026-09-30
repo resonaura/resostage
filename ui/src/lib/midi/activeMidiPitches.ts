@@ -1,8 +1,8 @@
-import type { MidiRegionRow, WebUiState } from "../state/types";
+import type { MidiRegionRow, WebUiState } from "@/lib/state/types";
 import {
   midiRegionNotePlaybackDuration,
   midiRegionSourceBeat,
-} from "./midiRegionTiming";
+} from "@/lib/midi/midiRegionTiming";
 
 function regionLocalBeat(region: MidiRegionRow, songBeat: number): number | null {
   if (

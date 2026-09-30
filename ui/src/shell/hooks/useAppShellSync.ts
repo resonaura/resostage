@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { TIER_FPS } from "../../performance/logic/performance";
-import type { usePerformanceMode } from "../../performance/hooks/usePerformanceMode";
-import { IS_ELECTRON } from "../../lib/platform/electron";
-import { forwardMenuState } from "../../lib/platform/electronBridge";
-import { applyTheme, getTheme, THEME_NAMES, type ThemeName } from "../../lib/theme";
-import type { WebUiState } from "../../lib/state/types";
+import { TIER_FPS } from "@/performance/logic/performance";
+import type { usePerformanceMode } from "@/performance/hooks/usePerformanceMode";
+import { IS_ELECTRON } from "@/lib/platform/electron";
+import { forwardMenuState } from "@/lib/platform/electronBridge";
+import { applyTheme, getTheme, THEME_NAMES, type ThemeName } from "@/lib/theme";
+import type { WebUiState } from "@/lib/state/types";
 
 /** What the UI asks for when uncapped; Core clamps this to its supported maximum. */
 const FULL_RATE_HZ = 120;
