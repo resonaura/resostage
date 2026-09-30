@@ -71,6 +71,7 @@ target_sources(ResoStage PRIVATE
   main/MainComponentPlugins.cpp
   config/AppSettings.cpp
   engine/AudioEngine.cpp
+  engine/AudioEngineLifecycle.cpp
   engine/AudioEngineMeters.cpp
   engine/AudioEngineDevice.cpp
   engine/AudioEngineEventDispatch.cpp
