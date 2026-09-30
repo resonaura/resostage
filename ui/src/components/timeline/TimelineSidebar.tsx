@@ -1,8 +1,6 @@
 import { Plus, Music, Mic, Sliders } from "lucide-react";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Button } from "../ui";
-import { triggerHaptic } from "../../lib/interaction/haptics";
-import { beginCancellableDrag, type CancellableDrag } from "../../lib/interaction/dragCancel";
 import {
   ContextMenu,
   ContextMenuDivider,
@@ -32,7 +30,11 @@ import type { TimelineRow } from "./rows";
 import { TimelineRowLabel } from "./TimelineRowLabel";
 import type { TimelineViewMode } from "./TimelineToolbar";
 import { TrackHeaderControl } from "./TrackHeaderControl";
-import { trackSelectionGesture, type TrackSelectionGesture } from "./trackSelection";
+import {
+  trackSelectionGesture,
+  type TrackSelectionGesture,
+} from "./trackSelection";
+import { useTrackReorder } from "./useTrackReorder";
 
 const laneHeaderCls =
   "shrink-0 border-b border-default/30 px-2.5 font-bold uppercase flex items-center bg-background-tertiary";
@@ -113,215 +115,22 @@ export function TimelineSidebar({
     name: string;
   } | null>(null);
 
-  const dragRef = useRef<{
-    active: boolean;
-    startX: number;
-    startY: number;
-    index: number;
-    kind: "audio" | "light";
-    dropSlot: number;
-    lastY: number;
-    pointerId: number;
-  } | null>(null);
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const autoScrollRafRef = useRef<number | null>(null);
-  const cancellableDragRef = useRef<CancellableDrag | null>(null);
-
-  const clearDrag = useCallback(() => {
-    if (autoScrollRafRef.current !== null) {
-      cancelAnimationFrame(autoScrollRafRef.current);
-      autoScrollRafRef.current = null;
-    }
-    cancellableDragRef.current?.end();
-    cancellableDragRef.current = null;
-    dragRef.current = null;
-    onTrackReorderPreview?.(null);
-  }, [onTrackReorderPreview]);
-
-  useEffect(() => {
-    const cancel = () => cancellableDragRef.current?.cancel();
-    window.addEventListener("blur", cancel);
-    const onVisibilityChange = () => {
-      if (document.hidden) cancel();
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("blur", cancel);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      clearDrag();
-    };
-  }, [clearDrag]);
-
-  const calculateSlot = useCallback(
-    (clientY: number, kind: "audio" | "light"): number => {
-      const selector =
-        kind === "audio" ? "[data-track-index]" : "[data-light-track-index]";
-      const els = Array.from(
-        sidebarContentRef.current?.querySelectorAll<HTMLElement>(selector) ?? [],
-      );
-      if (els.length === 0) return 0;
-      // Rows move during preview, but their slots stay on a fixed grid. Use
-      // geometry rather than row identity to avoid preview oscillation.
-      const first = els[0].getBoundingClientRect();
-      return Math.max(0, Math.min(els.length,
-        Math.floor((clientY - first.top) / first.height + 0.5)));
-    },
-    [sidebarContentRef],
-  );
-
-  const startAutoScrollLoop = useCallback(() => {
-    if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
-    const tick = () => {
-      const d = dragRef.current;
-      if (!d || !d.active) {
-        autoScrollRafRef.current = null;
-        return;
-      }
-      const container = containerRef.current;
-      if (container) {
-        const rect = container.getBoundingClientRect();
-        const y = d.lastY;
-        const EDGE = 65;
-        const MIN_SPEED = 2;
-        const MAX_SPEED = 28;
-        let speed = 0;
-
-        if (y < rect.top + EDGE && y >= rect.top - 30) {
-          const prox = Math.max(0, Math.min(1, (rect.top + EDGE - y) / EDGE));
-          speed = -(MIN_SPEED + (MAX_SPEED - MIN_SPEED) * (prox * prox));
-        } else if (y > rect.bottom - EDGE && y <= rect.bottom + 30) {
-          const prox = Math.max(0, Math.min(1, (y - (rect.bottom - EDGE)) / EDGE));
-          speed = MIN_SPEED + (MAX_SPEED - MIN_SPEED) * (prox * prox);
-        }
-
-        if (speed !== 0) {
-          onAutoScroll?.(speed);
-          const slot = calculateSlot(y, d.kind);
-          if (slot !== d.dropSlot) {
-            d.dropSlot = slot;
-            triggerHaptic("alignment");
-            onTrackReorderPreview?.({ index: d.index, kind: d.kind, dropSlot: slot });
-          }
-        }
-      }
-      autoScrollRafRef.current = requestAnimationFrame(tick);
-    };
-    autoScrollRafRef.current = requestAnimationFrame(tick);
-  }, [onAutoScroll, calculateSlot, onTrackReorderPreview]);
-
-  const handleTrackPointerDown = (
-    e: React.PointerEvent,
-    index: number,
-    kind: "audio" | "light",
-  ) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    if (
-      target.closest(
-        "button, input, select, textarea, [role='slider'], [role='button']",
-      )
-    ) {
-      return;
-    }
-
-    dragRef.current = {
-      active: false,
-      startX: e.clientX,
-      startY: e.clientY,
-      index,
-      kind,
-      dropSlot: index,
-      lastY: e.clientY,
-      pointerId: e.pointerId,
-    };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    cancellableDragRef.current?.end();
-    const captureTarget = e.currentTarget as HTMLElement;
-    cancellableDragRef.current = beginCancellableDrag(() => {
-      try {
-        if (captureTarget.hasPointerCapture(e.pointerId))
-          captureTarget.releasePointerCapture(e.pointerId);
-      } catch { /* Pointer capture may already be gone. */ }
-      clearDrag();
-    });
-  };
-
-  const handleTrackPointerMove = (e: React.PointerEvent) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-    d.lastY = e.clientY;
-
-    if (!d.active) {
-      const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
-      if (dist > 5) {
-        d.active = true;
-        triggerHaptic("generic");
-        const slot = calculateSlot(e.clientY, d.kind);
-        d.dropSlot = slot;
-        onTrackReorderPreview?.({ index: d.index, kind: d.kind, dropSlot: slot });
-        startAutoScrollLoop();
-      }
-      return;
-    }
-
-    const slot = calculateSlot(e.clientY, d.kind);
-    if (slot !== d.dropSlot) {
-      d.dropSlot = slot;
-      triggerHaptic("alignment");
-      onTrackReorderPreview?.({ index: d.index, kind: d.kind, dropSlot: slot });
-    }
-  };
-
-  const handleTrackPointerUp = (e: React.PointerEvent) => {
-    const d = dragRef.current;
-    if (!d || d.pointerId !== e.pointerId) return;
-
-    if (autoScrollRafRef.current) {
-      cancelAnimationFrame(autoScrollRafRef.current);
-      autoScrollRafRef.current = null;
-    }
-
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      /* already released */
-    }
-
-    if (d.active) {
-      const fromIndex = d.index;
-      const slotIndex = d.dropSlot;
-      const toIndex = slotIndex > fromIndex ? slotIndex - 1 : slotIndex;
-      if (toIndex !== fromIndex) {
-        triggerHaptic("generic");
-        if (d.kind === "audio") {
-          const songIdx = state.songIndex >= 0 ? state.songIndex : 0;
-          void builder.trackMove(songIdx, fromIndex, { to: toIndex });
-        } else {
-          void lighting.trackMove(fromIndex, { to: toIndex });
-        }
-      }
-    } else if (e.type === "pointerup") {
-      // Pointer capture suppresses the usual click path in some browsers;
-      // treat a sub-threshold gesture as selection, not as a no-op.
-      if (d.kind === "audio") {
-        onSelectTrack?.(state.tracks[d.index]?.id ?? null, trackSelectionGesture(e));
-      } else {
-        setSidePanelTrackIndex(d.index);
-        setCueSelection(null);
-      }
-    }
-
-    clearDrag();
-  };
-
-  const handleTrackPointerCancel = (e: React.PointerEvent) => {
-    if (dragRef.current?.pointerId !== e.pointerId) return;
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {}
-    clearDrag();
-  };
+  const {
+    containerRef,
+    handleTrackPointerDown,
+    handleTrackPointerMove,
+    handleTrackPointerUp,
+    handleTrackPointerCancel,
+  } = useTrackReorder({
+    tracks: state.tracks,
+    songIndex: state.songIndex,
+    sidebarContentRef,
+    onSelectTrack,
+    setSidePanelTrackIndex,
+    setCueSelection,
+    onAutoScroll,
+    onTrackReorderPreview,
+  });
 
   const handleAddTrack = async (kind: "audio" | "instrument", channels = 2) => {
     setAddTrackMenu(null);
