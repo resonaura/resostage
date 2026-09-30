@@ -19,14 +19,9 @@ import {
 import { ImportStemsModal } from "../../transfer/audio/components/ImportStemsModal";
 import { EditorInspector } from "./components/EditorInspector";
 import { EmptyDetailPanel, ListPanel, SongEditor } from "./components/SongsTab";
-import {
-  autoDetectBpm,
-  autoDetectSongName,
-  autoDetectStemMappings,
-  executeStemImport,
-} from "../../transfer/audio/logic/stemImport";
 import { Timeline } from "./timeline";
 import { useEditorTrackSelection } from "./hooks/useEditorTrackSelection";
+import { useStemFolderImport } from "./hooks/useStemFolderImport";
 import { PianoRoll } from "./pianoroll";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { MidiRegionSidePanel } from "./pianoroll/components/MidiRegionSidePanel";
@@ -73,6 +68,15 @@ export function EditorScreen({
   const [selected, setSelected] = useState(-1);
   const { selectedTrackId, selectedTrackIds, handleSelectTrack } =
     useEditorTrackSelection(state);
+  const {
+    folderInputRef,
+    importFiles,
+    importFolder,
+    isImportModalOpen,
+    setIsImportModalOpen,
+    handleImportFolderClick,
+    handleFolderChosen,
+  } = useStemFolderImport(state);
   const [showInspector, setShowInspector] = useState(() => {
     try {
       return localStorage.getItem("resostage:editor-inspector") !== "false";
@@ -212,77 +216,7 @@ export function EditorScreen({
       }
     }
   }, [state.recording, state.songIndex, state.songs]);
-  const folderInputRef = useRef<HTMLInputElement>(null);
-
   useEffect(() => setSelected(-1), [tab]);
-
-  const [importFiles, setImportFiles] = useState<File[]>([]);
-  const [importFolder, setImportFolder] = useState<string>("");
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-
-  const handleImportFolderClick = () => {
-    if (folderInputRef.current) {
-      folderInputRef.current.click();
-    }
-  };
-
-  const handleFolderChosen = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const allFiles = Array.from(e.target.files ?? []).filter(
-      (f) =>
-        f.name.toLowerCase().endsWith(".wav") ||
-        f.name.toLowerCase().endsWith(".mp3") ||
-        f.name.toLowerCase().endsWith(".aif") ||
-        f.name.toLowerCase().endsWith(".flac"),
-    );
-    e.target.value = "";
-    if (allFiles.length === 0) return;
-
-    const filesBySongFolder: Record<string, File[]> = {};
-
-    for (const file of allFiles) {
-      const relPath = file.webkitRelativePath || file.name;
-      const parts = relPath.split("/").filter(Boolean);
-      let songFolderName = "IMPORTED SONG";
-
-      if (parts.length >= 3) {
-        songFolderName = parts[parts.length - 2];
-      } else if (parts.length === 2) {
-        songFolderName = parts[0];
-      } else {
-        songFolderName = autoDetectSongName(file.name);
-      }
-
-      if (!filesBySongFolder[songFolderName]) {
-        filesBySongFolder[songFolderName] = [];
-      }
-      filesBySongFolder[songFolderName].push(file);
-    }
-
-    const songFolders = Object.keys(filesBySongFolder);
-
-    if (songFolders.length === 1) {
-      const folderName = songFolders[0];
-      setImportFiles(filesBySongFolder[folderName]);
-      setImportFolder(folderName);
-      setIsImportModalOpen(true);
-      return;
-    }
-
-    for (const folderName of songFolders) {
-      const songFiles = filesBySongFolder[folderName];
-      const songName = autoDetectSongName(folderName);
-      let bpm = 120;
-      for (const f of songFiles) {
-        const detected = autoDetectBpm(f.name);
-        if (detected !== 120) {
-          bpm = detected;
-          break;
-        }
-      }
-      const mappings = autoDetectStemMappings(songFiles);
-      await executeStemImport(songName, bpm, 4, 4, mappings, state);
-    }
-  };
 
   if (!state.projectName) {
     return (
