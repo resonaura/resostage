@@ -1,18 +1,8 @@
-import {
-  Button,
-  ToggleButton,
-  ToggleButtonGroup,
-} from "../../components/ui";
-import {
-  Gauge,
-  ListMusic,
-  Loader2,
-  Music,
-  Sliders,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ImportStemsModal } from "../../transfer/audio/components/ImportStemsModal";
 import { EditorInspector } from "./components/EditorInspector";
+import { EditorTabBar, type EditorTab } from "./components/EditorTabBar";
 import { SongsEditorTab } from "./components/SongsEditorTab";
 import { Timeline } from "./timeline";
 import { useEditorTrackSelection } from "./hooks/useEditorTrackSelection";
@@ -26,9 +16,6 @@ import type {
   PeaksResponse,
   WebUiState,
 } from "../../lib/state/types";
-
-// ─── Re-export tab type ────────────────────────────────────────────────────
-type EditorTab = "timeline" | "pianoroll" | "songs";
 
 // ─── Root ───────────────────────────────────────────────────────────────────
 
@@ -109,16 +96,6 @@ export function EditorScreen({
     );
   }
 
-  // On a phone the arrangement view is not offered at all -- see the Timeline
-  // block below for why -- so Songs is the only tab, and it is what the editor
-  // opens on regardless of what was last selected on a bigger screen.
-  const TABS: { id: EditorTab; label: string }[] = compact
-    ? [{ id: "songs", label: "Songs" }]
-    : [
-        { id: "timeline", label: "Timeline" },
-        { id: "pianoroll", label: "Piano Roll" },
-        { id: "songs", label: "Songs" },
-      ];
   const activeTab: EditorTab = compact ? "songs" : tab;
 
   return (
@@ -141,59 +118,13 @@ export function EditorScreen({
         </div>
       )}
 
-      {/* Tab Bar — one exclusive choice, so a single-selection toggle group
-          rather than N buttons each re-deriving "am I the active one?" from a
-          comparison. Same control the timeline toolbar uses for its own
-          Audio/Light view mode. */}
-      <div className="flex shrink-0 items-center justify-between gap-1.5">
-        <ToggleButtonGroup
-          aria-label="Editor view"
-          size="sm"
-          selectionMode="single"
-          disallowEmptySelection
-          selectedKeys={[activeTab]}
-          onSelectionChange={(keys) => {
-            const next = Array.from(keys)[0] as EditorTab | undefined;
-            if (next) setTab(next);
-          }}
-        >
-          {TABS.flatMap((t, i) => [
-            ...(i > 0
-              ? [<ToggleButtonGroup.Separator key={`${t.id}-sep`} />]
-              : []),
-            <ToggleButton key={t.id} id={t.id}>
-              {t.id === "timeline" ? (
-                <Gauge size={13} />
-              ) : t.id === "pianoroll" ? (
-                <Music size={13} />
-              ) : (
-                <ListMusic size={13} />
-              )}
-              {t.label}
-            </ToggleButton>,
-          ])}
-        </ToggleButtonGroup>
-
-        {activeTab === "timeline" && (
-          <Button
-            size="sm"
-            variant={showInspector ? "secondary" : "outline"}
-            onPress={toggleInspector}
-            className={`gap-1.5 px-2.5 text-xs font-medium transition-all ${
-              showInspector
-                ? "border-accent/40 bg-accent/15 text-accent shadow-sm"
-                : ""
-            }`}
-            aria-label="Toggle Inspector (I)"
-          >
-            <Sliders size={13} />
-            <span>Inspector</span>
-            <kbd className="ml-0.5 rounded bg-default/20 px-1 py-0.2 font-mono text-[9px] text-foreground/50">
-              I
-            </kbd>
-          </Button>
-        )}
-      </div>
+      <EditorTabBar
+        compact={compact}
+        activeTab={activeTab}
+        onSelectTab={setTab}
+        showInspector={showInspector}
+        onToggleInspector={toggleInspector}
+      />
 
       {/* ── Timeline Tab ──────────────────────────────────────────────── */}
       {/* Editing a multi-song arrangement -- region trims, fades, light cues,
