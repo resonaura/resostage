@@ -2,12 +2,10 @@ import {
   Checkbox,
   Chip,
   Description,
-  Input,
   Label,
   ListBox,
   Select,
   Separator,
-  TextField,
   Tooltip,
 } from "@heroui/react";
 import {
@@ -51,6 +49,7 @@ import {
 } from "../../../components/ui";
 import { ResoLightStage3D } from "./LazyResoLightStage3D";
 import { FixtureItem } from "./FixtureItem";
+import { HardwareHostField } from "./HardwareHostField";
 import {
   EffectTypeGrid,
   Field,
@@ -165,48 +164,6 @@ function findDmxChannelConflicts(fixtures: LightFixtureRow[]): Set<string> {
   return conflicting;
 }
 
-
-/** Local-draft host so typing an IP doesn't fight live WS re-renders, and so
- *  a half-typed address is never dialled -- commit lands on blur/Enter only.
- *  Port is always resolight::kDefaultBoardPort on both ends — no UI for it. */
-function HardwareHostField({ fixture }: { fixture: LightFixtureRow }) {
-  const [hostDraft, setHostDraft] = useState(fixture.networkHost);
-  const [focused, setFocused] = useState(false);
-
-  if (!focused && hostDraft !== fixture.networkHost) {
-    setHostDraft(fixture.networkHost);
-  }
-
-  const commit = () => {
-    setFocused(false);
-    const host = hostDraft.trim();
-    if (host === fixture.networkHost) return;
-    void lighting.fixtureUpdate({ fixtureId: fixture.id, networkHost: host });
-  };
-
-  return (
-    <TextField
-      className="gap-1"
-      value={hostDraft}
-      onChange={setHostDraft}
-      aria-label="Board IP"
-    >
-      <Label className={CAPTION_CLS}>Board IP</Label>
-      <Input
-        className="select-text"
-        placeholder="e.g. 192.168.1.50"
-        onFocus={() => setFocused(true)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
-      />
-      <Description className="text-[10px]">
-        Leave empty for preview only (no hardware).
-      </Description>
-    </TextField>
-  );
-}
 
 // ─── ProjectLightingPanel ─────────────────────────────────────────────────
 // No Card wrapper -- SettingsScreen.tsx renders this inside its own Card.
