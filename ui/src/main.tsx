@@ -1,7 +1,6 @@
-import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "./index.css";
 import App from "./App";
+import "./index.css";
 import { applyTheme, readThemeChoice } from "./lib/theme";
 
 // Applied synchronously, before the first render -- this app is a
@@ -39,8 +38,4 @@ window.addEventListener("pageshow", (e) => {
   if (e.persisted) dispatchShellResume("pageshow-bfcache");
 });
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+createRoot(document.getElementById("root")!).render(<App />);

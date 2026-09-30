@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "../../../../lib/state/types";
 import type { TimelineFollowMode } from "../../timeline/toolbar/logic/types";
 import { RULER_HEIGHT } from "../../timeline/ruler/logic/constants";
-import { Ruler } from "../../timeline/ruler/components/Ruler";
-import { CycleStrip } from "../../timeline/cycle/components/CycleStrip";
 import type { CycleLocators } from "../../timeline/cycle/hooks/useCycleState";
+import {
+  PianoRollProjectHeader,
+  type PianoRollCycleSetRange,
+} from "./PianoRollProjectHeader";
 import { triggerHaptic } from "../../../../lib/interaction/haptics";
 import { useThemeVersion } from "../../../../hooks/useThemeVersion";
 import { midiRegionSourceBeat } from "../../../../lib/midi/midiRegionTiming";
@@ -68,12 +70,10 @@ interface PianoRollCanvasProps {
   projectSongLength?: number;
   projectCycleOwner?: boolean;
   onCycleToggleActive?: () => void;
-  onCycleSetRange?: CycleStripProps["onSetRange"];
+  onCycleSetRange?: PianoRollCycleSetRange;
   onCycleToggleSkip?: () => void;
   onCycleDragEnd?: () => void;
 }
-
-type CycleStripProps = React.ComponentProps<typeof CycleStrip>;
 
 export function PianoRollCanvas({
   region,
@@ -120,10 +120,6 @@ export function PianoRollCanvas({
   const draggingRef = useRef<DraggingState | null>(null);
   const [hoveredPitch, setHoveredPitch] = useState<number | null>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
-  const projectPixelsPerSecond = viewport.pixelsPerBeat * (projectSong?.bpm || 120) / 60;
-  const projectScrollPx = (region.startBeats + viewport.scrollBeats) * viewport.pixelsPerBeat;
-  const projectContentWidth = projectSongLength * projectPixelsPerSecond;
-
   // Local working copy of notes during interactive drag to provide 120 FPS feedback
   // with zero network roundtrip latency or runaway accumulation.
   const [localNotes, setLocalNotes] = useState<MidiNoteRow[] | null>(null);
@@ -1435,52 +1431,22 @@ export function PianoRollCanvas({
       ref={containerRef}
       className="relative h-full w-full overflow-hidden select-none bg-background"
     >
-      {projectSong && projectCycle && projectSongLength > 0 && (
-        <div
-          className="pointer-events-none absolute top-0 z-20 h-9 overflow-hidden"
-          style={{ left: viewport.keyWidth, right: 0 }}
-        >
-          <div className="relative h-full" style={{ left: -projectScrollPx, width: projectContentWidth }}>
-            <Ruler
-              layer="backdrop"
-              pxPerSec={projectPixelsPerSecond}
-              contentWidth={projectContentWidth}
-              songLength={projectSongLength}
-              bpm={projectSong.bpm || 120}
-              tsNum={projectSong.tsNum || timeSignatureNumerator}
-              scrollLeft={projectScrollPx}
-              viewportWidth={Math.max(1, canvasSize.width - viewport.keyWidth)}
-            />
-            {onCycleToggleActive && onCycleSetRange && onCycleToggleSkip && (
-              <CycleStrip
-                song={projectSong}
-                songIndex={projectSongIndex}
-                songLength={projectSongLength}
-                pxPerSec={projectPixelsPerSecond}
-                cycle={projectCycle}
-                ownsCycle={projectCycleOwner}
-                bpm={projectSong.bpm || 120}
-                tsNum={projectSong.tsNum || timeSignatureNumerator}
-                snapToGrid={snap > 0}
-                onToggleActive={onCycleToggleActive}
-                onSetRange={onCycleSetRange}
-                onToggleSkip={onCycleToggleSkip}
-                onDragEnd={onCycleDragEnd}
-              />
-            )}
-            <Ruler
-              layer="labels"
-              pxPerSec={projectPixelsPerSecond}
-              contentWidth={projectContentWidth}
-              songLength={projectSongLength}
-              bpm={projectSong.bpm || 120}
-              tsNum={projectSong.tsNum || timeSignatureNumerator}
-              scrollLeft={projectScrollPx}
-              viewportWidth={Math.max(1, canvasSize.width - viewport.keyWidth)}
-            />
-          </div>
-        </div>
-      )}
+      <PianoRollProjectHeader
+        song={projectSong}
+        cycle={projectCycle}
+        songLength={projectSongLength}
+        songIndex={projectSongIndex}
+        cycleOwner={projectCycleOwner}
+        regionStartBeats={region.startBeats}
+        viewport={viewport}
+        canvasWidth={canvasSize.width}
+        timeSignatureNumerator={timeSignatureNumerator}
+        snap={snap}
+        onCycleToggleActive={onCycleToggleActive}
+        onCycleSetRange={onCycleSetRange}
+        onCycleToggleSkip={onCycleToggleSkip}
+        onCycleDragEnd={onCycleDragEnd}
+      />
       <canvas
         ref={canvasRef}
         onPointerDown={handlePointerDown}
