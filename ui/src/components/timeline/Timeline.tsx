@@ -30,7 +30,6 @@ import type {
   WebUiState,
 } from "../../lib/state/types";
 import { getLightColor } from "../light/lightColors";
-import type { LightSidePanelSelection } from "../light/LightSidePanel";
 import { LightSidePanel } from "../light/LightSidePanel";
 import type { CueSelKey, LightCueDragState } from "../light/LightTimeline";
 import {
@@ -70,6 +69,7 @@ import {
   type RegionContextMenuState,
 } from "./RegionContextMenu";
 import { splitRegionsAtPlayhead } from "./regionEdit";
+import { resolveLightSidePanelSelection } from "./resolveLightSidePanelSelection";
 import {
   type RegionSelKey,
   type RegionUiState,
@@ -716,40 +716,14 @@ export function Timeline({
     [],
   );
 
-  // Derived side-panel selection (after songs, lightTracks, cueSelection are defined)
-  const sidePanelSelection: LightSidePanelSelection | null = (() => {
-    if (effectiveViewMode !== "light") return null;
-    if (cueSelection) {
-      const song = songs[cueSelection.songIndex];
-      const cue = song?.lightCues?.find((c) => c.id === cueSelection.cueId);
-      if (cue) {
-        const tIdx = lightTracks.findIndex((t) => t.id === cue.trackId);
-        if (tIdx >= 0)
-          return {
-            type: "cue" as const,
-            songIndex: cueSelection.songIndex,
-            cue,
-            trackIndex: tIdx,
-            track: lightTracks[tIdx],
-          };
-      }
-    }
-    if (sidePanelTrackIndex !== null && lightTracks[sidePanelTrackIndex]) {
-      return {
-        type: "track" as const,
-        trackIndex: sidePanelTrackIndex,
-        track: lightTracks[sidePanelTrackIndex],
-      };
-    }
-    if (sidePanelTrackIndex === null && lightTracks.length > 0) {
-      return {
-        type: "track" as const,
-        trackIndex: 0,
-        track: lightTracks[0],
-      };
-    }
-    return null;
-  })();
+  // Derived side-panel selection (after songs, lightTracks, cueSelection are defined).
+  const sidePanelSelection = resolveLightSidePanelSelection({
+    viewMode: effectiveViewMode,
+    cueSelection,
+    sidePanelTrackIndex,
+    songs,
+    tracks: lightTracks,
+  });
 
   // Drop cue selection when the cue itself disappears (delete / reload).
   useEffect(() => {
