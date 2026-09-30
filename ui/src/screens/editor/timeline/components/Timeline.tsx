@@ -91,6 +91,7 @@ import { useTimelineMarquee } from "@/screens/editor/timeline/selection/hooks/us
 import { useTimelineScrub } from "@/screens/editor/timeline/ruler/hooks/useTimelineScrub";
 import { useTimelineTrackFocus } from "@/screens/editor/timeline/tracks/hooks/useTimelineTrackFocus";
 import { useTimelineZoomGestures } from "@/screens/editor/timeline/viewport/hooks/useTimelineZoomGestures";
+import { useTimelineScrollSync } from "@/screens/editor/timeline/viewport/hooks/useTimelineScrollSync";
 import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
 import { useTimelinePrefs } from "@/screens/editor/timeline/toolbar/hooks/useTimelinePrefs";
 import type { TrackSelectionGesture } from "@/screens/editor/timeline/tracks/logic/trackSelection";
@@ -351,7 +352,6 @@ export function Timeline({
   // scroll event landing shortly after ANY programmatic write is still
   // almost certainly an echo of ours, regardless of exact pixel match.
   const lastProgrammaticWriteAtRef = useRef(0);
-  const ECHO_GRACE_MS = 200;
   // Non-null while the smooth-follow rAF branch is actively driving
   // scrollLeft. onScrollSync treats any event near this value as an engine
   // echo (not a user fight), so continuous follow can never pause itself.
@@ -881,65 +881,21 @@ export function Timeline({
   };
 
   // Ruler / playhead-handle scrub interaction lives in useTimelineScrub.
-  const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
-    // Vertical sidebar mirror: write HERE (scroll event is sync with the
-    // browser's scroll position) so the left track list never lags a frame
-    // behind the right pane. rAF only re-applies as a safety net.
-    const scroller = e.currentTarget;
-    if (sidebarContentRef.current)
-      sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
-    // Hard-clamp past the real content end (macOS rubber-band / trackpad
-    // can report scrollLeft beyond scrollWidth-clientWidth briefly).
-    const maxLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-    if (scroller.scrollLeft < 0) scroller.scrollLeft = 0;
-    else if (scroller.scrollLeft > maxLeft) scroller.scrollLeft = maxLeft;
-    const left = scroller.scrollLeft;
-    const programmedLeft = programmaticScrollLeftRef.current;
-    const exactEcho =
-      programmedLeft !== null && Math.abs(left - programmedLeft) < 0.5;
-    // Coalesced echo: a programmatic write landed very recently (continuous
-    // "smooth" follow writes every rAF frame, faster than the browser
-    // necessarily dispatches `scroll` events for each one) -- see
-    // lastProgrammaticWriteAtRef's doc comment.
-    const recentEcho =
-      performance.now() - lastProgrammaticWriteAtRef.current < ECHO_GRACE_MS;
-    // Continuous smooth-follow owns the scroller. Any event within a few
-    // pixels of the engine target is an echo of our own write (browser
-    // rounding / delayed coalesced events), NOT a user fight. Only a real
-    // manual drag that pulls the viewport away from the follow anchor
-    // should pause autofollow -- without this, own scroll events flipped
-    // gestureActive every ~150ms and the timeline stuttered in 700ms chunks.
-    const followTarget = followEngineScrollRef.current;
-    const followEcho =
-      followTarget !== null && Math.abs(left - followTarget) < 32;
-    if (exactEcho || recentEcho || followEcho) {
-      // Echo of our own auto-follow/zoom-focus write. Do NOT touch
-      // lastCommittedScrollLeftRef here -- the rAF loop is the sole owner of
-      // React scrollState during follow. Only keep lastScrollLeftRef fresh so
-      // a later real user drag is measured correctly.
-      lastScrollLeftRef.current = left;
-      return;
-    }
-    // A true user horizontal move supersedes any delayed programmatic echo.
-    programmaticScrollLeftRef.current = null;
-    followEngineScrollRef.current = null;
-    // null means "no baseline yet" (mount / scroll-restore) -- that first
-    // event never counts as a user fight.
-    const movedHorizontally =
-      lastScrollLeftRef.current !== null && left !== lastScrollLeftRef.current;
-    lastScrollLeftRef.current = left;
-    lastCommittedScrollLeftRef.current = left;
-    lastScrollStateCommitAtRef.current = performance.now();
-    // Vertical-only scroll (scrollTop changed, scrollLeft didn't) is not a
-    // user fight for the horizontal timeline -- don't pause auto-follow for
-    // it ("vertical scroll stops the auto-scroll").
-    if (movedHorizontally) {
-      markGestureActiveRef.current();
-      // Manual pan while playing suspends follow; catch flags re-enable later.
-      if (playingRef.current) suspendFollowFromUserScroll();
-    }
-    commitScrollStateRef.current(left, scroller.clientWidth);
-  };
+  const playingRef = useRef(state.playing);
+  playingRef.current = state.playing;
+  const onScrollSync = useTimelineScrollSync({
+    sidebarContentRef,
+    programmaticScrollLeftRef,
+    lastProgrammaticWriteAtRef,
+    followEngineScrollRef,
+    lastScrollLeftRef,
+    lastCommittedScrollLeftRef,
+    lastScrollStateCommitAtRef,
+    commitScrollStateRef,
+    playingRef,
+    markGestureActiveRef,
+    suspendFollowFromUserScroll,
+  });
 
   const handleSidebarWheel = useCallback((e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1092,8 +1048,6 @@ export function Timeline({
   contentWidthRef.current = contentWidth;
   const followModeRef = useRef(followMode);
   followModeRef.current = followMode;
-  const playingRef = useRef(state.playing);
-  playingRef.current = state.playing;
   const currentSongIdxRef = useRef(currentSongIdx);
   currentSongIdxRef.current = currentSongIdx;
 
