@@ -7,20 +7,14 @@ import {
   type PianoRollCycleSetRange,
 } from "@/screens/editor/pianoroll/components/PianoRollProjectHeader";
 import { usePianoRollAutoScroll } from "@/screens/editor/pianoroll/hooks/usePianoRollAutoScroll";
+import { usePianoRollCanvasRenderer } from "@/screens/editor/pianoroll/hooks/usePianoRollCanvasRenderer";
 import { usePianoRollCoordinates } from "@/screens/editor/pianoroll/hooks/usePianoRollCoordinates";
 import { usePianoRollPlayheadFollow } from "@/screens/editor/pianoroll/hooks/usePianoRollPlayheadFollow";
 import { usePianoRollPointerEndHandlers } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerEndHandlers";
 import { usePianoRollPointerDownHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerDownHandler";
 import { usePianoRollPointerMoveHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerMoveHandler";
 import { usePianoRollViewportGestures } from "@/screens/editor/pianoroll/hooks/usePianoRollViewportGestures";
-import { useThemeVersion } from "@/hooks/useThemeVersion";
 import { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
-import { drawPianoRollCanvas } from "@/screens/editor/pianoroll/logic/pianoRollRenderer";
-import {
-  controllerYFromValue,
-  isControllerLane,
-  noteTextColor,
-} from "@/screens/editor/pianoroll/logic/canvasUtils";
 import type {
   DraggingState,
   GridSnapValue,
@@ -104,7 +98,6 @@ export function PianoRollCanvas({
   onCycleToggleSkip,
   onCycleDragEnd,
 }: PianoRollCanvasProps) {
-  const currentThemeVersion = useThemeVersion();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef(viewport);
@@ -113,7 +106,6 @@ export function PianoRollCanvas({
   const spatialIndex = useRef(new SpatialNoteIndex(4.0, 12));
   const draggingRef = useRef<DraggingState | null>(null);
   const [hoveredPitch, setHoveredPitch] = useState<number | null>(null);
-  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   // Local working copy of notes during interactive drag to provide 120 FPS feedback
   // with zero network roundtrip latency or runaway accumulation.
   const [localNotes, setLocalNotes] = useState<MidiNoteRow[] | null>(null);
@@ -230,36 +222,15 @@ export function PianoRollCanvas({
   });
 
   // ── Render Loop ────────────────────────────────────────────────────────
-  const render = useCallback(() => {
-    drawPianoRollCanvas({
-      canvasElement: canvasRef.current,
-      viewport,
-      bottomLane,
-      region,
-      localAutomationLanes,
-      rootNote,
-      scaleMode,
-      showGhostNotes,
-      companionRegions,
-      selectedNoteIds,
-      activeMidiPitches,
-      timeSignatureNumerator,
-      hoveredPitch,
-      trackColor,
-      beatToX,
-      xToBeat,
-      pitchToY,
-      spatialIndex: spatialIndex.current,
-      draggingState: draggingRef.current,
-      noteTextColor,
-      isControllerLane,
-      controllerYFromValue,
-    });
-  }, [
+  const { canvasSize, render } = usePianoRollCanvasRenderer({
+    canvasRef,
+    containerRef,
+    spatialIndex,
+    draggingRef,
+    notesToRender,
     viewport,
     bottomLane,
     region,
-    notesToRender,
     localAutomationLanes,
     rootNote,
     scaleMode,
@@ -270,35 +241,10 @@ export function PianoRollCanvas({
     timeSignatureNumerator,
     hoveredPitch,
     trackColor,
-    currentThemeVersion,
     beatToX,
     xToBeat,
     pitchToY,
-  ]);
-
-  // Sync canvas size with device pixel ratio
-  useEffect(() => {
-    const handleResize = () => {
-      const canvas = canvasRef.current;
-      const container = containerRef.current;
-      if (!canvas || !container) return;
-
-      const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      setCanvasSize({ width: rect.width, height: rect.height });
-      canvas.width = Math.floor(rect.width * dpr);
-      canvas.height = Math.floor(rect.height * dpr);
-      render();
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, [render]);
-
-  useEffect(() => {
-    render();
-  }, [render]);
+  });
 
   usePianoRollViewportGestures({
     canvasRef,

@@ -10,7 +10,7 @@ import { isBlackKey, isPitchInScale, pitchToName } from "@/screens/editor/pianor
 import type { DraggingState, PianoRollBottomLane, PianoRollViewport, ScaleMode } from "@/screens/editor/pianoroll/logic/types";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 
-interface PianoRollRenderParams {
+export interface PianoRollRenderParams {
   canvasElement: HTMLCanvasElement | null;
   viewport: PianoRollViewport;
   bottomLane: PianoRollBottomLane;
