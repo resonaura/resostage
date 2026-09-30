@@ -32,7 +32,6 @@ import type {
 import { LightSidePanel } from "@/screens/light/components/LightSidePanel";
 import type { CueSelKey, LightCueDragState } from "@/screens/light/components/LightTimeline";
 import {
-  AUDIO_HINT_HEIGHT,
   AudioHintStrip,
   LIGHT_HINT_HEIGHT,
   LightHintStrip,
@@ -44,12 +43,10 @@ import {
 import { AudioDropGhost } from "@/screens/editor/timeline/drop/components/AudioDropGhost";
 import { AudioTrackLanes } from "@/screens/editor/timeline/tracks/components/AudioTrackLanes";
 import { BeatGrid } from "@/screens/editor/timeline/ruler/components/BeatGrid";
-import { EVENT_LANE_HEIGHT } from "@/screens/editor/timeline/events/logic/constants";
 import {
   TRAILING_SLACK_MIN_PX,
   TRAILING_SLACK_SECONDS,
 } from "@/screens/editor/timeline/layout/logic/projectBounds";
-import { SECTION_LANE_HEIGHT } from "@/screens/editor/timeline/sections/logic/constants";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "@/screens/editor/timeline/viewport/logic/zoomLimits";
 import { EventMarkerLane } from "@/screens/editor/timeline/events/components/EventMarkerLane";
 import { LongImportPrompt } from "@/screens/editor/timeline/overrun/components/LongImportPrompt";
@@ -92,6 +89,7 @@ import { useTimelineScrub } from "@/screens/editor/timeline/ruler/hooks/useTimel
 import { useTimelineTrackFocus } from "@/screens/editor/timeline/tracks/hooks/useTimelineTrackFocus";
 import { useTimelineZoomGestures } from "@/screens/editor/timeline/viewport/hooks/useTimelineZoomGestures";
 import { useTimelineScrollSync } from "@/screens/editor/timeline/viewport/hooks/useTimelineScrollSync";
+import { useTimelineSidebarScroll } from "@/screens/editor/timeline/viewport/hooks/useTimelineSidebarScroll";
 import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
 import { useTimelinePrefs } from "@/screens/editor/timeline/toolbar/hooks/useTimelinePrefs";
 import type { TrackSelectionGesture } from "@/screens/editor/timeline/tracks/logic/trackSelection";
@@ -897,76 +895,15 @@ export function Timeline({
     suspendFollowFromUserScroll,
   });
 
-  const handleSidebarWheel = useCallback((e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    const scroller = scrollRef.current;
-    if (!scroller) return;
-
-    const lineMult =
-      e.deltaMode === 1 ? 24 : e.deltaMode === 2 ? scroller.clientHeight : 1;
-    const dy = e.deltaY * lineMult;
-    const dx = e.deltaX * lineMult;
-
-    if (e.shiftKey && !dx && dy) {
-      scroller.scrollLeft += dy;
-    } else {
-      if (dy) {
-        scroller.scrollTop += dy;
-        if (sidebarContentRef.current) {
-          sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
-        }
-      }
-      if (dx) {
-        scroller.scrollLeft += dx;
-      }
-    }
-  }, []);
-
-  const handleAutoScroll = useCallback((deltaY: number) => {
-    const scroller = scrollRef.current;
-    if (!scroller) return;
-    scroller.scrollTop += deltaY;
-    if (sidebarContentRef.current) {
-      sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
-    }
-  }, []);
-
-  const scrollToTrackIndex = useCallback(
-    (trackIdx: number) => {
-      const scroller = scrollRef.current;
-      if (!scroller || trackIdx < 0) return;
-      const laneH = laneHeightPx(verticalZoom);
-      const showHintSpacer =
-        effectiveViewMode === "audio" ? hasLightContent : true;
-      const hintHeight =
-        effectiveViewMode === "light" ? AUDIO_HINT_HEIGHT : LIGHT_HINT_HEIGHT;
-      const baseTop =
-        SECTION_LANE_HEIGHT + EVENT_LANE_HEIGHT + (showHintSpacer ? hintHeight : 0);
-
-      let rowIndex = trackIdx;
-      if (effectiveViewMode === "audio") {
-        const foundRowIdx = rows.findIndex((r) => r.headerIndex === trackIdx);
-        if (foundRowIdx >= 0) rowIndex = foundRowIdx;
-      }
-      const rowTop = baseTop + rowIndex * laneH;
-      const rowBottom = rowTop + laneH;
-      const currentScrollTop = scroller.scrollTop;
-      const clientHeight = scroller.clientHeight;
-
-      if (rowTop < currentScrollTop) {
-        scroller.scrollTop = Math.max(0, rowTop - 12);
-        if (sidebarContentRef.current) {
-          sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
-        }
-      } else if (rowBottom > currentScrollTop + clientHeight) {
-        scroller.scrollTop = rowBottom - clientHeight + 12;
-        if (sidebarContentRef.current) {
-          sidebarContentRef.current.style.transform = `translate3d(0, -${scroller.scrollTop}px, 0)`;
-        }
-      }
-    },
-    [verticalZoom, effectiveViewMode, hasLightContent, rows],
-  );
+  const { handleSidebarWheel, handleAutoScroll, scrollToTrackIndex } =
+    useTimelineSidebarScroll({
+      scrollRef,
+      sidebarContentRef,
+      verticalZoom,
+      effectiveViewMode,
+      hasLightContent,
+      rows,
+    });
 
   useTimelineTrackFocus({
     tracks: state.tracks,
