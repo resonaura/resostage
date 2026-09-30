@@ -1,11 +1,11 @@
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "../../lib/state/types";
-import { resolveCssVar } from "../../lib/theme/cssColor";
-import { RULER_HEIGHT } from "../timeline/constants";
+import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "../../../lib/state/types";
+import { resolveCssVar } from "../../../lib/theme/cssColor";
+import { RULER_HEIGHT } from "../../timeline/constants";
 import {
   midiRegionContainsLoopSourceBeat,
   midiRegionLoopOccurrence,
   midiRegionNotePlaybackDuration,
-} from "../../lib/midi/midiRegionTiming";
+} from "../../../lib/midi/midiRegionTiming";
 import { isBlackKey, isPitchInScale, pitchToName } from "./scales";
 import type { DraggingState, PianoRollBottomLane, PianoRollViewport, ScaleMode } from "./types";
 import type { SpatialNoteIndex } from "./spatialIndex";

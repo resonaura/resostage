@@ -1,6 +1,6 @@
-export { PianoRoll } from "./PianoRoll";
-export { PianoRollCanvas } from "./PianoRollCanvas";
-export { PianoRollToolbar } from "./PianoRollToolbar";
-export { SpatialNoteIndex } from "./spatialIndex";
-export * from "./scales";
-export * from "./types";
+export { PianoRoll } from "./components/PianoRoll";
+export { PianoRollCanvas } from "./components/PianoRollCanvas";
+export { PianoRollToolbar } from "./components/PianoRollToolbar";
+export { SpatialNoteIndex } from "./logic/spatialIndex";
+export * from "./logic/scales";
+export * from "./logic/types";

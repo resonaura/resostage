@@ -1,4 +1,4 @@
-import type { MidiNoteRow, MidiRegionRow, ProjectCycleRow, SongRow } from "../../lib/state/types";
+import type { MidiNoteRow, MidiRegionRow, ProjectCycleRow, SongRow } from "../../../lib/state/types";
 
 export type PianoRollTool = "select" | "draw" | "erase" | "brush" | "slice";
 
@@ -70,8 +70,8 @@ export interface PianoRollProps {
   region: MidiRegionRow;
   companionRegions?: MidiRegionRow[];
   activeMidiNotes?: Array<{ trackId: string; pitch: number }>;
-  track?: import("../../lib/state/types").TrackRow | null;
-  tracks?: import("../../lib/state/types").TrackRow[];
+  track?: import("../../../lib/state/types").TrackRow | null;
+  tracks?: import("../../../lib/state/types").TrackRow[];
   onSelectTrack?: (trackId: string) => void;
   regions?: MidiRegionRow[];
   onSelectRegion?: (regionId: string) => void;

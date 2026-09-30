@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PianoRollCanvas } from "./PianoRollCanvas";
 import { PianoRollToolbar } from "./PianoRollToolbar";
-import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
-import { applyLegato, applyOverlapTrim, generateNoteId, sliceNote } from "./pianoRollModel";
-import { snapPitchToScale } from "./scales";
-import { getRegionActivePitches } from "../midi/activeMidiPitches";
-import type { MidiNoteRow } from "../../lib/state/types";
-import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
-import { useCycleState } from "../timeline/cycle/hooks/useCycleState";
-import { timelineHistory } from "../../lib/state/api";
-import { getTrackColor } from "../timeline/constants";
-import { TrackStateButtons } from "../timeline/TrackStateButtons";
-import { useThemeVersion } from "../../hooks/useThemeVersion";
+import { hotkeyManager, HotkeyScope } from "../../../lib/interaction/HotkeyManager";
+import { applyLegato, applyOverlapTrim, generateNoteId, sliceNote } from "../logic/pianoRollModel";
+import { snapPitchToScale } from "../logic/scales";
+import { getRegionActivePitches } from "../../midi/activeMidiPitches";
+import type { MidiNoteRow } from "../../../lib/state/types";
+import type { TimelineFollowMode } from "../../timeline/TimelineToolbar";
+import { useCycleState } from "../../timeline/cycle/hooks/useCycleState";
+import { timelineHistory } from "../../../lib/state/api";
+import { getTrackColor } from "../../timeline/constants";
+import { TrackStateButtons } from "../../timeline/TrackStateButtons";
+import { useThemeVersion } from "../../../hooks/useThemeVersion";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
@@ -19,7 +19,7 @@ import type {
   PianoRollTool,
   PianoRollViewport,
   ScaleMode,
-} from "./types";
+} from "../logic/types";
 
 const DEFAULT_VIEWPORT: PianoRollViewport = {
   pixelsPerBeat: 80,

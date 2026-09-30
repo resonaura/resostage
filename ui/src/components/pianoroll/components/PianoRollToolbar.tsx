@@ -22,20 +22,20 @@ import {
   Redo2,
 } from "lucide-react";
 import { useState } from "react";
-import { Button, Slider, ToggleButton } from "../ui";
+import { Button, Slider, ToggleButton } from "../../ui";
 import {
   ContextMenu,
   ContextMenuDivider,
   ContextMenuItem,
-} from "../common/ContextMenu";
-import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
-import { NOTE_NAMES, SCALE_LABELS } from "./scales";
+} from "../../common/ContextMenu";
+import type { TimelineFollowMode } from "../../timeline/TimelineToolbar";
+import { NOTE_NAMES, SCALE_LABELS } from "../logic/scales";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
   PianoRollTool,
   ScaleMode,
-} from "./types";
+} from "../logic/types";
 
 interface PianoRollToolbarProps {
   tool: PianoRollTool;

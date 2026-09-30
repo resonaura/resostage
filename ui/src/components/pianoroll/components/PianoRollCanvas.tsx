@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "../../lib/state/types";
-import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
-import { RULER_HEIGHT } from "../timeline/constants";
-import { Ruler } from "../timeline/Ruler";
-import { CycleStrip } from "../timeline/cycle/components/CycleStrip";
-import type { CycleLocators } from "../timeline/cycle/hooks/useCycleState";
-import { triggerHaptic } from "../../lib/interaction/haptics";
-import { useThemeVersion } from "../../hooks/useThemeVersion";
-import { midiRegionSourceBeat } from "../../lib/midi/midiRegionTiming";
+import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "../../../lib/state/types";
+import type { TimelineFollowMode } from "../../timeline/TimelineToolbar";
+import { RULER_HEIGHT } from "../../timeline/constants";
+import { Ruler } from "../../timeline/Ruler";
+import { CycleStrip } from "../../timeline/cycle/components/CycleStrip";
+import type { CycleLocators } from "../../timeline/cycle/hooks/useCycleState";
+import { triggerHaptic } from "../../../lib/interaction/haptics";
+import { useThemeVersion } from "../../../hooks/useThemeVersion";
+import { midiRegionSourceBeat } from "../../../lib/midi/midiRegionTiming";
 import {
   canvasYToPitch,
   editControllerPoint,
@@ -15,10 +15,10 @@ import {
   paintBrushNote,
   resolveDrawNoteDuration,
   sliceNote,
-} from "./pianoRollModel";
-import { snapPitchToScale } from "./scales";
-import { SpatialNoteIndex } from "./spatialIndex";
-import { drawPianoRollCanvas } from "./pianoRollRenderer";
+} from "../logic/pianoRollModel";
+import { snapPitchToScale } from "../logic/scales";
+import { SpatialNoteIndex } from "../logic/spatialIndex";
+import { drawPianoRollCanvas } from "../logic/pianoRollRenderer";
 import type {
   DraggingState,
   GridSnapValue,
@@ -26,7 +26,7 @@ import type {
   PianoRollTool,
   PianoRollViewport,
   ScaleMode,
-} from "./types";
+} from "../logic/types";
 
 function isPrimaryModifier(event: Pick<PointerEvent, "metaKey" | "ctrlKey">) {
   const usesMetaKey = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);

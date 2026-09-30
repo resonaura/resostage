@@ -1,13 +1,13 @@
 import { Separator, Switch } from "@heroui/react";
 import { Music } from "lucide-react";
 import { useRef } from "react";
-import { createEditGesture } from "../../lib/interaction/editGesture";
-import { builder, mixer } from "../../lib/state/api";
-import type { MidiRegionRow, TrackRow } from "../../lib/state/types";
-import { LabeledSlider } from "../light/LightControls";
-import { SidePanelShell } from "../timeline/SidePanelShell";
-import { TrackStateButtons } from "../timeline/TrackStateButtons";
-import { Select } from "../ui";
+import { createEditGesture } from "../../../lib/interaction/editGesture";
+import { builder, mixer } from "../../../lib/state/api";
+import type { MidiRegionRow, TrackRow } from "../../../lib/state/types";
+import { LabeledSlider } from "../../light/LightControls";
+import { SidePanelShell } from "../../timeline/SidePanelShell";
+import { TrackStateButtons } from "../../timeline/TrackStateButtons";
+import { Select } from "../../ui";
 
 export function MidiRegionSidePanel({
   songIndex,

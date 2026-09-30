@@ -32,7 +32,7 @@ import {
 } from "../../components/timeline/trackSelection";
 import { PianoRoll } from "../../components/pianoroll";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
-import { MidiRegionSidePanel } from "../../components/pianoroll/MidiRegionSidePanel";
+import { MidiRegionSidePanel } from "../../components/pianoroll/components/MidiRegionSidePanel";
 import { getTrackColor } from "../../components/timeline/constants";
 import { songDurationSeconds } from "../../components/timeline/rows";
 import { builder, mixer, timelineHistory, transport } from "../../lib/state/api";
