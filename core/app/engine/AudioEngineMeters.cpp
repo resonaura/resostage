@@ -1,6 +1,6 @@
-// Meter snapshot reads and interval-peak aggregation for AudioEngine.
-// The audio callback publishes samples; these message-thread readers consume
-// the shared meter state without changing callback ownership or timing.
+// Meter snapshot reads, interval-peak aggregation, and explicit silence reset.
+// The audio callback publishes samples; these message-thread readers and
+// control paths consume/reset shared meter state without changing callback timing.
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
@@ -135,4 +135,65 @@ MeterFrame AudioEngine::consumeBusMeterInterval(size_t busIndex) {
     return frame;
 }
 
+void AudioEngine::resetMetersSilent() {
+    const MeterFrame silent{};
+    for (auto& m : trackMeters)
+        if (m != nullptr)
+            m->write(silent);
+    for (auto& band : trackBandMeters)
+        band.reset();
+    for (size_t i = 0; i < busMeters.size(); ++i) {
+        if (i < busLoudnessMeters.size())
+            busLoudnessMeters[i].reset();
+        if (busMeters[i] != nullptr)
+            busMeters[i]->write(silent);
+    }
+    clickMeterFrame.write(silent);
+
+    // The peak sources the UI actually reads, not just the SeqLock frames.
+    //
+    // consumeBusMeterInterval reports max(impulse latch, last rendered block),
+    // and while the transport is stopped no block is rendered at all -- so
+    // without clearing these the needles stay parked at whatever was playing
+    // when Stop was pressed, forever. Silence is a real measurement here: the
+    // engine is knowingly producing none.
+    clickPeakIntervalMaxL.store(0.0f, std::memory_order_relaxed);
+    clickPeakIntervalMaxR.store(0.0f, std::memory_order_relaxed);
+    clickLastBlockPeakL.store(0.0f, std::memory_order_relaxed);
+    clickLastBlockPeakR.store(0.0f, std::memory_order_relaxed);
+    // Tracks too: consumeTrackMeterInterval reports max(interval latch, last
+    // rendered block), and with the transport stopped no block is rendered at
+    // all -- so without clearing these, a track's peak stays parked at
+    // whatever was playing when Stop was pressed (busses/click were already
+    // cleared below; tracks were the missing half).
+    for (size_t i = 0; i < trackPeakIntervalCount; ++i) {
+        if (trackPeakIntervalMaxL) trackPeakIntervalMaxL[i].store(0.0f, std::memory_order_relaxed);
+        if (trackPeakIntervalMaxR) trackPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);
+        if (trackLastBlockPeakL) trackLastBlockPeakL[i].store(0.0f, std::memory_order_relaxed);
+        if (trackLastBlockPeakR) trackLastBlockPeakR[i].store(0.0f, std::memory_order_relaxed);
+    }
+    for (size_t i = 0; i < busPeakIntervalCount; ++i) {
+        if (busPeakIntervalMaxL) busPeakIntervalMaxL[i].store(0.0f, std::memory_order_relaxed);
+        if (busPeakIntervalMaxR) busPeakIntervalMaxR[i].store(0.0f, std::memory_order_relaxed);
+        if (busLastBlockPeakL) busLastBlockPeakL[i].store(0.0f, std::memory_order_relaxed);
+        if (busLastBlockPeakR) busLastBlockPeakR[i].store(0.0f, std::memory_order_relaxed);
+    }
+
+    // Same for the trajectory: drop the points still in flight, zero the
+    // ballistics, and zero the held value the drain falls back to. Leaving any
+    // one of the three would let a needle finish a release that belongs to
+    // audio the engine has stopped producing.
+    // The rings and the held values are ours to touch -- this thread is the
+    // consumer of both. The audio thread pushes its own zero point on the
+    // first stopped callback, which is what wins the race against a block
+    // still in flight; see the callback.
+    clickEnvelopeRing.clear();
+    clickLastPeak = MeterEnvelopePoint{};
+    for (size_t i = 0; i < busEnvelopeRings.size(); ++i) {
+        if (busEnvelopeRings[i] != nullptr)
+            busEnvelopeRings[i]->clear();
+        if (i < busLastPeak.size())
+            busLastPeak[i] = MeterEnvelopePoint{};
+    }
+}
 } // namespace resostage
