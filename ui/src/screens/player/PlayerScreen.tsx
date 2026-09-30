@@ -1,12 +1,3 @@
-import { Tooltip } from "@heroui/react";
-import {
-  Circle,
-  Pause,
-  Play,
-  SkipBack,
-  SkipForward,
-  Square,
-} from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -18,11 +9,7 @@ import {
 } from "../../components/daw";
 import { Timeline } from "../editor/timeline";
 import { useSongLayout } from "../editor/timeline/layout/hooks/useSongLayout";
-import {
-  Button,
-  ButtonGroup,
-  Card,
-} from "../../components/ui";
+import { Card } from "../../components/ui";
 import { transport } from "../../lib/state/api";
 import { useContinuousPlayhead } from "../../lib/state/optimistic";
 import {
@@ -40,6 +27,7 @@ import { barBeat, globalBarBeat } from "./logic/timeDisplay";
 import { DriftReadout } from "./components/DriftReadout";
 import { PlayerLightStagePreview } from "./components/PlayerLightStagePreview";
 import { PlayerClickControls } from "./components/PlayerClickControls";
+import { PlayerTransportButtons } from "./components/PlayerTransportButtons";
 
 /** Stable empty roster so a rig with no fixtures doesn't churn the memo. */
 const EMPTY_FIXTURES: LightFixtureRow[] = [];
@@ -223,89 +211,10 @@ export function PlayerScreen({
 
         {/* Transport control buttons */}
         <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 px-3 py-2.5">
-          {/* `size` is repeated on every button rather than left to the group.
-              ButtonGroup shares it by marking its DIRECT children, and these
-              are wrapped in Tooltip -- so the mark lands on the tooltip and the
-              buttons inside fall back to the default size, which is what made
-              Play stand a notch taller than the icons beside it. (The group's
-              own rounding still works: Tooltip renders no wrapper element, so
-              the buttons remain its first and last DOM children.) */}
-          <ButtonGroup aria-label="Transport">
-            <Tooltip>
-              <Button
-                size="sm"
-                isIconOnly
-                variant="default-soft"
-                onPress={() => transport.prev()}
-                aria-label="Previous"
-              >
-                <SkipBack size={16} />
-              </Button>
-              <Tooltip.Content>Previous</Tooltip.Content>
-            </Tooltip>
-            <Button
-              size="sm"
-              variant={state.playing ? "accent-soft" : "default-soft"}
-              onPress={() =>
-                state.playing ? transport.stop() : transport.play()
-              }
-              aria-label={state.playing ? "Pause" : "Play"}
-            >
-              <ButtonGroup.Separator />
-              {state.playing ? <Pause size={15} /> : <Play size={15} />}
-            </Button>
-            <Tooltip>
-              <Button
-                size="sm"
-                isIconOnly
-                variant="danger-soft"
-                onPress={() => void transport.stopToStart()}
-                aria-label="Stop"
-              >
-                <ButtonGroup.Separator />
-                <Square size={16} />
-              </Button>
-              <Tooltip.Content>
-                Stop — press again at song start to jump to project start
-              </Tooltip.Content>
-            </Tooltip>
-            <Tooltip>
-              <Button
-                size="sm"
-                isIconOnly
-                variant={state.recording ? "danger" : "default-soft"}
-                className={
-                  state.recording
-                    ? "text-danger animate-pulse font-bold"
-                    : "text-foreground/70 hover:text-danger"
-                }
-                onPress={() => void transport.record()}
-                aria-label={state.recording ? "Stop Recording" : "Record"}
-              >
-                <ButtonGroup.Separator />
-                <Circle
-                  size={14}
-                  className={state.recording ? "fill-danger" : "fill-current"}
-                />
-              </Button>
-              <Tooltip.Content>
-                {state.recording ? "Stop Recording" : "Record (Audio & MIDI)"}
-              </Tooltip.Content>
-            </Tooltip>
-            <Tooltip>
-              <Button
-                size="sm"
-                isIconOnly
-                variant="default-soft"
-                onPress={() => transport.next()}
-                aria-label="Next"
-              >
-                <ButtonGroup.Separator />
-                <SkipForward size={16} />
-              </Button>
-              <Tooltip.Content>Next</Tooltip.Content>
-            </Tooltip>
-          </ButtonGroup>
+          <PlayerTransportButtons
+            playing={state.playing}
+            recording={state.recording}
+          />
 
           <PlayerClickControls state={state} />
           <CountInControl state={state} />
