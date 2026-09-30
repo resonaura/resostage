@@ -8,13 +8,12 @@ import {
   type PianoRollCycleSetRange,
 } from "@/screens/editor/pianoroll/components/PianoRollProjectHeader";
 import { usePianoRollAutoScroll } from "@/screens/editor/pianoroll/hooks/usePianoRollAutoScroll";
+import { usePianoRollCoordinates } from "@/screens/editor/pianoroll/hooks/usePianoRollCoordinates";
 import { usePianoRollPlayheadFollow } from "@/screens/editor/pianoroll/hooks/usePianoRollPlayheadFollow";
 import { usePianoRollViewportGestures } from "@/screens/editor/pianoroll/hooks/usePianoRollViewportGestures";
 import { triggerHaptic } from "@/lib/interaction/haptics";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
-import { midiRegionSourceBeat } from "@/lib/midi/midiRegionTiming";
 import {
-  canvasYToPitch,
   editControllerPoint,
   generateNoteId,
   paintBrushNote,
@@ -214,75 +213,14 @@ export function PianoRollCanvas({
     spatialIndex.current.rebuild(notesToRender);
   }, [notesToRender]);
 
-  // Coordinate transforms
-  const beatToX = useCallback(
-    (beat: number) => {
-      return (
-        viewport.keyWidth +
-        (beat - viewport.scrollBeats) * viewport.pixelsPerBeat
-      );
-    },
-    [viewport.keyWidth, viewport.scrollBeats, viewport.pixelsPerBeat],
-  );
-
-  const xToBeat = useCallback(
-    (x: number) => {
-      return (
-        viewport.scrollBeats + (x - viewport.keyWidth) / viewport.pixelsPerBeat
-      );
-    },
-    [viewport.keyWidth, viewport.scrollBeats, viewport.pixelsPerBeat],
-  );
-
-  const pitchToY = useCallback(
-    (pitch: number, height: number) => {
-      const gridBottom = height - viewport.velocityLaneHeight;
-      // High pitches at top, low pitches at bottom
-      return (
-        gridBottom -
-        (pitch - viewport.scrollPitch + 1) * viewport.pixelsPerPitch
-      );
-    },
-    [
-      viewport.velocityLaneHeight,
-      viewport.scrollPitch,
-      viewport.pixelsPerPitch,
-    ],
-  );
-
-  const yToPitch = useCallback(
-    (y: number, height: number) => {
-      const gridBottom = height - viewport.velocityLaneHeight;
-      // scrollPitch is intentionally fractional during smooth wheel/trackpad
-      // panning. Round the complete inverse transform, not just its delta;
-      // otherwise a visible note can hit-test as the adjacent semitone.
-      return canvasYToPitch(
-        y,
-        gridBottom,
-        viewport.scrollPitch,
-        viewport.pixelsPerPitch,
-      );
-    },
-    [
-      viewport.velocityLaneHeight,
-      viewport.scrollPitch,
-      viewport.pixelsPerPitch,
-    ],
-  );
-
-  // Quantize beat to grid snap
-  const snapBeat = useCallback(
-    (beat: number): number => {
-      if (snap <= 0) return Math.max(0, beat);
-      return Math.max(0, Math.round(beat / snap) * snap);
-    },
-    [snap],
-  );
-
-  const sourceBeatAt = useCallback(
-    (beat: number) => midiRegionSourceBeat(region, beat),
-    [region],
-  );
+  const {
+    beatToX,
+    xToBeat,
+    pitchToY,
+    yToPitch,
+    snapBeat,
+    sourceBeatAt,
+  } = usePianoRollCoordinates({ viewport, snap, region });
 
   // Edge auto-scroll RAF and its pointer/clock refs are owned by one hook.
   const { lastPointerPosRef, startAutoScroll, stopAutoScroll } =
