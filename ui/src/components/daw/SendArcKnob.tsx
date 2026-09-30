@@ -1,4 +1,4 @@
-import { useKnobDrag } from "../../lib/interaction/knobDrag";
+import { useKnobDrag } from "../../hooks/useKnobDrag";
 
 /**
  * Floor for a send knob that hasn't been touched yet -- matches native

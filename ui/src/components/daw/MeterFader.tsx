@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useRef } from "react";
 import { addRafTask } from "../../lib/state/rafLoop";
-import { useEscRevert } from "../../lib/interaction/useEscRevert";
+import { useEscRevert } from "../../hooks/useEscRevert";
 import {
   clipColor,
   CLIP_GLOW_BLUR_PX,

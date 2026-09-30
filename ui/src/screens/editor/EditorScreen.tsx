@@ -15,28 +15,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   emptyProjectActions,
   EmptyProjectState,
-} from "../../components/project/EmptyProjectState";
-import { ImportStemsModal } from "../../components/dialogs/ImportStemsModal";
-import { EditorInspector } from "./EditorInspector";
-import { EmptyDetailPanel, ListPanel, SongEditor } from "./SongsTab";
+} from "./project/components/EmptyProjectState";
+import { ImportStemsModal } from "./audio/components/ImportStemsModal";
+import { EditorInspector } from "./components/EditorInspector";
+import { EmptyDetailPanel, ListPanel, SongEditor } from "./components/SongsTab";
 import {
   autoDetectBpm,
   autoDetectSongName,
   autoDetectStemMappings,
   executeStemImport,
-} from "../../lib/audio/stemImport";
-import { Timeline } from "../../components/timeline";
+} from "./audio/logic/stemImport";
+import { Timeline } from "./timeline";
 import {
   resolveTrackSelection,
   type TrackSelectionGesture,
-} from "../../components/timeline/tracks/logic/trackSelection";
-import { PianoRoll } from "../../components/pianoroll";
+} from "./timeline/tracks/logic/trackSelection";
+import { PianoRoll } from "./pianoroll";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
-import { MidiRegionSidePanel } from "../../components/pianoroll/components/MidiRegionSidePanel";
+import { MidiRegionSidePanel } from "./pianoroll/components/MidiRegionSidePanel";
 import { getTrackColor } from "../../lib/theme";
-import { songDurationSeconds } from "../../components/timeline/layout/logic/rows";
+import { songDurationSeconds } from "./timeline/layout/logic/rows";
 import { builder, mixer, timelineHistory, transport } from "../../lib/state/api";
-import { useIsCompact } from "../../lib/interaction/useMediaQuery";
+import { useIsCompact } from "../../hooks/useMediaQuery";
 import type {
   AllPeaksResponse,
   MidiNoteRow,

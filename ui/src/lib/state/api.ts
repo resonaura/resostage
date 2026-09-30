@@ -1,5 +1,5 @@
 import { apiUrl, apiFetch } from "./backend";
-import type { MixGraphPayload } from "../../components/audio/signalFlowLayout";
+import type { MixGraphPayload } from "../audio/mixGraph";
 import type {
   AllPeaksResponse,
   EventTypeWire,

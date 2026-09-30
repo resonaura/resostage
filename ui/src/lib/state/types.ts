@@ -650,7 +650,7 @@ export interface LightFixtureRow {
     startChannel: number;
     channelCount: number;
   };
-  /** Cosmetic-only (3D stage mesh) -- see ui/src/lib/dmxProfiles.ts. */
+  /** Cosmetic-only (3D stage mesh) -- see screens/light/logic/dmxProfiles.ts. */
   shape:
     | "bar"
     | "strip"

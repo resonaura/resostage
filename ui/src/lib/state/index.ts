@@ -6,7 +6,5 @@ export * from "./useLiveState";
 export * from "./optimistic";
 export * from "./structuralShare";
 export * from "./appActivity";
-export * from "./performance";
 export * from "./rafLoop";
 export * from "./devFlags";
-export * from "./importPrefs";

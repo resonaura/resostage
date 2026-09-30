@@ -5,7 +5,7 @@ import {
   ContextMenuItem,
 } from "../../../components/common/ContextMenu";
 import { InlineNamePrompt } from "../../../components/common/InlineNamePrompt";
-import type { RenderDialogIntent } from "../../../components/dialogs/RenderAudioDialog";
+import type { RenderDialogIntent } from "../../../app/render/components/RenderAudioDialog";
 import { builder, mixer } from "../../../lib/state/api";
 import {
   sourceOutputBusId,

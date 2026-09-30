@@ -9,17 +9,21 @@ import {
   Sliders,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ExportMidiDialog, type MidiExportIntent } from "./components/midi/ExportMidiDialog";
-import { ImportMidiDialog } from "./components/midi/ImportMidiDialog";
-import { ImportAudioBatchDialog } from "./components/dialogs/ImportAudioBatchDialog";
-import { GlobalTransportBar } from "./components/transport/GlobalTransportBar";
-import { OpenConfirmDialog, QuitConfirmDialog, QuitOverlay } from "./components/app/AppOverlays";
-import { ProjectMenu } from "./components/project/ProjectMenu";
+import { ExportMidiDialog, type MidiExportIntent } from "./app/midi/components/ExportMidiDialog";
+import { ImportMidiDialog } from "./app/midi/components/ImportMidiDialog";
+import { ImportAudioBatchDialog } from "./app/import/audio/components/ImportAudioBatchDialog";
+import { GlobalTransportBar } from "./app/transport/components/GlobalTransportBar";
+import {
+  OpenConfirmDialog,
+  QuitConfirmDialog,
+  QuitOverlay,
+} from "./app/overlays/components/AppOverlays";
+import { ProjectMenu } from "./app/project/components/ProjectMenu";
 import {
   RenderAudioDialog,
   type RenderDialogIntent,
-} from "./components/dialogs/RenderAudioDialog";
-import { VirtualMidiKeyboard } from "./components/midi/VirtualMidiKeyboard";
+} from "./app/render/components/RenderAudioDialog";
+import { VirtualMidiKeyboard } from "./app/midi/components/VirtualMidiKeyboard";
 import { Button, Tabs } from "./components/ui";
 import { fetchAllPeaks, fetchPeaks } from "./lib/state/api";
 import {
@@ -31,17 +35,17 @@ import { IS_ELECTRON } from "./lib/platform/electron";
 import { forwardMenuState } from "./lib/platform/electronBridge";
 import { IS_EMBEDDED } from "./lib/platform/embedded";
 import { hotkeyManager, HotkeyScope } from "./lib/interaction/HotkeyManager";
-import { useGlobalHotkeys } from "./lib/interaction/useGlobalHotkeys";
+import { useGlobalHotkeys } from "./app/hooks/useGlobalHotkeys";
 import type { AllPeaksResponse, PeaksResponse } from "./lib/state/types";
 import { useLiveState, type TransportKind } from "./lib/state/useLiveState";
 import { EditorScreen } from "./screens/editor/EditorScreen";
 import { LightScreen } from "./screens/light/LightScreen";
 import { MixerScreen } from "./screens/mixer";
 import { PlayerScreen } from "./screens/player/PlayerScreen";
-import { usePerformanceMode } from "./hooks/usePerformanceMode";
-import { useTheme } from "./hooks/useTheme";
+import { usePerformanceMode } from "./app/performance/hooks/usePerformanceMode";
+import { useTheme } from "./app/hooks/useTheme";
 import { applyTheme, getTheme, THEME_NAMES, type ThemeName } from "./lib/theme";
-import { TIER_FPS } from "./lib/state/performance";
+import { TIER_FPS } from "./app/performance/logic/performance";
 import { SettingsScreen } from "./screens/settings/SettingsScreen";
 interface ToastNotification {
   id: string;

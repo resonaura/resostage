@@ -28,9 +28,9 @@ import {
   VUMeter,
 } from "../../components/daw";
 import { FontIcon } from "../../components/common/FontIcon";
-import { ResoLightStage3D } from "../../components/light/LazyResoLightStage3D";
-import { Timeline } from "../../components/timeline";
-import { useSongLayout } from "../../components/timeline/layout/hooks/useSongLayout";
+import { ResoLightStage3D } from "../light/components/LazyResoLightStage3D";
+import { Timeline } from "../editor/timeline";
+import { useSongLayout } from "../editor/timeline/layout/hooks/useSongLayout";
 import {
   Button,
   ButtonGroup,
@@ -59,8 +59,8 @@ import {
   type WebUiState,
 } from "../../lib/state/types";
 import { busMeterGroups, type BusMeterGroup } from "./logic/busMeterGroups";
-import { useIsCompact } from "../../lib/interaction/useMediaQuery";
-import { CountInControl } from "../../components/transport/CountInControl";
+import { useIsCompact } from "../../hooks/useMediaQuery";
+import { CountInControl } from "../../app/transport/components/CountInControl";
 
 /** Stable empty roster so a rig with no fixtures doesn't churn the memo. */
 const EMPTY_FIXTURES: LightFixtureRow[] = [];

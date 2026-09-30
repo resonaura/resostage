@@ -4,5 +4,4 @@ export * from "./plugins";
 export * from "./theme";
 export * from "./interaction";
 export * from "./platform";
-export * from "./timeline";
 export * from "./state";

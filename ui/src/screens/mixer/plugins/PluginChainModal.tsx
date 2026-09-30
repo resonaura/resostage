@@ -19,7 +19,7 @@ import {
 import { createEditGesture } from "../../../lib/interaction/editGesture";
 import type { PluginSlotRow, SongRow, TrackRow } from "../../../lib/state/types";
 import { Alert, Button, Modal } from "../../../components/ui";
-import { AutomationMiniGraph } from "../../../components/mixer/AutomationMiniGraph";
+import { AutomationMiniGraph } from "./components/AutomationMiniGraph";
 import {
   deduplicatePlugins,
   displayFormat,

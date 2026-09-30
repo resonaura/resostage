@@ -1,5 +1,5 @@
 import { FolderOpen } from "lucide-react";
-import { ProjectLightingPanel } from "../../components/light/ProjectLightingPanel";
+import { ProjectLightingPanel } from "./components/ProjectLightingPanel";
 import { Alert } from "../../components/ui";
 import type { WebUiState } from "../../lib/state/types";
 

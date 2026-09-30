@@ -2,8 +2,8 @@ import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui";
-import type { RenderDialogIntent } from "../../components/dialogs/RenderAudioDialog";
-import { useHorizontalWindow } from "../../hooks/useHorizontalWindow";
+import type { RenderDialogIntent } from "../../app/render/components/RenderAudioDialog";
+import { useHorizontalWindow } from "./hooks/useHorizontalWindow";
 import {
   builder,
   mixer,
@@ -11,7 +11,7 @@ import {
   type PluginCatalogEntry,
 } from "../../lib/state/api";
 import { outputSendsToClickRows, type WebUiState } from "../../lib/state/types";
-import { useIsCompact } from "../../lib/interaction/useMediaQuery";
+import { useIsCompact } from "../../hooks/useMediaQuery";
 import { PluginChainModal } from "./plugins/PluginChainModal";
 import { extOutTarget, isMainBusId } from "./logic/mixerIds";
 import { patchClickFields } from "./logic/mixerUtils";

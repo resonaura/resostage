@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { FontIcon } from "../../components/common/FontIcon";
-import { RemoteSettingsSection } from "../../components/settings/RemoteSettingsSection";
+import { RemoteSettingsSection } from "./remote/components/RemoteSettingsSection";
 import {
   Alert,
   Button,
@@ -46,20 +46,20 @@ import {
   readLongImportPreference,
   writeLongImportPreference,
   type LongImportPreference,
-} from "../../lib/state/importPrefs";
+} from "../../app/import/audio/logic/importPrefs";
 import {
   TIER_DESCRIPTION,
   TIER_FPS,
   TIER_LABEL,
   type PerformanceSettings,
   type PerformanceTier,
-} from "../../lib/state/performance";
+} from "../../app/performance/logic/performance";
 import { THEME_LABELS, THEME_NAMES, type ThemeName } from "../../lib/theme";
 import type { MidiBindingRow, WebUiState } from "../../lib/state/types";
 // @xyflow/react is a heavy graph library behind exactly one modal. Loading it
 // on demand keeps it out of the startup bundle entirely.
 const SignalFlowDialog = lazy(() =>
-  import("../../components/audio/SignalFlowDialog").then((m) => ({
+  import("./audio/components/SignalFlowDialog").then((m) => ({
     default: m.SignalFlowDialog,
   })),
 );

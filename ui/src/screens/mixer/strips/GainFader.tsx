@@ -6,8 +6,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { useEscRevert } from "../../../lib/interaction/useEscRevert";
-import { FaderLaw } from "../../../lib/audio/audioCurves";
+import { useEscRevert } from "../../../hooks/useEscRevert";
+import { FaderLaw } from "../logic/audioCurves";
 import { GAIN_MAX, GAIN_MIN } from "../logic/constants";
 
 interface GainFaderProps {
