@@ -57,7 +57,7 @@ import { EventMarkerLane } from "./EventMarkerLane";
 import { LongImportPrompt } from "./LongImportPrompt";
 import { OutOfBoundsOverlay } from "./OutOfBoundsOverlay";
 import { songDetents } from "./detents";
-import { resolveCycleWrapRange } from "./resolveCycleWrapRange";
+import { resolveCycleWrapRange } from "./cycle/logic/resolveCycleWrapRange";
 import {
   snapSongLocalSeconds,
   timelineSecondsAtClientX,
@@ -83,7 +83,7 @@ import { SongRulerHeader } from "./SongRulerHeader";
 import { TimelineSidebar } from "./TimelineSidebar";
 import { TimelineToolbar } from "./TimelineToolbar";
 import { ToastContainer, type Toast } from "./ToastContainer";
-import { useCycleState } from "./useCycleState";
+import { useCycleState } from "./cycle/hooks/useCycleState";
 import { useRegionDrag } from "./useRegionDrag";
 import { useLongImportGuard } from "./useLongImportGuard";
 import { useRegionSelectionLifecycle } from "./useRegionSelectionLifecycle";

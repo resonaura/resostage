@@ -3,8 +3,8 @@ import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "../
 import type { TimelineFollowMode } from "../timeline/TimelineToolbar";
 import { RULER_HEIGHT } from "../timeline/constants";
 import { Ruler } from "../timeline/Ruler";
-import { CycleStrip } from "../timeline/CycleStrip";
-import type { CycleLocators } from "../timeline/useCycleState";
+import { CycleStrip } from "../timeline/cycle/components/CycleStrip";
+import type { CycleLocators } from "../timeline/cycle/hooks/useCycleState";
 import { triggerHaptic } from "../../lib/interaction/haptics";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import { midiRegionSourceBeat } from "../../lib/midi/midiRegionTiming";
