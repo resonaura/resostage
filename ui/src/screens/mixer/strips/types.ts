@@ -2,8 +2,10 @@ import type { PluginCatalogEntry } from "../../../lib/state/api";
 import type {
   BusRow,
   ClickSendRow,
+  MeterRow,
   PluginSlotRow,
   SettingsState,
+  TrackRow,
 } from "../../../lib/state/types";
 import type {
   StripFormatToggle,
@@ -69,4 +71,26 @@ export type ChannelStripProps = {
   onSoloSafe?: (safe: boolean) => void;
   density?: "narrow" | "standard" | "wide";
   targetPluginSlots?: number;
+};
+
+export type TrackStripProps = {
+  t: TrackRow;
+  index: number;
+  destinationBusses: BusRow[];
+  allBusses: BusRow[];
+  auxBusses: BusRow[];
+  meters: MeterRow[];
+  settings: SettingsState;
+  anySoloInGroup?: boolean;
+  pluginCatalog: PluginCatalogEntry[];
+  isRecording?: boolean;
+  density?: "narrow" | "standard" | "wide";
+  targetPluginSlots?: number;
+  onDirectOutput: (
+    trackIndex: number,
+    mono: boolean,
+    startChannel: number,
+    pair: boolean,
+  ) => void;
+  onOpenPlugins: (stripId: string, stripName: string) => void;
 };

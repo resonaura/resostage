@@ -1,21 +1,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import {
-  mixer,
-  pluginChains,
-  type PluginCatalogEntry,
-} from "../../../lib/state/api";
-import {
-  rowsSameExceptLevels,
-  sameExceptLevels,
-} from "../../../lib/audio/levelFields";
+import { mixer, pluginChains } from "../../../lib/state/api";
 import { getTrackLiveLevel } from "../../../lib/audio/liveLevels";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
-  type BusRow,
-  type MeterRow,
-  type SettingsState,
-  type TrackRow,
 } from "../../../lib/state/types";
 import { InstrumentContextMenu } from "../plugins/InstrumentContextMenu";
 import { resolveTrackPolarity, toggleTrackPolarity } from "../logic/polarity";
@@ -23,6 +11,8 @@ import { ChannelStrip } from "./ChannelStrip";
 import { colorForIndex } from "../logic/constants";
 import { getTrackInputOptions, getTrackInputState } from "../logic/trackInputs";
 import { PolarityContextMenu } from "./PolarityContextMenu";
+import { areTrackStripPropsEqual } from "./logic/trackStripMemo";
+import type { TrackStripProps } from "./types";
 
 function TrackStripInner({
   t,
@@ -39,27 +29,7 @@ function TrackStripInner({
   targetPluginSlots,
   onDirectOutput,
   onOpenPlugins,
-}: {
-  t: TrackRow;
-  index: number;
-  destinationBusses: BusRow[];
-  allBusses: BusRow[];
-  auxBusses: BusRow[];
-  meters: MeterRow[];
-  settings: SettingsState;
-  anySoloInGroup?: boolean;
-  pluginCatalog: PluginCatalogEntry[];
-  isRecording?: boolean;
-  density?: "narrow" | "standard" | "wide";
-  targetPluginSlots?: number;
-  onDirectOutput: (
-    trackIndex: number,
-    mono: boolean,
-    startChannel: number,
-    pair: boolean,
-  ) => void;
-  onOpenPlugins: (stripId: string, stripName: string) => void;
-}) {
+}: TrackStripProps) {
   const color = colorForIndex(index);
   const busId = sourceOutputBusId(t.output);
   const busMeter = meters.find((m) => m.id === busId);
@@ -260,30 +230,4 @@ function TrackStripInner({
   );
 }
 
-/**
- * A strip is expensive -- two routing selects, a send knob per aux, a fader --
- * and none of it depends on how loud the track currently is. The default
- * shallow compare would still re-render all of it on every telemetry frame,
- * because `t` and `meters` are new objects whenever a peak moves; see
- * lib/levelFields.
- */
-export const TrackStrip = memo(TrackStripInner, (prev, next) => {
-  return (
-    prev.index === next.index &&
-    prev.density === next.density &&
-    prev.targetPluginSlots === next.targetPluginSlots &&
-    prev.anySoloInGroup === next.anySoloInGroup &&
-    prev.settings === next.settings &&
-    prev.isRecording === next.isRecording &&
-    prev.onDirectOutput === next.onDirectOutput &&
-    prev.onOpenPlugins === next.onOpenPlugins &&
-    prev.pluginCatalog === next.pluginCatalog &&
-    // The bus lists are `.filter()` results, so they are new arrays every
-    // render even when nothing moved -- compare them by content.
-    rowsSameExceptLevels(prev.destinationBusses, next.destinationBusses) &&
-    sameExceptLevels(prev.t, next.t) &&
-    rowsSameExceptLevels(prev.allBusses, next.allBusses) &&
-    rowsSameExceptLevels(prev.auxBusses, next.auxBusses) &&
-    rowsSameExceptLevels(prev.meters, next.meters)
-  );
-});
+export const TrackStrip = memo(TrackStripInner, areTrackStripPropsEqual);
