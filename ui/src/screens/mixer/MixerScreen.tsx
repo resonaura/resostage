@@ -1,12 +1,9 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
 import { useMixerDensity } from "./hooks/useMixerDensity";
-import { mixer } from "../../lib/state/api";
 import type { WebUiState } from "../../lib/state/types";
 import { useIsCompact } from "../../hooks/useMediaQuery";
 import { usePluginCatalog } from "./plugins/hooks/usePluginCatalog";
-import { extOutTarget } from "./logic/mixerIds";
-import { patchClickFields } from "./logic/mixerUtils";
 import type { StripMenuTarget } from "./strips/StripContextMenu";
 import { MixerToolbar } from "./components/MixerToolbar";
 import { MixerClickMasterLane } from "./components/MixerClickMasterLane";
@@ -15,6 +12,7 @@ import { MixerSendRack } from "./components/MixerSendRack";
 import { MixerOverlays, type PluginTarget } from "./components/MixerOverlays";
 import { useMixerSendCreation } from "./hooks/useMixerSendCreation";
 import { useMixerStripLayout } from "./hooks/useMixerStripLayout";
+import { useMixerDirectOutput } from "./hooks/useMixerDirectOutput";
 
 export function MixerScreen({
   state,
@@ -44,8 +42,8 @@ export function MixerScreen({
     auxBusses,
     master,
   });
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const { requestTrackDirectOutput, requestClickDirectOutput } =
+    useMixerDirectOutput(state);
   const [menu, setMenu] = useState<StripMenuTarget | null>(null);
   const [pluginTarget, setPluginTarget] = useState<PluginTarget | null>(null);
   const effectCatalog = usePluginCatalog(active);
@@ -53,45 +51,6 @@ export function MixerScreen({
   const openPlugins = useCallback((stripId: string, stripName: string) => {
     setPluginTarget({ stripId, stripName });
   }, []);
-
-  /**
-   * Output lanes are fabricated by the engine from the device's active output
-   * channels (never persisted — see BusRow.isDirectOut). Lanes are always
-   * mono, so a stereo pick is a pair of them. We only ever route to these —
-   * never create project busses for Ext. Out.
-   */
-  function directBusIdFor(startChannel: number, pair: boolean): string {
-    return extOutTarget(startChannel, pair);
-  }
-
-  // Stable identities: every strip is memoised (see TrackStrip), and a handler
-  // rebuilt each render would defeat that on its own.
-  const requestTrackDirectOutput = useCallback(
-    (
-      trackIndex: number,
-      _mono: boolean,
-      startChannel: number,
-      pair: boolean,
-    ) => {
-      // Always switch: the lane id is deterministic from the channel and the
-      // engine's routing drops any lane that isn't currently present (shadow /
-      // unavailable) to silence without rejecting. Gating on the live bus list
-      // here made Ext. Out feel dead on tracks (race the moment a lane isn't
-      // yet in state.busses), while master -- a plain project bus -- always
-      // switched fine.
-      void mixer.setTrackBus(trackIndex, directBusIdFor(startChannel, pair));
-    },
-    [],
-  );
-
-  const requestClickDirectOutput = useCallback(
-    (startChannel: number, pair: boolean) => {
-      patchClickFields(stateRef.current, {
-        clickBusId: directBusIdFor(startChannel, pair),
-      });
-    },
-    [],
-  );
 
   const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
 
