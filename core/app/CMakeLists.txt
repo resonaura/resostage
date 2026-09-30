@@ -50,6 +50,7 @@ juce_add_gui_app(ResoStage
 target_sources(ResoStage PRIVATE
   Main.cpp
   main/MainComponent.cpp
+  main/MainComponentActions.cpp
   main/render/MainComponentRender.cpp
   main/shell/MainComponentShell.cpp
   main/project/MainComponentProjects.cpp
@@ -93,6 +94,8 @@ target_sources(ResoStage PRIVATE
   plugins/PluginHostSharedMemory.cpp
   plugins/PluginHostProcess.cpp
   server/WebServer.cpp
+  server/WebServerJobs.cpp
+  server/WebServerTelemetry.cpp
   network/UdpDiscovery.cpp
 )
 
