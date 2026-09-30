@@ -67,10 +67,13 @@ target_sources(ResoStage PRIVATE
   main/MainComponentPlugins.cpp
   config/AppSettings.cpp
   engine/AudioEngine.cpp
+  engine/AudioEngineDevice.cpp
+  engine/AudioEngineEventDispatch.cpp
   engine/AudioEngineImport.cpp
   engine/AudioEnginePeaks.cpp
   engine/AudioEnginePlugins.cpp
   engine/AudioEngineProject.cpp
+  engine/AudioEngineRecording.cpp
   engine/AudioEngineRouting.cpp
   engine/AudioEngineTransport.cpp
   engine/OfflineRenderer.cpp
