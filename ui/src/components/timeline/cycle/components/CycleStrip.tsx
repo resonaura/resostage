@@ -8,7 +8,7 @@ import { triggerHaptic } from "../../../../lib/interaction/haptics";
 import type { SongRow } from "../../../../lib/state/types";
 import { RULER_CYCLE_HEIGHT } from "../../constants";
 import { crossedDetent, songDetents } from "../../detents";
-import { snapToGridSec } from "../../geometry";
+import { snapToGridSec } from "../../ruler/logic/geometry";
 import type { CycleLocators } from "../hooks/useCycleState";
 
 type DragMode = "create" | "move" | "resizeL" | "resizeR" | "click";

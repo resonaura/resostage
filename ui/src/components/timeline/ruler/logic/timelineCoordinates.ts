@@ -1,4 +1,4 @@
-import type { SongRow } from "../../lib/state/types";
+import type { SongRow } from "../../../../lib/state/types";
 import { snapToGridSec } from "./geometry";
 
 export interface TimelineSongPosition {

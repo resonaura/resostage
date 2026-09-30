@@ -3,7 +3,7 @@ import { laneHeightPx } from "../../laneDimensions";
 import { EDGE_PX } from "../../constants";
 import type { CycleLocatorsForDetents } from "../../detents";
 
-import { snapToGridSec } from "../../geometry";
+import { snapToGridSec } from "../../ruler/logic/geometry";
 import type { RegionSelKey } from "./regionUtils";
 import type { TimelineRow } from "../../rows";
 

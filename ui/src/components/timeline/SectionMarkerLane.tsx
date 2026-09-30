@@ -18,7 +18,7 @@ import {
   songDetents,
   type CycleLocatorsForDetents,
 } from "./detents";
-import { formatTimeShort, snapToGridSec } from "./geometry";
+import { formatTimeShort, snapToGridSec } from "./ruler/logic/geometry";
 
 /** Neutral marker chrome — no per-section accent colours. */
 const SECTION_LINE = "rgba(255,255,255,0.22)";

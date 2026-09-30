@@ -44,7 +44,7 @@ import {
 } from "../project/EmptyProjectState";
 import { AudioDropGhost } from "./AudioDropGhost";
 import { AudioTrackLanes } from "./AudioTrackLanes";
-import { BeatGrid } from "./BeatGrid";
+import { BeatGrid } from "./ruler/components/BeatGrid";
 import {
   EVENT_LANE_HEIGHT,
   MAX_PX_PER_SEC,
@@ -61,8 +61,8 @@ import { resolveCycleWrapRange } from "./cycle/logic/resolveCycleWrapRange";
 import {
   snapSongLocalSeconds,
   timelineSecondsAtClientX,
-} from "./timelineCoordinates";
-import { useSongEndDrag } from "./useSongEndDrag";
+} from "./ruler/logic/timelineCoordinates";
+import { useSongEndDrag } from "./ruler/hooks/useSongEndDrag";
 import { laneHeightPx } from "./laneDimensions";
 import { LightTrackLanes } from "./LightTrackLanes";
 import {
@@ -79,7 +79,7 @@ import { buildRows, songContentSeconds } from "./rows";
 import { previewDropReorder } from "./dropPreview";
 import { SectionMarkerLane } from "./SectionMarkerLane";
 import { SelectionContextMenu } from "./selection/components/SelectionContextMenu";
-import { SongRulerHeader } from "./SongRulerHeader";
+import { SongRulerHeader } from "./ruler/components/SongRulerHeader";
 import { TimelineSidebar } from "./tracks/components/TimelineSidebar";
 import { TimelineToolbar } from "./TimelineToolbar";
 import { ToastContainer, type Toast } from "./ToastContainer";
@@ -90,7 +90,7 @@ import { useRegionSelectionLifecycle } from "./regions/hooks/useRegionSelectionL
 import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./selection/hooks/useTimelineKeyboard";
 import { useTimelineMarquee } from "./selection/hooks/useTimelineMarquee";
-import { useTimelineScrub } from "./useTimelineScrub";
+import { useTimelineScrub } from "./ruler/hooks/useTimelineScrub";
 import { useTimelineTrackFocus } from "./tracks/hooks/useTimelineTrackFocus";
 import { useTimelineZoomGestures } from "./useTimelineZoomGestures";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";

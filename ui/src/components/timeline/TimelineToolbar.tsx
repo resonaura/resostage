@@ -38,7 +38,7 @@ import {
   ContextMenuItem,
 } from "../common/ContextMenu";
 import { MAX_PX_PER_SEC, MIN_PX_PER_SEC } from "./constants";
-import { formatTimeShort } from "./geometry";
+import { formatTimeShort } from "./ruler/logic/geometry";
 import { TIMELINE_TOOLS, type TimelineTool } from "./tools";
 
 export type TimelineFollowMode = "off" | "snap" | "smooth";

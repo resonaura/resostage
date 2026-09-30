@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import { withHexAlpha } from "../../lib/theme/cssColor";
-import { formatTimeShort } from "./geometry";
+import { formatTimeShort } from "./ruler/logic/geometry";
 
 // Visual ghost of an audio file being dragged over the timeline: "as if
 // you'd just added it" -- filename, waveform and duration -- but nothing is

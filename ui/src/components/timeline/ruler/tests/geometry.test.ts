@@ -4,7 +4,7 @@ import {
   getSnapInterval,
   getTickConfig,
   snapToGridSec,
-} from "./geometry";
+} from "../logic/geometry";
 
 describe("formatTimeShort", () => {
   it("formats minutes and tenths with zero-padded seconds", () => {
