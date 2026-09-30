@@ -8,10 +8,6 @@ import {
 } from "react";
 import { builder } from "../../lib/state/api";
 import {
-  beginCancellableDrag,
-  type CancellableDrag,
-} from "../../lib/interaction/dragCancel";
-import {
   useContinuousPlayhead,
   type CycleWrapRange,
 } from "../../lib/state/optimistic";
@@ -70,11 +66,6 @@ import type { SongEndDrag } from "./SongEndMarker";
 import { laneHeightPx } from "./laneDimensions";
 import { LightTrackLanes } from "./LightTrackLanes";
 import {
-  normalizeMarquee,
-  resolveMarqueeSelection,
-  type MarqueeRect,
-} from "./marqueeSelect";
-import {
   RegionContextMenu,
   type RegionContextMenuState,
 } from "./RegionContextMenu";
@@ -97,6 +88,7 @@ import { useRegionDrag } from "./useRegionDrag";
 import { useLongImportGuard } from "./useLongImportGuard";
 import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
+import { useTimelineMarquee } from "./useTimelineMarquee";
 import { useTimelineScrub } from "./useTimelineScrub";
 import { useTimelineZoomGestures } from "./useTimelineZoomGestures";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
@@ -526,28 +518,6 @@ export function Timeline({
 
   const [regionContextMenu, setRegionContextMenu] =
     useState<RegionContextMenuState | null>(null);
-  const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
-  const marqueeRef = useRef<{
-    x0: number;
-    y0: number;
-    active: boolean;
-    additive: boolean;
-    /** Selection snapshot at marquee start (for shift/⌘ additive merge). */
-    baseRegionKeys: RegionSelKey[];
-    baseCueKeys: CueSelKey[];
-  } | null>(null);
-  // Filled after rows/song layout exist (see assignment below).
-  const marqueeLiveRef = useRef<{
-    effectiveViewMode: typeof effectiveViewMode;
-    lightTrackIds: string[];
-    songs: typeof state.songs;
-    songOffsets: number[];
-    songLengths: number[];
-    pxPerSec: number;
-    verticalZoom: number;
-    rows: ReturnType<typeof buildRows>;
-    tracks: typeof state.tracks;
-  } | null>(null);
 
   const {
     regionGeomDraft,
@@ -885,45 +855,6 @@ export function Timeline({
     (lightTracks.length > 0 ||
       songs.some((s) => (s.lightCues ?? []).length > 0));
 
-  // Live marquee hit-test inputs (after layout deps exist).
-  marqueeLiveRef.current = {
-    effectiveViewMode,
-    lightTrackIds,
-    songs,
-    songOffsets,
-    songLengths,
-    pxPerSec,
-    verticalZoom,
-    rows,
-    tracks: state.tracks,
-  };
-
-  const applyMarqueeHits = (
-    box: MarqueeRect,
-    m: NonNullable<typeof marqueeRef.current>,
-  ) => {
-    const live = marqueeLiveRef.current;
-    if (!live) return;
-    const selection = resolveMarqueeSelection({
-      mode: live.effectiveViewMode,
-      marquee: box,
-      additive: m.additive,
-      baseCueKeys: m.baseCueKeys,
-      baseRegionKeys: m.baseRegionKeys,
-      lightTrackIds: live.lightTrackIds,
-      songs: live.songs,
-      songOffsets: live.songOffsets,
-      songLengths: live.songLengths,
-      pxPerSec: live.pxPerSec,
-      laneHeight: laneHeightPx(live.verticalZoom),
-      rows: live.rows,
-      tracks: live.tracks,
-    });
-    setSelectedCueKeys(selection.cueKeys);
-    setCueSelection(selection.selectedCue);
-    setSelectedRegionKeys(selection.regionKeys);
-  };
-
   // Live 3D stage colors come only from the core binary LED stream
   // (LightSidePanel). Do not re-resolve cues on the frontend.
   const previewColors = useMemo(
@@ -1116,6 +1047,33 @@ export function Timeline({
     catchFollowOnSeek,
   });
 
+  const {
+    marqueeRect,
+    onTracksPointerDown,
+    onTracksPointerMove,
+    onTracksPointerUp,
+    onTracksPointerCancel,
+  } = useTimelineMarquee({
+    viewMode: effectiveViewMode,
+    lightTrackIds,
+    songs,
+    songOffsets,
+    songLengths,
+    pxPerSec,
+    verticalZoom,
+    rows,
+    tracks: state.tracks,
+    hasSongs,
+    readOnly,
+    tracksOriginRef,
+    selectedRegionKeys,
+    selectedCueKeys,
+    setSelectedRegionKeys,
+    setSelectedCueKeys,
+    setCueSelection,
+    seekFromClientX,
+  });
+
   // Light-lane coordinate helpers (mirror seekFromClientX's math): absolute
   // project seconds from a clientX, and grid-snapped local seconds.
   const toAbsSec = (clientX: number) => {
@@ -1161,99 +1119,6 @@ export function Timeline({
   };
 
   // Ruler / playhead-handle scrub interaction lives in useTimelineScrub.
-  // Empty track-lane gesture: click = seek + clear selection; drag = marquee.
-  // Regions/cues stopPropagation so this only sees empty space.
-  // While dragging, selection updates live (before mouse-up).
-  const marqueeCancelRef = useRef<CancellableDrag | null>(null);
-  /**
-   * Esc mid-marquee: drop the rubber band and put the selection back to what it
-   * was before the drag. The marquee highlights live (applyMarqueeHits runs on
-   * every move), so the baseline it captured at pointerdown is exactly what
-   * needs restoring.
-   */
-  const cancelMarquee = () => {
-    const m = marqueeRef.current;
-    marqueeRef.current = null;
-    setMarqueeRect(null);
-    marqueeCancelRef.current?.end();
-    marqueeCancelRef.current = null;
-    if (!m) return;
-    setSelectedRegionKeys(m.baseRegionKeys);
-    setSelectedCueKeys(m.baseCueKeys);
-  };
-  const onTracksPointerDown = (e: React.PointerEvent) => {
-    if (!hasSongs || readOnly || e.button !== 0) return;
-    const origin = tracksOriginRef.current;
-    if (!origin) return;
-    const rect = origin.getBoundingClientRect();
-    // tracksOrigin lives inside the scrolled body — getBoundingClientRect()
-    // already shifts with scrollLeft. Adding scrollLeft again double-counts
-    // (same bug seekFromClientX fixed) and draws marquee offset when panned.
-    const x = e.clientX - rect.left;
-    // y relative to tracks container (tracksOrigin is inside the scroll body).
-    const y = e.clientY - rect.top;
-    marqueeRef.current = {
-      x0: x,
-      y0: y,
-      active: false,
-      additive: e.shiftKey || e.metaKey || e.ctrlKey,
-      baseRegionKeys: [...selectedRegionKeys],
-      baseCueKeys: [...selectedCueKeys],
-    };
-    marqueeCancelRef.current?.end();
-    marqueeCancelRef.current = beginCancellableDrag(cancelMarquee);
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  };
-  const onTracksPointerMove = (e: React.PointerEvent) => {
-    const m = marqueeRef.current;
-    if (!m) return;
-    const origin = tracksOriginRef.current;
-    if (!origin) return;
-    const rect = origin.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const dx = x - m.x0;
-    const dy = y - m.y0;
-    if (!m.active && Math.hypot(dx, dy) < 6) return;
-    m.active = true;
-    const box = normalizeMarquee(m.x0, m.y0, x, y);
-    setMarqueeRect(box);
-    // Live highlight under the rubber-band before release.
-    applyMarqueeHits(box, m);
-  };
-  const finishMarquee = (e: React.PointerEvent) => {
-    const m = marqueeRef.current;
-    marqueeRef.current = null;
-    setMarqueeRect(null);
-    marqueeCancelRef.current?.end();
-    marqueeCancelRef.current = null;
-    if (!m) return;
-    const origin = tracksOriginRef.current;
-    if (!origin) return;
-    const rect = origin.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    if (!m.active) {
-      // Click empty lane: clear selection + seek.
-      setSelectedRegionKeys([]);
-      setSelectedCueKeys([]);
-      setCueSelection(null);
-      seekFromClientX(e.clientX, true);
-      return;
-    }
-    // Final apply (matches last live frame; keeps additive baseline correct).
-    applyMarqueeHits(normalizeMarquee(m.x0, m.y0, x, y), m);
-  };
-  const onTracksPointerUp = (e: React.PointerEvent) => {
-    finishMarquee(e);
-  };
-  const onTracksPointerCancel = (_e: React.PointerEvent) => {
-    marqueeRef.current = null;
-    setMarqueeRect(null);
-    marqueeCancelRef.current?.end();
-    marqueeCancelRef.current = null;
-  };
-
   const onScrollSync = (e: React.UIEvent<HTMLDivElement>) => {
     // Vertical sidebar mirror: write HERE (scroll event is sync with the
     // browser's scroll position) so the left track list never lags a frame
