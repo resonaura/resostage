@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { CROSSFADE_SHAPES, type CrossfadeShape } from "./crossfade";
+import { CROSSFADE_SHAPES, type CrossfadeShape } from "../logic/crossfade";
 
 /**
  * The X drawn over the span where two regions on a track overlap.
@@ -15,7 +15,7 @@ import { CROSSFADE_SHAPES, type CrossfadeShape } from "./crossfade";
  * Dragging the seam grows or shrinks the crossfade symmetrically, by trimming
  * the earlier region's end later and the later region's start earlier in equal
  * measure. Neither region's audio moves in time, and the seam stays where it
- * is -- see crossfadeResize.ts for why that symmetry is worth the clamping it
+ * is -- see ../logic/crossfadeResize.ts for why that symmetry is worth the clamping it
  * costs.
  */
 export function CrossfadeOverlay({

@@ -11,7 +11,7 @@ import {
   planTrackCrossfades,
   type CrossfadeRegion,
   type CrossfadeShape,
-} from "./crossfade";
+} from "./crossfade/logic/crossfade";
 import { edgesCrossedDetent, songDetents } from "./detents";
 import { lookupAnyRegion, type RegionSelKey } from "./regionUtils";
 import {

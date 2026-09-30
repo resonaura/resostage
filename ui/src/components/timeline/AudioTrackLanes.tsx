@@ -18,9 +18,9 @@ import {
   MidiRegionContextMenu,
   type MidiRegionContextMenuState,
 } from "./MidiRegionContextMenu";
-import { CrossfadeOverlay } from "./CrossfadeOverlay";
-import { buildCrossfadeLayout } from "./crossfadeLayout";
-import { resizeCrossfade } from "./crossfadeResize";
+import { CrossfadeOverlay } from "./crossfade/components/CrossfadeOverlay";
+import { buildCrossfadeLayout } from "./crossfade/logic/crossfadeLayout";
+import { resizeCrossfade } from "./crossfade/logic/crossfadeResize";
 import {
   buildRegionDragSession,
   regionStretchEdge,

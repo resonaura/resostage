@@ -3,7 +3,7 @@ import {
   MIN_REGION_SECONDS,
   resizeCrossfade,
   type CrossfadeSide,
-} from "./crossfadeResize";
+} from "../logic/crossfadeResize";
 
 const side = (over: Partial<CrossfadeSide> = {}): CrossfadeSide => ({
   sourceOffset: 10,

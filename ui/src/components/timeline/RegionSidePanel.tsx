@@ -11,7 +11,7 @@ import {
   crossfadeBetween,
   type CrossfadeRegion,
   type CrossfadeShape,
-} from "./crossfade";
+} from "./crossfade/logic/crossfade";
 import { SidePanelShell } from "./SidePanelShell";
 import { TrackStateButtons } from "./TrackStateButtons";
 import type { RegionSelKey } from "./regionUtils";
