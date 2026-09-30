@@ -2,28 +2,18 @@ import { useMemo } from "react";
 import { LevelMeterBar } from "../../../components/daw";
 import { Select } from "../../../components/ui";
 import { useChannelClipHold } from "../../../hooks/useChannelClipHold";
-import type { PluginCatalogEntry } from "../../../lib/state/api";
 import { useLiveValue } from "../../../lib/state/optimistic";
-import type {
-  BusRow,
-  ClickSendRow,
-  PluginSlotRow,
-  SettingsState,
-} from "../../../lib/state/types";
 import { ROUTING_SELECT_SIZE } from "../logic/constants";
 import { GainFader } from "./GainFader";
 import { GainPeakReadout } from "./GainPeakReadout";
 import { PanControl } from "./PanControl";
-import {
-  StripInputControls,
-  type StripFormatToggle,
-  type StripInputRouting,
-} from "./StripInputControls";
+import { StripInputControls } from "./StripInputControls";
 import { StripStateControls } from "./StripStateControls";
 import { PluginInsertSlots } from "../plugins/PluginInsertSlots";
 import { SendKnobs } from "./SendKnobs";
 import { TrackOutputRouting } from "../routing/components/TrackOutputRouting";
 import { RoutingSlotPlaceholder } from "../routing/components/RoutingSlotPlaceholder";
+import type { ChannelStripProps } from "./types";
 
 /** Stable identity so useLiveValue's commit ref doesn't churn. */
 const noop = () => {};
@@ -70,66 +60,7 @@ export function ChannelStrip({
   onSoloSafe,
   density = "standard",
   targetPluginSlots,
-}: {
-  stripId: string;
-  name: string;
-  subtitle?: string;
-  color: string;
-  busses?: BusRow[];
-  busId?: string;
-  onBusSelect?: (id: string) => void;
-  directOutput?: {
-    settings: SettingsState;
-    allBusses: BusRow[];
-    mono?: boolean;
-    onMonoChange?: (mono: boolean) => void;
-    onDirectOutput: (
-      mono: boolean,
-      startChannel: number,
-      pair: boolean,
-    ) => void;
-  };
-  sends?: {
-    auxBusses: BusRow[];
-    values: ClickSendRow[];
-    trackIndex: number;
-    /** Overrides the default per-track write. `level` is 0-100 percent. */
-    onSendChange?: (busId: string, level: number, enabled?: boolean) => void;
-    onSendEnabledChange?: (busId: string, enabled: boolean) => void;
-  };
-  busDestination?: React.ReactNode;
-  gainDb: number;
-  pan: number | null;
-  peakDb: number | undefined;
-  peakDbL?: number;
-  peakDbR?: number;
-  getLiveDb?: () => number;
-  getLiveDbL?: () => number;
-  getLiveDbR?: () => number;
-  mute: boolean;
-  solo: boolean;
-  soloSafe?: boolean;
-  anySoloInGroup?: boolean;
-  recordArmed?: boolean;
-  inputMonitoring?: boolean;
-  isRecording?: boolean;
-  isMaster?: boolean;
-  shortTermLufs?: number;
-  onRecordArm?: () => void;
-  onInputMonitor?: () => void;
-  formatToggle?: StripFormatToggle;
-  inputRouting?: StripInputRouting;
-  pluginSlots?: PluginSlotRow[];
-  pluginCatalog?: PluginCatalogEntry[];
-  onPlugins?: () => void;
-  onGain: (v: number) => void;
-  onPan: ((v: number) => void) | null;
-  onMute: () => void;
-  onSolo: () => void;
-  onSoloSafe?: (safe: boolean) => void;
-  density?: "narrow" | "standard" | "wide";
-  targetPluginSlots?: number;
-}) {
+}: ChannelStripProps) {
   // ── What this strip currently SHOWS, as opposed to what the engine has
   // last confirmed ────────────────────────────────────────────────────────
   const [displayGainDb, commitGain] = useLiveValue(gainDb, onGain);
