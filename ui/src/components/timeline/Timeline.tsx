@@ -54,7 +54,7 @@ import {
   TRAILING_SLACK_SECONDS,
 } from "./constants";
 import { EventMarkerLane } from "./events/components/EventMarkerLane";
-import { LongImportPrompt } from "./longImport/components/LongImportPrompt";
+import { LongImportPrompt } from "./overrun/components/LongImportPrompt";
 import { OutOfBoundsOverlay } from "./layout/components/OutOfBoundsOverlay";
 import { songDetents } from "./snapping/logic/detents";
 import { resolveCycleWrapRange } from "./cycle/logic/resolveCycleWrapRange";
@@ -85,7 +85,7 @@ import { TimelineToolbar } from "./toolbar/components/TimelineToolbar";
 import { ToastContainer, type Toast } from "./ToastContainer";
 import { useCycleState } from "./cycle/hooks/useCycleState";
 import { useRegionDrag } from "./regions/hooks/useRegionDrag";
-import { useLongImportGuard } from "./longImport/hooks/useLongImportGuard";
+import { useLongImportGuard } from "./overrun/hooks/useLongImportGuard";
 import { useRegionSelectionLifecycle } from "./regions/hooks/useRegionSelectionLifecycle";
 import { useSongLayout } from "./layout/hooks/useSongLayout";
 import { useTimelineKeyboard } from "./selection/hooks/useTimelineKeyboard";
