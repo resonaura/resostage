@@ -10,40 +10,20 @@ import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialI
 import type {
   DraggingState,
   PianoRollBottomLane,
+  PianoRollControllerGesture,
+  PianoRollPendingAutomationCommit,
   PianoRollViewport,
+  PianoRollVelocityPaintState,
 } from "@/screens/editor/pianoroll/logic/types";
-
-interface ControllerGesture {
-  beforeLanes: AutomationLaneRow[] | null;
-  baseLanes: AutomationLaneRow[];
-  laneIndex: number;
-  pointIndex: number;
-  added: boolean;
-  anchorBeat: number;
-  changed: boolean;
-  lastBeat: number;
-  lastValue: number;
-}
-
-interface PendingAutomationCommit {
-  parameterId: string;
-  points: AutomationLaneRow["points"];
-}
-
-interface VelocityPaintState {
-  lastBeat: number;
-  notes: MidiNoteRow[];
-  noteById: Map<number, MidiNoteRow>;
-}
 
 interface PianoRollPointerEndHandlerOptions {
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;
   draggingRef: MutableRefObject<DraggingState | null>;
   pendingCommitRef: MutableRefObject<MidiNoteRow[] | null>;
-  pendingAutomationCommitRef: MutableRefObject<PendingAutomationCommit | null>;
-  controllerGestureRef: MutableRefObject<ControllerGesture | null>;
+  pendingAutomationCommitRef: MutableRefObject<PianoRollPendingAutomationCommit | null>;
+  controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
   localAutomationLanesRef: MutableRefObject<AutomationLaneRow[] | null>;
-  velocityPaintRef: MutableRefObject<VelocityPaintState | null>;
+  velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
   localNotes: MidiNoteRow[] | null;
   notesToRender: MidiNoteRow[];

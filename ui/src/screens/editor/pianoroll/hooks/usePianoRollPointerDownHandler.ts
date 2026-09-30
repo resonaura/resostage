@@ -23,37 +23,21 @@ import type {
   DraggingState,
   GridSnapValue,
   PianoRollBottomLane,
+  PianoRollControllerGesture,
   PianoRollTool,
   ScaleMode,
   PianoRollViewport,
+  PianoRollVelocityPaintState,
 } from "@/screens/editor/pianoroll/logic/types";
-
-interface VelocityPaintState {
-  lastBeat: number;
-  notes: MidiNoteRow[];
-  noteById: Map<number, MidiNoteRow>;
-}
-
-interface ControllerGesture {
-  beforeLanes: AutomationLaneRow[] | null;
-  baseLanes: AutomationLaneRow[];
-  laneIndex: number;
-  pointIndex: number;
-  added: boolean;
-  anchorBeat: number;
-  changed: boolean;
-  lastBeat: number;
-  lastValue: number;
-}
 
 interface PianoRollPointerDownHandlerOptions {
   canvasRef: MutableRefObject<HTMLCanvasElement | null>;
   lastPointerPosRef: MutableRefObject<{ clientX: number; clientY: number }>;
   draggingRef: MutableRefObject<DraggingState | null>;
   pendingCommitRef: MutableRefObject<MidiNoteRow[] | null>;
-  velocityPaintRef: MutableRefObject<VelocityPaintState | null>;
+  velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   localAutomationLanesRef: MutableRefObject<AutomationLaneRow[] | null>;
-  controllerGestureRef: MutableRefObject<ControllerGesture | null>;
+  controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
   lastSingleSelectedDurationRef: MutableRefObject<number | null>;
   isFollowSuspendedRef: MutableRefObject<boolean>;

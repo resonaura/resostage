@@ -1,4 +1,4 @@
-import type { MidiNoteRow, MidiRegionRow, ProjectCycleRow, SongRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, ProjectCycleRow, SongRow } from "@/lib/state/types";
 
 export type PianoRollTool = "select" | "draw" | "erase" | "brush" | "slice";
 
@@ -64,6 +64,32 @@ export interface DraggingState {
     currentBeat: number;
     currentPitch: number;
   };
+}
+
+/** Mutable working copy used while painting velocities across note starts. */
+export interface PianoRollVelocityPaintState {
+  lastBeat: number;
+  notes: MidiNoteRow[];
+  noteById: Map<number, MidiNoteRow>;
+}
+
+/** Snapshot and cursor state for an in-progress region automation gesture. */
+export interface PianoRollControllerGesture {
+  beforeLanes: AutomationLaneRow[] | null;
+  baseLanes: AutomationLaneRow[];
+  laneIndex: number;
+  pointIndex: number;
+  added: boolean;
+  anchorBeat: number;
+  changed: boolean;
+  lastBeat: number;
+  lastValue: number;
+}
+
+/** Expected Core acknowledgement for the last region automation edit. */
+export interface PianoRollPendingAutomationCommit {
+  parameterId: string;
+  points: AutomationLaneRow["points"];
 }
 
 export interface PianoRollProps {

@@ -25,8 +25,11 @@ import type {
   DraggingState,
   GridSnapValue,
   PianoRollBottomLane,
+  PianoRollControllerGesture,
+  PianoRollPendingAutomationCommit,
   PianoRollTool,
   PianoRollViewport,
+  PianoRollVelocityPaintState,
   ScaleMode,
 } from "@/screens/editor/pianoroll/logic/types";
 
@@ -123,23 +126,9 @@ export function PianoRollCanvas({
     localAutomationLanesRef.current = lanes;
     setLocalAutomationLanes(lanes);
   }, []);
-  const pendingAutomationCommitRef = useRef<{ parameterId: string; points: AutomationLaneRow["points"] } | null>(null);
-  const controllerGestureRef = useRef<{
-    beforeLanes: AutomationLaneRow[] | null;
-    baseLanes: AutomationLaneRow[];
-    laneIndex: number;
-    pointIndex: number;
-    added: boolean;
-    anchorBeat: number;
-    changed: boolean;
-    lastBeat: number;
-    lastValue: number;
-  } | null>(null);
-  const velocityPaintRef = useRef<{
-    lastBeat: number;
-    notes: MidiNoteRow[];
-    noteById: Map<number, MidiNoteRow>;
-  } | null>(null);
+  const pendingAutomationCommitRef = useRef<PianoRollPendingAutomationCommit | null>(null);
+  const controllerGestureRef = useRef<PianoRollControllerGesture | null>(null);
+  const velocityPaintRef = useRef<PianoRollVelocityPaintState | null>(null);
 
   // Keep the optimistic canvas image until Core's authoritative region catches
   // up. Clearing it on pointer-up used to flash the old note positions while
