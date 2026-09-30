@@ -63,6 +63,8 @@ target_sources(ResoStage PRIVATE
   main/builder/MainComponentBuilderTimeline.cpp
   main/builder/MainComponentBuilderImports.cpp
   main/MainComponentSettings.cpp
+  main/settings/MainComponentSettingsHardware.cpp
+  main/settings/MainComponentSettingsMidi.cpp
   main/MainComponentTimeline.cpp
   main/MainComponentLighting.cpp
   main/MainComponentPlugins.cpp
