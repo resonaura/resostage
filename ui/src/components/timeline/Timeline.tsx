@@ -89,6 +89,7 @@ import { useSongLayout } from "./useSongLayout";
 import { useTimelineKeyboard } from "./useTimelineKeyboard";
 import { useTimelineMarquee } from "./useTimelineMarquee";
 import { useTimelineScrub } from "./useTimelineScrub";
+import { useTimelineTrackFocus } from "./useTimelineTrackFocus";
 import { useTimelineZoomGestures } from "./useTimelineZoomGestures";
 import { hotkeyManager, HotkeyScope } from "../../lib/interaction/HotkeyManager";
 import { useTimelinePrefs } from "./useTimelinePrefs";
@@ -1221,48 +1222,17 @@ export function Timeline({
     [verticalZoom, effectiveViewMode, hasLightContent, rows],
   );
 
-  // Auto-focus and scroll to new track on creation
-  const prevTrackCountRef = useRef(state.tracks.length);
-  useEffect(() => {
-    if (state.tracks.length > prevTrackCountRef.current) {
-      const newTrackIdx = state.tracks.length - 1;
-      const newTrack = state.tracks[newTrackIdx];
-      if (newTrack) {
-        onSelectTrackId?.(newTrack.id);
-        scrollToTrackIndex(newTrackIdx);
-      }
-    }
-    prevTrackCountRef.current = state.tracks.length;
-  }, [state.tracks.length, state.tracks, onSelectTrackId, scrollToTrackIndex]);
-
-  // Auto-focus and scroll to new light track on creation
-  const prevLightTrackCountRef = useRef(lightTracks.length);
-  useEffect(() => {
-    if (lightTracks.length > prevLightTrackCountRef.current) {
-      const newIdx = lightTracks.length - 1;
-      setSidePanelTrackIndex(newIdx);
-      setCueSelection(null);
-      setSelectedCueKeys([]);
-      scrollToTrackIndex(newIdx);
-    }
-    prevLightTrackCountRef.current = lightTracks.length;
-  }, [lightTracks.length, scrollToTrackIndex]);
-
-  // Auto-scroll to active track on project load
-  const lastProjectNameRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!state.projectName) return;
-    const isNewProject = lastProjectNameRef.current !== state.projectName;
-    if (isNewProject) {
-      lastProjectNameRef.current = state.projectName;
-      if (selectedTrackId) {
-        const idx = state.tracks.findIndex((t) => t.id === selectedTrackId);
-        if (idx >= 0) {
-          scrollToTrackIndex(idx);
-        }
-      }
-    }
-  }, [state.projectName, selectedTrackId, state.tracks, scrollToTrackIndex]);
+  useTimelineTrackFocus({
+    tracks: state.tracks,
+    lightTracks,
+    projectName: state.projectName,
+    selectedTrackId,
+    onSelectTrackId,
+    setSidePanelTrackIndex,
+    setCueSelection,
+    setSelectedCueKeys,
+    scrollToTrackIndex,
+  });
 
   const keyboardActions = useMemo(
     () => ({
