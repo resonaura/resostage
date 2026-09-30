@@ -62,7 +62,11 @@ import { EventMarkerLane } from "./EventMarkerLane";
 import { LongImportPrompt } from "./LongImportPrompt";
 import { OutOfBoundsOverlay } from "./OutOfBoundsOverlay";
 import { songDetents } from "./detents";
-import { snapToGridSec } from "./geometry";
+import {
+  resolveTimelineSong,
+  snapSongLocalSeconds,
+  timelineSecondsAtClientX,
+} from "./timelineCoordinates";
 import type { SongEndDrag } from "./SongEndMarker";
 import { laneHeightPx } from "./laneDimensions";
 import { LightTrackLanes } from "./LightTrackLanes";
@@ -1164,20 +1168,6 @@ export function Timeline({
     };
   }, []);
 
-  // Maps an absolute (whole-timeline) second offset to whichever song
-  // segment contains it, plus the position within that song.
-  const resolveSong = (
-    absSeconds: number,
-  ): { songIndex: number; localSeconds: number } => {
-    for (let i = 0; i < songs.length; i++) {
-      const start = songOffsets[i];
-      const end = start + songLengths[i];
-      if (absSeconds < end || i === songs.length - 1)
-        return { songIndex: i, localSeconds: Math.max(0, absSeconds - start) };
-    }
-    return { songIndex: -1, localSeconds: 0 };
-  };
-
   const seekFromClientX = (clientX: number, commit = false) => {
     const bodyEl = timelineBodyRef.current;
     if (!bodyEl || songs.length === 0) return;
@@ -1185,19 +1175,24 @@ export function Timeline({
     // getBoundingClientRect().left already shifts with scrollLeft. Adding
     // scrollLeft again double-counted and scrub landed far from the cursor.
     const rect = bodyEl.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const absSeconds = Math.max(0, x / pxPerSecRef.current);
-    const { songIndex, localSeconds } = resolveSong(absSeconds);
+    const absSeconds = timelineSecondsAtClientX(
+      clientX,
+      rect.left,
+      pxPerSecRef.current,
+    );
+    const { songIndex, localSeconds } = resolveTimelineSong(
+      absSeconds,
+      songs,
+      songOffsets,
+      songLengths,
+    );
     if (songIndex < 0) return;
 
-    const targetSong = songs[songIndex];
-    const bpm = targetSong?.bpm ?? 120;
-    const tsNum = targetSong?.tsNum ?? 4;
-    const snappedLocal = snapToGridSec(
+    const targetSong = songs[songIndex] ?? { bpm: 120, tsNum: 4 };
+    const snappedLocal = snapSongLocalSeconds(
+      targetSong,
       localSeconds,
       pxPerSecRef.current,
-      bpm,
-      tsNum,
       snapToGrid,
     );
 
@@ -1243,7 +1238,12 @@ export function Timeline({
    */
   const seekToAbsolute = (absSeconds: number) => {
     const clampedAbs = Math.max(0, absSeconds);
-    const { songIndex, localSeconds } = resolveSong(clampedAbs);
+    const { songIndex, localSeconds } = resolveTimelineSong(
+      clampedAbs,
+      songs,
+      songOffsets,
+      songLengths,
+    );
     if (songIndex < 0) return;
     setPlayheadAbsoluteSec(clampedAbs, 800);
     void transport.seek(localSeconds, songIndex);
@@ -1255,7 +1255,11 @@ export function Timeline({
     const bodyEl = timelineBodyRef.current;
     if (!bodyEl) return 0;
     const rect = bodyEl.getBoundingClientRect();
-    return Math.max(0, (clientX - rect.left) / pxPerSecRef.current);
+    return timelineSecondsAtClientX(
+      clientX,
+      rect.left,
+      pxPerSecRef.current,
+    );
   };
   /**
    * Landmarks per song for free (unsnapped) drags -- see detents.ts.
@@ -1281,12 +1285,10 @@ export function Timeline({
 
   const snapLocalSec = (songIndex: number, localSeconds: number) => {
     const song = songs[songIndex];
-    if (!song) return localSeconds;
-    return snapToGridSec(
+    return snapSongLocalSeconds(
+      song,
       localSeconds,
       pxPerSecRef.current,
-      song.bpm,
-      song.tsNum ?? 4,
       snapToGrid,
     );
   };
