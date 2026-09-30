@@ -8,11 +8,11 @@ import type {
   WebUiState,
 } from "@/lib/state/types";
 import { builder, lighting } from "@/lib/state/api";
+import { LightTrackHeader } from "@/screens/light/components/LightTimeline";
 import {
-  LightTrackHeader,
   AUDIO_HINT_HEIGHT,
   LIGHT_HINT_HEIGHT,
-} from "@/screens/light/components/LightTimeline";
+} from "@/screens/editor/timeline/layout/logic/hintStripDimensions";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { EVENT_LANE_HEIGHT } from "@/screens/editor/timeline/events/logic/constants";
 import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";

@@ -17,32 +17,20 @@ import {
 import { triggerHaptic } from "@/lib/interaction/haptics";
 import { edgesCrossedDetent } from "@/screens/editor/timeline/snapping/logic/detents";
 import type {
-  AllPeaksResponse,
   LightCueRow,
   LightFixtureRow,
   LightTrackRow,
-  PeaksResponse,
   SongRow,
-  WebUiState,
 } from "@/lib/state/types";
 import { ContextMenu, ContextMenuItem } from "@/components/common/ContextMenu";
 import { splitCueAtPlayhead } from "@/screens/editor/timeline/selection/logic/cueEdit";
 import {
-  COMPACT_LANE_MAX_PX,
   LANE_HEIGHT,
   laneHeightPx,
 } from "@/screens/editor/timeline/layout/logic/laneDimensions";
-import { buildSongPeakLookup } from "@/screens/editor/timeline/regions/logic/regionPeaks";
 import { toolCursor, type TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
-import { TrackWaveformLane } from "@/screens/editor/timeline/waveform/components/TrackWaveformLane";
 import { EFFECT_META } from "@/screens/light/logic/lightEffectMeta";
 import type { EffectType } from "@/screens/light/components/LightSidePanel";
-
-// Fixed heights for the cross-mode hint strips (one strip per mode, the
-// opposite mode's content shown dimmed and non-clickable -- the "for the lighting
-// mode: show what exists but keep it non-clickable" ask in RESTORE_POINT.md Feature 6).
-export const LIGHT_HINT_HEIGHT = 26;
-export const AUDIO_HINT_HEIGHT = 46;
 
 export interface CueSelKey {
   songIndex: number;
@@ -51,226 +39,6 @@ export interface CueSelKey {
 
 function cueKey(songIndex: number, cueId: string): string {
   return `${songIndex}:${cueId}`;
-}
-
-// Audio mode: a dimmed, non-interactive strip near the top showing that light
-// content exists on the timeline without offering any click targets.
-export function LightHintStrip({
-  songs,
-  songOffsets,
-  songLengths,
-  pxPerSec,
-  scrollState,
-  contentWidth,
-  height,
-  trackColor,
-}: {
-  songs: SongRow[];
-  songOffsets: number[];
-  songLengths: number[];
-  pxPerSec: number;
-  scrollState: { scrollLeft: number; viewportWidth: number };
-  contentWidth: number;
-  height: number;
-  trackColor: (trackId: string) => string;
-}) {
-  // One filter for the whole strip, recomputed only when the theme moves --
-  // there can be hundreds of cues on screen and the chain is identical for
-  // every one of them.
-  // Subscribed, not memoised. The resolved colour used to be cached in a
-  // useMemo keyed on this version and went stale often enough to notice;
-  // roleColor is already a cached DOM probe, so re-resolving it once per
-  // render of one component costs nothing and cannot be out of date.
-  useThemeVersion();
-  const tint = roleColor("master");
-
-  const viewStart = scrollState.scrollLeft;
-  const viewEnd = scrollState.scrollLeft + scrollState.viewportWidth;
-  return (
-    <div
-      className="pointer-events-none relative shrink-0 border-b border-default/30 bg-surface/20"
-      style={{ width: contentWidth, height }}
-    >
-      {songs.map((song, i) => {
-        const segStart = songOffsets[i] * pxPerSec;
-        const segEnd = segStart + songLengths[i] * pxPerSec;
-        if (viewEnd <= segStart || viewStart >= segEnd) return null;
-        return (
-          <div
-            key={i}
-            className="absolute top-0 bottom-0"
-            style={{ left: segStart, width: songLengths[i] * pxPerSec }}
-          >
-            {(song.lightCues ?? []).map((cue) => {
-              const leftPx = cue.startSeconds * pxPerSec;
-              const widthPx = Math.max(3, cue.durationSeconds * pxPerSec);
-              if (
-                leftPx + widthPx < viewStart - segStart ||
-                leftPx > viewEnd - segStart
-              )
-                return null;
-              return (
-                <div
-                  key={cue.id}
-                  className="absolute top-1 bottom-1 rounded-sm overflow-hidden"
-                  style={{
-                    left: leftPx,
-                    width: widthPx,
-                    // Quiet reference strip (player / audio mode): the cue
-                    // keeps its brightness but takes its hue from the theme,
-                    // so the strip reads as one calm layer instead of as a
-                    // second, louder palette. Computed rather than filtered
-                    // -- see ../logic/tintFilter for the two CSS approaches
-                    // this replaces and why each failed.
-                    ...lightCueSelectionStyle(
-                      false,
-                      themeAdaptedColor(trackColor(cue.trackId), tint),
-                    ),
-                    opacity: 0.22,
-                  }}
-                >
-                  <LightCueBody
-                    cue={adaptCueToTheme(cue, tint)}
-                    pxPerSec={pxPerSec}
-                    widthPx={widthPx}
-                    showLabel={false}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// Light mode: a dimmed, non-interactive waveform strip so the light-focused
-// view keeps its musical reference. Reuses the real waveform renderer
-// (TrackWaveformLane) per region, stacked over one short strip.
-//
-// The strip is FIXED height (AUDIO_HINT_HEIGHT) — it does not track the
-// timeline's vertical zoom. Waveform verticalZoom is therefore a constant
-// sized to fill the strip and always stay above the compact-lane cutoff
-// (below which TrackWaveformLane draws nothing).
-const AUDIO_HINT_WAVEFORM_ZOOM = Math.max(
-  (COMPACT_LANE_MAX_PX + 2) / LANE_HEIGHT,
-  AUDIO_HINT_HEIGHT / LANE_HEIGHT,
-);
-
-export function AudioHintStrip({
-  state,
-  peaks,
-  allPeaks,
-  audioRows,
-  songs,
-  songOffsets,
-  songLengths,
-  pxPerSec,
-  scrollState,
-  contentWidth,
-}: {
-  state: WebUiState;
-  peaks: PeaksResponse | null;
-  allPeaks: AllPeaksResponse | null;
-  audioRows: { name: string; color: string }[];
-  songs: SongRow[];
-  songOffsets: number[];
-  songLengths: number[];
-  pxPerSec: number;
-  scrollState: { scrollLeft: number; viewportWidth: number };
-  /** @deprecated ignored — strip height is fixed; kept optional for callers. */
-  verticalZoom?: number;
-  contentWidth: number;
-}) {
-  const viewStart = scrollState.scrollLeft;
-  const viewEnd = scrollState.scrollLeft + scrollState.viewportWidth;
-  return (
-    <div
-      className="pointer-events-none relative shrink-0 overflow-hidden border-b border-default/30 bg-default/10"
-      style={{ width: contentWidth, height: AUDIO_HINT_HEIGHT }}
-    >
-      {songs.map((song, i) => {
-        const segStart = songOffsets[i] * pxPerSec;
-        const segEnd = segStart + songLengths[i] * pxPerSec;
-        if (viewEnd <= segStart || viewStart >= segEnd) return null;
-        const peakLookup = buildSongPeakLookup(
-          allPeaks?.songs[i]?.tracks,
-          allPeaks?.files,
-          i === state.songIndex ? peaks?.tracks : undefined,
-        );
-        const segDuration = songLengths[i];
-        return (
-          <div
-            key={i}
-            className="absolute top-0 bottom-0"
-            style={{ left: segStart, width: songLengths[i] * pxPerSec }}
-          >
-            {audioRows.map((row) => {
-              const track = state.tracks.find(
-                (t) => (t.name || t.id) === row.name || t.id === row.name,
-              );
-              return (song.regions ?? [])
-                .filter(
-                  (r) =>
-                    Boolean(r.source.file) &&
-                    (r.trackId === track?.id || r.trackId === row.name),
-                )
-                .map((r) => {
-                  const peakEntry = peakLookup.forRegion(r, track?.id);
-                  const fileDur =
-                    peakEntry?.durationSeconds ??
-                    r.durationSeconds ??
-                    segDuration;
-                  const dur =
-                    r.durationSeconds > 0
-                      ? r.durationSeconds
-                      : Math.max(0.05, segDuration - r.startSeconds);
-                  const leftPx = r.startSeconds * pxPerSec;
-                  const widthPx = Math.max(4, dur * pxPerSec);
-                  if (
-                    leftPx + widthPx < viewStart - segStart ||
-                    leftPx > viewEnd - segStart
-                  )
-                    return null;
-                  const absLeft = segStart + leftPx;
-                  const regViewStart = Math.max(absLeft, viewStart);
-                  const regViewEnd = Math.min(absLeft + widthPx, viewEnd);
-                  const regViewportWidth = Math.max(
-                    0,
-                    regViewEnd - regViewStart,
-                  );
-                  if (regViewportWidth <= 0) return null;
-                  return (
-                    <div
-                      key={r.id}
-                      className="absolute top-0 bottom-0"
-                      style={{ left: leftPx, width: widthPx, opacity: 0.28 }}
-                    >
-                      <TrackWaveformLane
-                        levels={peakEntry?.levels ?? []}
-                        durationSeconds={fileDur}
-                        regionFile={r.source.file}
-                        gestureActive={false}
-                        verticalZoom={AUDIO_HINT_WAVEFORM_ZOOM}
-                        contentWidth={widthPx}
-                        scrollLeft={Math.max(0, regViewStart - absLeft)}
-                        viewportWidth={regViewportWidth}
-                        pxPerSec={pxPerSec}
-                        color={row.color}
-                        muted={false}
-                        sourceOffsetSec={r.source.offsetSeconds}
-                        embedded
-                      />
-                    </div>
-                  );
-                });
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 // One light track's lane across every song: LightCue blocks per the Cue Block

@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { RefObject, WheelEvent } from "react";
-import { AUDIO_HINT_HEIGHT, LIGHT_HINT_HEIGHT } from "@/screens/light/components/LightTimeline";
 import { EVENT_LANE_HEIGHT } from "@/screens/editor/timeline/events/logic/constants";
+import { AUDIO_HINT_HEIGHT, LIGHT_HINT_HEIGHT } from "@/screens/editor/timeline/layout/logic/hintStripDimensions";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { SECTION_LANE_HEIGHT } from "@/screens/editor/timeline/sections/logic/constants";
 import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
