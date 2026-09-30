@@ -46,14 +46,14 @@ import {
   readLongImportPreference,
   writeLongImportPreference,
   type LongImportPreference,
-} from "../../app/import/audio/logic/importPrefs";
+} from "../../transfer/audio/logic/importPrefs";
 import {
   TIER_DESCRIPTION,
   TIER_FPS,
   TIER_LABEL,
   type PerformanceSettings,
   type PerformanceTier,
-} from "../../app/performance/logic/performance";
+} from "../../performance/logic/performance";
 import { THEME_LABELS, THEME_NAMES, type ThemeName } from "../../lib/theme";
 import type { MidiBindingRow, WebUiState } from "../../lib/state/types";
 // @xyflow/react is a heavy graph library behind exactly one modal. Loading it

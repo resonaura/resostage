@@ -60,7 +60,7 @@ import {
 } from "../../lib/state/types";
 import { busMeterGroups, type BusMeterGroup } from "./logic/busMeterGroups";
 import { useIsCompact } from "../../hooks/useMediaQuery";
-import { CountInControl } from "../../app/transport/components/CountInControl";
+import { CountInControl } from "../../transport/components/CountInControl";
 
 /** Stable empty roster so a rig with no fixtures doesn't churn the memo. */
 const EMPTY_FIXTURES: LightFixtureRow[] = [];

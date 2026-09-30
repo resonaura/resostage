@@ -5,7 +5,7 @@ import {
   readLongImportPreference,
   writeLongImportPreference,
   type LongImportChoice,
-} from "../../../../../app/import/audio/logic/importPrefs";
+} from "../../../../../transfer/audio/logic/importPrefs";
 import type { SongRow } from "../../../../../lib/state/types";
 
 /**

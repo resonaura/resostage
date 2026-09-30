@@ -59,9 +59,9 @@ export default defineConfig({
       clientFiles: [
         './src/main.tsx',
         './src/App.tsx',
-        './src/screens/PlayerScreen.tsx',
-        './src/screens/EditorScreen.tsx',
-        './src/components/timeline/Timeline.tsx',
+        './src/screens/player/PlayerScreen.tsx',
+        './src/screens/editor/EditorScreen.tsx',
+        './src/screens/editor/timeline/components/Timeline.tsx',
       ],
     },
     watch: {

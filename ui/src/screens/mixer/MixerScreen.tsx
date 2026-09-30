@@ -2,7 +2,7 @@ import { ScrollShadow } from "@heroui/react";
 import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../components/ui";
-import type { RenderDialogIntent } from "../../app/render/components/RenderAudioDialog";
+import type { RenderDialogIntent } from "../../transfer/render/components/RenderAudioDialog";
 import { useHorizontalWindow } from "./hooks/useHorizontalWindow";
 import {
   builder,

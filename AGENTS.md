@@ -97,11 +97,10 @@ See `docs/REMOTE_CONTROL.md` for operator setup and the two-machine test.
 | `core/app/plugins/` | Device-local plug-in discovery. Core owns the catalog service; an embedded helper process is the only code allowed to load untrusted plug-ins while scanning. |
 | `core/tests/` | Native unit, stress, protocol, routing, streaming, and renderer tests. |
 | `electron/src/` | Desktop main process, preload bridge, UDP receiver, discovery, platform integration. |
-| `ui/src/app/` | Application-shell workflows and UI shared outside any one screen, such as transport, overlays, and import/export dialogs. |
-| `ui/src/app/shell/` | Root shell composition and shell-owned global dialog, connection, backend-health, and notification UI/state. |
-| `ui/src/app/workflows/` | Cross-screen import/export/render request lifecycles and their mounted dialogs. |
-| `ui/src/app/project/` | App-wide project UI and data shared by project-facing screens, including timeline peak loading. |
-| `ui/src/app/midi/` | App-level MIDI workflows and Musical Typing keyboard, organized into components, hooks, logic, and tests. |
+| `ui/src/App.tsx` | Root React composition and application entrypoint; shell and feature behaviour is delegated to its owning folders. |
+| `ui/src/shell/` | Root shell composition and shell-owned global dialogs, connection, backend-health, and notification UI/state. |
+| `ui/src/{midi,performance,project,transport}/` | App-level cross-screen features, organized by feature into `components/`, `hooks/`, `logic/`, and `tests/` where applicable. |
+| `ui/src/transfer/` | File import/export workflows, grouped by media (`audio/`, `midi/`) and audio rendering (`render/`); shared request coordination and dialogs live under `workflows/`. Musical Typing and the virtual MIDI performance keyboard remain under `ui/src/midi/`. |
 | `ui/src/screens/` | Screen-owned UI and feature logic, organized by feature into `components/`, `hooks/`, `logic/`, and `tests/` where applicable. |
 | `ui/src/screens/editor/timeline/` | The Editor's arrangement timeline and its feature-owned components, hooks, logic, and tests. |
 | `ui/src/hooks/` | React hooks intentionally shared across application/screen boundaries; shell- and screen-specific hooks stay with their owner. |
@@ -843,11 +842,12 @@ and keep latest-frame storage outside expensive component trees.
 
 `ui/src/components/` is reserved for UI reused across screens: global shared
 components and DAW controls live there, with HeroUI wrapped by `ui/`. Screen-
-specific components, hooks, logic, and tests belong under `ui/src/screens/`; UI
-owned by the application shell but not one screen belongs under `ui/src/app/`.
-The root `ui/src/hooks/` is reserved for hooks shared across ownership
-boundaries. `ui/src/lib/` is for cross-screen domain and application services,
-not a holding area for screen-only algorithms or components.
+specific components, hooks, logic, and tests belong under `ui/src/screens/`;
+shell-owned UI belongs under `ui/src/shell/`, and app-level cross-screen
+features live in their named `ui/src/` feature folders. The root
+`ui/src/hooks/` is reserved for hooks shared across ownership boundaries.
+`ui/src/lib/` is for cross-screen domain and application services, not a
+holding area for screen-only algorithms or components.
 Shared visual or behavioural policy belongs in the HeroUI wrappers. In
 particular, all modals use the shared
 modal implementation so backdrop blur and the theme surface background are

@@ -16,7 +16,7 @@ import {
   emptyProjectActions,
   EmptyProjectState,
 } from "./project/components/EmptyProjectState";
-import { ImportStemsModal } from "./audio/components/ImportStemsModal";
+import { ImportStemsModal } from "../../transfer/audio/components/ImportStemsModal";
 import { EditorInspector } from "./components/EditorInspector";
 import { EmptyDetailPanel, ListPanel, SongEditor } from "./components/SongsTab";
 import {
@@ -24,7 +24,7 @@ import {
   autoDetectSongName,
   autoDetectStemMappings,
   executeStemImport,
-} from "./audio/logic/stemImport";
+} from "../../transfer/audio/logic/stemImport";
 import { Timeline } from "./timeline";
 import {
   resolveTrackSelection,
