@@ -75,6 +75,7 @@ target_sources(ResoStage PRIVATE
   engine/AudioEngineMeters.cpp
   engine/AudioEngineDevice.cpp
   engine/AudioEngineAutomation.cpp
+  engine/AudioEngineMidiRegionDispatch.cpp
   engine/AudioEngineEventDispatch.cpp
   engine/AudioEngineImport.cpp
   engine/AudioEnginePeaks.cpp
