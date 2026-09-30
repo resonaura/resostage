@@ -33,6 +33,8 @@
 #include "audio/dsp/SincInterpolator.h"
 #include "audio/streaming/StreamingEngine.h"
 #include "events/EventDispatcher.h"
+#include "events/BoundedMpmcQueue.h"
+#include "events/MidiNoteActivity.h"
 #include "platform/ThreadTime.h"
 #include "telemetry/CallbackTiming.h"
 #include "timing/OutputLatency.h"
@@ -99,6 +101,7 @@ public:
     struct ActiveMidiNoteInfo {
         std::string trackId;
         int pitch = 0;
+        size_t trackIndex = 0;
     };
 
     AudioEngine();

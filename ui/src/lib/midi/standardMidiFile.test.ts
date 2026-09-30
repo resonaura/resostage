@@ -339,6 +339,31 @@ describe("Standard MIDI File", () => {
     expect(sourceOnly.tracks[1].notes).toHaveLength(1);
   });
 
+  it("exports only the trimmed MIDI loop source window", () => {
+    const trimmed: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 8,
+      clipOffsetBeats: 7,
+      loop: true,
+      loopStartBeats: 7,
+      loopLengthBeats: 5,
+      notes: [
+        { ...region.notes[0], id: 20, pitch: 60, startBeats: 2 },
+        { ...region.notes[0], id: 21, pitch: 61, startBeats: 7.5 },
+        { ...region.notes[0], id: 22, pitch: 62, startBeats: 11.5 },
+        { ...region.notes[0], id: 23, pitch: 63, startBeats: 12 },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile(
+      [{ name: "Trimmed", regions: [trimmed] }],
+      { bpm: 120, numerator: 4, denominator: 4,
+        fromProjectStart: true, expandLoops: true },
+    ));
+    expect(parsed.tracks[1].notes.map((note) => [note.pitch, note.startBeats]))
+      .toEqual([[61, 0.5], [62, 4.5], [61, 5.5]]);
+  });
+
   it("rejects invalid headers and truncated chunks", () => {
     expect(() => parseStandardMidiFile(new Uint8Array([1, 2, 3]))).toThrow();
     const bytes = writeStandardMidiFile([{ name: "Piano", regions: [region] }], {

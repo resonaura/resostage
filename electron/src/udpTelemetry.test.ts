@@ -22,6 +22,13 @@ describe("UDP telemetry framing", () => {
     });
   });
 
+  it("accepts forward-compatible v9 active-note frames", () => {
+    expect(parseTelemetryDatagram(frame(43, 9))).toEqual({
+      version: 9,
+      sequence: 43,
+    });
+  });
+
   it("rejects malformed and obsolete frames", () => {
     expect(parseTelemetryDatagram(new Uint8Array(7))).toBeNull();
     expect(parseTelemetryDatagram(frame(1, 7))).toBeNull();

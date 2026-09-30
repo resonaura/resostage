@@ -20,6 +20,7 @@ const midiSong = {
       clipOffsetBeats: 1,
       loop: true,
       loopLengthBeats: 4,
+      loopStartBeats: 0,
       muted: false,
       color: "#8844ff",
       notes: [
@@ -58,6 +59,7 @@ describe("MIDI region timeline editing", () => {
       clipOffsetBeats: 1,
       loop: true,
       loopLengthBeats: 4,
+      loopStartBeats: 0,
     });
     if (entry.kind !== "midi") throw new Error("expected MIDI clipboard entry");
     expect(entry.notes).toEqual(midiSong.midiRegions![0].notes);
@@ -93,6 +95,7 @@ describe("MIDI region timeline editing", () => {
         clipOffsetBeats: 5,
         loop: true,
         loopLengthBeats: 4,
+        loopStartBeats: 0,
         notes: midiSong.midiRegions![0].notes,
         events: midiSong.midiRegions![0].events,
         umpEvents: midiSong.midiRegions![0].umpEvents,

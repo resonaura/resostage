@@ -68,4 +68,37 @@ describe("getActiveMidiPitches", () => {
       72, 73, 74,
     ]);
   });
+
+  it("stops previewing a loop note at the cropped source-window edge", () => {
+    const cropped = {
+      ...midiRegion("cropped", "track-1", 67),
+      durationBeats: 8,
+      clipOffsetBeats: 2,
+      loop: true,
+      loopStartBeats: 2,
+      loopLengthBeats: 2,
+      notes: [{
+        id: 2,
+        pitch: 67,
+        startBeats: 3.5,
+        durationBeats: 1,
+        velocity: 100,
+        releaseVelocity: 0,
+        probability: 1,
+      }],
+    };
+    const state = {
+      playing: true,
+      bpm: 120,
+      songIndex: 0,
+      playheadSeconds: 0.875, // 1.75 beats: source is 3.75, still in the note
+      songs: [{ midiRegions: [cropped] }],
+      activeMidiNotes: [],
+      liveRecordings: [],
+    } as unknown as WebUiState;
+    expect([...getActiveMidiPitches(state, "track-1")]).toEqual([67]);
+
+    const afterLoopEdge = { ...state, playheadSeconds: 1 } as WebUiState;
+    expect([...getActiveMidiPitches(afterLoopEdge, "track-1")]).toEqual([]);
+  });
 });

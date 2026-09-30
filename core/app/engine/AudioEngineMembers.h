@@ -699,16 +699,15 @@
     // UI key illumination is sampled telemetry, never read from the audio
     // callback by React. Counts are audio-thread-owned; the compact mask is
     // published only when a note's active/inactive state changes.
-    static constexpr size_t kMaxActiveMidiStrips = 256;
     struct ActiveMidiNotesFrame {
-        std::array<std::array<uint64_t, 2>, kMaxActiveMidiStrips> masks{};
+        std::array<std::array<uint64_t, 2>, kMaxActiveMidiTracks> masks{};
     };
-    std::array<std::array<uint8_t, 128>, kMaxActiveMidiStrips> activeMidiNoteCounts{};
+    std::array<std::array<uint8_t, kMidiPitchCount>, kMaxActiveMidiTracks> activeMidiNoteCounts{};
     // Keep ownership of held live-input notes per strip/channel/pitch so a
     // note-off still reaches its original destination after focus or monitor
     // routing changes. This is callback-owned bounded state.
     std::array<std::array<std::array<uint8_t, 128>, 16>,
-               kMaxActiveMidiStrips> liveMidiNoteCounts{};
+               kMaxActiveMidiTracks> liveMidiNoteCounts{};
     // Subset of the active counts created by timeline MIDI regions. Kept
     // separate from live input so a project-cycle wrap can release notes that
     // extend beyond the right locator without sending All Notes Off and
@@ -717,7 +716,7 @@
     // same MIDI channel as the originating Note-On, especially for external
     // MIDI tracks where the destination owns the actual voice state.
     std::array<std::array<std::array<uint8_t, 128>, 16>,
-               kMaxActiveMidiStrips> sequencedMidiNoteCounts{};
+               kMaxActiveMidiTracks> sequencedMidiNoteCounts{};
     uint16_t activeExternalMidiChannelMask = 0; // audio-thread owned
     bool sequencedMidiFlushAtBlockStart = false; // audio-thread owned
     ActiveMidiNotesFrame activeMidiNotesWorkingFrame{};
@@ -737,9 +736,7 @@
         int16_t targetTrackIndex = -1;
     };
     static constexpr size_t kMidiQueueCapacity = 1024;
-    std::array<QueuedMidiPacket, kMidiQueueCapacity> midiInputQueue{};
-    alignas(64) std::atomic<uint32_t> midiInputQueueWrite{0};
-    alignas(64) std::atomic<uint32_t> midiInputQueueRead{0};
+    BoundedMpmcQueue<QueuedMidiPacket, kMidiQueueCapacity> midiInputQueue;
 
     void refreshMonitoringAndArmCounts();
 

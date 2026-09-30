@@ -1,5 +1,6 @@
 import type { MidiNoteRow } from "../state/types";
 import type { ImportedMidiFile, ImportedMidiTrack, MidiExportOptions, MidiExportTrack } from "./standardMidiFile";
+import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "./midiRegionTiming";
 
 const MAGIC = "SMF2CLIP";
 const MAX_BYTES = 32 * 1024 * 1024;
@@ -221,18 +222,29 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     if (region.muted) continue;
     const loopLength = region.loopLengthBeats > 0 ? region.loopLengthBeats : region.durationBeats;
     const loops = options.expandLoops && region.loop && loopLength > 0
-      ? Math.min(100_000, Math.ceil((region.durationBeats + region.clipOffsetBeats) / loopLength)) : 1;
+      ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength)) : 1;
     for (let iteration = 0; iteration < loops; iteration++) {
       for (const note of region.notes) {
         if (note.muted) continue;
-        const relative = note.startBeats + iteration * loopLength - region.clipOffsetBeats;
+        if (region.loop && !midiRegionContainsLoopSourceBeat(region, note.startBeats)) continue;
+        const relative = options.expandLoops && region.loop && loopLength > 0
+          ? midiRegionLoopOccurrence(region, note.startBeats) + iteration * loopLength
+          : note.startBeats - region.clipOffsetBeats;
         if (relative < 0 || relative >= region.durationBeats) continue;
         const beat = region.startBeats + relative - origin;
         if (beat < -1e-9) continue;
-        addNote(note, Math.max(0, beat), Math.min(note.durationBeats, region.durationBeats - relative));
+        const availableInLoop = region.loop
+          ? (region.loopStartBeats ?? 0) + loopLength - note.startBeats
+          : note.durationBeats;
+        addNote(note, Math.max(0, beat), Math.min(
+          note.durationBeats, availableInLoop, region.durationBeats - relative,
+        ));
       }
       for (const event of region.umpEvents ?? []) {
-        const relative = event.beat + iteration * loopLength - region.clipOffsetBeats;
+        if (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat)) continue;
+        const relative = options.expandLoops && region.loop && loopLength > 0
+          ? midiRegionLoopOccurrence(region, event.beat) + iteration * loopLength
+          : event.beat - region.clipOffsetBeats;
         if (relative < 0 || relative >= region.durationBeats) continue;
         const beat = region.startBeats + relative - origin;
         if (beat >= -1e-9) {
@@ -246,7 +258,10 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
         }
       }
       for (const event of region.events ?? []) {
-        const relative = event.beat + iteration * loopLength - region.clipOffsetBeats;
+        if (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat)) continue;
+        const relative = options.expandLoops && region.loop && loopLength > 0
+          ? midiRegionLoopOccurrence(region, event.beat) + iteration * loopLength
+          : event.beat - region.clipOffsetBeats;
         if (relative < 0 || relative >= region.durationBeats) continue;
         const beat = region.startBeats + relative - origin;
         const words = midi1EventToUmp(event.status, event.data);

@@ -446,7 +446,8 @@ Preserve these rules:
 - Output lanes accumulate with `+=`; multiple valid sources may target the
   same lane.
 - Real-time audio and MIDI recording: tracks support input monitoring (`inputMonitoring`, Logic Pro 'I' button) and record arming (`recordArmed`, Logic Pro 'R' button) with configurable hardware input routing (`inputSource`). In the real-time audio callback, live monitored tracks process incoming hardware inputs through scratch memory and plug-in chains even when transport is stopped without blocking or allocating. For stereo tracks assigned an input pair, if the device exposes only one of those channels, the available mono input is copied to both sides; when both are available, their stereo image is preserved. Real-time audio recording writes planar frames via lock-free SPSC `AudioRingBuffer`s drained by the asynchronous `AudioRecordWorker`, which finalizes 24-bit PCM WAV files and creates timeline regions upon transport stop. Incoming hardware MIDI is routed to the focused MIDI/instrument track plus every explicitly armed or input-monitored MIDI/instrument track; virtual MIDI may target a track explicitly. Only armed tracks capture MIDI into sample-accurate timeline regions. Auto Input Monitoring (AIM) state machine (`MonitorSourceMux.h`) governs monitor source switching (`StoppedMonitoring` vs playback tape monitoring and sub-block punch switching). The dry record tap samples input audio before insert FX, trim, or phase inversion. Live peak pyramids (`PeakMipAccumulator`, L0..L5) are populated off-thread by `AudioRecordWorker` and served range-wise via `/api/v1/recording/{id}/peaks` for real-time waveform visualization in `LiveRecordingRegion`. MIDI capture publishes completed and currently-held notes through a fixed-capacity `SeqLock` snapshot; UI telemetry grows held note bodies without locking or allocating in the callback. MIDI note IDs are assigned monotonically per track during capture and stay stable after commit. Low-Latency Monitoring (`LowLatencyPlan.h`) selectively bypasses high-latency plug-ins and non-safe sends on armed strips.
-- Active MIDI key illumination (including non-recording MIDI monitor and sequenced notes) is separate from MIDI-capture preview: the callback owns fixed-capacity per-strip overlapping note counts and updates a compact `SeqLock` pitch mask only when a note becomes active/inactive. The JUCE message thread maps strip indices to stable track IDs and publishes `{trackId, pitch}` rows in web state for Piano Roll and virtual-keyboard feedback. UI polling must never read callback-owned counters directly; stop requests a callback-owned clear alongside all-notes-off.
+- Live MIDI packets have concurrent producers (the hardware MIDI callback and the WebServer/virtual-keyboard command path), so they enter the audio callback through `BoundedMpmcQueue<QueuedMidiPacket, 1024>`, not an SPSC queue. CAS retries are capped; the callback drains at most one queue capacity per block. If full or contended through the retry budget, the newest packet is dropped. Keep producer count and overflow semantics accurate when changing this handoff.
+- Active MIDI key illumination (including non-recording MIDI monitor and sequenced notes) is separate from MIDI-capture preview: the callback owns fixed-capacity per-strip overlapping note counts for up to 1024 tracks and publishes a compact `SeqLock` pitch mask when activity changes. The JUCE message thread maps track indices to stable IDs; WebServer includes complete sparse per-track pitch bitmaps in protocol-v9 UDP frames. The UI replaces its entire active-note state from each bitmap snapshot, including empty snapshots; it must not union event deltas or let slower HTTP polling overwrite a newer UDP snapshot. UI polling must never read callback-owned counters directly; stop requests a callback-owned clear alongside all-notes-off.
   `I` is an independent per-track live-input subscription: several audio and MIDI/instrument tracks may monitor simultaneously. Software-instrument tracks also audition incoming MIDI by ephemeral controller focus without being armed, while `R` is still required to capture audio or MIDI. The global Record action auto-arms the focused recordable track when no track is armed. Audio tracks with `No Input`, plus folder, lighting, and bus-timeline rows, cannot be armed or monitored.
   Hardware MIDI input is opt-in: an empty device preference opens no input on
   startup. The selected source is persisted in device settings and published
@@ -513,7 +514,7 @@ but transactional actions must not be silently coalesced or dropped.
 audio/light/workers
   -> atomics, SeqLock frames, bounded envelope rings
   -> MainComponent::publishWebState() on message/timer thread
-  -> WebServer builds protocol-v8 binary frame
+  -> WebServer builds protocol-v9 binary frame
   -> UDP to each subscribed controller
   -> Electron UdpTelemetryTracker validates source/header/sequence
   -> preload IPC
@@ -561,6 +562,13 @@ WebSocket/JSON state remains useful for browsers and slower structural state.
 In Electron, high-rate telemetry is UDP while HTTP polling supplies structural
 state that is unsuitable for a compact datagram. Do not reintroduce a
 high-frequency full JSON state broadcast.
+
+Protocol v9 adds the complete active MIDI pitch snapshot to each binary frame
+as sparse rows (track index plus a 128-pitch bitset), supporting up to 1024
+tracks. The bitmap is latest-wins state rather than note-event deltas; a frame
+with zero active rows clears the receiver. UI track IDs are joined by index
+from structural state. When UDP is live, its active-note snapshot must not be
+overwritten by a slower HTTP poll.
 
 Structural project data, including song-, audio-region-, and MIDI-region
 automation lanes, is copied into `WebUiState` by
@@ -625,7 +633,7 @@ parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `6`. A `.rsnraset` is normally a directory package containing
+format version is `8`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -657,8 +665,14 @@ declared readable floor and directs the operator to `pnpm migrate <project>`.
 Format v3, v4, and v5 are additive compatibility exceptions: v3 gains empty
 plug-in chains, v4 gains default MIDI channels/empty retained-event vectors,
 and v5 gains empty UMP-event vectors while MIDI 1.0 notes remain unchanged.
-They are parsed losslessly and promoted in memory; the package is rewritten at
-v6 only on its next normal save. MIDI 2.0 note attributes and raw UMP packets
+The external migration script also upgrades later formats: v6 adds the
+per-track pan law, v7 adds a MIDI loop source-window start defaulting to zero,
+and v8 persists that trimmed MIDI loop window. MIDI regions keep source note
+coordinates; `clipOffsetBeats` identifies the current source phase, while
+`loopStartBeats` and `loopLengthBeats` bound the loop source window. Trimming
+the left edge advances the phase and shrinks that window so the newly exposed
+clip cycles only its visible source segment; splitting preserves the phase.
+MIDI 2.0 note attributes and raw UMP packets
 are optional region data; preserving them in the project does not itself imply
 that a given MIDI file, device, or plug-in path can consume MIDI 2.0.
 Newer unknown formats are always rejected. When persisted semantics change, bump the format, update

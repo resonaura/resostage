@@ -756,6 +756,7 @@ export const builder = {
     clipOffsetBeats?: number;
     loop?: boolean;
     loopLengthBeats?: number;
+    loopStartBeats?: number;
     muted?: boolean;
     color?: string;
     notes?: import("./types").MidiNoteRow[];
@@ -780,6 +781,7 @@ export const builder = {
     clipOffsetBeats?: number;
     loop?: boolean;
     loopLengthBeats?: number;
+    loopStartBeats?: number;
     muted?: boolean;
     color?: string;
     notes?: import("./types").MidiNoteRow[];

@@ -11,8 +11,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "./components/dialogs/ConfirmDialog";
-import { ExportMidiDialog, type MidiExportIntent } from "./components/dialogs/ExportMidiDialog";
-import { ImportMidiDialog } from "./components/dialogs/ImportMidiDialog";
+import { ExportMidiDialog, type MidiExportIntent } from "./components/midi/ExportMidiDialog";
+import { ImportMidiDialog } from "./components/midi/ImportMidiDialog";
 import { ImportAudioBatchDialog } from "./components/dialogs/ImportAudioBatchDialog";
 import {
   ContextMenu,

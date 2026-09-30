@@ -6,6 +6,11 @@ import { TimelineRegionFrame } from "./TimelineRegionFrame";
 import type { TimelineTool } from "./tools";
 import type { RegionDragMode } from "./regionDrag";
 import type { RegionGeomDraft } from "./regionDrag";
+import {
+  midiRegionContainsLoopSourceBeat,
+  midiRegionLoopOccurrence,
+  midiRegionNotePlaybackDuration,
+} from "../../lib/midi/midiRegionTiming";
 
 export interface MidiRegionBlockProps {
   midiRegion: MidiRegionRow;
@@ -68,6 +73,15 @@ export function MidiRegionBlock({
     geomDraft?.sourceOffset !== undefined
       ? (geomDraft.sourceOffset * bpm) / 60
       : midiRegion.clipOffsetBeats;
+  const effectiveLoopStartBeats = geomDraft?.loopStartSeconds !== undefined
+    ? (geomDraft.loopStartSeconds * bpm) / 60
+    : (midiRegion.loopStartBeats ?? 0);
+  const sourceRegion = {
+    ...midiRegion,
+    clipOffsetBeats: effectiveClipOffsetBeats,
+    loopLengthBeats: effectiveLoopLengthBeats,
+    loopStartBeats: effectiveLoopStartBeats,
+  };
 
   const startSeconds = (effectiveStartBeats * 60) / bpm;
   const durationSeconds = Math.max(0.05, (effectiveDurationBeats * 60) / bpm);
@@ -111,10 +125,17 @@ export function MidiRegionBlock({
   const loopLength = Math.max(0.03125, effectiveLoopLengthBeats);
   const estimatedInstanceCount = midiRegion.notes.reduce((total, note) => {
     if (note.muted) return total;
-    const firstStart = note.startBeats - effectiveClipOffsetBeats;
+    if (effectiveLoop && !midiRegionContainsLoopSourceBeat(sourceRegion, note.startBeats))
+      return total;
+    const firstStart = effectiveLoop
+      ? midiRegionLoopOccurrence(sourceRegion, note.startBeats)
+      : note.startBeats - effectiveClipOffsetBeats;
+    const visibleDuration = midiRegionNotePlaybackDuration(
+      sourceRegion, note.startBeats, note.durationBeats,
+    );
     if (!effectiveLoop) {
       return total + Number(
-        firstStart + note.durationBeats > 0 &&
+        firstStart + visibleDuration > 0 &&
           firstStart < effectiveDurationBeats,
       );
     }
@@ -128,15 +149,22 @@ export function MidiRegionBlock({
     (pxPerSec * 60 / bpm < 1.5 || estimatedInstanceCount > 512);
   const noteInstances = midiRegion.notes.flatMap((note) => {
     if (note.muted || useAggregatedPreview) return [];
-    const firstStart = note.startBeats - effectiveClipOffsetBeats;
+    if (effectiveLoop && !midiRegionContainsLoopSourceBeat(sourceRegion, note.startBeats))
+      return [];
+    const firstStart = effectiveLoop
+      ? midiRegionLoopOccurrence(sourceRegion, note.startBeats)
+      : note.startBeats - effectiveClipOffsetBeats;
+    const visibleDuration = midiRegionNotePlaybackDuration(
+      sourceRegion, note.startBeats, note.durationBeats,
+    );
     if (!effectiveLoop) {
-      return firstStart + note.durationBeats > 0 &&
+      return firstStart + visibleDuration > 0 &&
         firstStart < effectiveDurationBeats
         ? [{ note, displayStart: firstStart, iteration: 0 }]
         : [];
     }
     const firstIteration =
-      Math.floor((-firstStart - note.durationBeats) / loopLength) + 1;
+      Math.floor((-firstStart - visibleDuration) / loopLength) + 1;
     const lastIteration =
       Math.ceil((effectiveDurationBeats - firstStart) / loopLength) - 1;
     const instances: Array<{
@@ -151,10 +179,14 @@ export function MidiRegionBlock({
     ) {
       const displayStart = firstStart + iteration * loopLength;
       if (
-        displayStart + note.durationBeats > 0 &&
+        displayStart + visibleDuration > 0 &&
         displayStart < effectiveDurationBeats
       ) {
-        instances.push({ note, displayStart, iteration });
+        instances.push({
+          note: { ...note, durationBeats: visibleDuration },
+          displayStart,
+          iteration,
+        });
       }
     }
     return instances;
@@ -166,20 +198,27 @@ export function MidiRegionBlock({
         const bins = new Map<number, { minPitch: number; maxPitch: number; density: number }>();
         for (const note of midiRegion.notes) {
           if (note.muted) continue;
-          const firstStart = note.startBeats - effectiveClipOffsetBeats;
+          if (effectiveLoop && !midiRegionContainsLoopSourceBeat(sourceRegion, note.startBeats))
+            continue;
+          const firstStart = effectiveLoop
+            ? midiRegionLoopOccurrence(sourceRegion, note.startBeats)
+            : note.startBeats - effectiveClipOffsetBeats;
+          const visibleDuration = midiRegionNotePlaybackDuration(
+            sourceRegion, note.startBeats, note.durationBeats,
+          );
           for (let bin = 0; bin < previewBinCount; bin += 1) {
             const binStart = (bin / previewBinCount) * effectiveDurationBeats;
             const binEnd = ((bin + 1) / previewBinCount) * effectiveDurationBeats;
             let overlapCount = 0;
             if (effectiveLoop) {
               const firstIteration =
-                Math.floor((binStart - firstStart - note.durationBeats) / loopLength) + 1;
+                Math.floor((binStart - firstStart - visibleDuration) / loopLength) + 1;
               const lastIteration =
                 Math.ceil((binEnd - firstStart) / loopLength) - 1;
               overlapCount = Math.max(0, lastIteration - firstIteration + 1);
             } else if (
               firstStart < binEnd &&
-              firstStart + note.durationBeats > binStart
+              firstStart + visibleDuration > binStart
             ) {
               overlapCount = 1;
             }
@@ -208,17 +247,19 @@ export function MidiRegionBlock({
     if (sustainEvents.length === 0) return [] as Array<{ start: number; end: number }>;
 
     const repeatLength = effectiveLoop ? loopLength : 0;
-    const firstIteration = repeatLength > 0
-      ? Math.floor(effectiveClipOffsetBeats / repeatLength) - 1
-      : 0;
+    const firstIteration = 0;
     const lastIteration = repeatLength > 0
-      ? Math.ceil((effectiveDurationBeats + effectiveClipOffsetBeats) / repeatLength)
+      ? Math.ceil(effectiveDurationBeats / repeatLength)
       : 0;
     const expanded: Array<{ beat: number; channel: number; down: boolean }> = [];
     for (let iteration = firstIteration; iteration <= lastIteration && expanded.length < 10_000; iteration += 1) {
-      const offset = repeatLength > 0 ? iteration * repeatLength - effectiveClipOffsetBeats : -effectiveClipOffsetBeats;
       for (const event of sustainEvents) {
-        const beat = event.beat + offset;
+        if (repeatLength > 0 && !midiRegionContainsLoopSourceBeat(sourceRegion, event.beat))
+          continue;
+        const firstStart = repeatLength > 0
+          ? midiRegionLoopOccurrence(sourceRegion, event.beat)
+          : event.beat - effectiveClipOffsetBeats;
+        const beat = firstStart + iteration * repeatLength;
         if (beat >= effectiveDurationBeats) continue;
         expanded.push({
           beat,

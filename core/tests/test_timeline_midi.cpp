@@ -2,6 +2,7 @@
 
 #include "project/ProjectSchema.h"
 #include "project/ProjectJson.h"
+#include "project/MidiRegionLoop.h"
 #include "timing/TempoMap.h"
 #include "audio/graph/MixGraph.h"
 #include "midi/Midi2Compatibility.h"
@@ -49,6 +50,60 @@ TEST_CASE("MidiNote and MidiRegion model integrity and defaults") {
     CHECK(region.loop);
     CHECK(region.loopLengthBeats == doctest::Approx(4.0));
     CHECK(region.notes.size() == 1);
+}
+
+TEST_CASE("Trimmed MIDI loop source windows preserve phase and exclude the old tail") {
+    MidiRegion region;
+    region.loop = true;
+    region.clipOffsetBeats = 7.0;
+    region.loopStartBeats = 7.0;
+    region.loopLengthBeats = 5.0;
+
+    CHECK(midiRegionSourceBeat(0.0, region.clipOffsetBeats,
+                               region.loopStartBeats, region.loopLengthBeats,
+                               region.loop) == doctest::Approx(7.0));
+    CHECK(midiRegionSourceBeat(4.999, region.clipOffsetBeats,
+                               region.loopStartBeats, region.loopLengthBeats,
+                               region.loop) == doctest::Approx(11.999));
+    CHECK(midiRegionSourceBeat(5.0, region.clipOffsetBeats,
+                               region.loopStartBeats, region.loopLengthBeats,
+                               region.loop) == doctest::Approx(7.0));
+    CHECK(midiRegionContainsLoopSourceBeat(7.0, region.loopStartBeats,
+                                           region.loopLengthBeats));
+    CHECK_FALSE(midiRegionContainsLoopSourceBeat(6.999, region.loopStartBeats,
+                                                 region.loopLengthBeats));
+    CHECK_FALSE(midiRegionContainsLoopSourceBeat(12.0, region.loopStartBeats,
+                                                 region.loopLengthBeats));
+
+    // Splitting advances the source phase but must not widen the cropped loop.
+    region.clipOffsetBeats = 9.0;
+    CHECK(midiRegionSourceBeat(0.0, region.clipOffsetBeats,
+                               region.loopStartBeats, region.loopLengthBeats,
+                               region.loop) == doctest::Approx(9.0));
+    CHECK(midiRegionSourceBeat(3.0, region.clipOffsetBeats,
+                               region.loopStartBeats, region.loopLengthBeats,
+                               region.loop) == doctest::Approx(7.0));
+}
+
+TEST_CASE("Project JSON preserves the MIDI loop source-window start") {
+    Project project;
+    SongDef song;
+    MidiRegion region;
+    region.id = "midi-region";
+    region.loop = true;
+    region.loopStartBeats = 7.0;
+    region.clipOffsetBeats = 9.0;
+    region.loopLengthBeats = 5.0;
+    song.midiRegions.push_back(region);
+    project.songs.push_back(song);
+
+    Project restored;
+    std::string error;
+    REQUIRE(parseProjectJson(serializeProjectJson(project), restored, error));
+    REQUIRE(restored.songs.size() == 1);
+    REQUIRE(restored.songs[0].midiRegions.size() == 1);
+    CHECK(restored.songs[0].midiRegions[0].loopStartBeats == doctest::Approx(7.0));
+    CHECK(restored.songs[0].midiRegions[0].clipOffsetBeats == doctest::Approx(9.0));
 }
 
 TEST_CASE("MIDI 2.0 compatibility conversion keeps channel data bounded") {

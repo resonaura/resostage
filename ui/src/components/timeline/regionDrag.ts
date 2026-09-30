@@ -58,6 +58,8 @@ export type RegionGeom = {
   fadeOutCurve: number;
   loop: boolean;
   loopLengthSeconds?: number;
+  /** MIDI-only source boundary for a loop cropped by left trim. */
+  loopStartSeconds?: number;
   /** Set while a "move" drag is hovering a track's lane (may equal origin). */
   trackId?: string;
 };
@@ -73,6 +75,7 @@ export type RegionGeomDraft = {
   fadeOutCurve?: number;
   loop?: boolean;
   loopLengthSeconds?: number;
+  loopStartSeconds?: number;
   trackId?: string;
 };
 
@@ -95,6 +98,7 @@ export type RegionDragSession = {
   origFadeOutCurve: number;
   origLoop: boolean;
   origLoopLength: number;
+  origLoopStart?: number;
   origSpeed: number;
   maxEnd: number; // song length
   /** Remaining source length from sourceOffset (fileDuration - offset). */
@@ -136,6 +140,7 @@ export function baseRegionGeom(rd: RegionDragSession): RegionGeom {
     fadeOutCurve: rd.origFadeOutCurve,
     loop: rd.origLoop,
     loopLengthSeconds: rd.origLoopLength,
+    loopStartSeconds: rd.origLoopStart,
   };
 }
 
@@ -355,6 +360,29 @@ export function computeRegionDragGeom(
         0.25,
         (rd.origDurationBeats ?? 1) - deltaBeats,
       );
+      let sourceOffsetBeats = (rd.origSourceOffset * bpm) / 60 + deltaBeats;
+      let loopStartBeats = ((rd.origLoopStart ?? 0) * bpm) / 60;
+      let loopLengthBeats = rd.origLoopLength > 0
+        ? (rd.origLoopLength * bpm) / 60
+        : (rd.origDurationBeats ?? 1);
+      if (rd.origLoop && loopLengthBeats > 0) {
+        const oldLoopEnd = loopStartBeats + loopLengthBeats;
+        const phaseAtOldStart = loopStartBeats + (
+          ((sourceOffsetBeats - deltaBeats - loopStartBeats) % loopLengthBeats
+            + loopLengthBeats) % loopLengthBeats
+        );
+        if (deltaBeats >= 0) {
+          sourceOffsetBeats = loopStartBeats + (
+            ((phaseAtOldStart + deltaBeats - loopStartBeats) % loopLengthBeats
+              + loopLengthBeats) % loopLengthBeats
+          );
+          loopStartBeats = sourceOffsetBeats;
+        } else {
+          sourceOffsetBeats = Math.max(0, phaseAtOldStart + deltaBeats);
+          loopStartBeats = Math.min(loopStartBeats, sourceOffsetBeats);
+        }
+        loopLengthBeats = Math.max(0.25, oldLoopEnd - loopStartBeats);
+      }
       return {
         ...baseRegionGeom(rd),
         start: (snappedBeats * 60) / bpm,
@@ -363,7 +391,11 @@ export function computeRegionDragGeom(
         // later point in the source. For MIDI that source position is the
         // pattern clip offset; leaving it fixed restarts the pattern at its
         // original first note instead of continuing from the trimmed point.
-        sourceOffset: (rd.origSourceOffset ?? 0) + (deltaBeats * 60) / bpm,
+        sourceOffset: (sourceOffsetBeats * 60) / bpm,
+        ...(rd.origLoop ? {
+          loopLengthSeconds: (loopLengthBeats * 60) / bpm,
+          loopStartSeconds: (loopStartBeats * 60) / bpm,
+        } : {}),
       };
     }
 
@@ -593,6 +625,7 @@ export function buildRegionDragSession(args: {
     fadeOutCurve: geom.fadeOutCurve,
     loop: geom.loop,
     loopLengthSeconds: geom.loopLengthSeconds,
+    loopStartSeconds: geom.loopStartSeconds,
     trackId: originTrackId,
   };
   return {
@@ -611,6 +644,7 @@ export function buildRegionDragSession(args: {
     origFadeOutCurve: orig.fadeOutCurve,
     origLoop: orig.loop,
     origLoopLength: origLoopLen,
+    origLoopStart: geom.loopStartSeconds ?? 0,
     origSpeed: orig.speed > 0 ? orig.speed : 1,
     maxEnd: segDuration,
     maxSourceDur: Math.max(0.05, fileDuration - orig.sourceOffset),

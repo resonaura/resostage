@@ -28,6 +28,7 @@ export function resolveSelectedRegions(
         clipOffsetBeats: r.clipOffsetBeats,
         loop: r.loop,
         loopLengthBeats: r.loopLengthBeats,
+        loopStartBeats: r.loopStartBeats ?? 0,
         muted: Boolean(r.muted),
         color: r.color,
         notes: r.notes.map((note) => ({ ...note })),
@@ -92,6 +93,7 @@ export async function addRegionEntries(
         clipOffsetBeats: r.clipOffsetBeats,
         loop: r.loop,
         loopLengthBeats: r.loopLengthBeats,
+        loopStartBeats: r.loopStartBeats,
         muted: r.muted,
         color: r.color,
         notes: r.notes.map((note) => ({ ...note })),
@@ -198,6 +200,7 @@ export async function splitRegionsAtPlayhead(
         clipOffsetBeats: r.clipOffsetBeats + splitBeats,
         loop: r.loop,
         loopLengthBeats: r.loopLengthBeats,
+        loopStartBeats: r.loopStartBeats,
         muted: Boolean(r.muted),
         color: r.color,
         // Both halves reference the same note source. clipOffsetBeats makes

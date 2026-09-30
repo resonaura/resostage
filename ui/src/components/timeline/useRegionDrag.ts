@@ -129,8 +129,19 @@ export function useRegionDrag({
           const committedDurSec = (hit.region.durationBeats * 60) / bpm;
           const matchStart = Math.abs(committedStartSec - d.start) < 0.05;
           const matchDur = Math.abs(committedDurSec - d.duration) < 0.05;
+          const matchSource = Math.abs(
+            ((hit.region.clipOffsetBeats * 60) / bpm) - d.sourceOffset,
+          ) < 0.05;
+          const matchLoopLength = d.loopLengthSeconds === undefined
+            || Math.abs(
+              ((hit.region.loopLengthBeats * 60) / bpm) - d.loopLengthSeconds,
+            ) < 0.05;
+          const matchLoopStart = d.loopStartSeconds === undefined
+            || Math.abs(
+              (((hit.region.loopStartBeats ?? 0) * 60) / bpm) - d.loopStartSeconds,
+            ) < 0.05;
           const matchTrack = !d.trackId || hit.region.trackId === d.trackId;
-          if (matchStart && matchDur && matchTrack) {
+          if (matchStart && matchDur && matchSource && matchLoopLength && matchLoopStart && matchTrack) {
             delete next[key];
             changed = true;
             continue;
@@ -402,6 +413,16 @@ export function useRegionDrag({
                 ) / 1000,
               )
             : rd.origDurationBeats,
+        ...(finalGeom.loopStartSeconds !== undefined
+          ? {
+              loopStartBeats: Math.max(
+                0,
+                Math.round(
+                  ((finalGeom.loopStartSeconds * bpm) / 60) * 1000,
+                ) / 1000,
+              ),
+            }
+          : {}),
       });
       if (finalGeom.trackId) {
         onSelectTrackIdRef.current?.(finalGeom.trackId);

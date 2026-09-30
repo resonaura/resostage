@@ -9,6 +9,12 @@ import { triggerHaptic } from "../../lib/interaction/haptics";
 import { resolveCssVar } from "../../lib/theme/cssColor";
 import { useThemeVersion } from "../../hooks/useThemeVersion";
 import {
+  midiRegionContainsLoopSourceBeat,
+  midiRegionLoopOccurrence,
+  midiRegionNotePlaybackDuration,
+  midiRegionSourceBeat,
+} from "../../lib/midi/midiRegionTiming";
+import {
   canvasYToPitch,
   editControllerPoint,
   generateNoteId,
@@ -335,12 +341,8 @@ export function PianoRollCanvas({
   );
 
   const sourceBeatAt = useCallback(
-    (beat: number) => {
-      if (!region.loop || region.loopLengthBeats <= 0) return beat;
-      const shifted = beat + region.clipOffsetBeats;
-      return ((shifted % region.loopLengthBeats) + region.loopLengthBeats) % region.loopLengthBeats;
-    },
-    [region.loop, region.loopLengthBeats, region.clipOffsetBeats],
+    (beat: number) => midiRegionSourceBeat(region, beat),
+    [region],
   );
 
   // ── Edge Auto-Scroll Engine (time-based, bounded speed) ─────────────────
@@ -715,9 +717,11 @@ export function PianoRollCanvas({
     }
 
     // ── 4. Active MIDI Notes (from notesToRender) ──────────────────────────
+    const loopStart = region.loopStartBeats ?? 0;
+    const loopEnd = loopStart + region.loopLengthBeats;
     const sourceVisibleNotes = spatialIndex.current.queryRange(
-      region.loop && region.loopLengthBeats > 0 ? 0 : minBeat,
-      region.loop && region.loopLengthBeats > 0 ? region.loopLengthBeats : maxBeat,
+      region.loop && region.loopLengthBeats > 0 ? loopStart : minBeat + region.clipOffsetBeats,
+      region.loop && region.loopLengthBeats > 0 ? loopEnd : maxBeat + region.clipOffsetBeats,
       minPitch,
       maxPitch,
     );
@@ -725,8 +729,8 @@ export function PianoRollCanvas({
     // used to virtualize note bodies, otherwise its stalks disappear as soon
     // as the user scrolls those notes out of the vertical viewport.
     const sourceTimeVisibleNotes = spatialIndex.current.queryRange(
-      region.loop && region.loopLengthBeats > 0 ? 0 : minBeat,
-      region.loop && region.loopLengthBeats > 0 ? region.loopLengthBeats : maxBeat,
+      region.loop && region.loopLengthBeats > 0 ? loopStart : minBeat + region.clipOffsetBeats,
+      region.loop && region.loopLengthBeats > 0 ? loopEnd : maxBeat + region.clipOffsetBeats,
       0,
       127,
     );
@@ -737,16 +741,22 @@ export function PianoRollCanvas({
         ? Math.max(1, Math.ceil(region.durationBeats / length) + 1)
         : 1;
       for (let repeat = 0; repeat < repeats && views.length < 20_000; repeat += 1) {
-        const offset = region.loop && length > 0 ? repeat * length - region.clipOffsetBeats : 0;
         for (const note of notes) {
-          const beat = note.startBeats + offset;
+          if (region.loop && !midiRegionContainsLoopSourceBeat(region, note.startBeats))
+            continue;
+          const beat = region.loop && length > 0
+            ? midiRegionLoopOccurrence(region, note.startBeats) + repeat * length
+            : note.startBeats - region.clipOffsetBeats;
+          const visibleDuration = midiRegionNotePlaybackDuration(
+            region, note.startBeats, note.durationBeats,
+          );
           if (
-            beat + note.durationBeats > minBeat &&
+            beat + visibleDuration > minBeat &&
             beat < maxBeat &&
             beat < region.durationBeats &&
             views.length < 20_000
           ) {
-            views.push({ note, beat });
+            views.push({ note: { ...note, durationBeats: visibleDuration }, beat });
           }
         }
       }
@@ -976,10 +986,10 @@ export function PianoRollCanvas({
         );
         const repeatLength = region.loop && region.loopLengthBeats > 0 ? region.loopLengthBeats : 0;
         const firstRepeat = repeatLength > 0
-          ? Math.max(0, Math.floor((minBeat + region.clipOffsetBeats) / repeatLength) - 1)
+          ? Math.max(0, Math.floor(minBeat / repeatLength) - 1)
           : 0;
         const lastRepeat = repeatLength > 0
-          ? Math.max(firstRepeat, Math.ceil((maxBeat + region.clipOffsetBeats) / repeatLength))
+          ? Math.max(firstRepeat, Math.ceil(maxBeat / repeatLength))
           : 0;
         // Bound canvas work even when a tiny source loop is repeated thousands
         // of times across a zoomed-out region.
@@ -991,14 +1001,16 @@ export function PianoRollCanvas({
         ctx.rect(viewport.keyWidth, laneY, width - viewport.keyWidth, height - laneY);
         ctx.clip();
         for (let repeat = firstRepeat; repeat <= lastRepeat; repeat += 1) {
-          const offset = repeatLength > 0 ? repeat * repeatLength - region.clipOffsetBeats : 0;
           ctx.strokeStyle = theme.accent;
           ctx.lineWidth = 2;
           ctx.beginPath();
           let drawn = false;
           for (let index = 0; index < sorted.length; index += pointStride) {
             const point = sorted[index];
-            const beat = point.timeBeats + offset;
+            if (repeatLength > 0 && !midiRegionContainsLoopSourceBeat(region, point.timeBeats)) continue;
+            const beat = repeatLength > 0
+              ? midiRegionLoopOccurrence(region, point.timeBeats) + repeat * repeatLength
+              : point.timeBeats - region.clipOffsetBeats;
             if (beat < minBeat - 1 || beat > maxBeat + 1 || beat >= region.durationBeats) continue;
             const px = beatToX(beat);
             const py = controllerYFromValue(point.value, gridBottom, height, isPB);
@@ -1009,7 +1021,10 @@ export function PianoRollCanvas({
           if (drawn) ctx.stroke();
           for (let index = 0; index < sorted.length; index += pointStride) {
             const point = sorted[index];
-            const beat = point.timeBeats + offset;
+            if (repeatLength > 0 && !midiRegionContainsLoopSourceBeat(region, point.timeBeats)) continue;
+            const beat = repeatLength > 0
+              ? midiRegionLoopOccurrence(region, point.timeBeats) + repeat * repeatLength
+              : point.timeBeats - region.clipOffsetBeats;
             if (beat < minBeat || beat > maxBeat || beat >= region.durationBeats) continue;
             const px = beatToX(beat);
             const py = controllerYFromValue(point.value, gridBottom, height, isPB);
@@ -1036,12 +1051,12 @@ export function PianoRollCanvas({
             ? region.loopLengthBeats
             : 0;
           const firstRepeat = repeatLength > 0
-            ? Math.max(0, Math.floor((minBeat + region.clipOffsetBeats) / repeatLength) - 1)
+            ? Math.max(0, Math.floor(minBeat / repeatLength) - 1)
             : 0;
           const lastRepeat = repeatLength > 0
             ? Math.min(
                 Math.ceil(region.durationBeats / repeatLength),
-                Math.ceil((maxBeat + region.clipOffsetBeats) / repeatLength),
+                Math.ceil(maxBeat / repeatLength),
               )
             : 0;
           const baselineY = controllerYFromValue(0, gridBottom, height, false);
@@ -1054,9 +1069,14 @@ export function PianoRollCanvas({
           ctx.fillStyle = theme.accent;
           ctx.lineWidth = 2;
           for (let repeat = firstRepeat, work = 0; repeat <= lastRepeat && work < 12_000; repeat += 1) {
-            const offset = repeatLength > 0 ? repeat * repeatLength - region.clipOffsetBeats : 0;
             const mapped = sustainEvents
-              .map((event) => ({ beat: event.beat + offset, down: event.data[1] >= 64 }))
+              .filter((event) => repeatLength <= 0 || midiRegionContainsLoopSourceBeat(region, event.beat))
+              .map((event) => ({
+                beat: repeatLength > 0
+                  ? midiRegionLoopOccurrence(region, event.beat) + repeat * repeatLength
+                  : event.beat - region.clipOffsetBeats,
+                down: event.data[1] >= 64,
+              }))
               .filter((event) => event.beat >= 0 && event.beat < region.durationBeats
                 && event.beat >= minBeat - 1 && event.beat <= maxBeat + 1);
             let down = false;
@@ -1079,7 +1099,9 @@ export function PianoRollCanvas({
               if (down) downStart = event.beat;
             }
             if (down) {
-              const endBeat = Math.min(region.durationBeats, (repeat + 1) * repeatLength - region.clipOffsetBeats);
+              const endBeat = repeatLength > 0
+                ? Math.min(region.durationBeats, (repeat + 1) * repeatLength)
+                : region.durationBeats;
               ctx.beginPath();
               ctx.moveTo(beatToX(downStart), downY);
               ctx.lineTo(beatToX(Math.min(endBeat, maxBeat + 1)), downY);

@@ -160,6 +160,29 @@ describe("computeRegionDragGeom", () => {
     expect(g.duration).toBeCloseTo(11);
     expect(g.loop).toBe(false);
   });
+
+  it("shortens the MIDI loop source window when trimming its left edge", () => {
+    const rd = session({
+      kind: "midi",
+      mode: "trimStart",
+      bpm: 120,
+      origStart: 0,
+      origSourceOffset: 2,
+      origDuration: 8,
+      origLoop: true,
+      origLoopStart: 2,
+      origLoopLength: 6,
+      origStartBeats: 0,
+      origDurationBeats: 16,
+    });
+
+    const g = computeRegionDragGeom(rd, ctx, 110, 50); // trim by two beats
+    expect(g.start).toBeCloseTo(1);
+    expect(g.duration).toBeCloseTo(7);
+    expect(g.sourceOffset).toBeCloseTo(3);
+    expect(g.loopStartSeconds).toBeCloseTo(3);
+    expect(g.loopLengthSeconds).toBeCloseTo(5);
+  });
 });
 
 describe("regionDraftMatchesCommitted", () => {

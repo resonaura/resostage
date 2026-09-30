@@ -129,8 +129,8 @@ export function VirtualMidiKeyboard({
   });
 
   const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
-  const activeKeysRef = useRef<Map<string, number>>(new Map()); // code -> midiNote
-  const mouseDownNotesRef = useRef<Set<number>>(new Set());
+  const activeKeysRef = useRef<Map<string, { note: number; trackIndex?: number }>>(new Map());
+  const mouseDownNotesRef = useRef<Map<number, number | undefined>>(new Map());
 
   // Window position & drag capability
   const [position, setPosition] = useState<{ x: number; y: number } | null>(
@@ -376,11 +376,11 @@ export function VirtualMidiKeyboard({
     if (previousIndex === activeInstrumentIndex) return;
 
     const previousTarget = previousIndex >= 0 ? previousIndex : undefined;
-    activeKeysRef.current.forEach((note) => {
-      sendLiveMidi(0x80, note, 0, previousTarget);
+    activeKeysRef.current.forEach(({ note, trackIndex }) => {
+      sendLiveMidi(0x80, note, 0, trackIndex ?? previousTarget);
     });
-    mouseDownNotesRef.current.forEach((note) => {
-      sendLiveMidi(0x80, note, 0, previousTarget);
+    mouseDownNotesRef.current.forEach((trackIndex, note) => {
+      sendLiveMidi(0x80, note, 0, trackIndex ?? previousTarget);
     });
     if (isSustainDownRef.current) sendLiveMidi(0xb0, 64, 0, previousTarget);
 
@@ -405,11 +405,14 @@ export function VirtualMidiKeyboard({
   onCloseRef.current = onClose;
 
   // Helper to trigger Note On
-  const triggerNoteOn = useCallback((note: number, vel: number) => {
-    const targetIdx =
-      activeInstrumentIndexRef.current >= 0
-        ? activeInstrumentIndexRef.current
-        : undefined;
+  const triggerNoteOn = useCallback((
+    note: number,
+    vel: number,
+    trackIndex = activeInstrumentIndexRef.current >= 0
+      ? activeInstrumentIndexRef.current
+      : undefined,
+  ) => {
+    const targetIdx = trackIndex;
     sendLiveMidi(0x90, note, vel, targetIdx);
     setActiveNotes((prev) => {
       const next = new Set(prev);
@@ -419,12 +422,17 @@ export function VirtualMidiKeyboard({
   }, []);
 
   // Helper to trigger Note Off
-  const triggerNoteOff = useCallback((note: number) => {
-    const targetIdx =
-      activeInstrumentIndexRef.current >= 0
-        ? activeInstrumentIndexRef.current
-        : undefined;
+  const triggerNoteOff = useCallback((
+    note: number,
+    trackIndex = activeInstrumentIndexRef.current >= 0
+      ? activeInstrumentIndexRef.current
+      : undefined,
+  ) => {
+    const targetIdx = trackIndex;
     sendLiveMidi(0x80, note, 0, targetIdx);
+    const remainsHeld = mouseDownNotesRef.current.has(note)
+      || [...activeKeysRef.current.values()].some((held) => held.note === note);
+    if (remainsHeld) return;
     setActiveNotes((prev) => {
       const next = new Set(prev);
       next.delete(note);
@@ -434,25 +442,22 @@ export function VirtualMidiKeyboard({
 
   // Release all active notes cleanly
   const releaseAllNotes = useCallback(() => {
-    let hadNotes = false;
     const targetIdx =
       activeInstrumentIndexRef.current >= 0
         ? activeInstrumentIndexRef.current
         : undefined;
     if (activeKeysRef.current.size > 0) {
-      activeKeysRef.current.forEach((note) => {
-        sendLiveMidi(0x80, note, 0, targetIdx);
+      activeKeysRef.current.forEach(({ note, trackIndex }) => {
+        sendLiveMidi(0x80, note, 0, trackIndex ?? targetIdx);
       });
       activeKeysRef.current.clear();
-      hadNotes = true;
     }
 
     if (mouseDownNotesRef.current.size > 0) {
-      mouseDownNotesRef.current.forEach((note) => {
-        sendLiveMidi(0x80, note, 0, targetIdx);
+      mouseDownNotesRef.current.forEach((trackIndex, note) => {
+        sendLiveMidi(0x80, note, 0, trackIndex ?? targetIdx);
       });
       mouseDownNotesRef.current.clear();
-      hadNotes = true;
     }
 
     if (isSustainDownRef.current) {
@@ -461,9 +466,7 @@ export function VirtualMidiKeyboard({
       sendLiveMidi(0xB0, 64, 0, targetIdx);
     }
 
-    if (hadNotes) {
-      setActiveNotes(new Set());
-    }
+    setActiveNotes(new Set());
   }, []);
 
   // When changing octave, release active notes so none stay stuck
@@ -561,9 +564,12 @@ export function VirtualMidiKeyboard({
         e.stopImmediatePropagation();
 
         const note = baseNoteRef.current + mapping.offset;
-        if (note >= 0 && note <= 127) {
-          activeKeysRef.current.set(e.code, note);
-          triggerNoteOn(note, velocityRef.current);
+        if (note >= 0 && note <= 127 && !activeKeysRef.current.has(e.code)) {
+          const trackIndex = activeInstrumentIndexRef.current >= 0
+            ? activeInstrumentIndexRef.current
+            : undefined;
+          activeKeysRef.current.set(e.code, { note, trackIndex });
+          triggerNoteOn(note, velocityRef.current, trackIndex);
         }
         return;
       }
@@ -596,9 +602,9 @@ export function VirtualMidiKeyboard({
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
-        const note = activeKeysRef.current.get(e.code)!;
+        const held = activeKeysRef.current.get(e.code)!;
         activeKeysRef.current.delete(e.code);
-        triggerNoteOff(note);
+        triggerNoteOff(held.note, held.trackIndex);
       }
     };
 
@@ -617,6 +623,16 @@ export function VirtualMidiKeyboard({
       releaseAllNotes();
     };
   }, [isOpen, standalone, releaseAllNotes, triggerNoteOn, triggerNoteOff]);
+
+  // Browsers and embedded webviews may omit keyup when the document becomes
+  // hidden (for example, switching apps while a typing key is held).
+  useEffect(() => {
+    const releaseOnHide = () => {
+      if (document.visibilityState === "hidden") releaseAllNotes();
+    };
+    document.addEventListener("visibilitychange", releaseOnHide);
+    return () => document.removeEventListener("visibilitychange", releaseOnHide);
+  }, [releaseAllNotes]);
 
   // Construct piano keys for 32 semitones (from offset 0 up to 31, ~2.6 octaves)
   const keysData = useMemo(() => {
@@ -653,43 +669,59 @@ export function VirtualMidiKeyboard({
   // Mouse handlers for on-screen piano keys
   const handleKeyMouseDown = (note: number) => {
     if (mouseDownNotesRef.current.has(note)) return;
-    mouseDownNotesRef.current.add(note);
-    triggerNoteOn(note, velocity);
+    const trackIndex = activeInstrumentIndexRef.current >= 0
+      ? activeInstrumentIndexRef.current
+      : undefined;
+    mouseDownNotesRef.current.set(note, trackIndex);
+    triggerNoteOn(note, velocity, trackIndex);
   };
 
   const handleKeyMouseUp = (note: number) => {
-    if (!mouseDownNotesRef.current.delete(note)) return;
-    triggerNoteOff(note);
+    if (!mouseDownNotesRef.current.has(note)) return;
+    const trackIndex = mouseDownNotesRef.current.get(note);
+    mouseDownNotesRef.current.delete(note);
+    triggerNoteOff(note, trackIndex);
   };
 
   const handleKeyMouseEnter = (note: number, e: React.PointerEvent) => {
     if (e.buttons === 1 && !mouseDownNotesRef.current.has(note)) {
-      mouseDownNotesRef.current.add(note);
-      triggerNoteOn(note, velocity);
+      const trackIndex = activeInstrumentIndexRef.current >= 0
+        ? activeInstrumentIndexRef.current
+        : undefined;
+      mouseDownNotesRef.current.set(note, trackIndex);
+      triggerNoteOn(note, velocity, trackIndex);
     }
   };
 
   const handleKeyMouseLeave = (note: number) => {
     if (mouseDownNotesRef.current.has(note)) {
+      const trackIndex = mouseDownNotesRef.current.get(note);
       mouseDownNotesRef.current.delete(note);
-      triggerNoteOff(note);
+      triggerNoteOff(note, trackIndex);
     }
   };
 
   const releaseMouseNotes = useCallback(() => {
-    const held = [...mouseDownNotesRef.current];
+    const held = [...mouseDownNotesRef.current.entries()];
     mouseDownNotesRef.current.clear();
-    held.forEach((note) => triggerNoteOff(note));
+    held.forEach(([note, trackIndex]) => triggerNoteOff(note, trackIndex));
   }, [triggerNoteOff]);
 
   // Do not capture the pointer on each key: that would break glissando. This
   // window-level release handles mouse/touch lifts that happen off the keys.
   useEffect(() => {
+    const releaseIfHidden = () => {
+      if (document.visibilityState === "hidden") releaseMouseNotes();
+    };
     window.addEventListener("pointerup", releaseMouseNotes, true);
     window.addEventListener("pointercancel", releaseMouseNotes, true);
+    window.addEventListener("blur", releaseMouseNotes);
+    document.addEventListener("visibilitychange", releaseIfHidden);
     return () => {
       window.removeEventListener("pointerup", releaseMouseNotes, true);
       window.removeEventListener("pointercancel", releaseMouseNotes, true);
+      window.removeEventListener("blur", releaseMouseNotes);
+      document.removeEventListener("visibilitychange", releaseIfHidden);
       releaseMouseNotes();
     };
   }, [releaseMouseNotes]);

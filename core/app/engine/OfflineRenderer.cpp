@@ -7,6 +7,7 @@
 #include "automation/AutomationEvaluator.h"
 #include "midi/Midi2Compatibility.h"
 #include "project/ProjectLoader.h"
+#include "project/MidiRegionLoop.h"
 #include "timing/TempoMap.h"
 #include "signalsmith-stretch/signalsmith-stretch.h"
 
@@ -212,24 +213,35 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
             ? region.loopLengthBeats : region.durationBeats;
         const double clipOffset = std::isfinite(region.clipOffsetBeats)
             ? std::max(0.0, region.clipOffsetBeats) : 0.0;
+        const double loopStart = region.loop && std::isfinite(region.loopStartBeats)
+            ? std::max(0.0, region.loopStartBeats) : 0.0;
         const int repeatCount = region.loop && loopLength > 1.0e-4
             ? static_cast<int>(std::clamp(std::ceil(
-                (region.durationBeats + clipOffset) / loopLength),
-                1.0, 100'000.0))
+                region.durationBeats / loopLength), 1.0, 100'000.0))
             : 1;
         const double regionEndBeat = region.startBeats + region.durationBeats;
         for (int repeat = 0; repeat < repeatCount; ++repeat) {
-            const double iterationOffset = region.startBeats - clipOffset
-                + (region.loop ? repeat * loopLength : 0.0);
             for (const auto& note : region.notes) {
                 if (note.muted || !std::isfinite(note.startBeats)
                     || !std::isfinite(note.durationBeats) || note.durationBeats <= 0.0)
                     continue;
-                const double noteOnBeat = iterationOffset + note.startBeats;
+                if (region.loop && !midiRegionContainsLoopSourceBeat(
+                        note.startBeats, loopStart, loopLength))
+                    continue;
+                const double relativeBeat = region.loop
+                    ? midiRegionLoopOccurrence(note.startBeats, clipOffset,
+                                               loopStart, loopLength)
+                        + repeat * loopLength
+                    : note.startBeats - clipOffset;
+                const double noteOnBeat = region.startBeats + relativeBeat;
                 if (noteOnBeat >= regionEndBeat)
                     continue;
+                const double availableInLoop = region.loop
+                    ? loopStart + loopLength - note.startBeats
+                    : note.durationBeats;
                 const double noteOffBeat = std::min(
-                    noteOnBeat + note.durationBeats, regionEndBeat);
+                    noteOnBeat + std::min(note.durationBeats, availableInLoop),
+                    regionEndBeat);
                 if (noteOffBeat <= region.startBeats)
                     continue;
                 const int64_t onSample = tempoMap.beatsToSamples(noteOnBeat, sampleRate);
@@ -268,8 +280,16 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
                 if (!std::isfinite(message.beat) || message.data.size() > 2
                     || message.status == 0xff || message.status == 0xf0 || message.status == 0xf7)
                     continue; // Meta and variable-length SysEx are retained for SMF export only.
+                if (region.loop && !midiRegionContainsLoopSourceBeat(
+                        message.beat, loopStart, loopLength))
+                    continue;
+                const double relativeBeat = region.loop
+                    ? midiRegionLoopOccurrence(message.beat, clipOffset,
+                                               loopStart, loopLength)
+                        + repeat * loopLength
+                    : message.beat - clipOffset;
                 const int64_t sample = tempoMap.beatsToSamples(
-                    iterationOffset + message.beat, sampleRate);
+                    region.startBeats + relativeBeat, sampleRate);
                 if (sample < renderStartSample || sample >= renderEndSample
                     || sample < tempoMap.beatsToSamples(region.startBeats, sampleRate)
                     || sample >= tempoMap.beatsToSamples(regionEndBeat, sampleRate))
@@ -291,8 +311,16 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
             for (const auto& message : region.umpEvents) {
                 const auto compatible = umpToMidi1ChannelControl(message);
                 if (!compatible || !std::isfinite(message.beat)) continue;
+                if (region.loop && !midiRegionContainsLoopSourceBeat(
+                        message.beat, loopStart, loopLength))
+                    continue;
+                const double relativeBeat = region.loop
+                    ? midiRegionLoopOccurrence(message.beat, clipOffset,
+                                               loopStart, loopLength)
+                        + repeat * loopLength
+                    : message.beat - clipOffset;
                 const int64_t sample = tempoMap.beatsToSamples(
-                    iterationOffset + message.beat, sampleRate);
+                    region.startBeats + relativeBeat, sampleRate);
                 if (sample < renderStartSample || sample >= renderEndSample
                     || sample < tempoMap.beatsToSamples(region.startBeats, sampleRate)
                     || sample >= tempoMap.beatsToSamples(regionEndBeat, sampleRate))
@@ -1033,10 +1061,10 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                     const uint32_t strip = graph.find(track->effectiveStripId());
                     if (strip == MixGraph::kNoStrip)
                         continue;
-                    double regionBeat = automationBeat - region.startBeats
-                        + region.clipOffsetBeats;
-                    if (region.loop && region.loopLengthBeats > 0.0)
-                        regionBeat = std::fmod(regionBeat, region.loopLengthBeats);
+                    const double regionBeat = midiRegionSourceBeat(
+                        automationBeat - region.startBeats,
+                        region.clipOffsetBeats, region.loopStartBeats,
+                        region.loopLengthBeats, region.loop);
                     for (const auto& lane : region.automationLanes)
                         applyAutomationLane(lane, regionBeat, strip);
                 }

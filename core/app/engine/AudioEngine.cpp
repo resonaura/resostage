@@ -1384,7 +1384,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 + pluginLatencyForBlock,
             currentSampleRate);
         for (size_t strip = 0;
-             strip < kMaxActiveMidiStrips && strip < trackIdByIndex.size();
+             strip < kMaxActiveMidiTracks && strip < trackIdByIndex.size();
              ++strip) {
             const TrackDef* track = trackDefAt(strip);
             const bool external = track != nullptr
@@ -1458,10 +1458,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         compatiblePluginBank->publishTransport(pluginTransport);
     }
 
-    // Drain queued incoming MIDI for real-time plugin instruments and MIDI recording
-    const uint32_t midiReadPos = midiInputQueueRead.load(std::memory_order_relaxed);
-    const uint32_t midiWritePos = midiInputQueueWrite.load(std::memory_order_acquire);
-    const uint32_t availablePktCount = midiWritePos - midiReadPos;
+    // Drain the fixed-capacity MPMC queue. MIDI may be published concurrently
+    // by the hardware callback and WebServer/Electron control path; drain at
+    // most one full queue per audio block so sustained producers stay bounded.
     const bool isRec = isRecordingState.load(std::memory_order_acquire);
     const int64_t recordCaptureStart = recordStartSamplePos.load(std::memory_order_relaxed);
     const bool autoPunch = autoPunchEnabledState.load(std::memory_order_relaxed);
@@ -1475,184 +1474,183 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     const bool midiCaptureActive = isRec && captureWindowOpen;
     const int64_t midiCaptureSample = std::max(playheadSample, recordCaptureStart);
 
-    if (availablePktCount > 0) {
-        for (uint32_t i = 0; i < availablePktCount; ++i) {
-            const auto& pkt = midiInputQueue[(midiReadPos + i) % kMidiQueueCapacity];
-            if (pkt.length > 0) {
-                const juce::MidiMessage msg(pkt.data, pkt.length);
-                const int msgChannel = msg.getChannel();
+    for (size_t i = 0; i < kMidiQueueCapacity; ++i) {
+        QueuedMidiPacket pkt;
+        if (!midiInputQueue.tryPop(pkt)) break;
+        if (pkt.length > 0) {
+            const juce::MidiMessage msg(pkt.data, pkt.length);
+            const int msgChannel = msg.getChannel();
 
-                int liveMidiFocus = focusedTrackIndex.load(std::memory_order_relaxed);
-                if (liveMidiFocus < 0 || liveMidiFocus >= static_cast<int>(trackIdByIndex.size())) {
+            int liveMidiFocus = focusedTrackIndex.load(std::memory_order_relaxed);
+            if (liveMidiFocus < 0 || liveMidiFocus >= static_cast<int>(trackIdByIndex.size())) {
+                liveMidiFocus = -1;
+            } else {
+                const TrackDef* focused = trackDefAt(static_cast<size_t>(liveMidiFocus));
+                if (focused == nullptr || !isMidiInputTrack(focused->kind))
                     liveMidiFocus = -1;
+            }
+            if (liveMidiFocus < 0) {
+                for (size_t candidate = 0; candidate < trackIdByIndex.size(); ++candidate) {
+                    const TrackDef* candidateDef = trackDefAt(candidate);
+                    if (candidateDef != nullptr && isMidiInputTrack(candidateDef->kind)) {
+                        liveMidiFocus = static_cast<int>(candidate);
+                        break;
+                    }
+                }
+            }
+
+            bool forwardedToExternalMidi = false;
+            for (size_t t = 0; t < trackIdByIndex.size() && t < trackScratch.size(); ++t) {
+                const TrackDef* tDef = trackDefAt(t);
+                if (tDef == nullptr) continue;
+                const bool isArmed = tDef->recordArmed;
+                const bool acceptsMidiInput = isMidiInputTrack(tDef->kind);
+                const bool isMonitored = acceptsMidiInput && tDef->inputMonitoring;
+                const bool liveNoteOn = msg.isNoteOn() && msg.getVelocity() > 0;
+                const bool liveNoteOff = msg.isNoteOff()
+                    || (msg.isNoteOn() && msg.getVelocity() == 0);
+                const int livePitch = liveNoteOn || liveNoteOff
+                    ? msg.getNoteNumber() : -1;
+                const size_t liveChannel = static_cast<size_t>(
+                    std::clamp(msgChannel - 1, 0, 15));
+                const bool ownsLiveNote = t < kMaxActiveMidiTracks
+                    && acceptsMidiInput && liveNoteOff
+                    && livePitch >= 0 && livePitch < 128
+                    && liveMidiNoteCounts[t][liveChannel]
+                        [static_cast<size_t>(livePitch)] != 0;
+
+                bool shouldDeliver = false;
+                if (pkt.targetTrackIndex >= 0) {
+                    shouldDeliver = (static_cast<int>(t) == pkt.targetTrackIndex);
                 } else {
-                    const TrackDef* focused = trackDefAt(static_cast<size_t>(liveMidiFocus));
-                    if (focused == nullptr || !isMidiInputTrack(focused->kind))
-                        liveMidiFocus = -1;
+                    // Logic-style live MIDI: the focused instrument always
+                    // auditions, while every explicitly armed or monitored
+                    // MIDI-capable track receives the same untargeted input.
+                    shouldDeliver = acceptsMidiInput
+                        && (isArmed || isMonitored
+                            || static_cast<int>(t) == liveMidiFocus);
                 }
-                if (liveMidiFocus < 0) {
-                    for (size_t candidate = 0; candidate < trackIdByIndex.size(); ++candidate) {
-                        const TrackDef* candidateDef = trackDefAt(candidate);
-                        if (candidateDef != nullptr && isMidiInputTrack(candidateDef->kind)) {
-                            liveMidiFocus = static_cast<int>(candidate);
-                            break;
+                // A note-off belongs to the strip that received its note-on,
+                // even if focused/armed/monitor state changed in between.
+                shouldDeliver = shouldDeliver || ownsLiveNote;
+                if (!shouldDeliver) continue;
+
+                if (ownsLiveNote || tDef->midiInputChannel == 0
+                    || tDef->midiInputChannel == msgChannel) {
+                    if (t < kMaxActiveMidiTracks && acceptsMidiInput
+                        && msg.isNoteOnOrOff()) {
+                        const size_t pitch = static_cast<size_t>(msg.getNoteNumber());
+                        auto& count = liveMidiNoteCounts[t][liveChannel][pitch];
+                        if (liveNoteOn) {
+                            if (count < std::numeric_limits<uint8_t>::max()) ++count;
+                            updateActiveMidiNote(t, static_cast<int>(pitch), true);
+                        } else if (liveNoteOff && count != 0) {
+                            --count;
+                            updateActiveMidiNote(t, static_cast<int>(pitch), false);
                         }
                     }
-                }
-
-                bool forwardedToExternalMidi = false;
-                for (size_t t = 0; t < trackIdByIndex.size() && t < trackScratch.size(); ++t) {
-                    const TrackDef* tDef = trackDefAt(t);
-                    if (tDef == nullptr) continue;
-                    const bool isArmed = tDef->recordArmed;
-                    const bool acceptsMidiInput = isMidiInputTrack(tDef->kind);
-                    const bool isMonitored = acceptsMidiInput && tDef->inputMonitoring;
-                    const bool liveNoteOn = msg.isNoteOn() && msg.getVelocity() > 0;
-                    const bool liveNoteOff = msg.isNoteOff()
-                        || (msg.isNoteOn() && msg.getVelocity() == 0);
-                    const int livePitch = liveNoteOn || liveNoteOff
-                        ? msg.getNoteNumber() : -1;
-                    const size_t liveChannel = static_cast<size_t>(
-                        std::clamp(msgChannel - 1, 0, 15));
-                    const bool ownsLiveNote = t < kMaxActiveMidiStrips
-                        && acceptsMidiInput && liveNoteOff
-                        && livePitch >= 0 && livePitch < 128
-                        && liveMidiNoteCounts[t][liveChannel]
-                            [static_cast<size_t>(livePitch)] != 0;
-
-                    bool shouldDeliver = false;
-                    if (pkt.targetTrackIndex >= 0) {
-                        shouldDeliver = (static_cast<int>(t) == pkt.targetTrackIndex);
-                    } else {
-                        // Logic-style live MIDI: the focused instrument always
-                        // auditions, while every explicitly armed or monitored
-                        // MIDI-capable track receives the same untargeted input.
-                        shouldDeliver = acceptsMidiInput
-                            && (isArmed || isMonitored
-                                || static_cast<int>(t) == liveMidiFocus);
+                    if (compatiblePluginBank != nullptr) {
+                        compatiblePluginBank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
                     }
-                    // A note-off belongs to the strip that received its note-on,
-                    // even if focused/armed/monitor state changed in between.
-                    shouldDeliver = shouldDeliver || ownsLiveNote;
-                    if (!shouldDeliver) continue;
 
-                    if (ownsLiveNote || tDef->midiInputChannel == 0
-                        || tDef->midiInputChannel == msgChannel) {
-                        if (t < kMaxActiveMidiStrips && acceptsMidiInput
-                            && msg.isNoteOnOrOff()) {
-                            const size_t pitch = static_cast<size_t>(msg.getNoteNumber());
-                            auto& count = liveMidiNoteCounts[t][liveChannel][pitch];
-                            if (liveNoteOn) {
-                                if (count < std::numeric_limits<uint8_t>::max()) ++count;
-                                updateActiveMidiNote(t, static_cast<int>(pitch), true);
-                            } else if (liveNoteOff && count != 0) {
-                                --count;
-                                updateActiveMidiNote(t, static_cast<int>(pitch), false);
+                    // External MIDI tracks are a live thru destination as
+                    // well as a sequenced destination. All tracks currently
+                    // share the configured hardware MIDI output, so send a
+                    // given incoming packet only once even if several
+                    // monitored external tracks accept it.
+                    const bool externalMidiTrack = tDef->kind == TrackKind::ExternalMIDI
+                        || tDef->kind == TrackKind::MIDI;
+                    const int messageBytes = msg.getRawDataSize();
+                    if (externalMidiTrack && !forwardedToExternalMidi
+                        && messageBytes >= 1 && messageBytes <= 3) {
+                        MidiCommand command;
+                        command.kind = MidiCommandKind::Raw;
+                        command.status = msg.getRawData()[0];
+                        command.channel = command.status < 0xf0
+                            ? static_cast<uint8_t>(command.status & 0x0f) : 0;
+                        command.dataLength = static_cast<uint8_t>(messageBytes - 1);
+                        if (messageBytes > 1) command.data1 = msg.getRawData()[1];
+                        if (messageBytes > 2) command.data2 = msg.getRawData()[2];
+                        const double latencySeconds = resostage::outputLatencySeconds(
+                            currentOutputLatencySamples.load(std::memory_order_relaxed)
+                                + pluginLatencyForBlock,
+                            currentSampleRate);
+                        command.targetHostTimeNanos = heardHostNanos(
+                            hostTimeNanos, 0.0, latencySeconds);
+                        midiDispatcher.enqueue(command);
+                        forwardedToExternalMidi = true;
+                        if (msg.isNoteOn() && msg.getVelocity() > 0
+                            && msgChannel > 0 && msgChannel <= 16) {
+                            activeExternalMidiChannelMask |= static_cast<uint16_t>(
+                                1u << static_cast<unsigned>(msgChannel - 1));
+                        }
+                    }
+
+                    if (midiCaptureActive && isArmed) {
+                        if (msg.isController()
+                            && msg.getControllerNumber() == 64) {
+                            for (auto& session : activeMidiRecordSessions) {
+                                if (session.trackId != tDef->id
+                                    || session.recordedEventCount >= TrackMidiRecordSession::kMaxSessionRecordedEvents)
+                                    continue;
+                                auto& event = session.recordedEvents[session.recordedEventCount++];
+                                event.sample = midiCaptureSample;
+                                event.status = static_cast<uint8_t>(msg.getRawData()[0]);
+                                event.data1 = 64;
+                                event.data2 = static_cast<uint8_t>(msg.getControllerValue());
+                                event.dataLength = 2;
+                                break;
                             }
                         }
-                        if (compatiblePluginBank != nullptr) {
-                            compatiblePluginBank->addStripMidiEvent(static_cast<uint32_t>(t), msg, 0);
-                        }
-
-                        // External MIDI tracks are a live thru destination as
-                        // well as a sequenced destination. All tracks currently
-                        // share the configured hardware MIDI output, so send a
-                        // given incoming packet only once even if several
-                        // monitored external tracks accept it.
-                        const bool externalMidiTrack = tDef->kind == TrackKind::ExternalMIDI
-                            || tDef->kind == TrackKind::MIDI;
-                        const int messageBytes = msg.getRawDataSize();
-                        if (externalMidiTrack && !forwardedToExternalMidi
-                            && messageBytes >= 1 && messageBytes <= 3) {
-                            MidiCommand command;
-                            command.kind = MidiCommandKind::Raw;
-                            command.status = msg.getRawData()[0];
-                            command.channel = command.status < 0xf0
-                                ? static_cast<uint8_t>(command.status & 0x0f) : 0;
-                            command.dataLength = static_cast<uint8_t>(messageBytes - 1);
-                            if (messageBytes > 1) command.data1 = msg.getRawData()[1];
-                            if (messageBytes > 2) command.data2 = msg.getRawData()[2];
-                            const double latencySeconds = resostage::outputLatencySeconds(
-                                currentOutputLatencySamples.load(std::memory_order_relaxed)
-                                    + pluginLatencyForBlock,
-                                currentSampleRate);
-                            command.targetHostTimeNanos = heardHostNanos(
-                                hostTimeNanos, 0.0, latencySeconds);
-                            midiDispatcher.enqueue(command);
-                            forwardedToExternalMidi = true;
-                            if (msg.isNoteOn() && msg.getVelocity() > 0
-                                && msgChannel > 0 && msgChannel <= 16) {
-                                activeExternalMidiChannelMask |= static_cast<uint16_t>(
-                                    1u << static_cast<unsigned>(msgChannel - 1));
-                            }
-                        }
-
-                        if (midiCaptureActive && isArmed) {
-                            if (msg.isController()
-                                && msg.getControllerNumber() == 64) {
-                                for (auto& session : activeMidiRecordSessions) {
-                                    if (session.trackId != tDef->id
-                                        || session.recordedEventCount >= TrackMidiRecordSession::kMaxSessionRecordedEvents)
-                                        continue;
-                                    auto& event = session.recordedEvents[session.recordedEventCount++];
-                                    event.sample = midiCaptureSample;
-                                    event.status = static_cast<uint8_t>(msg.getRawData()[0]);
-                                    event.data1 = 64;
-                                    event.data2 = static_cast<uint8_t>(msg.getControllerValue());
-                                    event.dataLength = 2;
+                        const bool isNoteOnMsg = msg.isNoteOn() && msg.getVelocity() > 0;
+                        const bool isNoteOffMsg = msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0);
+                        if (isNoteOnMsg) {
+                            const int pitch = msg.getNoteNumber();
+                            const float vel = static_cast<float>(msg.getVelocity()) / 127.0f;
+                            for (auto& session : activeMidiRecordSessions) {
+                                if (session.trackId == tDef->id) {
+                                    auto& note = session.activeNotes[static_cast<size_t>(pitch)];
+                                    if (note.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
+                                        MidiNote completed;
+                                        completed.id = note.id;
+                                        completed.pitch = static_cast<uint8_t>(pitch);
+                                        completed.velocity = note.velocity;
+                                        const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
+                                        const double durSec = static_cast<double>(midiCaptureSample - note.startSample) / currentSampleRate;
+                                        const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
+                                        completed.startBeats = (noteStartSec * bpm) / 60.0;
+                                        completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
+                                        session.recordedNotes[session.recordedNoteCount++] = completed;
+                                    }
+                                    note.pitch = static_cast<uint8_t>(pitch);
+                                    note.id = session.nextNoteId++;
+                                    note.velocity = vel;
+                                    note.startSample = midiCaptureSample;
+                                    note.channel = msgChannel;
+                                    note.active = true;
                                     break;
                                 }
                             }
-                            const bool isNoteOnMsg = msg.isNoteOn() && msg.getVelocity() > 0;
-                            const bool isNoteOffMsg = msg.isNoteOff() || (msg.isNoteOn() && msg.getVelocity() == 0);
-                            if (isNoteOnMsg) {
-                                const int pitch = msg.getNoteNumber();
-                                const float vel = static_cast<float>(msg.getVelocity()) / 127.0f;
-                                for (auto& session : activeMidiRecordSessions) {
-                                    if (session.trackId == tDef->id) {
-                                        auto& note = session.activeNotes[static_cast<size_t>(pitch)];
-                                        if (note.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
-                                            MidiNote completed;
-                                            completed.id = note.id;
-                                            completed.pitch = static_cast<uint8_t>(pitch);
-                                            completed.velocity = note.velocity;
-                                            const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
-                                            const double durSec = static_cast<double>(midiCaptureSample - note.startSample) / currentSampleRate;
-                                            const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
-                                            completed.startBeats = (noteStartSec * bpm) / 60.0;
-                                            completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
-                                            session.recordedNotes[session.recordedNoteCount++] = completed;
-                                        }
-                                        note.pitch = static_cast<uint8_t>(pitch);
-                                        note.id = session.nextNoteId++;
-                                        note.velocity = vel;
-                                        note.startSample = midiCaptureSample;
-                                        note.channel = msgChannel;
-                                        note.active = true;
-                                        break;
+                        } else if (isNoteOffMsg) {
+                            const int pitch = msg.getNoteNumber();
+                            for (auto& session : activeMidiRecordSessions) {
+                                if (session.trackId == tDef->id) {
+                                    auto& note = session.activeNotes[static_cast<size_t>(pitch)];
+                                    if (note.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
+                                        MidiNote completed;
+                                        completed.id = note.id;
+                                        completed.pitch = static_cast<uint8_t>(pitch);
+                                        completed.velocity = note.velocity;
+                                        completed.releaseVelocity = static_cast<float>(msg.getVelocity()) / 127.0f;
+                                        const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
+                                        const double durSec = static_cast<double>(midiCaptureSample - note.startSample) / currentSampleRate;
+                                        const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
+                                        completed.startBeats = (noteStartSec * bpm) / 60.0;
+                                        completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
+                                        session.recordedNotes[session.recordedNoteCount++] = completed;
+                                        note.active = false;
                                     }
-                                }
-                            } else if (isNoteOffMsg) {
-                                const int pitch = msg.getNoteNumber();
-                                for (auto& session : activeMidiRecordSessions) {
-                                    if (session.trackId == tDef->id) {
-                                        auto& note = session.activeNotes[static_cast<size_t>(pitch)];
-                                        if (note.active && session.recordedNoteCount < TrackMidiRecordSession::kMaxSessionRecordedNotes) {
-                                            MidiNote completed;
-                                            completed.id = note.id;
-                                            completed.pitch = static_cast<uint8_t>(pitch);
-                                            completed.velocity = note.velocity;
-                                            completed.releaseVelocity = static_cast<float>(msg.getVelocity()) / 127.0f;
-                                            const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
-                                            const double durSec = static_cast<double>(midiCaptureSample - note.startSample) / currentSampleRate;
-                                            const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
-                                            completed.startBeats = (noteStartSec * bpm) / 60.0;
-                                            completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
-                                            session.recordedNotes[session.recordedNoteCount++] = completed;
-                                            note.active = false;
-                                        }
-                                        break;
-                                    }
+                                    break;
                                 }
                             }
                         }
@@ -1660,7 +1658,6 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 }
             }
         }
-        midiInputQueueRead.store(midiReadPos + availablePktCount, std::memory_order_release);
     }
 
     if (midiCaptureActive && !activeMidiRecordSessions.empty()) {
@@ -2729,17 +2726,12 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
 void AudioEngine::enqueueIncomingMidi(const uint8_t* data, int length, int targetTrackIndex) {
     if (data == nullptr || length <= 0 || length > 4)
         return;
-    const uint32_t currentWrite = midiInputQueueWrite.load(std::memory_order_relaxed);
-    const uint32_t currentRead = midiInputQueueRead.load(std::memory_order_acquire);
-    if ((currentWrite - currentRead) >= kMidiQueueCapacity)
-        return;
-
-    QueuedMidiPacket& pkt = midiInputQueue[currentWrite % kMidiQueueCapacity];
+    QueuedMidiPacket pkt;
     for (int i = 0; i < length; ++i)
         pkt.data[i] = data[i];
     pkt.length = static_cast<uint8_t>(length);
     pkt.targetTrackIndex = static_cast<int16_t>(targetTrackIndex);
-    midiInputQueueWrite.store(currentWrite + 1, std::memory_order_release);
+    (void)midiInputQueue.tryPush(pkt);
 }
 
 void AudioEngine::setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value) {

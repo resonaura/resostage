@@ -5,6 +5,7 @@
 #include "platform/MenuModel.h"
 #include "project/ProjectJson.h"
 #include "project/ProjectLoader.h"
+#include "events/MidiNoteActivity.h"
 #include "server/WireTypes.h"
 #include "server/BuilderJson.h"
 #include <juce_core/juce_core.h>
@@ -156,14 +157,32 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint3
     const uint16_t numLights = static_cast<uint16_t>(s.lightOutput.size());
     const uint16_t numBusses = static_cast<uint16_t>(s.busses.size());
 
+    // Sparse per-track pitch bitmaps: worst case is 1024 tracks × 128 pitches
+    // (about 18 KiB including row indices), while ordinary sessions send only
+    // a few active rows. This is a full snapshot, not an event delta, so a lost
+    // UDP packet cannot leave a key lit indefinitely.
+    std::array<std::array<uint64_t, 2>, kMaxActiveMidiTracks> activeMidiMasks{};
+    for (const auto& note : s.activeMidiNotes) {
+        if (note.trackIndex < 0
+            || static_cast<size_t>(note.trackIndex) >= kMaxActiveMidiTracks
+            || note.pitch < 0 || note.pitch >= static_cast<int>(kMidiPitchCount))
+            continue;
+        const auto pitch = static_cast<size_t>(note.pitch);
+        activeMidiMasks[static_cast<size_t>(note.trackIndex)][pitch / 64]
+            |= uint64_t{1} << (pitch % 64);
+    }
+    uint16_t activeMidiTrackRows = 0;
+    for (const auto& mask : activeMidiMasks)
+        if (mask[0] != 0 || mask[1] != 0) ++activeMidiTrackRows;
+
     size_t ledByteCount = 0;
     for (const auto& lo : s.lightOutput)
         ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
 
-    // v8 header is 66 bytes:
+    // v9 header is 66 bytes:
     // Layout:
     //   0  u16 magic (0x5253)
-    //   2  u8  version (8)
+    //   2  u8  version (9)
     //   3  u8  flags (bit 0 = playing)
     //   4  u32 seq (monotonically increasing frame index)
     //   8  f32 playheadSeconds
@@ -190,6 +209,7 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint3
         + static_cast<size_t>(numMeters) * 16
         + static_cast<size_t>(numTracks)          // per-track flags
         + static_cast<size_t>(numBusses)          // per-bus flags
+        + static_cast<size_t>(activeMidiTrackRows) * 18 // index + pitch mask
         + static_cast<size_t>(numLights) * 4  // fixtureIdx + ledCount per row
         + ledByteCount;
 
@@ -199,6 +219,10 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint3
     const auto writeU32 = [&p](uint32_t val) {
         std::memcpy(p, &val, 4);
         p += 4;
+    };
+    const auto writeU64 = [&p](uint64_t val) {
+        std::memcpy(p, &val, 8);
+        p += 8;
     };
     const auto writeU16 = [&p](uint16_t val) {
         std::memcpy(p, &val, 2);
@@ -217,7 +241,7 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint3
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    writeU8(8);       // Version 8: v7 + monotonic sequence index
+    writeU8(9);       // Version 9: v8 + active MIDI pitch masks
     writeU8(s.playing ? 1 : 0);
     writeU32(seq);
     writeFloat(static_cast<float>(s.playheadSeconds));
@@ -227,7 +251,7 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint3
     writeFloat(s.clickIntervalPeakDbR);
     writeFloat(static_cast<float>(s.bpm));
     writeI16(static_cast<int16_t>(s.songIndex));
-    writeU16(0); // reserved
+    writeU16(activeMidiTrackRows);
     writeFloat(static_cast<float>(s.globalPlayheadSeconds));
     writeFloat(static_cast<float>(s.driftFactor)); // drift-correction factor
     writeFloat(static_cast<float>(std::max(0.0, s.cpuPercent)));
@@ -271,6 +295,16 @@ static std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint3
         if (b.soloActiveInGroup) flags |= 4;
         if (b.soloSafe) flags |= 8;
         writeU8(flags);
+    }
+
+    // Version 9 rows: u16 track index, then two u64 masks for pitches 0–63
+    // and 64–127. Empty snapshots have zero rows and explicitly clear state.
+    for (uint16_t track = 0; track < kMaxActiveMidiTracks; ++track) {
+        const auto& mask = activeMidiMasks[track];
+        if (mask[0] == 0 && mask[1] == 0) continue;
+        writeU16(track);
+        writeU64(mask[0]);
+        writeU64(mask[1]);
     }
 
     // Per-LED wire colors, backend-rendered (see resolveLedWireColors) --
@@ -1548,7 +1582,7 @@ std::string WebServer::buildStateJson(const char* view) const {
     }
     wire.activeMidiNotes.reserve(snap.activeMidiNotes.size());
     for (const auto& note : snap.activeMidiNotes)
-        wire.activeMidiNotes.push_back({note.trackId, note.pitch});
+        wire.activeMidiNotes.push_back({note.trackId, note.pitch, note.trackIndex});
     wire.hardwareAlarm = snap.hardwareAlarm;
     wire.songIndex = snap.songIndex;
     wire.songCount = snap.songCount;
@@ -1743,6 +1777,7 @@ std::string WebServer::buildStateJson(const char* view) const {
                 wMr.clipOffsetBeats = finiteOrZero(mr.clipOffsetBeats);
                 wMr.loop = mr.loop;
                 wMr.loopLengthBeats = finiteOrZero(mr.loopLengthBeats);
+                wMr.loopStartBeats = finiteOrZero(mr.loopStartBeats);
                 wMr.muted = mr.muted;
                 wMr.color = mr.color;
                 if (wantSongsFull) {

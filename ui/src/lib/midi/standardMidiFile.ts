@@ -1,5 +1,6 @@
 import type { MidiNoteRow, MidiRegionRow, SongRow } from "../state/types";
 import { isMidiClipFile, parseMidiClipFile, writeMidiClipFile } from "./midiClipFile";
+import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "./midiRegionTiming";
 
 const PPQN = 480;
 const MAX_BYTES = 32 * 1024 * 1024;
@@ -421,13 +422,22 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
       for (const note of region.notes) {
         if (note.muted) continue;
         const repeats = options.expandLoops && region.loop && loopLength > 0
-          ? Math.min(100_000, Math.ceil((region.durationBeats + region.clipOffsetBeats) / loopLength))
+          ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength))
           : 1;
+        if (region.loop && !midiRegionContainsLoopSourceBeat(region, note.startBeats)) continue;
         for (let repeat = 0; repeat < repeats; repeat++) {
-          const relative = note.startBeats + repeat * loopLength - region.clipOffsetBeats;
+          const relative = options.expandLoops && region.loop && loopLength > 0
+            ? midiRegionLoopOccurrence(region, note.startBeats) + repeat * loopLength
+            : note.startBeats - region.clipOffsetBeats;
           if (relative < 0 || relative >= region.durationBeats) continue;
           const start = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
-          const end = Math.max(start + 1, Math.round((region.startBeats + Math.min(region.durationBeats, relative + note.durationBeats) - origin) * PPQN));
+          const availableInLoop = region.loop
+            ? (region.loopStartBeats ?? 0) + loopLength - note.startBeats
+            : note.durationBeats;
+          const end = Math.max(start + 1, Math.round((region.startBeats + Math.min(
+            region.durationBeats,
+            relative + Math.min(note.durationBeats, availableInLoop),
+          ) - origin) * PPQN));
           const pitch = Math.max(0, Math.min(127, Math.round(note.pitch)));
           const midi1Velocity = note.midi2 ? note.midi2.velocity >>> 9 : Math.round(note.velocity * 127);
           const velocity = Math.max(1, Math.min(127, midi1Velocity));
@@ -442,10 +452,13 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
       }
       for (const event of region.events ?? []) {
         const repeats = options.expandLoops && region.loop && loopLength > 0
-          ? Math.min(100_000, Math.ceil((region.durationBeats + region.clipOffsetBeats) / loopLength))
+          ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength))
           : 1;
+        if (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat)) continue;
         for (let repeat = 0; repeat < repeats; repeat++) {
-          const relative = event.beat + repeat * loopLength - region.clipOffsetBeats;
+          const relative = options.expandLoops && region.loop && loopLength > 0
+            ? midiRegionLoopOccurrence(region, event.beat) + repeat * loopLength
+            : event.beat - region.clipOffsetBeats;
           if (relative < 0 || relative >= region.durationBeats) continue;
           const tick = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
           let bytes: number[];
@@ -466,10 +479,13 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
       }
       for (const event of region.umpEvents ?? []) {
         const repeats = options.expandLoops && region.loop && loopLength > 0
-          ? Math.min(100_000, Math.ceil((region.durationBeats + region.clipOffsetBeats) / loopLength))
+          ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength))
           : 1;
+        if (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat)) continue;
         for (let repeat = 0; repeat < repeats; repeat++) {
-          const relative = event.beat + repeat * loopLength - region.clipOffsetBeats;
+          const relative = options.expandLoops && region.loop && loopLength > 0
+            ? midiRegionLoopOccurrence(region, event.beat) + repeat * loopLength
+            : event.beat - region.clipOffsetBeats;
           if (relative < 0 || relative >= region.durationBeats) continue;
           const tick = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
           const converted = umpEventToMidi1(event.words, event.wordCount);

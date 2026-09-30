@@ -493,6 +493,7 @@ struct WMidiRegion {
     double clipOffsetBeats = 0.0;
     bool loop = false;
     double loopLengthBeats = 16.0;
+    double loopStartBeats = 0.0;
     bool muted = false;
     std::string color = "#3b82f6";
     std::vector<WMidiNote> notes;
@@ -948,6 +949,7 @@ WProject toWire(const Project& p) {
             wmr.clipOffsetBeats = finiteOrZero(mr.clipOffsetBeats);
             wmr.loop = mr.loop;
             wmr.loopLengthBeats = finiteOrZero(mr.loopLengthBeats);
+            wmr.loopStartBeats = finiteOrZero(mr.loopStartBeats);
             wmr.muted = mr.muted;
             wmr.color = mr.color;
             wmr.notes.reserve(mr.notes.size());
@@ -1343,6 +1345,7 @@ Project fromWire(const WProject& w) {
             reg.clipOffsetBeats = mr.clipOffsetBeats;
             reg.loop = mr.loop;
             reg.loopLengthBeats = mr.loopLengthBeats;
+            reg.loopStartBeats = mr.loopStartBeats;
             reg.muted = mr.muted;
             reg.color = mr.color.empty() ? "#3b82f6" : mr.color;
             reg.notes.reserve(mr.notes.size());

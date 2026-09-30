@@ -961,6 +961,7 @@ void MainComponent::builderMidiRegionAdd(const std::string& json) {
     getBool(doc, "loop", loop);
     reg.loop = loop;
     getDouble(doc, "loopLengthBeats", reg.loopLengthBeats);
+    getDouble(doc, "loopStartBeats", reg.loopStartBeats);
     if (reg.loopLengthBeats <= 0.0) reg.loopLengthBeats = reg.durationBeats;
     getString(doc, "color", reg.color);
     getBool(doc, "muted", reg.muted);
@@ -1046,6 +1047,7 @@ void MainComponent::builderMidiRegionUpdate(const std::string& json) {
     if (getDouble(doc, "clipOffsetBeats", numVal)) regPtr->clipOffsetBeats = numVal;
     if (getBool(doc, "loop", boolVal)) regPtr->loop = boolVal;
     if (getDouble(doc, "loopLengthBeats", numVal)) regPtr->loopLengthBeats = std::max(0.25, numVal);
+    if (getDouble(doc, "loopStartBeats", numVal)) regPtr->loopStartBeats = std::max(0.0, numVal);
     if (getBool(doc, "muted", boolVal)) regPtr->muted = boolVal;
     if (getString(doc, "color", strVal)) regPtr->color = strVal;
 

@@ -26,7 +26,9 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 7;
+inline constexpr int kCurrentFormatVersion = 8;
+// Format 8 adds MIDI loop source-window starts so left-trimming a loop can
+// crop its repeated source while split regions retain their original phase.
 // Format 7 adds a per-track pan law, defaulting to the prior 0 dB balance.
 // Format 6 adds exact MIDI 2.0 note fields and lossless raw UMP event storage.
 // Format 5 adds optional per-note MIDI channels and retained non-note events;
@@ -576,9 +578,10 @@ struct MidiRegion {
     std::string name;
     double startBeats = 0.0;      // Song-local start position in beats
     double durationBeats = 16.0;  // Total region span in beats
-    double clipOffsetBeats = 0.0; // Offset into internal note loop
+    double clipOffsetBeats = 0.0; // Current source phase, retained by split regions
     bool loop = false;
     double loopLengthBeats = 16.0;
+    double loopStartBeats = 0.0; // First source beat included in a trimmed loop window
     bool muted = false;
     std::string color = "#3b82f6";
     std::vector<MidiNote> notes;  // Note container, sorted by startBeats

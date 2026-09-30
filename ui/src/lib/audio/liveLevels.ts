@@ -127,6 +127,56 @@ function sameLeds(a: LiveLedColor[], b: LiveLedColor[]): boolean {
 
 type Listener = () => void;
 const lightListeners = new Set<Listener>();
+export type ActiveMidiNote = { trackId: string; pitch: number };
+const activeMidiNoteListeners = new Set<(notes: ActiveMidiNote[]) => void>();
+const kMaxActiveMidiTelemetryTracks = 1024;
+const kMidiMaskBytesPerTrack = 16;
+let activeMidiMaskBytes = new Uint8Array(
+  kMaxActiveMidiTelemetryTracks * kMidiMaskBytesPerTrack,
+);
+const activeMidiMaskScratch = new Uint8Array(activeMidiMaskBytes.length);
+let activeMidiNotes: ActiveMidiNote[] = [];
+let activeMidiSnapshotReady = false;
+
+function publishActiveMidiNotesFromMask(force = false): void {
+  const next: ActiveMidiNote[] = [];
+  for (let track = 0; track < kMaxActiveMidiTelemetryTracks; track++) {
+    const base = track * kMidiMaskBytesPerTrack;
+    for (let byteIndex = 0; byteIndex < kMidiMaskBytesPerTrack; byteIndex++) {
+      let bits = activeMidiMaskBytes[base + byteIndex];
+      while (bits !== 0) {
+        const bit = 31 - Math.clz32(bits & -bits);
+        next.push({
+          trackId: trackIds[track] ?? `track-${track}`,
+          pitch: byteIndex * 8 + bit,
+        });
+        bits &= bits - 1;
+      }
+    }
+  }
+
+  if (
+    next.length === activeMidiNotes.length &&
+    next.every((note, index) =>
+      note.trackId === activeMidiNotes[index].trackId &&
+      note.pitch === activeMidiNotes[index].pitch
+    )
+  ) {
+    if (!force) return;
+  }
+
+  activeMidiNotes = next;
+  for (const listener of activeMidiNoteListeners) listener(next);
+}
+
+function clearActiveMidiNoteSnapshot(): void {
+  const hadNotes = activeMidiNotes.length > 0;
+  activeMidiMaskBytes.fill(0);
+  activeMidiMaskScratch.fill(0);
+  if (!hadNotes) return;
+  activeMidiNotes = [];
+  for (const listener of activeMidiNoteListeners) listener(activeMidiNotes);
+}
 
 export function setMeterIds(ids: string[]) {
   meterIds = ids;
@@ -134,7 +184,25 @@ export function setMeterIds(ids: string[]) {
 
 /** Keep high-rate positional track rows tied to Core's stable track identity. */
 export function setTrackIds(ids: string[]) {
+  if (ids.length === trackIds.length && ids.every((id, i) => id === trackIds[i]))
+    return;
   trackIds = ids;
+  // The protocol maps bitmaps by project track index. If the structure changes,
+  // discard the old mapping until the next complete backend snapshot arrives.
+  clearActiveMidiNoteSnapshot();
+}
+
+/** Subscribe to complete, high-rate active-note snapshots decoded from UDP. */
+export function subscribeLiveActiveMidiNotes(
+  listener: (notes: ActiveMidiNote[]) => void,
+): () => void {
+  activeMidiNoteListeners.add(listener);
+  return () => activeMidiNoteListeners.delete(listener);
+}
+
+/** True after a complete active-note snapshot has arrived from protocol v9+. */
+export function hasActiveMidiTelemetrySnapshot(): boolean {
+  return activeMidiSnapshotReady;
 }
 
 /** Resolve a live meter by identity so a strip can never inherit another row's peak. */
@@ -160,6 +228,8 @@ export function resetLiveLevels(): void {
   meters = [];
   meterIds = [];
   trackIds = [];
+  activeMidiSnapshotReady = false;
+  clearActiveMidiNoteSnapshot();
   seq += 1;
 }
 
@@ -462,6 +532,8 @@ export function getLastUdpFrameMs(): number {
 export function resetLiveTelemetrySequence(): void {
   lastTelemetrySeq = 0;
   lastTelemetryTimeMs = 0;
+  activeMidiSnapshotReady = false;
+  clearActiveMidiNoteSnapshot();
 }
 
 export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
@@ -470,6 +542,8 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   const magic = view.getUint16(0, true);
   if (magic !== 0x5253) return;
   const version = view.getUint8(2);
+  if (version >= 8 && buffer.byteLength < 66) return;
+  if (version < 9) activeMidiSnapshotReady = false;
 
   if (version >= 8) {
     const frameSeq = view.getUint32(4, true);
@@ -502,7 +576,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
       typeof performance !== "undefined" ? performance.now() : Date.now();
   }
 
-  // Version 8: seq at 4, playhead at 8, click at 12/16/20/24, bpm at 28, songIndex at 32,
+  // Version 8/9: seq at 4, playhead at 8, click at 12/16/20/24, bpm at 28, songIndex at 32,
   // globalPlayhead at 36, drift at 40, cpu at 44, ram at 48, totalRam at 52, coreCount at 56,
   // numTracks at 58, numMeters at 60, numLights at 62, numBusses at 64 (header 66 bytes).
   const isV8 = version >= 8;
@@ -576,7 +650,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     publishLiveHealth(hs);
   }
 
-  // v8: header 66 (counts at 58). v7: 60 (counts at 52). v6: 46 (counts at 38). v5: 42 (counts at 34).
+  // v8/v9: header 66 (counts at 58). v7: 60 (counts at 52). v6: 46 (counts at 38). v5: 42 (counts at 34).
   const countsAt = isV8
     ? 58
     : isV7
@@ -683,6 +757,48 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
       offset += 1;
     }
     publishMixerFlags({ tracks: flagTracks, busses: flagBusses });
+  }
+
+  // v9 appends a sparse full snapshot: u16 track index + two u64 pitch masks
+  // per active track. The maximum is 1024 rows/131072 track-pitch pairs. This
+  // state is latest-wins, never unioned with the previous frame, so a lost
+  // UDP packet cannot leave the visual keyboard stuck. MIDI event-loss inside
+  // Core is a separate audio/input-queue fault, not something a UI snapshot
+  // can infer or safely repair.
+  if (version >= 9) {
+    const midiTrackRows = view.getUint16(34, true);
+    const midiRowsBytes = midiTrackRows * 18;
+    if (
+      midiTrackRows > kMaxActiveMidiTelemetryTracks ||
+      offset + midiRowsBytes > buffer.byteLength
+    ) return;
+
+    activeMidiMaskScratch.fill(0);
+    for (let row = 0; row < midiTrackRows; row++) {
+      const trackIndex = view.getUint16(offset, true);
+      offset += 2;
+      if (trackIndex >= kMaxActiveMidiTelemetryTracks) {
+        offset += 16;
+        continue;
+      }
+      const base = trackIndex * kMidiMaskBytesPerTrack;
+      for (let byteIndex = 0; byteIndex < kMidiMaskBytesPerTrack; byteIndex++) {
+        activeMidiMaskScratch[base + byteIndex] |= view.getUint8(offset++);
+      }
+    }
+
+    let changed = false;
+    for (let i = 0; i < activeMidiMaskBytes.length; i++) {
+      if (activeMidiMaskBytes[i] !== activeMidiMaskScratch[i]) {
+        changed = true;
+        break;
+      }
+    }
+    if (changed) activeMidiMaskBytes.set(activeMidiMaskScratch);
+    if (changed || !activeMidiSnapshotReady) {
+      activeMidiSnapshotReady = true;
+      publishActiveMidiNotesFromMask(true);
+    }
   }
 
   if (version >= 2) {

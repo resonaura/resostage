@@ -11,12 +11,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   getLiveLedOutputs,
   getLiveLevels,
+  setTrackIds,
   pushLiveBinaryFrame,
   setMeterIds,
   subscribeLiveLedOutputs,
   subscribeLiveMixerFlags,
   subscribeLiveHealth,
   subscribeLiveTransport,
+  subscribeLiveActiveMidiNotes,
   resetLiveTelemetrySequence,
 } from "./liveLevels";
 
@@ -500,6 +502,87 @@ describe("pushLiveBinaryFrame — v8 sequence & ordering", () => {
       expect(transportSeen[1].playheadSeconds).toBeCloseTo(2.2, 2);
     } finally {
       unTransport();
+    }
+  });
+});
+
+describe("pushLiveBinaryFrame — v9 active MIDI snapshots", () => {
+  beforeEach(() => {
+    resetLiveTelemetrySequence();
+    setTrackIds(["unused", "instrument-1"]);
+  });
+
+  function buildV9MidiFrame(
+    seq: number,
+    active: boolean,
+    trackIndex = 1,
+    pitch = 60,
+  ): ArrayBuffer {
+    const buf = new ArrayBuffer(active ? 84 : 66);
+    const view = new DataView(buf);
+    view.setUint16(0, 0x5253, true);
+    view.setUint8(2, 9);
+    view.setUint32(4, seq, true);
+    view.setFloat32(8, 0, true);
+    view.setFloat32(12, -120, true);
+    view.setFloat32(16, -120, true);
+    view.setFloat32(20, -120, true);
+    view.setFloat32(24, -120, true);
+    view.setFloat32(28, 120, true);
+    view.setInt16(32, 0, true);
+    view.setUint16(34, active ? 1 : 0, true);
+    view.setFloat32(36, 0, true);
+    view.setFloat32(40, 1, true);
+    view.setFloat32(44, 0, true);
+    view.setFloat32(48, 0, true);
+    view.setFloat32(52, 0, true);
+    view.setUint16(56, 8, true);
+    view.setUint16(58, 0, true);
+    view.setUint16(60, 0, true);
+    view.setUint16(62, 0, true);
+    view.setUint16(64, 0, true);
+    if (active) {
+      view.setUint16(66, trackIndex, true); // track index
+      new Uint8Array(buf)[68 + Math.floor(pitch / 8)] = 1 << (pitch % 8);
+    }
+    return buf;
+  }
+
+  it("maps a full snapshot to track identity and clears on the next empty snapshot", () => {
+    const seen: Array<Array<{ trackId: string; pitch: number }>> = [];
+    const unsubscribe = subscribeLiveActiveMidiNotes((notes) => seen.push(notes));
+    try {
+      pushLiveBinaryFrame(buildV9MidiFrame(1, true));
+      expect(seen.at(-1)).toEqual([{ trackId: "instrument-1", pitch: 60 }]);
+
+      pushLiveBinaryFrame(buildV9MidiFrame(2, false));
+      expect(seen.at(-1)).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("rejects a truncated v9 active-note extension without applying it", () => {
+    const seen: Array<Array<{ trackId: string; pitch: number }>> = [];
+    const unsubscribe = subscribeLiveActiveMidiNotes((notes) => seen.push(notes));
+    try {
+      pushLiveBinaryFrame(buildV9MidiFrame(1, true));
+      const truncated = buildV9MidiFrame(2, true).slice(0, 70);
+      pushLiveBinaryFrame(truncated);
+      expect(seen.at(-1)).toEqual([{ trackId: "instrument-1", pitch: 60 }]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("preserves the final track and pitch in the 1024-track envelope", () => {
+    const seen: Array<Array<{ trackId: string; pitch: number }>> = [];
+    const unsubscribe = subscribeLiveActiveMidiNotes((notes) => seen.push(notes));
+    try {
+      pushLiveBinaryFrame(buildV9MidiFrame(1, true, 1023, 127));
+      expect(seen.at(-1)).toEqual([{ trackId: "track-1023", pitch: 127 }]);
+    } finally {
+      unsubscribe();
     }
   });
 });

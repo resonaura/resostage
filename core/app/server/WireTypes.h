@@ -471,6 +471,7 @@ struct WMidiRegionTelemetry {
     double clipOffsetBeats = 0.0;
     bool loop = false;
     double loopLengthBeats = 16.0;
+    double loopStartBeats = 0.0;
     bool muted = false;
     std::string color = "#3b82f6";
     std::vector<WMidiNoteTelemetry> notes;
@@ -827,6 +828,7 @@ struct WEngineTelemetryPayload {
     struct ActiveMidiNote {
         std::string trackId;
         int pitch = 0;
+        int trackIndex = 0;
     };
     std::string projectName;
     std::string songName;

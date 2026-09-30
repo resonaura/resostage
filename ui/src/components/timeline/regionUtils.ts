@@ -36,6 +36,7 @@ export interface MidiRegionClipboardEntry {
   clipOffsetBeats: number;
   loop: boolean;
   loopLengthBeats: number;
+  loopStartBeats?: number;
   muted: boolean;
   color?: string;
   notes: MidiRegionRow["notes"];

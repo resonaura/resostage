@@ -16,7 +16,7 @@
  *                          "" where null belongs
  * and always emits the same current canon (v4 adds plug-in slots; v5 adds
  * retained MIDI channel/event data; v6 adds MIDI 2.0 UMP storage; v7 adds
- * per-track pan-law choice):
+ * per-track pan-law choice; v8 adds trimmed MIDI loop source windows):
  *
  *   ids            "<ns>::<kind>:<n>"  audio::track:1, audio::send:2,
  *                                      audio::out:11, light::bar:1,
@@ -37,7 +37,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 7;
+export const TARGET_FORMAT_VERSION = 8;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -627,6 +627,19 @@ export function upgradeFormat6PanLawData(old) {
   const upgraded = structuredClone(old);
   upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
   for (const track of upgraded.tracks ?? []) track.panLaw ??= "0dB";
+  for (const song of upgraded.songs ?? []) {
+    for (const region of song.midiRegions ?? []) region.loopStartBeats ??= 0;
+  }
+  return upgraded;
+}
+
+/** Add the MIDI loop source-window boundary introduced in format v8. */
+export function upgradeFormat7MidiLoopWindows(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  for (const song of upgraded.songs ?? []) {
+    for (const region of song.midiRegions ?? []) region.loopStartBeats ??= 0;
+  }
   return upgraded;
 }
 
@@ -679,6 +692,8 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
       migrated = upgradeFormat5Midi2Data(oldObj);
     } else if (!isLegacy && fromVersion === 6) {
       migrated = upgradeFormat6PanLawData(oldObj);
+    } else if (!isLegacy && fromVersion === 7) {
+      migrated = upgradeFormat7MidiLoopWindows(oldObj);
     } else {
       migrated = upgradeFormat6PanLawData(migrateProjectObject(oldObj));
     }

@@ -5,6 +5,7 @@
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
 #include "project/RouteId.h"
+#include "project/MidiRegionLoop.h"
 #include "events/DueQueue.h"
 #include "midi/Midi2Compatibility.h"
 #include "timing/SongLength.h"
@@ -1073,11 +1074,9 @@ void AudioEngine::stopRecording() {
                 for (size_t i = 0; i < session.recordedEventCount; ++i) {
                     const auto& recorded = session.recordedEvents[i];
                     const double absoluteBeat = (static_cast<double>(recorded.sample) / sr * bpm) / 60.0;
-                    double regionBeat = absoluteBeat - region.startBeats + region.clipOffsetBeats;
-                    if (region.loop && region.loopLengthBeats > 0.0) {
-                        regionBeat = std::fmod(regionBeat, region.loopLengthBeats);
-                        if (regionBeat < 0.0) regionBeat += region.loopLengthBeats;
-                    }
+                    const double regionBeat = midiRegionSourceBeat(
+                        absoluteBeat - region.startBeats, region.clipOffsetBeats,
+                        region.loopStartBeats, region.loopLengthBeats, region.loop);
                     if (regionBeat < 0.0) continue;
                     MidiClipEvent event;
                     event.beat = regionBeat;
@@ -1264,12 +1263,12 @@ std::vector<AudioEngine::ActiveMidiNoteInfo> AudioEngine::getActiveMidiNotes() c
     ActiveMidiNotesFrame frame;
     (void)activeMidiNotesFrame.read(frame);
     std::vector<ActiveMidiNoteInfo> result;
-    const size_t trackCount = std::min(trackIdByIndex.size(), kMaxActiveMidiStrips);
+    const size_t trackCount = std::min(trackIdByIndex.size(), kMaxActiveMidiTracks);
     for (size_t track = 0; track < trackCount; ++track) {
         for (int pitch = 0; pitch < 128; ++pitch) {
             if ((frame.masks[track][static_cast<size_t>(pitch) / 64]
                  & (uint64_t{1} << (static_cast<unsigned>(pitch) % 64))) != 0) {
-                result.push_back({trackIdByIndex[track], pitch});
+                result.push_back({trackIdByIndex[track], pitch, track});
             }
         }
     }
@@ -1277,7 +1276,7 @@ std::vector<AudioEngine::ActiveMidiNoteInfo> AudioEngine::getActiveMidiNotes() c
 }
 
 void AudioEngine::updateActiveMidiNote(size_t strip, int pitch, bool noteOn) {
-    if (strip >= kMaxActiveMidiStrips || pitch < 0 || pitch > 127)
+    if (strip >= kMaxActiveMidiTracks || pitch < 0 || pitch >= static_cast<int>(kMidiPitchCount))
         return;
     auto& count = activeMidiNoteCounts[strip][static_cast<size_t>(pitch)];
     const bool wasActive = count != 0;
@@ -1300,7 +1299,7 @@ void AudioEngine::clearActiveMidiNotes(uint64_t targetHostTimeNanos) {
     for (auto& track : liveMidiNoteCounts)
         for (auto& channel : track) channel.fill(0);
     uint16_t activeExternalChannels = activeExternalMidiChannelMask;
-    const size_t trackCount = std::min(trackIdByIndex.size(), kMaxActiveMidiStrips);
+    const size_t trackCount = std::min(trackIdByIndex.size(), kMaxActiveMidiTracks);
     for (size_t strip = 0; strip < sequencedMidiNoteCounts.size(); ++strip) {
         const TrackDef* track = strip < trackCount ? trackDefAt(strip) : nullptr;
         const bool external = track != nullptr
@@ -1723,21 +1722,35 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
         if (region.loop && loopLen > 1e-4) {
             const double overlapStartBeat = std::max(blockStartBeat, regionStartBeat);
             const double overlapEndBeat = std::min(blockEndBeat, regionEndBeat);
-            const double tStart = overlapStartBeat - regionStartBeat + region.clipOffsetBeats;
-            const double tEnd = overlapEndBeat - regionStartBeat + region.clipOffsetBeats;
+            const double phase = midiRegionLoopPhase(
+                region.clipOffsetBeats, region.loopStartBeats, loopLen);
+            const double tStart = overlapStartBeat - regionStartBeat + phase;
+            const double tEnd = overlapEndBeat - regionStartBeat + phase;
             kMin = static_cast<int>(std::floor(tStart / loopLen));
             kMax = static_cast<int>(std::floor(tEnd / loopLen));
         }
 
         for (int k = kMin; k <= kMax; ++k) {
-            const double iterationOffset = regionStartBeat - region.clipOffsetBeats + (region.loop ? (k * loopLen) : 0.0);
+            const double iterationOffset = region.loop
+                ? regionStartBeat - region.loopStartBeats
+                    - midiRegionLoopPhase(region.clipOffsetBeats,
+                                          region.loopStartBeats, loopLen)
+                    + (k * loopLen)
+                : regionStartBeat - region.clipOffsetBeats;
 
             for (const auto& note : region.notes) {
                 if (note.muted || note.durationBeats <= 0.0)
                     continue;
+                if (region.loop && !midiRegionContainsLoopSourceBeat(
+                        note.startBeats, region.loopStartBeats, loopLen))
+                    continue;
 
                 const double noteOnBeat = iterationOffset + note.startBeats;
-                const double noteOffBeat = noteOnBeat + note.durationBeats;
+                const double loopBoundaryBeat = region.loop
+                    ? iterationOffset + region.loopStartBeats + loopLen
+                    : std::numeric_limits<double>::infinity();
+                const double noteOffBeat = std::min(
+                    noteOnBeat + note.durationBeats, loopBoundaryBeat);
 
                 const uint8_t ch = static_cast<uint8_t>(std::clamp(static_cast<int>(note.channel) + 1, 1, 16));
                 const uint8_t pitch = static_cast<uint8_t>(std::clamp(static_cast<int>(note.pitch), 0, 127));
@@ -1755,7 +1768,7 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                         }
                         if (canSendToPlugin || canSendToExternalMidi)
                             updateActiveMidiNote(targetStripIndex, pitch, true);
-                        if (targetStripIndex < kMaxActiveMidiStrips) {
+                        if (targetStripIndex < kMaxActiveMidiTracks) {
                             const size_t channelIndex = std::min<size_t>(
                                 static_cast<size_t>(note.channel), 15);
                             auto& count = sequencedMidiNoteCounts[targetStripIndex]
@@ -1790,7 +1803,7 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
                         }
                         if (canSendToPlugin || canSendToExternalMidi)
                             updateActiveMidiNote(targetStripIndex, pitch, false);
-                        if (targetStripIndex < kMaxActiveMidiStrips) {
+                        if (targetStripIndex < kMaxActiveMidiTracks) {
                             const size_t channelIndex = std::min<size_t>(
                                 static_cast<size_t>(note.channel), 15);
                             auto& count = sequencedMidiNoteCounts[targetStripIndex]
@@ -1813,6 +1826,9 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
             }
 
             for (const auto& event : region.events) {
+                if (region.loop && !midiRegionContainsLoopSourceBeat(
+                        event.beat, region.loopStartBeats, loopLen))
+                    continue;
                 const double eventBeat = iterationOffset + event.beat;
                 if (eventBeat < regionStartBeat || eventBeat >= regionEndBeat) continue;
                 const int64_t eventSample = beatsToSamples(eventBeat);
@@ -1852,6 +1868,9 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
             for (const auto& event : region.umpEvents) {
                 const auto compatible = umpToMidi1ChannelControl(event);
                 if (!compatible || !std::isfinite(event.beat)) continue;
+                if (region.loop && !midiRegionContainsLoopSourceBeat(
+                        event.beat, region.loopStartBeats, loopLen))
+                    continue;
                 const double eventBeat = iterationOffset + event.beat;
                 if (eventBeat < regionStartBeat || eventBeat >= regionEndBeat) continue;
                 const int64_t eventSample = beatsToSamples(eventBeat);
@@ -2008,10 +2027,9 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
         if (blockStartBeat < mr.startBeats || blockStartBeat >= mr.startBeats + mr.durationBeats)
             continue;
 
-        double relBeats = blockStartBeat - mr.startBeats + mr.clipOffsetBeats;
-        if (mr.loop && mr.loopLengthBeats > 0.0) {
-            relBeats = std::fmod(relBeats, mr.loopLengthBeats);
-        }
+        const double relBeats = midiRegionSourceBeat(
+            blockStartBeat - mr.startBeats, mr.clipOffsetBeats,
+            mr.loopStartBeats, mr.loopLengthBeats, mr.loop);
 
         for (const auto& lane : mr.automationLanes) {
             if (!lane.enabled || lane.muted || lane.points.empty())

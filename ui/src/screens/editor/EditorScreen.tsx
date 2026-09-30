@@ -844,6 +844,7 @@ export function EditorScreen({
                 clipOffsetBeats: 0,
                 loop: true,
                 loopLengthBeats: 16,
+                loopStartBeats: 0,
                 notes: [],
               };
 
@@ -905,6 +906,7 @@ export function EditorScreen({
                   clipOffsetBeats: activeRegion.clipOffsetBeats,
                   loop: activeRegion.loop,
                   loopLengthBeats: activeRegion.loopLengthBeats,
+                  loopStartBeats: activeRegion.loopStartBeats ?? 0,
                   muted: Boolean(activeRegion.muted),
                   color: activeRegion.color,
                   notes: notesToSave,

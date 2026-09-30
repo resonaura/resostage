@@ -11,6 +11,8 @@ import {
   subscribeLiveTransport,
   subscribeLiveMixerFlags,
   subscribeLiveHealth,
+  subscribeLiveActiveMidiNotes,
+  hasActiveMidiTelemetrySnapshot,
   getLastMixerFlagsMs,
   getLastUdpFrameMs,
 } from "../audio/liveLevels";
@@ -398,6 +400,7 @@ export function useLiveState(view: string = "player") {
     let unsubTransport: (() => void) | undefined;
     let unsubMixerFlags: (() => void) | undefined;
     let unsubHealth: (() => void) | undefined;
+    let unsubActiveMidiNotes: (() => void) | undefined;
     let onUdpFrame: ((e: Event) => void) | undefined;
     let connect: (() => void) | undefined;
 
@@ -438,6 +441,7 @@ export function useLiveState(view: string = "player") {
               bpm: _bpm,
               drift: _dr,
               health: _h,
+              activeMidiNotes: _activeMidiNotes,
               ...cleanData
             } = data;
             void _p;
@@ -447,9 +451,17 @@ export function useLiveState(view: string = "player") {
             void _bpm;
             void _dr;
             void _h;
+            // Legacy protocol-v8 Core instances still expose active notes via
+            // JSON. Once a v9 complete snapshot has arrived, keep HTTP from
+            // racing a newer latest-wins UDP state back to an older one.
+            if (hasActiveMidiTelemetrySnapshot()) void _activeMidiNotes;
 
             pollData = {
               ...cleanData,
+              ...(!hasActiveMidiTelemetrySnapshot() &&
+              data.activeMidiNotes !== undefined
+                ? { activeMidiNotes: data.activeMidiNotes }
+                : {}),
               ...(data.tracks
                 ? {
                     tracks: data.tracks.map((t) => {
@@ -564,7 +576,13 @@ export function useLiveState(view: string = "player") {
                   ram: (parsed.health.rssBytes ?? 0) / (1024 * 1024),
                 };
               }
-              pendingStateRef.current = parsed;
+              if (hasActiveMidiTelemetrySnapshot()) {
+                const { activeMidiNotes: _activeMidiNotes, ...jsonState } = parsed;
+                void _activeMidiNotes;
+                pendingStateRef.current = jsonState;
+              } else {
+                pendingStateRef.current = parsed;
+              }
               scheduleFlush();
             };
             ws.onerror = () => {
@@ -670,6 +688,18 @@ export function useLiveState(view: string = "player") {
           systemTotalBytes: hs.systemTotalBytes,
           cpuCoreCount: hs.cpuCoreCount,
         },
+      };
+      scheduleFlush();
+    });
+
+    // Active key illumination is high-rate, latest-wins telemetry. Replacing
+    // the whole list (including with []) is essential: merging note events can
+    // preserve a dropped Note-Off forever.
+    unsubActiveMidiNotes = subscribeLiveActiveMidiNotes((notes) => {
+      if (cancelled) return;
+      pendingStateRef.current = {
+        ...(pendingStateRef.current || {}),
+        activeMidiNotes: notes,
       };
       scheduleFlush();
     });
@@ -794,6 +824,7 @@ export function useLiveState(view: string = "player") {
       unsubTransport?.();
       unsubMixerFlags?.();
       unsubHealth?.();
+      unsubActiveMidiNotes?.();
       ws?.close();
       if (wsRef.current === ws) wsRef.current = null;
     };

@@ -340,6 +340,7 @@ export interface MidiRegionRow {
   clipOffsetBeats: number;
   loop: boolean;
   loopLengthBeats: number;
+  loopStartBeats?: number;
   muted?: boolean;
   color?: string;
   notes: MidiNoteRow[];
@@ -982,7 +983,7 @@ export interface WebUiState {
   lowLatencyLimitMs?: number;
   liveRecordings?: LiveRecordingRegion[];
   /** Current notes routed to instrument strips (live MIDI and sequencer). */
-  activeMidiNotes?: Array<{ trackId: string; pitch: number }>;
+  activeMidiNotes?: Array<{ trackId: string; pitch: number; trackIndex?: number }>;
   hardwareAlarm: boolean;
   /**
    * Action id last executed via native hotkey, MIDI, or the macOS menu bar

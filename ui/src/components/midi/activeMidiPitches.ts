@@ -1,4 +1,8 @@
 import type { MidiRegionRow, WebUiState } from "../../lib/state/types";
+import {
+  midiRegionNotePlaybackDuration,
+  midiRegionSourceBeat,
+} from "../../lib/midi/midiRegionTiming";
 
 function regionLocalBeat(region: MidiRegionRow, songBeat: number): number | null {
   if (
@@ -9,11 +13,7 @@ function regionLocalBeat(region: MidiRegionRow, songBeat: number): number | null
     return null;
   }
 
-  const sourceBeat = songBeat - region.startBeats + region.clipOffsetBeats;
-  if (region.loop && region.loopLengthBeats > 0) {
-    return ((sourceBeat % region.loopLengthBeats) + region.loopLengthBeats) % region.loopLengthBeats;
-  }
-  return sourceBeat;
+  return midiRegionSourceBeat(region, songBeat - region.startBeats);
 }
 
 /** MIDI pitches active at the current transport position, plus notes held by
@@ -36,7 +36,10 @@ export function getActiveMidiPitches(
       const localBeat = regionLocalBeat(region, songBeat);
       if (localBeat === null) continue;
       for (const note of region.notes) {
-        if (!note.muted && localBeat >= note.startBeats && localBeat < note.startBeats + note.durationBeats) {
+        const noteEnd = note.startBeats + midiRegionNotePlaybackDuration(
+          region, note.startBeats, note.durationBeats,
+        );
+        if (!note.muted && localBeat >= note.startBeats && localBeat < noteEnd) {
           active.add(note.pitch);
         }
       }
@@ -63,13 +66,14 @@ export function getRegionActivePitches(
   const all = [region, ...companions];
   for (const candidate of all) {
     const regionOffset = candidate.startBeats - region.startBeats;
-    const relativeBeat = regionRelativePlayhead - regionOffset + candidate.clipOffsetBeats;
-    if (relativeBeat < 0 || relativeBeat >= candidate.durationBeats || candidate.muted) continue;
-    const localBeat = candidate.loop && candidate.loopLengthBeats > 0
-      ? ((relativeBeat % candidate.loopLengthBeats) + candidate.loopLengthBeats) % candidate.loopLengthBeats
-      : relativeBeat;
+    const elapsedBeat = regionRelativePlayhead - regionOffset;
+    if (elapsedBeat < 0 || elapsedBeat >= candidate.durationBeats || candidate.muted) continue;
+    const localBeat = midiRegionSourceBeat(candidate, elapsedBeat);
     for (const note of candidate.notes) {
-      if (!note.muted && localBeat >= note.startBeats && localBeat < note.startBeats + note.durationBeats) {
+      const noteEnd = note.startBeats + midiRegionNotePlaybackDuration(
+        candidate, note.startBeats, note.durationBeats,
+      );
+      if (!note.muted && localBeat >= note.startBeats && localBeat < noteEnd) {
         active.add(note.pitch);
       }
     }

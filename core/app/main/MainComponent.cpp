@@ -1886,7 +1886,8 @@ void MainComponent::publishWebState() {
     state.lowLatencyLimitMs = engine.getLowLatencyLimitMs();
     state.liveRecordings = engine.getLiveRecordingRegions();
     for (const auto& note : engine.getActiveMidiNotes())
-        state.activeMidiNotes.push_back({note.trackId, note.pitch});
+        state.activeMidiNotes.push_back({note.trackId, note.pitch,
+                                         static_cast<int>(note.trackIndex)});
     state.hardwareAlarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
 
     const Project& proj = engine.project();
@@ -2124,6 +2125,7 @@ void MainComponent::publishWebState() {
             mrr.clipOffsetBeats = mr.clipOffsetBeats;
             mrr.loop = mr.loop;
             mrr.loopLengthBeats = mr.loopLengthBeats;
+            mrr.loopStartBeats = mr.loopStartBeats;
             mrr.muted = mr.muted;
             mrr.color = mr.color;
             mrr.notes.reserve(mr.notes.size());

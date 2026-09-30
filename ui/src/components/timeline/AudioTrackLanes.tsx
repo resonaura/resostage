@@ -398,6 +398,8 @@ export function AudioTrackLanes({
                     midiRegion.loopLengthBeats > 0
                       ? (midiRegion.loopLengthBeats * 60) / songBpm
                       : durSec,
+                  loopStartSeconds:
+                    ((midiRegion.loopStartBeats ?? 0) * 60) / songBpm,
                   trackId: midiRegion.trackId,
                 };
 
@@ -424,6 +426,8 @@ export function AudioTrackLanes({
                     midiRegion.loopLengthBeats > 0
                       ? (midiRegion.loopLengthBeats * 60) / songBpm
                       : durSec,
+                  origLoopStart:
+                    ((midiRegion.loopStartBeats ?? 0) * 60) / songBpm,
                   origSpeed: 1,
                   maxEnd: songLengths[i] ?? 600,
                   maxSourceDur: 3600,
@@ -873,6 +877,7 @@ export function AudioTrackLanes({
                 clipOffsetBeats: midiContextMenu.region.clipOffsetBeats,
                 loop: midiContextMenu.region.loop,
                 loopLengthBeats: midiContextMenu.region.loopLengthBeats,
+                loopStartBeats: midiContextMenu.region.loopStartBeats ?? 0,
                 muted: Boolean(midiContextMenu.region.muted),
                 color: midiContextMenu.region.color,
                 notes: midiContextMenu.region.notes.map((note) => ({

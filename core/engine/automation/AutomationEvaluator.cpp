@@ -1,4 +1,5 @@
 #include "AutomationEvaluator.h"
+#include "project/MidiRegionLoop.h"
 
 namespace resostage {
 
@@ -154,10 +155,9 @@ float AutomationEvaluator::resolveMultiScopeValue(
             const double regionStart = mr.startBeats;
             const double regionEnd = mr.startBeats + mr.durationBeats;
             if (songPlayheadBeats >= regionStart && songPlayheadBeats < regionEnd) {
-                double relBeats = songPlayheadBeats - regionStart + mr.clipOffsetBeats;
-                if (mr.loop && mr.loopLengthBeats > 0.0) {
-                    relBeats = std::fmod(relBeats, mr.loopLengthBeats);
-                }
+                const double relBeats = midiRegionSourceBeat(
+                    songPlayheadBeats - regionStart, mr.clipOffsetBeats,
+                    mr.loopStartBeats, mr.loopLengthBeats, mr.loop);
 
                 // Check for region-level override
                 for (const auto& rLane : mr.automationLanes) {
