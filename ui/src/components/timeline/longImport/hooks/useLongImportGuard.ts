@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { builder } from "../../lib/state/api";
+import { builder } from "../../../../lib/state/api";
 import {
   overrunsSong,
   readLongImportPreference,
   writeLongImportPreference,
   type LongImportChoice,
-} from "../../lib/state/importPrefs";
-import type { SongRow } from "../../lib/state/types";
+} from "../../../../lib/state/importPrefs";
+import type { SongRow } from "../../../../lib/state/types";
 
 /**
  * Catches audio that lands past the end of the song it was imported into.
