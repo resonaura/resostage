@@ -27,7 +27,6 @@ import {
   Button,
   ButtonGroup,
   Card,
-  CollapsibleInline,
   ToggleButton,
   ToggleButtonGroup,
 } from "../../components/ui";
@@ -47,53 +46,11 @@ import { CountInControl } from "../../transport/components/CountInControl";
 import { SystemHealthWidget } from "./components/SystemHealthWidget";
 import { BusMetersPanel } from "./components/BusMetersPanel";
 import { SetlistPanel } from "./components/SetlistPanel";
+import { barBeat, globalBarBeat } from "./logic/timeDisplay";
+import { DriftReadout } from "./components/DriftReadout";
 
 /** Stable empty roster so a rig with no fixtures doesn't churn the memo. */
 const EMPTY_FIXTURES: LightFixtureRow[] = [];
-
-/**
- * The drift figure, which appears and disappears while the transport runs.
- *
- * Collapsed rather than unmounted so the bar count beside it does not jump --
- * see CollapsibleInline for why that needs more than an opacity fade. The
- * last non-unity value is held while collapsing so the text does not blank
- * out halfway through its own exit.
- */
-function DriftReadout({ drift }: { drift: number }) {
-  const valid = drift !== undefined && drift !== 0;
-  const isDrifting = Math.abs(drift - 1) > 0.00005;
-  const lastRef = useRef(drift || 1);
-  if (valid) lastRef.current = drift;
-  return (
-    <CollapsibleInline
-      open={valid}
-      className={isDrifting ? "text-warning font-medium" : "text-foreground/40"}
-    >
-      drift ×{lastRef.current.toFixed(4)}
-    </CollapsibleInline>
-  );
-}
-
-function barBeat(seconds: number, bpm: number, tsNum: number): string {
-  if (bpm <= 0 || seconds < 0) return "—";
-  const beatsPerBar = Math.max(1, tsNum);
-  const secondsPerBeat = 60 / bpm;
-  const totalBeats = seconds / secondsPerBeat;
-  const bar = Math.floor(totalBeats / beatsPerBar) + 1;
-  const beat = (Math.floor(totalBeats) % beatsPerBar) + 1;
-  return `${bar} | ${beat}`;
-}
-
-// Cumulative whole-project bar|beat from an already-accumulated beat count
-// (see AudioEngine::globalBeatsElapsed).
-function globalBarBeat(beatsElapsed: number, tsNum: number): string {
-  if (!Number.isFinite(beatsElapsed) || beatsElapsed < 0 || tsNum <= 0)
-    return "—";
-  const beatsPerBar = Math.max(1, tsNum);
-  const bar = Math.floor(beatsElapsed / beatsPerBar) + 1;
-  const beat = (Math.floor(beatsElapsed) % beatsPerBar) + 1;
-  return `${bar} | ${beat}`;
-}
 
 
 // Memoized on the fixture roster alone. That roster is shipped on every
