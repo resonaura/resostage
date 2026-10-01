@@ -1,11 +1,14 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "doctest.h"
 
 #include "project/ProjectJson.h"
 #include "project/ProjectLoader.h"
+#include "project/Uuid.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -668,4 +671,72 @@ TEST_CASE("a save loader keeps resources independent of the live loader") {
 TEST_CASE("jsonEscapeString escapes control characters") {
     CHECK(jsonEscapeString("a\"b\\c") == "a\\\"b\\\\c");
     CHECK(jsonEscapeString("line\nbreak") == "line\\nbreak");
+}
+
+TEST_CASE("ProjectLoader stream-copies portable video resources and preserves metadata on failure") {
+    namespace fs = std::filesystem;
+    const fs::path testRoot = fs::temp_directory_path() / ("resostage-media-" + generateUuidV7());
+    struct Cleanup { fs::path path; ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); } } cleanup{testRoot};
+    fs::create_directories(testRoot);
+    const fs::path source = testRoot / "original.mp4";
+    const std::string payload = "original portable video bytes";
+    { std::ofstream file(source, std::ios::binary); file.write(payload.data(), payload.size()); }
+    ProjectLoader loader;
+    loader.newProject("Media Project");
+    Region region;
+    region.id = generateUuidV7();
+    region.trackId = loader.project().tracks[0].id;
+    region.source.file = "Audio/prepared.wav";
+    region.source.videoFile = "Video/original.mp4";
+    loader.project().songs[0].regions.push_back(region);
+    ProjectLoader::ExtraFile extra;
+    extra.archivePath = region.source.videoFile;
+    extra.sourcePath = source.string();
+    std::string error;
+    const fs::path package = testRoot / "Show.rsnraset";
+    REQUIRE(loader.saveAsWithExtras(package.string(), {extra}, error));
+    ProjectLoader reopened;
+    REQUIRE(reopened.open(package.string(), error));
+    CHECK(reopened.project().format.version == 9);
+    CHECK(reopened.project().songs[0].regions[0].source.videoFile == "Video/original.mp4");
+    std::vector<uint8_t> copied;
+    REQUIRE(reopened.extractFile("Video/original.mp4", copied, error));
+    CHECK(std::string(copied.begin(), copied.end()) == payload);
+    Project changed = reopened.project();
+    changed.name = "Must not commit";
+    const std::atomic<bool> cancelled{true};
+    CHECK_FALSE(reopened.saveAsWithExtras(package.string(), {extra}, error, &changed, &cancelled));
+    REQUIRE(reopened.reparseProject(error));
+    CHECK(reopened.project().name == "Media Project");
+    extra.sourcePath = (testRoot / "missing.mp4").string();
+    CHECK_FALSE(reopened.saveAsWithExtras(package.string(), {extra}, error, &changed));
+    REQUIRE(reopened.reparseProject(error));
+    CHECK(reopened.project().name == "Media Project");
+    REQUIRE(reopened.extractFile("Video/original.mp4", copied, error));
+    CHECK(std::string(copied.begin(), copied.end()) == payload);
+}
+
+TEST_CASE("ProjectLoader rejects escaping extra assets and streaming paths") {
+    namespace fs = std::filesystem;
+    const fs::path testRoot = fs::temp_directory_path() / ("resostage-media-paths-" + generateUuidV7());
+    struct Cleanup { fs::path path; ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); } } cleanup{testRoot};
+    ProjectLoader loader;
+    loader.newProject("Confined");
+    std::string error;
+    const fs::path package = testRoot / "Show.rsnraset";
+    REQUIRE(loader.saveAs(package.string(), error));
+    REQUIRE(loader.open(package.string(), error));
+    ProjectLoader::ExtraFile extra;
+    extra.archivePath = "../escaped.bin";
+    extra.data = {1, 2, 3};
+    CHECK_FALSE(loader.saveAsWithExtras(package.string(), {extra}, error));
+    CHECK_FALSE(fs::exists(testRoot / "escaped.bin"));
+    CHECK_FALSE(loader.openStream("../escaped.bin", error).isValid());
+    std::error_code ec;
+    fs::create_directory_symlink(testRoot, package / "External", ec);
+    if (!ec) {
+        extra.archivePath = "External/escaped.bin";
+        CHECK_FALSE(loader.saveAsWithExtras(package.string(), {extra}, error));
+        CHECK_FALSE(fs::exists(testRoot / "escaped.bin"));
+    }
 }

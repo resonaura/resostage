@@ -1,12 +1,15 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #pragma once
 
 #include "../project/ProjectLoader.h"
 
 #include <cstdint>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -47,15 +50,20 @@ struct PeakOverview {
     int numChannels = 0;
 
     // Streams `archivePath` from the open ProjectLoader, decodes once, and
-    // builds every pyramid level from that single pass. Extracts the entire
-    // WAV to memory first for fast bulk decompression. Returns false on
-    // open/decode failure.
+    // builds every pyramid level from that single pass with bounded scratch.
+    // Returns false on open/decode failure, including a truncated payload.
     bool build(const ProjectLoader& loader, const std::string& archivePath, std::string& error);
 
     // Builds the pyramid from an already-extracted WAV buffer (raw bytes).
     // Avoids the zip extraction step entirely; useful when multiple files
     // are extracted up front and then decoded in parallel.
     bool buildFromBuffer(const uint8_t* data, size_t size, std::string& error);
+
+    // Streams a temporary WAV from disk using bounded scratch memory. Used by
+    // media import so multi-hour audio/video sources do not need a RAM-sized
+    // intermediate buffer just to construct the timeline overview.
+    bool buildFromFile(const std::string& path, std::string& error,
+                       const std::atomic<bool>* cancel = nullptr);
 
     bool empty() const { return levels.empty(); }
 

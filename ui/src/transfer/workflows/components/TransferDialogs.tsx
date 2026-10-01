@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 import { ExportMidiDialog } from "@/transfer/midi/components/ExportMidiDialog";
 import { ImportMidiDialog } from "@/transfer/midi/components/ImportMidiDialog";
@@ -8,6 +10,7 @@ import { ImportAudioBatchDialog } from "@/transfer/audio/components/ImportAudioB
 import { RenderAudioDialog } from "@/transfer/render/components/RenderAudioDialog";
 import type { WebUiState } from "@/lib/state/types";
 import type { TransferWorkflows } from "@/transfer/workflows/hooks/useTransferWorkflows";
+import { MEDIA_FILE_ACCEPT } from "@/transfer/audio/logic/mediaFormats";
 
 export function TransferDialogs({
   state,
@@ -62,10 +65,10 @@ export function TransferDialogs({
       <input
         ref={transfer.audioImportInput}
         type="file"
-        accept="audio/wav,.wav,.wave"
+        accept={MEDIA_FILE_ACCEPT}
         multiple
         className="hidden"
-        aria-label="Import audio file"
+        aria-label="Import audio or video files"
         onChange={transfer.onAudioFileChange}
       />
     </>

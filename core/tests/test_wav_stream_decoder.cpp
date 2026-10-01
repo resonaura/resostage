@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "doctest.h"
 
@@ -137,6 +139,45 @@ TEST_CASE("WavStreamDecoder parses 16-bit PCM header and decodes matching sample
 
     // Fully consumed: another decode call returns 0.
     CHECK(decoder.decodeFrames(readFn, channels, frames) == 0);
+}
+
+TEST_CASE("WavStreamDecoder reads RF64 data sizes beyond the RIFF limit without allocating the source") {
+    auto wav = makeWav(1, 48000.0, 3, 32, true);
+    std::memcpy(wav.data(), "RF64", 4);
+    std::fill(wav.begin() + 4, wav.begin() + 8, 0xff);
+    std::fill(wav.begin() + 40, wav.begin() + 44, 0xff);
+    const uint64_t dataBytes = (uint64_t{1} << 32) + 16;
+    std::vector<uint8_t> ds64;
+    appendTag(ds64, "ds64");
+    appendU32(ds64, 28);
+    for (uint64_t value : {dataBytes + 72, dataBytes, dataBytes / 4}) {
+        appendU32(ds64, static_cast<uint32_t>(value));
+        appendU32(ds64, static_cast<uint32_t>(value >> 32));
+    }
+    appendU32(ds64, 0);
+    wav.insert(wav.begin() + 12, ds64.begin(), ds64.end());
+    ChunkedReader reader{wav, 0, 7};
+    auto read = asReadFn(reader);
+    WavStreamDecoder decoder;
+    std::string error;
+    REQUIRE(decoder.parseHeader(read, error));
+    CHECK(decoder.totalFrames() == static_cast<int64_t>(dataBytes / 4));
+    float samples[3]{};
+    float* channels[] = {samples};
+    CHECK(decoder.decodeFrames(read, channels, 3) == 3);
+    CHECK(samples[1] != 0.0f);
+}
+
+TEST_CASE("WavStreamDecoder rejects RF64 without ds64") {
+    auto wav = makeWav(1, 48000.0, 3, 16, false);
+    std::memcpy(wav.data(), "RF64", 4);
+    std::fill(wav.begin() + 40, wav.begin() + 44, 0xff);
+    ChunkedReader reader{wav, 0, 4096};
+    auto read = asReadFn(reader);
+    WavStreamDecoder decoder;
+    std::string error;
+    CHECK_FALSE(decoder.parseHeader(read, error));
+    CHECK(error.find("ds64") != std::string::npos);
 }
 
 TEST_CASE("WavStreamDecoder handles 24-bit PCM") {

@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 /**
  * One-shot project converter: any older ResoStage project.json -> current format.
@@ -20,7 +22,8 @@
  *                          "" where null belongs
  * and always emits the same current canon (v4 adds plug-in slots; v5 adds
  * retained MIDI channel/event data; v6 adds MIDI 2.0 UMP storage; v7 adds
- * per-track pan-law choice; v8 adds trimmed MIDI loop source windows):
+ * per-track pan-law choice; v8 adds trimmed MIDI loop source windows; v9
+ * adds optional original-video references on imported audio regions):
  *
  *   ids            "<ns>::<kind>:<n>"  audio::track:1, audio::send:2,
  *                                      audio::out:11, light::bar:1,
@@ -41,7 +44,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 8;
+export const TARGET_FORMAT_VERSION = 9;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -647,6 +650,19 @@ export function upgradeFormat7MidiLoopWindows(old) {
   return upgraded;
 }
 
+/** Add an optional project-local source-video reference to imported regions. */
+export function upgradeFormat8VideoSources(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  for (const song of upgraded.songs ?? []) {
+    for (const region of song.regions ?? []) {
+      region.source ??= {};
+      region.source.videoFile ??= null;
+    }
+  }
+  return upgraded;
+}
+
 function resolveProjectJsonPath(target) {
   const abs = path.resolve(target);
   if (!fs.existsSync(abs)) {
@@ -698,6 +714,8 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
       migrated = upgradeFormat6PanLawData(oldObj);
     } else if (!isLegacy && fromVersion === 7) {
       migrated = upgradeFormat7MidiLoopWindows(oldObj);
+    } else if (!isLegacy && fromVersion === 8) {
+      migrated = upgradeFormat8VideoSources(oldObj);
     } else {
       migrated = upgradeFormat6PanLawData(migrateProjectObject(oldObj));
     }

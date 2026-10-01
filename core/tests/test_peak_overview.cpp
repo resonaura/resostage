@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "doctest.h"
 
@@ -102,4 +104,31 @@ TEST_CASE("PeakOverview builds a multi-level pyramid from a sine WAV in .rsnrase
     CHECK(best->samplesPerBin >= 1);
 
     std::remove(path.c_str());
+}
+
+TEST_CASE("PeakOverview file and buffer paths match and reject truncated PCM") {
+    const std::string package = makeArchiveWithWav();
+    const std::string source = (std::filesystem::path(package) / "Audio" / "tone.wav").string();
+    const auto wav = makeSineWav(440.0, 48000.0, 0.25);
+    PeakOverview filePeaks;
+    PeakOverview bufferPeaks;
+    std::string error;
+    REQUIRE(filePeaks.buildFromFile(source, error));
+    REQUIRE(bufferPeaks.buildFromBuffer(wav.data(), wav.size(), error));
+    REQUIRE(filePeaks.levels.size() == bufferPeaks.levels.size());
+    for (size_t level = 0; level < filePeaks.levels.size(); ++level) {
+        REQUIRE(filePeaks.levels[level].bins.size() == bufferPeaks.levels[level].bins.size());
+        for (size_t bin = 0; bin < filePeaks.levels[level].bins.size(); ++bin) {
+            CHECK(filePeaks.levels[level].bins[bin].minVal == bufferPeaks.levels[level].bins[bin].minVal);
+            CHECK(filePeaks.levels[level].bins[bin].maxVal == bufferPeaks.levels[level].bins[bin].maxVal);
+        }
+    }
+    CHECK_FALSE(bufferPeaks.buildFromBuffer(wav.data(), wav.size() - 1, error));
+    CHECK(bufferPeaks.levels.empty());
+    CHECK(bufferPeaks.durationSeconds == 0.0);
+    CHECK(error.find("Truncated") != std::string::npos);
+    const std::atomic<bool> cancelled{true};
+    CHECK_FALSE(filePeaks.buildFromFile(source, error, &cancelled));
+    CHECK(filePeaks.levels.empty());
+    CHECK(filePeaks.durationSeconds == 0.0);
 }

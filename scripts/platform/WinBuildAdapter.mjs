@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 import { existsSync, rmSync, cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
@@ -24,6 +26,7 @@ import {
 } from "../lib.mjs";
 
 import { publishWindows } from "../publish.mjs";
+import { installFFmpegRuntime, prepareFFmpegRuntime, verifyFFmpegRuntime } from "../ffmpeg-runtime.mjs";
 
 export class WinBuildAdapter extends BuildAdapter {
   get key() {
@@ -163,6 +166,7 @@ export class WinBuildAdapter extends BuildAdapter {
       log(`${rawCore} missing -- skipping shell bundle assembly (build the app first)`);
       return;
     }
+    const ffmpegRuntime = prepareFFmpegRuntime(process.platform, process.arch, BUILD_DIR);
 
     const shellBundle = this.getShellAppBundle();
     const shellDir = dirname(shellBundle);
@@ -249,6 +253,18 @@ export class WinBuildAdapter extends BuildAdapter {
       const coreIco = join(ROOT, "icons", "core.ico");
       this.patchWindowsExeMetadata(coreDst, existsSync(coreIco) ? coreIco : null, "core.exe");
     }
+    const mediaExecutable = join(shellDir, "media.exe");
+    installFFmpegRuntime(
+      ffmpegRuntime,
+      mediaExecutable,
+      join(shellDir, "FFmpeg"),
+    );
+    const dedicatedMediaIcon = join(ROOT, "icons", "media.ico");
+    const mediaIcon = existsSync(dedicatedMediaIcon) ? dedicatedMediaIcon : join(ROOT, "icons", "core.ico");
+    if (!existsSync(mediaIcon) || !this.patchWindowsExeMetadata(
+      mediaExecutable, mediaIcon, "media.exe", "ResoStage Media Conversion Worker (FFmpeg)",
+    )) throw new Error(`Could not brand media worker: ${mediaExecutable}`);
+    verifyFFmpegRuntime(shellDir, process.platform, process.arch, "media.exe");
 
     const scannerDst = join(shellDir, "pluginscan.exe");
     const scannerRaw = findFileRecursively(BUILD_DIR, "pluginscan.exe");

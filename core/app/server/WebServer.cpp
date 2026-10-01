@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "WebServer.h"
 
@@ -18,6 +20,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -114,8 +117,8 @@ ClientView parseClientView(const std::string& s) {
 
 
 // Per-HTTP-transaction body accumulator for small REST POSTs. Upload
-// (/api/v1/project/upload) is the one path that bypasses `body` entirely --
-// project archives can be tens/hundreds of MB, so its bytes are streamed
+// Project/media uploads bypass `body` entirely -- large archives and media
+// must use bounded RAM, so their bytes are streamed
 // straight to `uploadFile` instead of buffered in RAM.
 struct HttpSession {
     char path[256]{};
@@ -127,6 +130,13 @@ struct HttpSession {
     bool isWavUpload = false; // distinguishes .../builder/track/import-wav/upload from project upload
     char uploadPath[512]{};
     FILE* uploadFile = nullptr;
+    uint64_t uploadBytes = 0;
+    bool uploadFailed = false;
+    int importSongIndex = -1;
+    int importTrackIndex = -1;
+    double importStartSeconds = 0.0;
+    char importFileName[257]{};
+    char importRequestId[65]{};
 };
 
 // Unique temp path for a single upload's bytes; the message thread deletes it
@@ -138,7 +148,9 @@ std::string makeUploadTempPath(const char* extension) {
     static std::atomic<uint64_t> counter{0};
     const auto n = counter.fetch_add(1, std::memory_order_relaxed);
     const auto ts = std::chrono::steady_clock::now().time_since_epoch().count();
-    std::filesystem::path dir = std::filesystem::temp_directory_path();
+    std::error_code ec;
+    std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
+    if (ec) return {};
     std::filesystem::path file =
         dir / ("resostage-upload-" + std::to_string(ts) + "-" + std::to_string(n) + extension);
     return file.string();
@@ -227,6 +239,17 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
     auto* pss = static_cast<HttpSession*>(user);
     auto* server = static_cast<WebServer*>(lws_context_user(lws_get_context(wsi)));
     const auto why = static_cast<enum lws_callback_reasons>(reason);
+    const auto failUpload = [&](int status, const std::string& error) {
+        if (pss != nullptr) {
+            if (pss->uploadFile != nullptr) std::fclose(pss->uploadFile);
+            pss->uploadFile = nullptr;
+            std::remove(pss->uploadPath);
+            pss->uploadFailed = true;
+            if (server != nullptr && pss->isWavUpload)
+                server->finishTrackImport(pss->importRequestId, false, error);
+        }
+        return writeJsonError(wsi, status, error);
+    };
 
     // if/else (not switch-enum): lws has 100+ callback reasons; only a few apply.
     if (why == LWS_CALLBACK_HTTP) {
@@ -238,6 +261,12 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
             pss->isStatic = false;
             pss->isUpload = false;
             pss->isWavUpload = false;
+            pss->uploadBytes = 0;
+            pss->uploadFailed = false;
+            pss->importSongIndex = pss->importTrackIndex = -1;
+            pss->importStartSeconds = 0.0;
+            pss->importFileName[0] = '\0';
+            pss->importRequestId[0] = '\0';
             if (pss->uploadFile != nullptr) {
                 // Defensive: a previous transaction on a kept-alive connection
                 // aborted mid-upload without a BODY_COMPLETION/CLOSE. Don't leak
@@ -246,6 +275,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 std::remove(pss->uploadPath);
                 pss->uploadFile = nullptr;
             }
+            pss->uploadPath[0] = '\0';
 
             const char* uri = static_cast<const char*>(in);
             if (uri == nullptr)
@@ -285,11 +315,40 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 pss->isApi = true;
                 pss->isUpload = true;
                 pss->isWavUpload = isWavUpload;
+                if (isWavUpload) {
+                    char contentLength[32]{};
+                    lws_hdr_copy(wsi, contentLength, sizeof(contentLength), WSI_TOKEN_HTTP_CONTENT_LENGTH);
+                    if (contentLength[0] != '\0') {
+                        uint64_t declaredSize = 0;
+                        const auto end = contentLength + std::strlen(contentLength);
+                        const auto parsed = std::from_chars(contentLength, end, declaredSize);
+                        if (parsed.ec != std::errc{} || parsed.ptr != end || declaredSize > 20ULL * 1024 * 1024 * 1024) {
+                            pss->uploadFailed = true;
+                            return writeJsonError(wsi, 413, "Media file exceeds the 20 GiB limit or has an invalid size");
+                        }
+                    }
+                }
+                if (isWavUpload) {
+                    char argsBuf[512]{};
+                    lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
+                    std::string fileName;
+                    const auto requestId = webserver_http::queryParam(argsBuf, "requestId");
+                    if (!server->takeTrackImportTarget(pss->importSongIndex, pss->importTrackIndex,
+                            fileName, pss->importStartSeconds, requestId)) {
+                        pss->uploadFailed = true;
+                        return writeJsonError(wsi, 409, "Media upload ticket is missing or expired");
+                    }
+                    std::snprintf(pss->importRequestId, sizeof(pss->importRequestId), "%s", requestId.c_str());
+                    std::snprintf(pss->importFileName, sizeof(pss->importFileName), "%s", fileName.c_str());
+                }
                 const std::string tempPath = makeUploadTempPath(isWavUpload ? ".wav" : ".rsnraset");
+                if (tempPath.empty()) {
+                    return failUpload(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Temporary directory is unavailable");
+                }
                 std::snprintf(pss->uploadPath, sizeof(pss->uploadPath), "%s", tempPath.c_str());
                 pss->uploadFile = std::fopen(pss->uploadPath, "wb");
                 if (pss->uploadFile == nullptr) {
-                    return writeJsonError(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "temp file");
+                    return failUpload(HTTP_STATUS_INTERNAL_SERVER_ERROR, "Could not create a temporary upload file");
                 }
                 return 0;
             }
@@ -298,6 +357,11 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 pss->isApi = true;
 
                 if (!isPost) {
+                    if (std::strcmp(uri, "/api/v1/builder/track/import-status") == 0) {
+                        char argsBuf[512]{};
+                        lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
+                        return server->serveTrackImportStatus(wsi, webserver_http::queryParam(argsBuf, "requestId"));
+                    }
                     if (std::strcmp(uri, "/api/v1/state") == 0) {
                         // Prefer prebuilt full frame; fall back to live build.
                         auto frame = server->cachedFrameForView("all");
@@ -371,8 +435,21 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
             if (pss == nullptr || !pss->isApi)
                 return lws_callback_http_dummy(wsi, why, user, in, len);
             if (pss->isUpload) {
-                if (pss->uploadFile != nullptr && in != nullptr && len > 0)
-                    std::fwrite(in, 1, len, pss->uploadFile);
+                if (pss->uploadFailed) return -1;
+                if (pss->uploadFile != nullptr && in != nullptr && len > 0) {
+                    constexpr uint64_t kMaximumMediaUploadBytes = 20ULL * 1024 * 1024 * 1024;
+                    const bool tooLarge = pss->isWavUpload
+                        && len > kMaximumMediaUploadBytes - pss->uploadBytes;
+                    if (tooLarge || std::fwrite(in, 1, len, pss->uploadFile) != len) {
+                        std::fclose(pss->uploadFile);
+                        pss->uploadFile = nullptr;
+                        std::remove(pss->uploadPath);
+                        pss->uploadFailed = true;
+                        return failUpload(tooLarge ? 413 : HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                            tooLarge ? "Media file exceeds the 20 GiB limit" : "Could not write uploaded media to disk");
+                    }
+                    pss->uploadBytes += len;
+                }
                 return 0;
             }
             const char* chunk = static_cast<const char*>(in);
@@ -392,6 +469,8 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 std::fclose(pss->uploadFile);
                 std::remove(pss->uploadPath);
                 pss->uploadFile = nullptr;
+                if (server != nullptr && pss->isWavUpload)
+                    server->finishTrackImport(pss->importRequestId, false, "Media upload interrupted");
             }
             return lws_callback_http_dummy(wsi, why, user, in, len);
     }
@@ -400,35 +479,50 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
             if (pss == nullptr || server == nullptr || !pss->isApi)
                 return lws_callback_http_dummy(wsi, why, user, in, len);
             if (pss->isUpload) {
+                if (pss->uploadFailed) return -1;
                 if (pss->uploadFile != nullptr) {
-                    std::fclose(pss->uploadFile);
+                    const bool flushed = std::fclose(pss->uploadFile) == 0;
                     pss->uploadFile = nullptr;
+                    if (!flushed) {
+                        std::remove(pss->uploadPath);
+                        pss->uploadFailed = true;
+                        return failUpload(HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                            "Could not finalize uploaded media on disk");
+                    }
                 }
                 if (pss->isWavUpload) {
-                    int songIndex = -1, trackIndex = -1;
-                    std::string fileName;
-                    double startSeconds = 0.0;
-                    server->takeTrackImportTarget(songIndex, trackIndex, fileName, startSeconds);
+                    const std::string fileName = pss->importFileName;
 
                     // Rename to the original filename (sanitized) so the
                     // archive entry importWavForTrackAsync creates ends up
                     // "Audio/kick.wav" instead of a generic temp name --
-                    // best-effort, falls back to the temp path as-is.
+                    // The original extension is required for video retention.
+                    // Use this upload's unique basename to avoid a later upload
+                    // replacing a file still being consumed by the import worker.
                     std::string finalPath = pss->uploadPath;
                     if (!fileName.empty()) {
                         const std::filesystem::path dir =
                             std::filesystem::path(pss->uploadPath).parent_path();
                         const std::filesystem::path renamed =
-                            dir / (std::to_string(reinterpret_cast<uintptr_t>(wsi)) + "-"
+                            dir / (std::filesystem::path(pss->uploadPath).stem().string() + "-"
                                    + sanitizeUploadFileName(fileName));
                         std::error_code ec;
                         std::filesystem::rename(pss->uploadPath, renamed, ec);
-                        if (!ec)
-                            finalPath = renamed.string();
+                        if (ec) {
+                            std::remove(pss->uploadPath);
+                            return failUpload(HTTP_STATUS_INTERNAL_SERVER_ERROR,
+                                "Could not preserve the uploaded media filename: " + ec.message());
+                        }
+                        finalPath = renamed.string();
                     }
-                    server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWavUpload, songIndex,
-                                                      static_cast<double>(trackIndex), finalPath,
-                                                      "{\"startSeconds\":" + std::to_string(startSeconds) + "}"});
+                    wire::WTrackImportBeginPayload options;
+                    options.startSeconds = pss->importStartSeconds;
+                    options.requestId = pss->importRequestId;
+                    std::string optionsJson;
+                    (void)glz::write_json(options, optionsJson);
+                    server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWavUpload, pss->importSongIndex,
+                                                      static_cast<double>(pss->importTrackIndex), finalPath,
+                                                      std::move(optionsJson)});
                 } else {
                     server->enqueueCommand(
                         WebCommand{WebCommandKind::LoadProjectFromPath, 0, 0.0, std::string(pss->uploadPath)});

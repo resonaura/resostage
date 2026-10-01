@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #pragma once
 
@@ -16,9 +18,11 @@ namespace resostage {
 // in-memory buffer in tests, without depending on either). Forward-only: no
 // seeking backward is required or supported, matching sequential playback.
 //
-// Scope: canonical WAV layout (RIFF/WAVE, 'fmt ' chunk before 'data' chunk --
+// Scope: canonical WAV layout (RIFF/RF64 WAVE, 'fmt ' chunk before 'data' chunk --
 // true of essentially every DAW-exported stem). Supports 16/24/32-bit signed
-// integer PCM and 32-bit IEEE float, mono or multi-channel. Does NOT handle
+// integer PCM and 32-bit IEEE float, up to 64 channels. RF64 uses the ds64
+// data-size field so long FFmpeg-prepared shows retain their full length.
+// Does NOT handle
 // WAVE_FORMAT_EXTENSIBLE sub-format quirks, compressed WAV codecs, or
 // non-canonical chunk ordering (e.g. 'data' before 'fmt ') -- a documented
 // limitation, not needed for exported DAW stems.

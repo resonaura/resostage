@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // HTML5 drag & drop helpers for the timeline's audio-file ghost preview.
 // The ghost is purely visual ("as if you'd added the file") until the user
@@ -14,6 +16,8 @@
 // `dataTransfer.types`. The actual File is only handed out in the drop event.
 // So identification during dragover is best-effort, and the drop
 // (`audioFileFromDrop`) re-verifies before importing.
+
+import { isImportableMediaFile, isImportableMediaName } from "@/transfer/audio/logic/mediaFormats";
 
 /** Decoded preview of a local audio file: duration + a coarse peak envelope. */
 export interface AudioPreview {
@@ -78,15 +82,12 @@ export function computeAudioDropPosition(args: {
   };
 }
 
-const AUDIO_EXT = /\.(wav|wave|mp3|aiff?|flac|ogg|m4a|aac|opus|wma|caf|webm)$/i;
-
 export function isAudioName(name: string): boolean {
-  return AUDIO_EXT.test(name);
+  return isImportableMediaName(name);
 }
 
 export function isAudioFile(file: File): boolean {
-  if (file.type) return file.type.startsWith("audio/");
-  return isAudioName(file.name);
+  return isImportableMediaFile(file);
 }
 
 /**
@@ -155,11 +156,10 @@ export function audioDragInfo(e: React.DragEvent): AudioDragInfo {
     };
   }
 
-  // No per-item name, but the drag reports an audio MIME (CDP-synthetic
-  // drags / some browsers). Accept as audio with a generic name.
+  // Audio/video MIME may be the only information exposed during dragover.
   const audioMime =
-    types.find((t) => /^audio\//i.test(t)) ||
-    items.find((i) => /^audio\//i.test(i.type));
+    types.find((t) => /^(audio|video)\//i.test(t)) ||
+    items.find((i) => /^(audio|video)\//i.test(i.type));
   if (audioMime) {
     const direct = dt.files && dt.files.length === 1 ? dt.files[0] : null;
     return {
@@ -242,7 +242,12 @@ function durationOnlyPreview(file: File): Promise<AudioPreview> {
   return new Promise((resolve) => {
     const el = new Audio();
     let url: string | null = null;
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve({ duration: 0, min: [], max: [] });
+    }, 10000);
     const cleanup = () => {
+      clearTimeout(timeout);
       el.onloadedmetadata = null;
       el.onerror = null;
       el.src = "";
@@ -267,6 +272,8 @@ function durationOnlyPreview(file: File): Promise<AudioPreview> {
 // re-decodes it. Cache stores the promise so concurrent dragover frames share
 // one decode instead of firing N.
 const previewCache = new Map<string, Promise<AudioPreview>>();
+const MAXIMUM_DECODE_PREVIEW_BYTES = 32 * 1024 * 1024;
+const MAXIMUM_CACHED_PREVIEWS = 32;
 
 export function loadAudioPreview(file: File): Promise<AudioPreview> {
   const key = `${file.name}|${file.size}|${file.lastModified}`;
@@ -275,7 +282,9 @@ export function loadAudioPreview(file: File): Promise<AudioPreview> {
 
   const p = (async (): Promise<AudioPreview> => {
     const ctx = getAudioContext();
-    if (ctx) {
+    // Browser decoding materializes the whole file and its PCM. Large media
+    // uses metadata only; Core later produces streamed peaks for all codecs.
+    if (ctx && file.size <= MAXIMUM_DECODE_PREVIEW_BYTES) {
       try {
         const ab = await file.arrayBuffer();
         const buffer = await ctx.decodeAudioData(ab);
@@ -292,6 +301,8 @@ export function loadAudioPreview(file: File): Promise<AudioPreview> {
     return durationOnlyPreview(file);
   })();
 
+  if (previewCache.size >= MAXIMUM_CACHED_PREVIEWS)
+    previewCache.delete(previewCache.keys().next().value!);
   previewCache.set(key, p);
   return p;
 }

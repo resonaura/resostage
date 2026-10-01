@@ -1,8 +1,11 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 import { apiUrl, apiFetch } from "@/lib/state/backend";
+import { importMediaFile } from "@/transfer/audio/logic/importRequest";
 import type { MixGraphPayload } from "@/lib/audio/mixGraph";
 import type {
   AllPeaksResponse,
@@ -200,6 +203,7 @@ export interface AudioRenderOptions {
     id?: string;
   }>;
   sampleRate: number;
+  outputFormat: "wav" | "aiff" | "flac" | "mp3" | "m4a" | "alac" | "opus" | "ogg" | "wma";
   bitDepth: 16 | 24 | 32;
   rangeStartSeconds: number;
   rangeEndSeconds: number;
@@ -870,16 +874,8 @@ export const builder = {
     file: File,
     startSeconds = 0,
   ): Promise<void> {
-    await post("/api/v1/builder/track/import-wav/begin", {
-      songIndex,
-      index,
-      fileName: file.name,
-      startSeconds,
-    });
-    await apiFetch("/api/v1/builder/track/import-wav/upload", {
-      method: "POST",
-      body: file,
-    });
+    await importMediaFile(songIndex, index, file, startSeconds);
+    _triggerRefetch();
   },
 
   // Native "Open Audio File" picker (embedded webview only -- see

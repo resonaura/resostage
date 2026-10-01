@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 import { existsSync, rmSync, cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -25,6 +27,8 @@ import {
 } from "../lib.mjs";
 
 import { publishMac, adhocSignBundle, ENTITLEMENTS } from "../publish.mjs";
+import { prepareFFmpegRuntime } from "../ffmpeg-runtime.mjs";
+import { installMacMediaHelper } from "../media/bundle.mjs";
 
 export class MacBuildAdapter extends BuildAdapter {
   get key() {
@@ -136,6 +140,7 @@ export class MacBuildAdapter extends BuildAdapter {
       );
       return;
     }
+    const ffmpegRuntime = prepareFFmpegRuntime(process.platform, process.arch, BUILD_DIR);
 
     const shellBundle = this.getShellAppBundle();
     if (existsSync(shellBundle)) {
@@ -171,6 +176,7 @@ export class MacBuildAdapter extends BuildAdapter {
     const coreDst = join(resources, `${CORE_APP_NAME}.app`);
     rmSync(coreDst, { recursive: true, force: true });
     cpSync(rawCore, coreDst, { recursive: true });
+    installMacMediaHelper(ffmpegRuntime, coreDst, ROOT, process.arch);
 
     // JUCE/CMake may reuse a generated Info.plist from an older configure.
     // The nested Core process (not Chromium) opens CoreAudio inputs, so its

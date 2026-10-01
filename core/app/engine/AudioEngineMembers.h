@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // Private members and private methods for AudioEngine.
 // Included only from AudioEngine.h inside `class AudioEngine { private: ... }`.
@@ -437,6 +439,10 @@
     bool usingDraftArchive = false; // see isDraftProject()
     std::atomic<bool> unsavedChanges{false};
     std::atomic<bool> busyImporting{false}; // see isBusy()
+    std::atomic<bool> cancelImport{false}; // destructor cancels codec work before joining its worker
+    // Queued message-thread completions can outlive AudioEngine destruction.
+    // Capture this token with raw this and test it before dereferencing this.
+    std::shared_ptr<std::atomic<bool>> importCallbackLifetime = std::make_shared<std::atomic<bool>>(true);
     std::atomic<bool> busySaving{false};    // see saveProjectAsync / isBusy()
     std::atomic<bool> autosaveDeferred{false};
     std::thread importThread; // joined before starting a new import, and in ~AudioEngine()

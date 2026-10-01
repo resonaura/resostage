@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "WebServer.h"
 
@@ -87,24 +89,72 @@ void WebServer::failAudioRender(std::string error) {
     audioRenderStatus.error = std::move(error);
 }
 
-void WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName, double startSeconds) {
+bool WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName, double startSeconds,
+                                const std::string& requestId) {
+    if (songIndex < 0 || trackIndex < 0 || fileName.size() > 256 || requestId.size() > 64)
+        return false;
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     std::lock_guard<std::mutex> lock(importMutex);
-    pendingImportSongIndex = songIndex;
-    pendingImportTrackIndex = trackIndex;
-    pendingImportFileName = std::move(fileName);
-    pendingImportStartSeconds = std::isfinite(startSeconds) ? std::max(0.0, startSeconds) : 0.0;
+    for (auto it = pendingTrackImports.begin(); it != pendingTrackImports.end();) {
+        if (it->second.expiresAtMilliseconds <= now) it = pendingTrackImports.erase(it);
+        else ++it;
+    }
+    if (pendingTrackImports.size() >= 64 || pendingTrackImports.contains(requestId)) return false;
+    for (auto it = trackImportResults.begin(); it != trackImportResults.end();) {
+        if (it->second.expiresAtMilliseconds <= now) it = trackImportResults.erase(it);
+        else ++it;
+    }
+    if (!requestId.empty()) {
+        if (trackImportResults.contains(requestId)) return false;
+        if (trackImportResults.size() >= 64) {
+            auto oldest = trackImportResults.end();
+            for (auto it = trackImportResults.begin(); it != trackImportResults.end(); ++it)
+                if (it->second.finished && (oldest == trackImportResults.end()
+                    || it->second.expiresAtMilliseconds < oldest->second.expiresAtMilliseconds)) oldest = it;
+            if (oldest == trackImportResults.end()) return false;
+            trackImportResults.erase(oldest);
+        }
+        trackImportResults.emplace(requestId, TrackImportResult{false, false, {}, now + 15 * 60 * 1000});
+    }
+    pendingTrackImports.emplace(requestId, PendingTrackImport{
+        songIndex, trackIndex, std::move(fileName),
+        std::isfinite(startSeconds) ? std::max(0.0, startSeconds) : 0.0,
+        now + 15 * 60 * 1000,
+    });
+    return true;
 }
 
-void WebServer::takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName, double& startSeconds) {
+bool WebServer::takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName, double& startSeconds,
+                                     const std::string& requestId) {
     std::lock_guard<std::mutex> lock(importMutex);
-    songIndex = pendingImportSongIndex;
-    trackIndex = pendingImportTrackIndex;
-    fileName = pendingImportFileName;
-    startSeconds = pendingImportStartSeconds;
-    pendingImportSongIndex = -1;
-    pendingImportTrackIndex = -1;
-    pendingImportFileName.clear();
-    pendingImportStartSeconds = 0.0;
+    const auto it = pendingTrackImports.find(requestId);
+    if (it == pendingTrackImports.end()) return false;
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (it->second.expiresAtMilliseconds <= now) {
+        pendingTrackImports.erase(it);
+        return false;
+    }
+    songIndex = it->second.songIndex;
+    trackIndex = it->second.trackIndex;
+    fileName = std::move(it->second.fileName);
+    startSeconds = it->second.startSeconds;
+    pendingTrackImports.erase(it);
+    if (auto result = trackImportResults.find(requestId); result != trackImportResults.end())
+        result->second.expiresAtMilliseconds = now + 7LL * 60 * 60 * 1000;
+    return true;
+}
+
+void WebServer::finishTrackImport(const std::string& requestId, bool success, std::string error) {
+    if (requestId.empty()) return;
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    std::lock_guard<std::mutex> lock(importMutex);
+    const auto it = trackImportResults.find(requestId);
+    if (it == trackImportResults.end()) return;
+    if (error.size() > 8192) error.resize(8192);
+    it->second = TrackImportResult{true, success, std::move(error), now + 15 * 60 * 1000};
 }
 
 

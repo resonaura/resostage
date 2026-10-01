@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "WebServer.h"
 #include "WebServerHttp.h"
@@ -365,9 +367,12 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (WebCommandKind builderKind; builderCommandKindForPath(path, builderKind)) {
         if (builderKind == WebCommandKind::BuilderTrackImportWavBegin) {
             wire::WTrackImportBeginPayload p;
-            if (!glz::read_json(p, std::string_view(body, bodyLen))) {
-                beginTrackImport(p.songIndex, p.index, p.fileName, p.startSeconds);
-            }
+            if (glz::read_json(p, std::string_view(body, bodyLen)))
+                writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid media import target");
+            else if (!beginTrackImport(p.songIndex, p.index, p.fileName, p.startSeconds, p.requestId))
+                writeJsonError(wsi, 409, "Media import target is invalid, already reserved, or the upload queue is full");
+            else writeJsonOk(wsi);
+            return true;
         }
         cmd = {builderKind, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/remote/discovery") == 0) {

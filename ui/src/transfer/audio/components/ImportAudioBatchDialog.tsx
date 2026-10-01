@@ -1,11 +1,14 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 import { useState } from "react";
 import { builder } from "@/lib/state/api";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal } from "@/components/ui";
+import { isImportableMediaName, MAXIMUM_MEDIA_FILE_BYTES } from "@/transfer/audio/logic/mediaFormats";
 
 export function ImportAudioBatchDialog({
   open, files, state, songIndex, startSeconds = 0, trackIndex, onClose,
@@ -24,13 +27,13 @@ export function ImportAudioBatchDialog({
 
   const runImport = async () => {
     if (!files.length) return;
-    if (files.length > 64) { setError("Import at most 64 audio files at a time"); return; }
-    if (files.some((file) => !/\.(wav|wave)$/i.test(file.name))) {
-      setError("Batch audio import currently accepts WAV files only");
+    if (files.length > 64) { setError("Import at most 64 media files at a time"); return; }
+    if (files.some((file) => !isImportableMediaName(file.name))) {
+      setError("One or more files use an unsupported audio/video format");
       return;
     }
-    if (files.some((file) => file.size > 512 * 1024 * 1024)) {
-      setError("A WAV file exceeds the 512 MiB per-file limit");
+    if (files.some((file) => file.size > MAXIMUM_MEDIA_FILE_BYTES)) {
+      setError("A media file exceeds the 20 GiB per-file limit");
       return;
     }
     if (trackIndex !== undefined && files.length !== 1) {
@@ -50,7 +53,7 @@ export function ImportAudioBatchDialog({
       if (trackIndex === undefined) {
         for (let index = 0; index < files.length; index++) {
           const file = files[index];
-          const baseName = file.name.replace(/\.(wav|wave)$/i, "").slice(0, 96) || `Audio ${index + 1}`;
+          const baseName = file.name.replace(/\.[^.]+$/, "").slice(0, 96) || `Audio ${index + 1}`;
           setProgress(`Creating track ${index + 1} of ${files.length}: ${baseName}`);
           await builder.trackAdd(songIndex, { kind: "audio", name: baseName });
         }
@@ -76,11 +79,11 @@ export function ImportAudioBatchDialog({
       <Modal.Backdrop>
         <Modal.Container size="md">
           <Modal.Dialog>
-            <Modal.Header><Modal.Heading>Import audio files</Modal.Heading></Modal.Header>
+            <Modal.Header><Modal.Heading>Import media files</Modal.Heading></Modal.Header>
             <Modal.Body className="space-y-3">
               <p className="text-xs text-foreground/65">
                 {trackIndex === undefined
-                  ? `${files.length} file${files.length === 1 ? "" : "s"} will each get a new audio track and region at the import position. Existing tracks and regions are left untouched; new tracks are appended to the project.`
+                  ? `${files.length} audio/video file${files.length === 1 ? "" : "s"} will each get a new audio track and region at the import position. Video files are copied into the project and their audio is prepared for playback. Existing tracks and regions are left untouched; new tracks are appended to the project.`
                   : `This file will be imported into ${state.tracks[trackIndex]?.name ?? "the selected audio track"}.`}
               </p>
               <ul className="max-h-36 space-y-1 overflow-auto rounded-lg border border-default/20 p-2 text-xs">
@@ -94,7 +97,7 @@ export function ImportAudioBatchDialog({
             </Modal.Body>
             <Modal.Footer>
               <Button variant="secondary" isDisabled={busy} onPress={onClose}>Cancel</Button>
-              <Button isDisabled={busy || !files.length} onPress={() => void runImport()}>{busy ? "Importing…" : "Import"}</Button>
+              <Button isDisabled={busy || !files.length} onPress={() => void runImport()}>{busy ? "Importing…" : "Import media"}</Button>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

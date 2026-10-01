@@ -1,28 +1,80 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // Offline-render orchestration and its isolated processor-session adapter.
 // The extraction preserves the existing message-thread setup and worker
-// boundaries; render behavior is unchanged.
+// boundaries. Non-WAV encoding consumes a completed private float WAV on the
+// same background worker; live transport and device processing stay separate.
 
 #include "MainComponent.h"
 #include "engine/AudioEngineInternal.h"
+#include "media/FFmpegProcess.h"
 #include "plugins/PluginPaths.h"
 #include "plugins/PluginProcessorBank.h"
 #include "project/ProjectJson.h"
+#include "project/Uuid.h"
 #include "server/BuilderJson.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <optional>
 #include <vector>
+
+#if JUCE_WINDOWS
+#include <windows.h>
+#elif JUCE_LINUX
+#include <fcntl.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
 
 namespace resostage {
 
 namespace {
+bool publishEncodedFile(const std::string& partial, const std::string& destination,
+                        std::error_code& error) {
+    // Exclusive rename works on ordinary/removable filesystems without
+    // hard-link support, and prevents a racing export from overwriting data.
+#if JUCE_MAC
+    if (renamex_np(partial.c_str(), destination.c_str(), RENAME_EXCL) == 0) {
+        error.clear();
+        return true;
+    }
+    error = std::error_code(errno, std::generic_category());
+#elif JUCE_WINDOWS
+    const std::filesystem::path sourcePath(std::u8string(partial.begin(), partial.end()));
+    const std::filesystem::path destinationPath(std::u8string(destination.begin(), destination.end()));
+    if (MoveFileExW(sourcePath.c_str(), destinationPath.c_str(), MOVEFILE_WRITE_THROUGH) != 0) {
+        error.clear();
+        return true;
+    }
+    error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+#elif JUCE_LINUX && defined(SYS_renameat2)
+    constexpr unsigned kRenameNoReplace = 1;
+    if (syscall(SYS_renameat2, AT_FDCWD, partial.c_str(), AT_FDCWD,
+                destination.c_str(), kRenameNoReplace) == 0) {
+        error.clear();
+        return true;
+    }
+    error = std::error_code(errno, std::generic_category());
+#else
+    std::filesystem::create_hard_link(partial, destination, error);
+    if (!error) {
+        std::filesystem::remove(partial, error);
+        error.clear();
+        return true;
+    }
+#endif
+    return false;
+}
+
 class OfflinePluginSession final : public OfflineProcessorSession {
 public:
     OfflinePluginSession(std::shared_ptr<PluginProcessorBank> bankIn,
@@ -125,6 +177,7 @@ void MainComponent::startAudioRender(const std::string& json) {
     std::string namingPattern = "{project}_{song}_{stem}";
     std::string tailPolicy = "cut";
     std::string dither = "none";
+    std::string outputFormat = "wav";
     std::string normalization = "off";
     int songIndex = static_cast<int>(engine.currentSongIndex());
     int sampleRate = static_cast<int>(std::lround(std::max(8000.0, engine.project().sampleRate)));
@@ -143,6 +196,7 @@ void MainComponent::startAudioRender(const std::string& json) {
         (void)builder_json::getString(doc, "fileName", namingPattern);
     (void)builder_json::getString(doc, "tailPolicy", tailPolicy);
     (void)builder_json::getString(doc, "dither", dither);
+    (void)builder_json::getString(doc, "outputFormat", outputFormat);
     (void)builder_json::getString(doc, "normalization", normalization);
     (void)builder_json::getInt(doc, "songIndex", songIndex);
     (void)builder_json::getInt(doc, "sampleRate", sampleRate);
@@ -154,6 +208,14 @@ void MainComponent::startAudioRender(const std::string& json) {
     (void)builder_json::getDouble(doc, "maxTailSeconds", maxTailSeconds);
     (void)builder_json::getDouble(doc, "normalizationCeilingDb", normalizationCeilingDb);
     (void)builder_json::getBool(doc, "trimOutputLatency", trimOutputLatency);
+
+    if (outputFormat != "wav" && outputFormat != "aiff" && outputFormat != "flac"
+        && outputFormat != "mp3" && outputFormat != "m4a" && outputFormat != "alac"
+        && outputFormat != "opus" && outputFormat != "ogg" && outputFormat != "wma") {
+        audioRenderRunning.store(false, std::memory_order_release);
+        webServer.failAudioRender("Unsupported audio export format");
+        return;
+    }
 
     request.songIndex = scope == "project" ? -1 : songIndex;
     request.sampleRate = sampleRate;
@@ -217,6 +279,15 @@ void MainComponent::startAudioRender(const std::string& json) {
     if (request.songIndex >= 0 && request.songIndex < static_cast<int>(liveProject.songs.size()))
         songToken = juce::String(liveProject.songs[static_cast<size_t>(request.songIndex)].name);
     std::vector<std::string> plannedOutputPaths;
+    std::vector<std::string> finalOutputPaths;
+    std::vector<std::string> renderStagePaths;
+    const juce::String outputExtension = outputFormat == "aiff" ? ".aiff"
+        : (outputFormat == "flac" ? ".flac"
+        : (outputFormat == "mp3" ? ".mp3"
+        : ((outputFormat == "m4a" || outputFormat == "alac") ? ".m4a"
+        : (outputFormat == "opus" ? ".opus"
+        : (outputFormat == "ogg" ? ".ogg"
+        : (outputFormat == "wma" ? ".wma" : ".wav"))))));
     for (auto& target : request.targets) {
         juce::String expanded(namingPattern);
         expanded = expanded.replace("{project}", projectToken)
@@ -230,24 +301,47 @@ void MainComponent::startAudioRender(const std::string& json) {
             safeName = safeName.dropLastCharacters(4);
         safeName = safeName.trim();
         if (safeName.isEmpty()) safeName = "ResoStage Render";
-        juce::File output = exportDir.getChildFile(safeName + ".wav");
+        if (safeName.endsWithIgnoreCase(".wav") || safeName.endsWithIgnoreCase(".aiff")
+            || safeName.endsWithIgnoreCase(".flac") || safeName.endsWithIgnoreCase(".mp3")
+            || safeName.endsWithIgnoreCase(".m4a") || safeName.endsWithIgnoreCase(".opus")
+            || safeName.endsWithIgnoreCase(".ogg") || safeName.endsWithIgnoreCase(".wma"))
+            safeName = juce::File(safeName).getFileNameWithoutExtension();
+        juce::File output = exportDir.getChildFile(safeName + outputExtension);
         int copy = 2;
         while (output.exists()
                || std::find(plannedOutputPaths.begin(), plannedOutputPaths.end(),
                             output.getFullPathName().toStdString()) != plannedOutputPaths.end()) {
-            output = exportDir.getChildFile(safeName + " " + juce::String(copy++) + ".wav");
+            output = exportDir.getChildFile(safeName + " " + juce::String(copy++) + outputExtension);
         }
-        target.outputPath = output.getFullPathName().toStdString();
-        plannedOutputPaths.push_back(target.outputPath);
+        const std::string finalPath = output.getFullPathName().toStdString();
+        finalOutputPaths.push_back(finalPath);
+        plannedOutputPaths.push_back(finalPath);
+        if (outputFormat == "wav") {
+            target.outputPath = finalPath;
+        } else {
+            target.outputPath = exportDir.getChildFile(
+                ".resostage-render-" + juce::String(generateUuidV7()) + ".wav")
+                .getFullPathName().toStdString();
+        }
+        renderStagePaths.push_back(target.outputPath);
     }
     request.outputPath = request.targets.front().outputPath;
+    const int exportBitDepth = request.bitDepth;
+    const RenderDither exportDither = request.dither;
+    if (outputFormat != "wav") {
+        // Keep the intermediate lossless float audio. Integer quantization
+        // belongs to the final encoder, not an extra 16/24-bit staging pass.
+        request.bitDepth = 32;
+        request.dither = RenderDither::None;
+    }
 
     const Project projectSnapshot = engine.project();
     const std::string projectPath = engine.projectPath();
     cancelAudioRender.store(false, std::memory_order_release);
     setStatus("Rendering audio in background…");
     const juce::Component::SafePointer<MainComponent> safeThis(this);
-    audioRenderThread = std::thread([this, safeThis, projectSnapshot, projectPath, request]() {
+    audioRenderThread = std::thread([this, safeThis, projectSnapshot, projectPath, request,
+                                     outputFormat, exportBitDepth, exportDither, finalOutputPaths, renderStagePaths]() mutable {
         OfflineRenderer renderer;
         const OfflineRenderer::ProcessorFactory processorFactory =
             [projectPath](const Project& project, const MixGraph& graph,
@@ -272,7 +366,7 @@ void MainComponent::startAudioRender(const std::string& json) {
                     std::move(built.bank), std::move(built.delayBank),
                     std::move(built.warnings));
             };
-        const OfflineRenderResult result = renderer.render(
+        OfflineRenderResult result = renderer.render(
             projectSnapshot, projectPath, request,
             [this, renderSampleRate = request.sampleRate](const OfflineRenderProgress& progress) {
                 webServer.updateAudioRenderProgress(
@@ -280,6 +374,99 @@ void MainComponent::startAudioRender(const std::string& json) {
                     progress.estimatedTotalFrames, renderSampleRate, progress.phase);
             },
             &cancelAudioRender, processorFactory);
+        if (result.ok && outputFormat != "wav") {
+            std::vector<std::string> committedOutputs;
+            std::string conversionError;
+            for (size_t i = 0; i < result.outputPaths.size(); ++i) {
+                const std::string& stagedWav = result.outputPaths[i];
+                const std::string& finalPath = finalOutputPaths[i];
+                const std::string partialPath = finalPath + ".resostage-part-" + generateUuidV7();
+                std::vector<std::string> arguments = {
+                    "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-threads", "2",
+                    "-i", stagedWav, "-map", "0:a:0", "-vn",
+                };
+                std::string muxer;
+                if (outputFormat == "aiff") {
+                    const std::string codec = exportBitDepth == 32 ? "pcm_f32be"
+                        : "pcm_s" + std::to_string(exportBitDepth) + "be";
+                    arguments.insert(arguments.end(), {"-c:a", codec});
+                    muxer = "aiff";
+                } else if (outputFormat == "flac") {
+                    const int losslessBits = std::min(exportBitDepth, 24);
+                    arguments.insert(arguments.end(), {"-c:a", "flac", "-compression_level", "8",
+                        "-sample_fmt", losslessBits <= 16 ? "s16" : "s32",
+                        "-bits_per_raw_sample", std::to_string(losslessBits)});
+                    muxer = "flac";
+                } else if (outputFormat == "mp3") {
+                    arguments.insert(arguments.end(), {"-c:a", "libmp3lame", "-q:a", "2"});
+                    muxer = "mp3";
+                } else if (outputFormat == "m4a") {
+                    arguments.insert(arguments.end(), {"-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart"});
+                    muxer = "ipod";
+                } else if (outputFormat == "alac") {
+                    const int losslessBits = std::min(exportBitDepth, 24);
+                    arguments.insert(arguments.end(), {"-c:a", "alac", "-movflags", "+faststart",
+                        "-sample_fmt", losslessBits <= 16 ? "s16p" : "s32p",
+                        "-bits_per_raw_sample", std::to_string(losslessBits)});
+                    muxer = "ipod";
+                } else if (outputFormat == "opus") {
+                    arguments.insert(arguments.end(), {"-c:a", "libopus", "-b:a", "160k", "-vbr", "on"});
+                    muxer = "opus";
+                } else if (outputFormat == "ogg") {
+                    arguments.insert(arguments.end(), {"-c:a", "libvorbis", "-q:a", "5"});
+                    muxer = "ogg";
+                } else if (outputFormat == "wma") {
+                    arguments.insert(arguments.end(), {"-c:a", "wmav2", "-b:a", "192k"});
+                    muxer = "asf";
+                }
+                if (exportDither == RenderDither::Tpdf
+                    && (outputFormat == "flac" || outputFormat == "alac"
+                        || (outputFormat == "aiff" && exportBitDepth != 32))) {
+                    const int integerBits = std::min(exportBitDepth, 24);
+                    const std::string sampleFormat = integerBits <= 16 ? "s16" : "s32";
+                    arguments.insert(arguments.end(), {"-af", "aresample=osf=" + sampleFormat
+                        + ":output_sample_bits=" + std::to_string(integerBits)
+                        + ":dither_method=triangular"});
+                }
+                arguments.insert(arguments.end(), {"-threads", "2", "-f", muxer, partialPath});
+
+                const double encodeProgress = 0.99 + 0.005 * (static_cast<double>(i)
+                    / static_cast<double>(std::max<size_t>(1, result.outputPaths.size())));
+                webServer.updateAudioRenderProgress(encodeProgress, result.framesWritten,
+                    result.framesWritten, request.sampleRate, "encoding");
+                std::string ffmpegError;
+                const bool encoded = media::runFFmpeg(arguments, ffmpegError, &cancelAudioRender);
+                std::error_code ec;
+                if (!encoded) {
+                    std::filesystem::remove(partialPath, ec);
+                    conversionError = ffmpegError;
+                    break;
+                }
+                if (cancelAudioRender.load(std::memory_order_acquire)) {
+                    std::filesystem::remove(partialPath, ec);
+                    conversionError = "Audio render cancelled";
+                    break;
+                }
+                if (!publishEncodedFile(partialPath, finalPath, ec)) {
+                    const std::string publishError = ec.message();
+                    std::filesystem::remove(partialPath, ec);
+                    conversionError = "Could not finalize exported audio without replacing an existing file: " + publishError;
+                    break;
+                }
+                committedOutputs.push_back(finalPath);
+                std::filesystem::remove(stagedWav, ec);
+            }
+            if (!conversionError.empty()) {
+                std::error_code ec;
+                for (const auto& path : committedOutputs) std::filesystem::remove(path, ec);
+                for (const auto& path : renderStagePaths) std::filesystem::remove(path, ec);
+                result.ok = false;
+                result.error = std::move(conversionError);
+            } else {
+                result.outputPaths = finalOutputPaths;
+                result.outputPath = finalOutputPaths.front();
+            }
+        }
         if (result.ok)
             webServer.completeAudioRender(result.outputPaths, result.warnings);
         else
@@ -295,4 +482,3 @@ void MainComponent::startAudioRender(const std::string& json) {
 }
 
 } // namespace resostage
-

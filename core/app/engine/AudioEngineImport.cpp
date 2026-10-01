@@ -1,24 +1,28 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
-// WAV / folder import for AudioEngine. Background-thread archive writes +
+// Audio/video / folder import for AudioEngine. Background-thread package writes +
 // message-thread finishAsyncImport restage. Kept in its own translation unit
 // so AudioEngine.cpp doesn't balloon; these are still AudioEngine member
 // functions with full access to loader / streaming / peak cache state.
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "../media/FFmpegProcess.h"
 
 #include "audio/peaks/PeakCache.h"
 #include "audio/streaming/WavMetadata.h"
 #include "project/Uuid.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +33,41 @@ namespace resostage {
 namespace {
 /** Identifies the history entry a folder import opens; see finishAsyncImport. */
 constexpr const char* kFolderImportGestureId = "import-song-folder";
+
+std::filesystem::path pathFromUTF8(const std::string& value) {
+    return std::filesystem::path(std::u8string(value.begin(), value.end()));
+}
+
+std::string pathToUTF8(const std::filesystem::path& value) {
+    const auto bytes = value.u8string();
+    return std::string(bytes.begin(), bytes.end());
+}
+
+std::string lowercase(std::string value) {
+    for (char& c : value)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return value;
+}
+
+bool isVideoMedia(const std::filesystem::path& path) {
+    static constexpr std::array<const char*, 19> extensions = {
+        ".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mpeg", ".mpg",
+        ".mts", ".m2ts", ".ts", ".flv", ".wmv", ".3gp", ".mxf", ".ogv",
+        ".vob", ".asf", ".dv"
+    };
+    const std::string ext = lowercase(path.extension().string());
+    return std::find(extensions.begin(), extensions.end(), ext) != extensions.end();
+}
+
+std::string safeMediaName(std::string value) {
+    for (char& c : value) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_' && c != '.')
+            c = '_';
+    }
+    if (value.empty() || value == "." || value == "..")
+        return "Media";
+    return value;
+}
 } // namespace
 
 using audio_engine_detail::streamingIoThreadStart;
@@ -57,8 +96,12 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
         fn();
     }
     const TrackDef* track = trackDefInSong(songIndex, trackIndex);
-    if (track == nullptr) {
-        fail("Invalid track index");
+    if (track == nullptr || songIndex >= loader.project().songs.size()) {
+        fail("Invalid song or track index");
+        return;
+    }
+    if (!std::isfinite(startSeconds) || startSeconds < 0.0) {
+        fail("Import start must be a finite nonnegative time");
         return;
     }
     if (!loader.isOpen() || loader.archivePath().empty()) {
@@ -70,70 +113,48 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
             fail("Failed to auto-create project archive: " + err);
             return;
         }
-    }
-
-    // Sanitize archive entry name and figure out the new track name --
-    // cheap, message-thread-safe (no I/O) -- before touching anything slow.
-    std::string base = filesystemPath;
-    const auto slash = base.find_last_of("/\\");
-    if (slash != std::string::npos)
-        base = base.substr(slash + 1);
-    if (base.empty())
-        base = track->id + ".wav";
-    // The original filename alone is not a unique archive key: a batch may
-    // contain two different files both named "take.wav". Include the stable
-    // destination track ID so independent imports never overwrite one another.
-    std::string archiveTrackId = track->id;
-    for (char& ch : archiveTrackId)
-        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '_') ch = '_';
-    const std::string entry = "Audio/" + archiveTrackId + "_" + base;
-    std::string newTrackName = track->name;
-    if (newTrackName.empty() || newTrackName == "New Track") {
-        const auto dot = base.find_last_of('.');
-        newTrackName = (dot == std::string::npos) ? base : base.substr(0, dot);
-    }
-
-    // History, opened here rather than at the web handler.
-    //
-    // The project is mutated a few lines below, synchronously, before the
-    // background thread even starts -- so a caller trying to bracket
-    // importWavForTrackAsync() from outside would snapshot a project that
-    // already contains the new region and record an undo step that undoes
-    // nothing. Only this function knows where the "before" actually is.
-    //
-    // Nothing about the AUDIO goes into the entry: the wav lives in the
-    // project archive either way. What is recorded is that an import
-    // happened here, so undo removes what it added, exactly like any other
-    // add. Committed at the end of the synchronous section below, since the
-    // background thread only writes the archive and never touches Project.
-    projectHistory.beginEdit(loader.project(), "", "Import audio");
-
-    // Update in-memory live track immediately so main thread UI/state has it
-    if (TrackDef* liveTrack = trackDefAt(trackIndex)) {
-        if (liveTrack->name.empty() || liveTrack->name == "New Track")
-            liveTrack->name = newTrackName;
-    }
-    if (songIndex < loader.project().songs.size()) {
-        SongDef& s = loader.project().songs[songIndex];
-        const TrackDef* trk = trackDefAt(trackIndex);
-        if (trk) {
-            Region* regPtr = nullptr;
-            for (auto& r : s.regions) {
-                if (r.trackId == trk->id) { regPtr = &r; break; }
-            }
-            if (!regPtr) {
-                Region reg;
-                reg.id = generateUuidV7();
-                reg.trackId = trk->id;
-                s.regions.push_back(reg);
-                regPtr = &s.regions.back();
-            }
-            regPtr->source.file = entry;
-            regPtr->startSeconds = std::max(0.0, startSeconds);
+        track = trackDefInSong(songIndex, trackIndex);
+        if (track == nullptr) {
+            fail("Target track no longer exists after creating the project package");
+            return;
         }
     }
 
-    projectHistory.commitEdit(loader.project());
+    // Sanitize archive entry names and figure out the new track name --
+    // cheap, message-thread-safe (no I/O) -- before touching anything slow.
+    const std::filesystem::path sourcePath = pathFromUTF8(filesystemPath);
+    const std::string base = sourcePath.filename().string().empty()
+        ? track->id + ".wav" : pathToUTF8(sourcePath.filename());
+    const bool hasOriginalVideo = isVideoMedia(sourcePath);
+    const std::string mediaStem = sourcePath.stem().string().empty()
+        ? std::string("Audio") : pathToUTF8(sourcePath.stem());
+    // Repeated imports with identical source names need distinct package paths.
+    std::string archiveTrackId = track->id;
+    for (char& ch : archiveTrackId)
+        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '_') ch = '_';
+    const std::string regionId = generateUuidV7();
+    const std::string entry = "Audio/" + archiveTrackId + "_" + regionId + ".wav";
+    const std::string videoEntry = hasOriginalVideo
+        ? "Video/" + archiveTrackId + "_" + regionId + "_" + safeMediaName(base)
+        : std::string{};
+    std::string newTrackName = track->name;
+    if (newTrackName.empty() || newTrackName == "New Track") {
+        newTrackName = mediaStem;
+    }
+
+    // Conversion can fail before any asset exists. Keep the new region and
+    // track name private until the package has committed, then record exactly
+    // one history step from this unchanged "before" snapshot.
+    const Project projectBefore = loader.project();
+    Project projectSnapshot = projectBefore;
+    projectSnapshot.tracks[trackIndex].name = newTrackName;
+    Region importedRegion;
+    importedRegion.id = regionId;
+    importedRegion.trackId = track->id;
+    importedRegion.source.file = entry;
+    importedRegion.source.videoFile = videoEntry;
+    importedRegion.startSeconds = startSeconds;
+    projectSnapshot.songs[songIndex].regions.push_back(std::move(importedRegion));
 
     const size_t songToRestore = currentSong;
     const bool wasPlaying = playing.load(std::memory_order_acquire);
@@ -141,112 +162,146 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
     joinPendingPeakBuilds(); // also reads `loader`; must finish before we hand it to the import thread
     streaming.stop(); // halts the I/O thread -- loader is exclusively ours until streaming.start() below
 
-    // Private snapshot the background thread writes from
-    Project projectSnapshot = loader.project();
-    if (songIndex < projectSnapshot.songs.size()) {
-        SongDef& s = projectSnapshot.songs[songIndex];
-        if (trackIndex < projectSnapshot.tracks.size()) {
-            const std::string& trkId = projectSnapshot.tracks[trackIndex].id;
-            Region* regPtr = nullptr;
-            for (auto& r : s.regions) {
-                if (r.trackId == trkId) { regPtr = &r; break; }
-            }
-            if (!regPtr) {
-                Region reg;
-                reg.id = generateUuidV7();
-                reg.trackId = trkId;
-                s.regions.push_back(reg);
-                regPtr = &s.regions.back();
-            }
-            regPtr->source.file = entry;
-            regPtr->startSeconds = std::max(0.0, startSeconds);
-        }
-    }
-
     const std::string archivePath = loader.archivePath();
     const bool isContainer = loader.isDirectoryContainer();
     const std::string tempOut = isContainer ? archivePath : (archivePath + ".new");
 
     busyImporting.store(true, std::memory_order_release);
+    cancelImport.store(false, std::memory_order_release);
 
 
-    importThread = std::thread([this, songIndex, trackIndex, filesystemPath, entry, archivePath, tempOut, projectSnapshot, songToRestore, wasPlaying,
-                                 startSeconds,
-                                 onComplete]() mutable {
+    importThread = std::thread([this, songIndex, filesystemPath, entry, videoEntry,
+                                 regionId, archivePath, tempOut, projectSnapshot, projectBefore, songToRestore,
+                                 wasPlaying, startSeconds, onComplete]() mutable {
         std::string error;
-        std::vector<uint8_t> data;
-        bool readOk = true;
+        constexpr uintmax_t kMaximumSourceBytes = 20ull * 1024ull * 1024ull * 1024ull;
+        std::error_code fileError;
+        const uintmax_t sourceBytes = std::filesystem::file_size(pathFromUTF8(filesystemPath), fileError);
+        bool readOk = !fileError && sourceBytes > 0 && sourceBytes <= kMaximumSourceBytes;
+        if (!readOk) {
+            error = fileError ? "Could not inspect the selected media file"
+                              : "Selected media is empty or larger than the 20 GiB import limit";
+        }
 
-        FILE* f = std::fopen(filesystemPath.c_str(), "rb");
-        if (f == nullptr) {
-            error = "Failed to open file: " + filesystemPath;
+        const std::filesystem::path tempDirectory = std::filesystem::temp_directory_path(fileError);
+        const std::filesystem::path tempWavPath = fileError
+            ? std::filesystem::path{}
+            : tempDirectory / ("resostage-import-" + regionId + ".wav");
+        if (readOk && fileError) {
             readOk = false;
-        } else {
-            std::fseek(f, 0, SEEK_END);
-            const long sz = std::ftell(f);
-            std::fseek(f, 0, SEEK_SET);
-            if (sz <= 0 || sz > 512 * 1024 * 1024) {
-                error = "Invalid WAV file size";
-                readOk = false;
-            } else {
-                data.resize(static_cast<size_t>(sz));
-                if (std::fread(data.data(), 1, data.size(), f) != data.size()) {
-                    error = "Failed to read WAV file";
-                    readOk = false;
-                }
+            error = "Could not locate a temporary folder for media conversion";
+        }
+        PeakOverview overview;
+        const std::string extension = lowercase(pathToUTF8(pathFromUTF8(filesystemPath).extension()));
+        const bool sourceIsWav = extension == ".wav" || extension == ".wave";
+
+        bool prepared = false;
+        std::string preparedWavPath = pathToUTF8(tempWavPath);
+        if (readOk && sourceIsWav) {
+            std::string peakError;
+            prepared = overview.buildFromFile(filesystemPath, peakError, &cancelImport);
+            if (prepared)
+                preparedWavPath = filesystemPath;
+            if (!prepared) {
+                error = peakError;
             }
-            std::fclose(f);
+        }
+
+        // Already-supported WAV files are copied bit-for-bit. Other media
+        // formats, video containers, and WAV variants outside the engine's
+        // small real-time decoder subset use the bundled FFmpeg worker to
+        // prepare project-local 48 kHz stereo float PCM.
+        if (readOk && !prepared) {
+            std::error_code ignored;
+            std::filesystem::remove(tempWavPath, ignored);
+            error.clear();
+            const bool transcoded = media::runFFmpeg({
+                "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-threads", "2",
+                "-i", filesystemPath, "-map", "0:a:0", "-vn", "-ac", "2",
+                "-ar", "48000", "-c:a", "pcm_f32le", "-threads", "2", "-rf64", "auto",
+                "-fs", std::to_string(kMaximumSourceBytes + 1), pathToUTF8(tempWavPath)
+            }, error, &cancelImport);
+            if (!transcoded) {
+                prepared = false;
+            } else {
+                std::string peakError;
+                const auto decodedBytes = std::filesystem::file_size(tempWavPath, fileError);
+                prepared = !fileError && decodedBytes <= kMaximumSourceBytes;
+                if (!prepared)
+                    peakError = "Prepared audio exceeds the 20 GiB project-media import limit";
+                else
+                    prepared = overview.buildFromFile(pathToUTF8(tempWavPath), peakError, &cancelImport);
+                if (!prepared)
+                    error = peakError;
+            }
+        }
+        readOk = readOk && prepared;
+        if (cancelImport.load(std::memory_order_acquire)) {
+            readOk = false;
+            error = "Media import cancelled";
         }
 
         bool writeOk = false;
         if (readOk) {
-            PeakOverview overview;
-            std::string peakError;
-            const bool peaksOk = overview.buildFromBuffer(data.data(), data.size(), peakError);
-
             std::vector<ProjectLoader::ExtraFile> extras;
             ProjectLoader::ExtraFile extra;
             extra.archivePath = entry;
-            extra.data = std::move(data);
+            extra.sourcePath = preparedWavPath;
             extras.push_back(std::move(extra));
-            if (peaksOk) {
-                extras.push_back(PeakCache::makeCacheExtra(overview, entry));
-                if (songIndex < projectSnapshot.songs.size()) {
-                    SongDef& s = projectSnapshot.songs[songIndex];
-                    if (trackIndex < projectSnapshot.tracks.size()) {
-                        const std::string& trkId = projectSnapshot.tracks[trackIndex].id;
-                        for (auto& r : s.regions) {
-                            if (r.trackId == trkId) {
-                                r.durationSeconds = overview.durationSeconds;
-                                break;
-                            }
-                        }
-                        // An authored song boundary is a guard, not a reason
-                        // to truncate newly imported audio. Keep derived
-                        // lengths derived (zero), but grow explicit lengths
-                        // to include the complete file.
-                        if (s.endSeconds > 0.0)
-                            s.endSeconds = std::max(s.endSeconds,
-                                std::max(0.0, startSeconds) + overview.durationSeconds);
-                    }
+            if (!videoEntry.empty()) {
+                ProjectLoader::ExtraFile original;
+                original.archivePath = videoEntry;
+                original.sourcePath = filesystemPath;
+                extras.push_back(std::move(original));
+            }
+            extras.push_back(PeakCache::makeCacheExtra(overview, entry));
+            if (songIndex < projectSnapshot.songs.size()) {
+                SongDef& s = projectSnapshot.songs[songIndex];
+                auto region = std::find_if(s.regions.begin(), s.regions.end(),
+                    [&regionId](const Region& candidate) { return candidate.id == regionId; });
+                if (region != s.regions.end())
+                    region->durationSeconds = overview.durationSeconds;
+                // An authored song boundary is a guard, not a reason to
+                // truncate newly imported media. Keep derived lengths derived,
+                // but grow explicit lengths to include the complete source.
+                if (s.endSeconds > 0.0)
+                    s.endSeconds = std::max(s.endSeconds,
+                        std::max(0.0, startSeconds) + overview.durationSeconds);
+            }
+            writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot, &cancelImport);
+            if (writeOk)
+                cachePeakOverview(entry, std::move(overview));
+            else {
+                // These names contain this import's UUID and did not exist
+                // before it. Remove any assets published before a later
+                // copy failed; the old project metadata is still intact.
+                for (const auto& failedExtra : extras) {
+                    std::error_code ignored;
+                    std::filesystem::remove(pathFromUTF8(tempOut) / failedExtra.archivePath, ignored);
                 }
             }
-
-
-
-            writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot);
-
-            if (writeOk && peaksOk)
-                cachePeakOverview(entry, std::move(overview));
         }
 
-        auto finishFn = [this, readOk, writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete]() {
-            finishAsyncImport(readOk && writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, onComplete);
+        std::error_code cleanupError;
+        std::filesystem::remove(tempWavPath, cleanupError);
+
+        auto finishFn = [this, readOk, writeOk, error, tempOut, archivePath, songToRestore, wasPlaying, projectBefore, onComplete]() {
+            finishAsyncImport(readOk && writeOk, error, tempOut, archivePath, songToRestore, wasPlaying,
+                [this, projectBefore, onComplete](bool ok, std::string message) {
+                    if (ok) {
+                        projectHistory.beginEdit(projectBefore, "", "Import media");
+                        projectHistory.commitEdit(loader.project());
+                    }
+                    if (onComplete)
+                        onComplete(ok, std::move(message));
+                });
         };
 
         pendingFinishImport = finishFn;
 
-        juce::MessageManager::callAsync([this]() {
+        juce::MessageManager::callAsync([this, lifetime = importCallbackLifetime]() {
+            if (!lifetime->load(std::memory_order_acquire))
+                return;
             if (pendingFinishImport) {
                 auto fn = std::move(pendingFinishImport);
                 pendingFinishImport = nullptr;
@@ -270,7 +325,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     };
 
     if (!writeSucceeded) {
-        std::remove(tempOut.c_str());
+        if (tempOut != archivePath)
+            std::remove(tempOut.c_str());
         // loader/streaming were never touched by the failed background
         // write -- just restart streaming (halted before the background
         // thread started) and report the error.
@@ -278,6 +334,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
                     streamingIoThreadStart,
                     streamingIoThreadStop, demoteBackgroundWorkerPriority,
                     residentIoYield);
+        if (wasPlaying)
+            play();
         done(false, writeError);
         return;
     }
@@ -294,7 +352,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     // so unchanged processor nodes stay live after the import completes.
     replacement = std::make_unique<ProjectReplacementScope>(*this, false);
 
-    if (std::rename(tempOut.c_str(), archivePath.c_str()) != 0) {
+    if (tempOut != archivePath && std::rename(tempOut.c_str(), archivePath.c_str()) != 0) {
         std::string reopenError;
         (void)loader.reopenArchiveKeepProject(archivePath, reopenError);
         (void)loader.reparseProject(reopenError);
@@ -318,8 +376,8 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
         return;
     }
     projectLoaded = true;
-    // No-op unless this was a folder import: a WAV import closed its own
-    // entry synchronously, before the archive write ever started.
+    // Folder imports open this history gesture before their worker; media
+    // imports record a before/after pair in their completion callback.
     (void)projectHistory.commitOpenEdit(kFolderImportGestureId, loader.project());
     currentSong = static_cast<size_t>(-1);
     trackIdByIndex.clear();
@@ -353,7 +411,7 @@ bool AudioEngine::scanFolderForImport(const std::string& folderPath, std::vector
                                       double& outDetectedBpm, std::string& error) const {
     namespace fs = std::filesystem;
     std::error_code ec;
-    const fs::path dir(folderPath);
+    const fs::path dir = pathFromUTF8(folderPath);
     if (!fs::is_directory(dir, ec)) {
         error = "Not a folder: " + folderPath;
         return false;
@@ -367,7 +425,7 @@ bool AudioEngine::scanFolderForImport(const std::string& folderPath, std::vector
         for (char& c : ext)
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         if (ext == ".wav")
-            outWavPaths.push_back(entry.path().string());
+            outWavPaths.push_back(pathToUTF8(entry.path()));
     }
     if (ec) {
         error = "Failed to read folder: " + folderPath;
@@ -487,6 +545,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
     if (importThread.joinable())
         importThread.join();
     busyImporting.store(true, std::memory_order_release);
+    cancelImport.store(false, std::memory_order_release);
 
     importThread = std::thread([this, folderPath, songName, bpm, tsNumerator, tsDenominator, wavPaths, songId,
                                  archivePath, isContainer, projectSnapshot, songToRestore, wasPlaying,
@@ -495,7 +554,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
 
         SongDef song;
         song.id = songId;
-        song.name = songName.empty() ? std::filesystem::path(folderPath).filename().string() : songName;
+        song.name = songName.empty() ? pathToUTF8(pathFromUTF8(folderPath).filename()) : songName;
         song.bpm = bpm > 0.0 ? bpm : 120.0;
         song.timeSignature.numerator = tsNumerator > 0 ? tsNumerator : 4;
         song.timeSignature.denominator = tsDenominator > 0 ? tsDenominator : 4;
@@ -503,56 +562,48 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
 
         std::vector<ProjectLoader::ExtraFile> extras;
         extras.reserve(wavPaths.size());
-        // Peaks built inline per file below, from bytes already in RAM, and
-        // persisted alongside the audio in the same save -- see the matching
-        // comment in importWavForTrackAsync for why this (not a post-import
-        // sweep) is what keeps a folder import from freezing the app.
+        // Decode one source at a time with bounded scratch and stream-copy
+        // assets during save; a folder of long stems must not become a
+        // project-sized vector of PCM file bytes in RAM.
         std::vector<ProjectLoader::ExtraFile> peakExtras;
         std::vector<std::pair<std::string, PeakOverview>> newPeakEntries;
         bool readOk = true;
 
         for (size_t i = 0; readOk && i < wavPaths.size(); ++i) {
-            const std::filesystem::path srcPath(wavPaths[i]);
-            FILE* f = std::fopen(srcPath.string().c_str(), "rb");
-            if (f == nullptr) {
-                error = "Failed to open file: " + srcPath.string();
+            if (cancelImport.load(std::memory_order_acquire)) {
+                error = "Folder import cancelled";
                 readOk = false;
                 break;
             }
-            std::fseek(f, 0, SEEK_END);
-            const long sz = std::ftell(f);
-            std::fseek(f, 0, SEEK_SET);
-            if (sz <= 0 || sz > 512 * 1024 * 1024) {
-                std::fclose(f);
-                error = "Invalid or oversized WAV file: " + srcPath.string();
+            const std::filesystem::path srcPath = pathFromUTF8(wavPaths[i]);
+            std::error_code fileError;
+            const auto sourceBytes = std::filesystem::file_size(srcPath, fileError);
+            constexpr uintmax_t kMaximumSourceBytes = 20ull * 1024ull * 1024ull * 1024ull;
+            if (fileError || sourceBytes == 0 || sourceBytes > kMaximumSourceBytes) {
                 readOk = false;
+                error = "Folder stem is unreadable, empty, or larger than the 20 GiB import limit";
                 break;
             }
-            std::vector<uint8_t> data(static_cast<size_t>(sz));
-            const bool got = std::fread(data.data(), 1, data.size(), f) == data.size();
-            std::fclose(f);
-            if (!got) {
-                error = "Failed to read WAV file: " + srcPath.string();
-                readOk = false;
-                break;
-            }
-
-            const std::string base = srcPath.filename().string();
-            const std::string entry = "Audio/" + base;
+            const std::string base = pathToUTF8(srcPath.filename());
+            const std::string entry = "Audio/" + generateUuidV7() + "_" + safeMediaName(base);
 
             PeakOverview overview;
             std::string peakError;
-            if (overview.buildFromBuffer(data.data(), data.size(), peakError)) {
-                peakExtras.push_back(PeakCache::makeCacheExtra(overview, entry));
-                newPeakEntries.emplace_back(entry, std::move(overview));
+            if (!overview.buildFromFile(wavPaths[i], peakError, &cancelImport)) {
+                readOk = false;
+                error = "Failed to prepare folder stem: " + peakError;
+                break;
             }
+            const double durationSeconds = overview.durationSeconds;
+            peakExtras.push_back(PeakCache::makeCacheExtra(overview, entry));
+            newPeakEntries.emplace_back(entry, std::move(overview));
 
             ProjectLoader::ExtraFile extra;
             extra.archivePath = entry;
-            extra.data = std::move(data);
+            extra.sourcePath = wavPaths[i];
             extras.push_back(std::move(extra));
 
-            std::string category = autoDetectStemCategory(srcPath.filename().string());
+            std::string category = autoDetectStemCategory(base);
             if (category == "Click") {
                 // Project-global metronome on when a Click stem is imported.
                 projectSnapshot.click.enabled = true;
@@ -579,7 +630,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             reg.id = generateUuidV7();
             reg.trackId = trackId;
             reg.source.file = entry;
-            reg.durationSeconds = overview.durationSeconds;
+            reg.durationSeconds = durationSeconds;
 
             song.regions.push_back(std::move(reg));
 
@@ -591,11 +642,18 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             projectSnapshot.songs.push_back(std::move(song));
             for (auto& pe : peakExtras)
                 extras.push_back(std::move(pe));
-            writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot);
+            writeOk = loader.saveAsWithExtras(tempOut, extras, error, &projectSnapshot, &cancelImport);
 
             if (writeOk) {
                 for (auto& [path, overview] : newPeakEntries)
                     cachePeakOverview(path, std::move(overview));
+            } else {
+                // This folder operation assigned fresh UUID asset paths.
+                // The untouched metadata references none of these assets.
+                for (const auto& failedExtra : extras) {
+                    std::error_code ignored;
+                    std::filesystem::remove(pathFromUTF8(tempOut) / failedExtra.archivePath, ignored);
+                }
             }
         }
 
@@ -605,7 +663,9 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
 
         pendingFinishImport = finishFn;
 
-        juce::MessageManager::callAsync([this]() {
+        juce::MessageManager::callAsync([this, lifetime = importCallbackLifetime]() {
+            if (!lifetime->load(std::memory_order_acquire))
+                return;
             if (pendingFinishImport) {
                 auto fn = std::move(pendingFinishImport);
                 pendingFinishImport = nullptr;

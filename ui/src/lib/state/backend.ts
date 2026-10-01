@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // The C++ WebServer (app/web/WebServer.cpp) always listens on this port,
 // independent of whichever origin actually served this page. In production
@@ -99,7 +101,11 @@ export async function apiFetch(
   input: string,
   init?: RequestInit,
 ): Promise<ApiResponse> {
-  if (typeof window !== "undefined" && window.resostageElectron?.proxyRequest) {
+  // Keep large binary uploads as Blob-backed network streams. The JSON IPC
+  // proxy carries strings; Blob.text() both corrupts binary media and loads
+  // the entire asset into renderer/main-process memory.
+  if (!(init?.body instanceof Blob)
+    && typeof window !== "undefined" && window.resostageElectron?.proxyRequest) {
     let path = input;
     if (path.startsWith("http://") || path.startsWith("https://")) {
       try {
@@ -123,8 +129,6 @@ export async function apiFetch(
     if (init?.body !== undefined && init?.body !== null) {
       if (typeof init.body === "string") {
         bodyStr = init.body;
-      } else if (init.body instanceof Blob) {
-        bodyStr = await init.body.text();
       } else {
         bodyStr = String(init.body);
       }

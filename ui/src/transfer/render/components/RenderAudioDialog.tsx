@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 import {
   AudioLines,
@@ -64,6 +66,7 @@ export function RenderAudioDialog({
   const [sampleRate, setSampleRate] = useState(
     String(Math.round(state.sampleRate || 48000)),
   );
+  const [outputFormat, setOutputFormat] = useState<AudioRenderOptions["outputFormat"]>("wav");
   const [bitDepth, setBitDepth] = useState<"16" | "24" | "32">("24");
   const [tailPolicy, setTailPolicy] = useState<TailPolicy>("leave");
   const [tailThresholdDb, setTailThresholdDb] = useState("-96");
@@ -185,11 +188,14 @@ export function RenderAudioDialog({
       : Math.max(0, range.end - range.start);
   const upperTail = tailPolicy === "leave" ? Number(maxTailSeconds) || 0 : 0;
   const estimatedBytes =
-    selectedOutputs.length *
-    (upperDuration + upperTail) *
-    Number(sampleRate) *
-    2 *
-    (Number(bitDepth) / 8);
+    outputFormat === "wav" || outputFormat === "aiff"
+      ? selectedOutputs.length * (upperDuration + upperTail) * Number(sampleRate) * 2 * (Number(bitDepth) / 8)
+      : selectedOutputs.length * (upperDuration + upperTail) * (
+          outputFormat === "mp3" ? 16000
+            : outputFormat === "opus" ? 20000
+              : outputFormat === "flac" || outputFormat === "alac" ? Number(sampleRate) * 2 * 2.5
+                : 28000
+        );
 
   const toggleOutput = (key: string, enabled: boolean) => {
     setSelected((current) => {
@@ -238,6 +244,7 @@ export function RenderAudioDialog({
       songIndex: Number(songIndex),
       targets: selectedOutputs.map(({ kind, id }) => ({ kind, id })),
       sampleRate: Number(sampleRate),
+      outputFormat,
       bitDepth: Number(bitDepth) as 16 | 24 | 32,
       rangeStartSeconds: scope === "project" ? 0 : range.start,
       rangeEndSeconds: scope === "project" ? 0 : range.end,
@@ -416,10 +423,29 @@ export function RenderAudioDialog({
                         )}
                       />
                     </Field>
-                    <Field label="WAV encoding">
+                    <Field label="File format">
+                      <Select
+                        size="sm"
+                        value={outputFormat}
+                        onChange={(value) => setOutputFormat(value as AudioRenderOptions["outputFormat"])}
+                        options={[
+                          { id: "wav", label: "WAV (PCM / float)" },
+                          { id: "aiff", label: "AIFF (PCM)" },
+                          { id: "flac", label: "FLAC" },
+                          { id: "alac", label: "ALAC (M4A)" },
+                          { id: "mp3", label: "MP3" },
+                          { id: "m4a", label: "AAC (M4A)" },
+                          { id: "opus", label: "Opus" },
+                          { id: "ogg", label: "Ogg Vorbis" },
+                          { id: "wma", label: "WMA" },
+                        ]}
+                      />
+                    </Field>
+                    <Field label={outputFormat === "aiff" ? "AIFF encoding" : "WAV encoding"}>
                       <Select
                         size="sm"
                         value={bitDepth}
+                        isDisabled={!(["wav", "aiff"].includes(outputFormat))}
                         onChange={(value) => {
                           const next = value as "16" | "24" | "32";
                           setBitDepth(next);
@@ -428,7 +454,7 @@ export function RenderAudioDialog({
                         options={[
                           { id: "16", label: "16-bit PCM" },
                           { id: "24", label: "24-bit PCM" },
-                          { id: "32", label: "32-bit float" },
+                          { id: "32", label: outputFormat === "aiff" ? "32-bit PCM" : "32-bit float" },
                         ]}
                       />
                     </Field>

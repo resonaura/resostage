@@ -1,12 +1,15 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #pragma once
 
 #include "ProjectSchema.h"
 
 #include <cstdint>
+#include <atomic>
 #include <limits>
 #include <memory>
 #include <string>
@@ -111,14 +114,21 @@ public:
     // of the live project() -- lets a caller doing slow disk I/O on a
     // background thread work from a private snapshot without touching the
     // shared message-thread project().
+    // Large sourcePath assets copy in 64 KiB chunks; the optional cancel flag
+    // is checked between chunks and before metadata publication. Assets and
+    // metadata replace adjacent completed temporary files atomically. A failed
+    // save never replaces metadata with a partial file; callers of an in-place
+    // import own cleanup of their newly assigned resource names.
     struct ExtraFile {
         std::string archivePath; // e.g. "Audio/kick.wav"
         std::vector<uint8_t> data;
+        std::string sourcePath{}; // UTF-8 source path; takes precedence over data and copies in bounded chunks.
     };
     bool saveAsWithExtras(const std::string& path,
                           const std::vector<ExtraFile>& extraFiles,
                           std::string& error,
-                          const Project* projectOverride = nullptr) const;
+                          const Project* projectOverride = nullptr,
+                          const std::atomic<bool>* cancel = nullptr) const;
 
     // Extracts a file (e.g. "Audio/song1_synths1.wav") from the currently open
     // archive into an in-memory buffer. Returns false if the archive isn't open

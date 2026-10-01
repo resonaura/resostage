@@ -1,11 +1,15 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "ProjectLoader.h"
 #include "ProjectJson.h"
+#include "Uuid.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -36,6 +40,15 @@ namespace resostage {
 
 namespace {
 
+std::filesystem::path pathFromUTF8(const std::string& value) {
+    return std::filesystem::path(std::u8string(value.begin(), value.end()));
+}
+
+std::string pathToUTF8(const std::filesystem::path& path) {
+    const auto bytes = path.u8string();
+    return std::string(bytes.begin(), bytes.end());
+}
+
 // Opens a FILE* with platform sequential-read hints.
 //  - macOS: fileno(f) + fcntl(F_NOCACHE, F_RDAHEAD) -- bypass the unified
 //    buffer cache so multi-GB stems don't evict other pages, and request
@@ -48,7 +61,7 @@ namespace {
 //  - else: plain fopen.
 FILE* openSequentialStream(const std::string& path8) {
 #if defined(_WIN32)
-    const std::wstring wide(path8.begin(), path8.end());
+    const std::wstring wide = pathFromUTF8(path8).wstring();
     HANDLE h = CreateFileW(wide.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                            OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
     if (h == INVALID_HANDLE_VALUE)
@@ -61,6 +74,50 @@ FILE* openSequentialStream(const std::string& path8) {
     return _fdopen(static_cast<int>(fd), "rb");
 #else
     return std::fopen(path8.c_str(), "rb");
+#endif
+}
+
+// All resource paths share the same confinement rule for reads and writes.
+// weakly_canonical also resolves existing parent symlinks for new assets.
+bool resolveResourcePath(const std::filesystem::path& root,
+                         const std::string& relativeName,
+                         std::filesystem::path& resolved, std::string& error) {
+    namespace fs = std::filesystem;
+    const fs::path relative = pathFromUTF8(relativeName);
+    if (relative.empty() || relative.is_absolute() || relative.has_root_name()) {
+        error = "Invalid project resource path";
+        return false;
+    }
+    for (const auto& part : relative) {
+        if (part == "..") {
+            error = "Project resource path escapes its container";
+            return false;
+        }
+    }
+    std::error_code ec;
+    resolved = fs::weakly_canonical(root / relative, ec);
+    const fs::path inside = resolved.lexically_relative(root);
+    if (ec || inside.empty() || inside == "." || inside.is_absolute()
+        || *inside.begin() == "..") {
+        error = "Project resource resolves outside its container";
+        return false;
+    }
+    return true;
+}
+
+bool replaceFile(const std::filesystem::path& source,
+                 const std::filesystem::path& destination, std::error_code& error) {
+#if defined(_WIN32)
+    if (MoveFileExW(source.c_str(), destination.c_str(),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
+        error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        return false;
+    }
+    error.clear();
+    return true;
+#else
+    std::filesystem::rename(source, destination, error);
+    return !error;
 #endif
 }
 
@@ -126,76 +183,188 @@ bool ProjectLoader::saveAs(const std::string& path, std::string& error) const {
 bool ProjectLoader::saveAsWithExtras(const std::string& path,
                                      const std::vector<ExtraFile>& extraFiles,
                                      std::string& error,
-                                     const Project* projectOverride) const {
+                                     const Project* projectOverride,
+                                     const std::atomic<bool>* cancel) const {
     namespace fs = std::filesystem;
-    const fs::path dest(path);
+    const fs::path requestedDest = pathFromUTF8(path);
     std::error_code ec;
-
-    fs::create_directories(dest / "Audio", ec);
-    fs::create_directories(dest / "Peaks", ec);
-    fs::create_directories(dest / "Autosave", ec);
-    fs::create_directories(dest / "Backups", ec);
+    fs::create_directories(requestedDest, ec);
+    const fs::path dest = fs::canonical(requestedDest, ec);
+    if (ec) {
+        error = "Failed to create project container: " + ec.message();
+        return false;
+    }
+    for (const char* directory : {"Audio", "Peaks", "Autosave", "Backups"}) {
+        fs::create_directories(dest / directory, ec);
+        if (ec) {
+            error = "Failed to create project resource directory: " + ec.message();
+            return false;
+        }
+    }
 
     if (impl->isContainerDir && !openArchivePath.empty() && openArchivePath != path) {
-        fs::path srcPath(openArchivePath);
-        if (fs::exists(srcPath, ec)) {
-            for (const auto& entry : fs::recursive_directory_iterator(srcPath, ec)) {
+        const fs::path srcPath = fs::canonical(pathFromUTF8(openArchivePath), ec);
+        if (ec) {
+            error = "Failed to resolve source project: " + ec.message();
+            return false;
+        }
+        if (srcPath == dest)
+            ec.clear();
+        else if (fs::exists(srcPath, ec)) {
+            fs::recursive_directory_iterator iterator(srcPath, ec);
+            const fs::recursive_directory_iterator end;
+            for (; iterator != end && !ec; iterator.increment(ec)) {
+                const auto& entry = *iterator;
                 if (entry.is_regular_file(ec)) {
-                    fs::path rel = fs::relative(entry.path(), srcPath, ec);
+                    const fs::path resolved = fs::canonical(entry.path(), ec);
+                    const fs::path resolvedRelative = resolved.lexically_relative(srcPath);
+                    const fs::path rel = entry.path().lexically_relative(srcPath);
+                    if (ec || resolvedRelative.empty() || resolvedRelative.is_absolute()
+                        || *resolvedRelative.begin() == "..") {
+                        error = "Cannot copy a project resource outside its container";
+                        return false;
+                    }
                     if (rel == kProjectDataFileName || rel == kLegacyProjectFileName
-                        || rel.string().rfind("Autosave/", 0) == 0)
+                        || rel.generic_string().rfind("Autosave/", 0) == 0)
                         continue;
-                    fs::path targetFile = dest / rel;
+                    fs::path targetFile;
+                    if (!resolveResourcePath(dest, pathToUTF8(rel), targetFile, error))
+                        return false;
                     fs::create_directories(targetFile.parent_path(), ec);
+                    if (ec) {
+                        error = "Failed to create copied resource directory: " + ec.message();
+                        return false;
+                    }
                     fs::copy_file(entry.path(), targetFile, fs::copy_options::overwrite_existing, ec);
+                    if (ec) {
+                        error = "Failed to copy project resource: " + ec.message();
+                        return false;
+                    }
                 }
+            }
+            if (ec) {
+                error = "Failed to enumerate project resources: " + ec.message();
+                return false;
             }
         }
     }
 
     for (const auto& ex : extraFiles) {
+        if (cancel != nullptr && cancel->load(std::memory_order_acquire)) {
+            error = "Project asset copy cancelled";
+            return false;
+        }
         if (ex.archivePath.empty() || ex.archivePath == kProjectDataFileName
             || ex.archivePath == kLegacyProjectFileName)
             continue;
-        fs::path extraDest = dest / ex.archivePath;
+        fs::path extraDest;
+        if (!resolveResourcePath(dest, ex.archivePath, extraDest, error))
+            return false;
         fs::create_directories(extraDest.parent_path(), ec);
-        std::ofstream ofs(extraDest, std::ios::binary | std::ios::trunc);
-        if (!ofs.is_open()) {
-            error = "Failed to open for write: " + extraDest.string();
+        if (ec) {
+            error = "Failed to create extra asset directory: " + ec.message();
             return false;
         }
-        if (!ex.data.empty()) {
-            ofs.write(reinterpret_cast<const char*>(ex.data.data()),
-                      static_cast<std::streamsize>(ex.data.size()));
-        }
-        ofs.flush();
-        if (!ofs) {
-            error = "Failed to write " + extraDest.string()
-                    + " (" + std::to_string(ex.data.size()) + " bytes)";
+        const fs::path staged = extraDest.parent_path() / (".resostage-asset-" + generateUuidV7() + ".part");
+        struct PartialCleanup {
+            fs::path path;
+            ~PartialCleanup() { std::error_code ignored; fs::remove(path, ignored); }
+        } cleanup{staged};
+        if (!ex.sourcePath.empty()) {
+            const fs::path source = pathFromUTF8(ex.sourcePath);
+            if (!fs::is_regular_file(source, ec) || ec) {
+                error = "Extra project asset is not a readable file: " + source.string();
+                return false;
+            }
+            const auto expected = fs::file_size(source, ec);
+            if (ec) {
+                error = "Failed to inspect extra project asset: " + source.string();
+                return false;
+            }
+            std::ifstream input(source, std::ios::binary);
+            std::ofstream output(staged, std::ios::binary);
+            if (!input || !output) {
+                error = "Failed to open extra project asset copy: " + source.string();
+                return false;
+            }
+            std::array<char, 65536> chunk{};
+            uintmax_t copied = 0;
+            while (input) {
+                if (cancel != nullptr && cancel->load(std::memory_order_acquire)) {
+                    error = "Project asset copy cancelled";
+                    return false;
+                }
+                input.read(chunk.data(), chunk.size());
+                const auto bytes = input.gcount();
+                output.write(chunk.data(), bytes);
+                copied += static_cast<uintmax_t>(bytes);
+                if (!output) break;
+            }
+            output.flush();
+            if (!input.eof() || !output || copied != expected) {
+                error = "Failed to stream-copy complete project asset: " + source.string();
+                return false;
+            }
+            output.close();
+            const auto written = fs::file_size(staged, ec);
+            if (ec || written != expected) {
+                error = "Size mismatch copying extra project asset to " + extraDest.string();
+                return false;
+            }
+        } else {
+            std::ofstream ofs(staged, std::ios::binary | std::ios::trunc);
+            if (!ofs.is_open()) {
+                error = "Failed to open for write: " + extraDest.string();
+                return false;
+            }
+            if (!ex.data.empty()) {
+                ofs.write(reinterpret_cast<const char*>(ex.data.data()),
+                          static_cast<std::streamsize>(ex.data.size()));
+            }
+            ofs.flush();
+            if (!ofs) {
+                error = "Failed to write " + extraDest.string()
+                        + " (" + std::to_string(ex.data.size()) + " bytes)";
+                ofs.close();
+                return false;
+            }
             ofs.close();
-            fs::remove(extraDest, ec);
-            return false;
+            const auto written = fs::file_size(staged, ec);
+            if (ec || written != ex.data.size()) {
+                error = "Size mismatch writing " + extraDest.string()
+                        + " (expected " + std::to_string(ex.data.size())
+                        + ", got " + std::to_string(static_cast<uint64_t>(written)) + ")";
+                return false;
+            }
         }
-        ofs.close();
-        const auto written = fs::file_size(extraDest, ec);
-        if (ec || written != ex.data.size()) {
-            error = "Size mismatch writing " + extraDest.string()
-                    + " (expected " + std::to_string(ex.data.size())
-                    + ", got " + std::to_string(static_cast<uint64_t>(written)) + ")";
-            fs::remove(extraDest, ec);
+        if (!replaceFile(staged, extraDest, ec)) {
+            error = "Failed to publish extra project asset: " + ec.message();
             return false;
         }
     }
 
     const std::string json = serializeProjectJson(projectOverride != nullptr ? *projectOverride : parsedProject);
+    if (cancel != nullptr && cancel->load(std::memory_order_acquire)) {
+        error = "Project import cancelled before metadata publication";
+        return false;
+    }
     fs::path jsonPath = dest / kProjectDataFileName;
-    std::ofstream jsonFile(jsonPath, std::ios::binary);
+    const fs::path stagedJson = dest / (".resostage-project-" + generateUuidV7() + ".part");
+    std::ofstream jsonFile(stagedJson, std::ios::binary);
     if (!jsonFile.is_open()) {
         error = "Failed to write " + std::string(kProjectDataFileName) + " into " + jsonPath.string();
         return false;
     }
     jsonFile.write(json.data(), json.size());
+    jsonFile.flush();
+    const bool jsonWritten = static_cast<bool>(jsonFile);
     jsonFile.close();
+    if (!jsonWritten || !replaceFile(stagedJson, jsonPath, ec)) {
+        const std::string detail = ec.message();
+        fs::remove(stagedJson, ec);
+        error = "Failed to publish project metadata: " + detail;
+        return false;
+    }
     // Drop any legacy project.json left in the destination so the new single
     // file is the only one. (Failure to remove it is non-fatal.)
     {
@@ -217,7 +386,7 @@ bool ProjectLoader::extractFile(const std::string& archivePath,
     }
 
     namespace fs = std::filesystem;
-    const fs::path relativePath(archivePath);
+    const fs::path relativePath = pathFromUTF8(archivePath);
     if (archivePath.empty() || relativePath.is_absolute() || relativePath.has_root_name()) {
         error = "Invalid project resource path";
         return false;
@@ -230,7 +399,7 @@ bool ProjectLoader::extractFile(const std::string& archivePath,
     }
 
     std::error_code ec;
-    const fs::path root = fs::canonical(openArchivePath, ec);
+    const fs::path root = fs::canonical(pathFromUTF8(openArchivePath), ec);
     if (ec) {
         error = "Failed to resolve project container path: " + ec.message();
         return false;
@@ -299,23 +468,32 @@ size_t ProjectLoader::StreamCursor::read(void* buf, size_t bufSize) {
 size_t ProjectLoader::StreamCursor::skip(size_t bytesToSkip) {
     if (!isValid())
         return 0;
-    long current = std::ftell(impl->containerFile);
-    std::fseek(impl->containerFile, static_cast<long>(bytesToSkip), SEEK_CUR);
-    long after = std::ftell(impl->containerFile);
-    return static_cast<size_t>(after - current);
+    const int64_t current = tell();
+    if (current < 0 || bytesToSkip > static_cast<uint64_t>(INT64_MAX - current)
+        || !seekAbsolute(current + static_cast<int64_t>(bytesToSkip)))
+        return 0;
+    return bytesToSkip;
 }
 
 int64_t ProjectLoader::StreamCursor::tell() const {
     if (!isValid() || impl->containerFile == nullptr)
         return -1;
-    const long pos = std::ftell(impl->containerFile);
+#if defined(_WIN32)
+    const int64_t pos = _ftelli64(impl->containerFile);
+#else
+    const int64_t pos = static_cast<int64_t>(ftello(impl->containerFile));
+#endif
     return pos < 0 ? -1 : static_cast<int64_t>(pos);
 }
 
 bool ProjectLoader::StreamCursor::seekAbsolute(int64_t offset) {
     if (!isValid() || impl->containerFile == nullptr || offset < 0)
         return false;
-    return std::fseek(impl->containerFile, static_cast<long>(offset), SEEK_SET) == 0;
+#if defined(_WIN32)
+    return _fseeki64(impl->containerFile, offset, SEEK_SET) == 0;
+#else
+    return fseeko(impl->containerFile, static_cast<off_t>(offset), SEEK_SET) == 0;
+#endif
 }
 
 ProjectLoader::StreamCursor ProjectLoader::openStream(const std::string& archivePath, std::string& error) const {
@@ -327,8 +505,17 @@ ProjectLoader::StreamCursor ProjectLoader::openStream(const std::string& archive
     }
 
     namespace fs = std::filesystem;
-    fs::path filePath = fs::path(openArchivePath) / archivePath;
-    FILE* f = openSequentialStream(filePath.string());
+    std::error_code ec;
+    const fs::path root = fs::canonical(pathFromUTF8(openArchivePath), ec);
+    fs::path filePath;
+    if (ec || !resolveResourcePath(root, archivePath, filePath, error))
+        return cursor;
+    if (!fs::is_regular_file(filePath, ec) || ec) {
+        error = "Project streaming resource is not a regular file";
+        return cursor;
+    }
+    const auto pathUtf8 = filePath.u8string();
+    FILE* f = openSequentialStream(std::string(pathUtf8.begin(), pathUtf8.end()));
     if (f == nullptr) {
         error = "File not found in container: " + filePath.string();
         return cursor;
@@ -357,7 +544,7 @@ ProjectLoader::StreamCursor ProjectLoader::openStream(const std::string& archive
 
 bool ProjectLoader::reopenArchiveKeepProject(const std::string& path, std::string& error) {
     namespace fs = std::filesystem;
-    if (!fs::is_directory(path)) {
+    if (!fs::is_directory(pathFromUTF8(path))) {
         error = "Failed to open project container: " + path;
         return false;
     }
@@ -370,7 +557,7 @@ bool ProjectLoader::open(const std::string& path, std::string& error) {
     close();
 
     namespace fs = std::filesystem;
-    fs::path targetPath(path);
+    fs::path targetPath = pathFromUTF8(path);
     if (!fs::exists(targetPath)) {
         error = "Project path does not exist: " + path;
         return false;
@@ -386,7 +573,7 @@ bool ProjectLoader::open(const std::string& path, std::string& error) {
     }
 
     impl->isContainerDir = true;
-    openArchivePath = targetPath.string();
+    openArchivePath = pathToUTF8(targetPath);
     return reparseProject(error);
 }
 
@@ -570,8 +757,9 @@ bool ProjectLoader::reparseProject(std::string& error) {
         // v3 -> v4 defaults plug-in vectors; v4 -> v5 defaults optional MIDI
         // channels/events; v5 -> v6 defaults MIDI 2.0 UMP storage; v6 -> v7
         // defaults the per-track pan law to its legacy curve. These are additive.
-        // Promote the private in-memory snapshot so the next normal save writes
-        // v7 without rewriting the package merely because it was opened.
+        // v7 -> v8 defaults trimmed MIDI loop windows; v8 -> v9 defaults
+        // optional video sources. Promote only the private in-memory snapshot
+        // so opening a document never rewrites its package.
         out.format.version = kCurrentFormatVersion;
         return true;
     };

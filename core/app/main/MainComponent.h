@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #pragma once
 
@@ -17,6 +19,7 @@
 #include "plugins/PluginCatalogService.h"
 
 #include <chrono>
+#include <deque>
 #include <atomic>
 #include <memory>
 #include <optional>
@@ -238,7 +241,8 @@ private:
     void removeTrackSendFromJson(const std::string& json);
     void setProjectNameFromJson(const std::string& json);
     void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath,
-                                     double startSeconds = 0.0);
+                                     double startSeconds = 0.0,
+                                     const std::string& requestId = {});
     void builderTrackImportWavDialog(const std::string& json);
     void builderBusAdd();
     void builderBusRemove(const std::string& json);
@@ -376,6 +380,14 @@ private:
     std::thread audioRenderThread;
     std::atomic<bool> audioRenderRunning{false};
     std::atomic<bool> cancelAudioRender{false};
+
+    // Message-thread FIFO for commands accepted while an import/save owns the
+    // document. In-order draining keeps multi-file track-add/upload batches
+    // intact; only immediate stop/cancel commands may bypass it.
+    static constexpr size_t kMaximumDeferredCommands = 1024;
+    static constexpr size_t kMaximumDeferredCommandBytes = 4 * 1024 * 1024;
+    std::deque<WebCommand> deferredWebCommands;
+    size_t deferredWebCommandBytes = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

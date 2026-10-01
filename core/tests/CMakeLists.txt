@@ -62,6 +62,8 @@ add_executable(resostage_engine_tests
   test_midi_takeover.cpp
   ../app/network/UdpDiscovery.cpp
   ../app/engine/OfflineRenderer.cpp
+  ../app/engine/OfflineMidiEvents.cpp
+  ../app/engine/OfflineWavWriter.cpp
 )
 
 target_include_directories(resostage_engine_tests PRIVATE ../app)

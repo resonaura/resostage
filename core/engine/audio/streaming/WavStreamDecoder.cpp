@@ -1,11 +1,14 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "WavStreamDecoder.h"
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 namespace resostage {
 
@@ -32,6 +35,11 @@ uint32_t readU32LE(const uint8_t* p) {
            (static_cast<uint32_t>(p[3]) << 24);
 }
 
+uint64_t readU64LE(const uint8_t* p) {
+    return static_cast<uint64_t>(readU32LE(p))
+        | (static_cast<uint64_t>(readU32LE(p + 4)) << 32);
+}
+
 bool skipBytes(const WavStreamDecoder::ReadFn& read, uint64_t count) {
     uint8_t discard[256];
     while (count > 0) {
@@ -46,17 +54,24 @@ bool skipBytes(const WavStreamDecoder::ReadFn& read, uint64_t count) {
 } // namespace
 
 bool WavStreamDecoder::parseHeader(const ReadFn& read, std::string& error) {
+    channels = 0;
+    sampleRateHz = 0.0;
+    dataChunkBytesTotal = dataChunkBytesRemaining = 0;
     uint8_t riffHeader[12];
     if (!readExact(read, riffHeader, sizeof(riffHeader))) {
         error = "Truncated RIFF header";
         return false;
     }
-    if (std::memcmp(riffHeader, "RIFF", 4) != 0 || std::memcmp(riffHeader + 8, "WAVE", 4) != 0) {
-        error = "Not a RIFF/WAVE file";
+    const bool isRF64 = std::memcmp(riffHeader, "RF64", 4) == 0;
+    if ((!isRF64 && std::memcmp(riffHeader, "RIFF", 4) != 0)
+        || std::memcmp(riffHeader + 8, "WAVE", 4) != 0) {
+        error = "Not a RIFF/RF64 WAVE file";
         return false;
     }
 
     bool haveFmt = false;
+    bool haveDs64 = false;
+    uint64_t rf64DataBytes = 0;
     for (;;) {
         uint8_t chunkHeader[8];
         if (!readExact(read, chunkHeader, sizeof(chunkHeader))) {
@@ -67,7 +82,21 @@ bool WavStreamDecoder::parseHeader(const ReadFn& read, std::string& error) {
         std::memcpy(id, chunkHeader, 4);
         const uint32_t chunkSize = readU32LE(chunkHeader + 4);
 
-        if (std::memcmp(id, "fmt ", 4) == 0) {
+        if (isRF64 && std::memcmp(id, "ds64", 4) == 0) {
+            uint8_t ds64[28];
+            if (haveDs64 || chunkSize < sizeof(ds64)
+                || !readExact(read, ds64, sizeof(ds64))
+                || !skipBytes(read, chunkSize - sizeof(ds64) + (chunkSize % 2))) {
+                error = "Invalid RF64 ds64 chunk";
+                return false;
+            }
+            rf64DataBytes = readU64LE(ds64 + 8);
+            if (rf64DataBytes > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+                error = "RF64 data exceeds the supported frame-count range";
+                return false;
+            }
+            haveDs64 = true;
+        } else if (std::memcmp(id, "fmt ", 4) == 0) {
             if (chunkSize < 16) {
                 error = "fmt chunk too small";
                 return false;
@@ -105,13 +134,17 @@ bool WavStreamDecoder::parseHeader(const ReadFn& read, std::string& error) {
                 error = "Unsupported bits per sample: " + std::to_string(bitsPerSample);
                 return false;
             }
-            if (channels <= 0) {
-                error = "Invalid channel count";
+            if (channels <= 0 || channels > 64 || sampleRateHz <= 0.0) {
+                error = "Invalid sample rate or unsupported channel count (maximum 64)";
+                return false;
+            }
+            if (isRF64 && (!haveDs64 || chunkSize != UINT32_MAX)) {
+                error = "RF64 data requires ds64 and a sentinel data size";
                 return false;
             }
 
-            dataChunkBytesTotal = chunkSize;
-            dataChunkBytesRemaining = chunkSize;
+            dataChunkBytesTotal = isRF64 ? rf64DataBytes : chunkSize;
+            dataChunkBytesRemaining = dataChunkBytesTotal;
             return true;
         } else {
             if (!skipBytes(read, static_cast<uint64_t>(chunkSize) + (chunkSize % 2))) {

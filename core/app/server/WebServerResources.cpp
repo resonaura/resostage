@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "WebServer.h"
 #include "WebServerHttp.h"
@@ -348,6 +350,22 @@ int WebServer::serveAudioRenderStatus(struct lws* wsi) {
     std::string json;
     (void)glz::write_json(wire, json);
     return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+}
+
+int WebServer::serveTrackImportStatus(struct lws* wsi, const std::string& requestId) {
+    WTrackImportStatusPayload result;
+    {
+        std::lock_guard<std::mutex> lock(importMutex);
+        const auto it = trackImportResults.find(requestId);
+        if (it == trackImportResults.end())
+            return writeJsonError(wsi, HTTP_STATUS_NOT_FOUND, "Media import job is unavailable");
+        result.finished = it->second.finished;
+        result.success = it->second.success;
+        result.error = it->second.error;
+    }
+    std::string json;
+    (void)glz::write_json(result, json);
+    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
 }
 
 int WebServer::servePluginCatalog(struct lws* wsi) {

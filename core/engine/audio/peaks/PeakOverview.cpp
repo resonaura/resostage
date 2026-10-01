@@ -1,13 +1,17 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "PeakOverview.h"
 #include "audio/streaming/WavStreamDecoder.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <limits>
 #include <vector>
 
@@ -77,25 +81,15 @@ std::vector<int> resolveLevelBinCounts(int64_t totalFrames) {
     return counts;
 }
 
-bool decodePyramidFromWav(const uint8_t* data, size_t size, double& durationSeconds, int& numChannels,
-                          std::vector<PeakLevel>& levels, std::string& error) {
+bool decodePyramidFromReader(const WavStreamDecoder::ReadFn& read, double& durationSeconds, int& numChannels,
+                          std::vector<PeakLevel>& levels, std::string& error,
+                          const std::atomic<bool>* cancel = nullptr) {
     durationSeconds = 0.0;
     numChannels = 0;
     levels.clear();
 
-    size_t readPos = 0;
-    auto memReadFn = [&](void* buf, size_t n) -> size_t {
-        const size_t avail = size - readPos;
-        const size_t toCopy = std::min(n, avail);
-        if (toCopy > 0) {
-            std::memcpy(buf, data + readPos, toCopy);
-            readPos += toCopy;
-        }
-        return toCopy;
-    };
-
     WavStreamDecoder decoder;
-    if (!decoder.parseHeader(memReadFn, error))
+    if (!decoder.parseHeader(read, error))
         return false;
 
     numChannels = decoder.numChannels();
@@ -140,7 +134,13 @@ bool decodePyramidFromWav(const uint8_t* data, size_t size, double& durationSeco
 
     int64_t framePos = 0;
     while (framePos < total) {
-        const int64_t got = decoder.decodeFrames(memReadFn, ptrs.data(), kChunk);
+        if (cancel != nullptr && cancel->load(std::memory_order_acquire)) {
+            durationSeconds = 0.0;
+            numChannels = 0;
+            error = "Peak generation cancelled";
+            return false;
+        }
+        const int64_t got = decoder.decodeFrames(read, ptrs.data(), kChunk);
         if (got <= 0)
             break;
 
@@ -169,6 +169,12 @@ bool decodePyramidFromWav(const uint8_t* data, size_t size, double& durationSeco
         }
 
         framePos += got;
+    }
+    if (framePos != total) {
+        durationSeconds = 0.0;
+        numChannels = 0;
+        error = "Truncated WAV audio payload while building peak overview";
+        return false;
     }
 
     for (size_t i = 0; i < level0.size(); ++i) {
@@ -221,11 +227,13 @@ bool PeakOverview::build(const ProjectLoader& loader, const std::string& archive
     durationSeconds = 0.0;
     numChannels = 0;
 
-    std::vector<uint8_t> wavData;
-    if (!loader.extractFile(archivePath, wavData, error))
+    auto cursor = loader.openStream(archivePath, error);
+    if (!cursor.isValid())
         return false;
-
-    return decodePyramidFromWav(wavData.data(), wavData.size(), durationSeconds, numChannels, levels, error);
+    const WavStreamDecoder::ReadFn read = [&cursor](void* buffer, size_t count) {
+        return cursor.read(buffer, count);
+    };
+    return decodePyramidFromReader(read, durationSeconds, numChannels, levels, error);
 }
 
 bool PeakOverview::buildFromBuffer(const uint8_t* data, size_t size, std::string& error) {
@@ -233,7 +241,39 @@ bool PeakOverview::buildFromBuffer(const uint8_t* data, size_t size, std::string
     durationSeconds = 0.0;
     numChannels = 0;
 
-    return decodePyramidFromWav(data, size, durationSeconds, numChannels, levels, error);
+    size_t readPos = 0;
+    const WavStreamDecoder::ReadFn read = [data, size, &readPos](void* buffer, size_t count) {
+        const size_t copied = std::min(count, size - readPos);
+        if (copied != 0) {
+            std::memcpy(buffer, data + readPos, copied);
+            readPos += copied;
+        }
+        return copied;
+    };
+    return decodePyramidFromReader(read, durationSeconds, numChannels, levels, error);
+}
+
+bool PeakOverview::buildFromFile(const std::string& path, std::string& error,
+                                const std::atomic<bool>* cancel) {
+    levels.clear();
+    durationSeconds = 0.0;
+    numChannels = 0;
+
+#if defined(_WIN32)
+    FILE* file = _wfopen(std::filesystem::path(std::u8string(path.begin(), path.end())).c_str(), L"rb");
+#else
+    FILE* file = std::fopen(path.c_str(), "rb");
+#endif
+    if (file == nullptr) {
+        error = "Could not open imported WAV for peak generation: " + path;
+        return false;
+    }
+    const WavStreamDecoder::ReadFn read = [file](void* buffer, size_t count) {
+        return std::fread(buffer, 1, count, file);
+    };
+    const bool ok = decodePyramidFromReader(read, durationSeconds, numChannels, levels, error, cancel);
+    std::fclose(file);
+    return ok;
 }
 
 const PeakLevel* PeakOverview::bestLevelForZoom(double samplesPerPixel) const {
@@ -250,4 +290,3 @@ const PeakLevel* PeakOverview::bestLevelForZoom(double samplesPerPixel) const {
 }
 
 } // namespace resostage
-

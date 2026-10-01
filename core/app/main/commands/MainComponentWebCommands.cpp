@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // JUCE message-thread dispatcher for commands polled from WebServer.
 // WebServer only enqueues commands; this method preserves the single app-state
@@ -26,6 +28,14 @@ void MainComponent::drainWebCommands() {
     // hopscotch felt like ~1s of "thinking". Coalesce consecutive song-nav
     // into a single goToSong of the final target.
     std::vector<WebCommand> batch;
+    if (!engine.isBusy()) {
+        batch.reserve(deferredWebCommands.size());
+        while (!deferredWebCommands.empty()) {
+            batch.push_back(std::move(deferredWebCommands.front()));
+            deferredWebCommands.pop_front();
+        }
+        deferredWebCommandBytes = 0;
+    }
     {
         WebCommand cmd;
         while (webServer.pollCommand(cmd))
@@ -66,14 +76,27 @@ void MainComponent::drainWebCommands() {
         if (engine.isBusy() && cmd.kind != WebCommandKind::Stop
             && cmd.kind != WebCommandKind::CancelAudioRender
             && cmd.kind != WebCommandKind::PluginScanCancel) {
-            // Builder WAV uploads are temporary server-owned files. A load
-            // path may be a user's actual project/recent file and must never
-            // be deleted just because the engine is busy.
-            if (cmd.kind == WebCommandKind::BuilderTrackImportWavUpload)
-                std::remove(cmd.path.c_str());
-            if (cmd.kind == WebCommandKind::ExportProjectForDownload)
-                webServer.failExport();
-            setStatus("Project operation in progress; retry when it finishes");
+            // Upload HTTP completion means queued, not converted. Preserve
+            // later track-add/upload actions in their accepted order so an
+            // import snapshot cannot erase or reject the rest of a batch.
+            const size_t bytes = cmd.path.size() + cmd.json.size();
+            if (deferredWebCommands.size() < kMaximumDeferredCommands
+                && bytes <= kMaximumDeferredCommandBytes - deferredWebCommandBytes) {
+                deferredWebCommands.push_back(cmd);
+                deferredWebCommandBytes += bytes;
+            } else {
+                if (cmd.kind == WebCommandKind::BuilderTrackImportWavUpload) {
+                    std::remove(cmd.path.c_str());
+                    glz::generic payload;
+                    std::string requestId;
+                    if (builder_json::parseJson(cmd.json, payload))
+                        builder_json::getString(payload, "requestId", requestId);
+                    webServer.finishTrackImport(requestId, false, "Pending project command queue is full");
+                }
+                if (cmd.kind == WebCommandKind::ExportProjectForDownload)
+                    webServer.failExport();
+                setStatus("Pending project command queue is full; retry when the import finishes");
+            }
             return;
         }
         const size_t idx = static_cast<size_t>(cmd.arg);
@@ -392,10 +415,13 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderTrackImportWavUpload:
                 {
                     double startSeconds = 0.0;
+                    std::string requestId;
                     glz::generic importOptions;
-                    if (builder_json::parseJson(cmd.json, importOptions))
+                    if (builder_json::parseJson(cmd.json, importOptions)) {
                         builder_json::getDouble(importOptions, "startSeconds", startSeconds);
-                    builderTrackImportWavUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path, startSeconds);
+                        builder_json::getString(importOptions, "requestId", requestId);
+                    }
+                    builderTrackImportWavUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path, startSeconds, requestId);
                 }
                 break;
             case WebCommandKind::BuilderTrackImportWavDialog: builderTrackImportWavDialog(cmd.json); break;
@@ -475,7 +501,7 @@ void MainComponent::drainWebCommands() {
     };
 
     for (size_t i = 0; i < batch.size();) {
-        if (isSongNav(batch[i].kind)) {
+        if (!engine.isBusy() && isSongNav(batch[i].kind)) {
             size_t j = i + 1;
             while (j < batch.size() && isSongNav(batch[j].kind))
                 ++j;
@@ -490,4 +516,3 @@ void MainComponent::drainWebCommands() {
 }
 
 } // namespace resostage
-

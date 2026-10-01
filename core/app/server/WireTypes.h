@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #pragma once
 
@@ -925,6 +927,12 @@ struct WExportStatusPayload {
     std::string fileName;
 };
 
+struct WTrackImportStatusPayload {
+    bool finished = false;
+    bool success = false;
+    std::string error;
+};
+
 struct WAudioRenderStatusPayload {
     std::string state = "idle";
     std::string jobId;
@@ -1008,6 +1016,7 @@ struct WTrackImportBeginPayload {
     int index = -1;
     std::string fileName;
     double startSeconds = 0.0;
+    std::string requestId;
 };
 
 struct WDiscoveryTogglePayload {

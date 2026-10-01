@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -26,6 +28,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("setRemoteBackend / backendOrigin", () => {
@@ -90,6 +93,19 @@ describe("url builders", () => {
 });
 
 describe("apiFetch", () => {
+  it("streams binary media without converting it to a string or crossing JSON IPC", async () => {
+    const proxy = vi.fn();
+    window.resostageElectron = { proxyRequest: proxy } as typeof window.resostageElectron;
+    const bytes = new Blob([new Uint8Array([0, 255, 128, 0, 65])], { type: "video/mp4" });
+    const stub = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", stub);
+    await apiFetch("/api/v1/builder/track/import-wav/upload", { method: "POST", body: bytes });
+    expect(proxy).not.toHaveBeenCalled();
+    expect(stub).toHaveBeenCalledWith(
+      `http://${backendOrigin()}/api/v1/builder/track/import-wav/upload`,
+      { method: "POST", body: bytes },
+    );
+  });
   it("routes through the electron proxy when available", async () => {
     const proxy = vi.fn().mockResolvedValue({
       ok: true,

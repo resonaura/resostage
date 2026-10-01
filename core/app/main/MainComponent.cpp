@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "MainComponent.h"
 #include "ActionCatalogue.h"
@@ -373,6 +375,17 @@ MainComponent::~MainComponent() {
     // quitting ResoStage never strands a visible shell with no backend.
     terminateElectronShell();
     udpDiscovery.stop();
+    for (const auto& command : deferredWebCommands) {
+        if (command.kind == WebCommandKind::BuilderTrackImportWavUpload) {
+            std::remove(command.path.c_str());
+            glz::generic payload;
+            std::string requestId;
+            if (builder_json::parseJson(command.json, payload))
+                builder_json::getString(payload, "requestId", requestId);
+            webServer.finishTrackImport(requestId, false, "Core is shutting down");
+        }
+    }
+    deferredWebCommands.clear();
     webServer.stop();
 }
 

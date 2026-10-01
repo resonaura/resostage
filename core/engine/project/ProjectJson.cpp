@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #include "ProjectJson.h"
 
@@ -339,6 +341,7 @@ struct WTimeSig {
 
 struct WRegionSource {
     std::string file;
+    std::optional<std::string> videoFile;
     double offsetSeconds = 0.0;
 };
 
@@ -928,6 +931,8 @@ WProject toWire(const Project& p) {
             wr.durationSeconds = finiteOrZero(r.durationSeconds);
             wr.gainDb = finiteOrZero(r.gainDb);
             wr.source.file = r.source.file;
+            if (!r.source.videoFile.empty())
+                wr.source.videoFile = r.source.videoFile;
             wr.source.offsetSeconds = finiteOrZero(r.source.offsetSeconds);
             wr.fade.inSeconds = finiteOrZero(r.fade.inSeconds);
             wr.fade.outSeconds = finiteOrZero(r.fade.outSeconds);
@@ -1317,6 +1322,7 @@ Project fromWire(const WProject& w) {
             reg.durationSeconds = r.durationSeconds;
             reg.gainDb = r.gainDb;
             reg.source.file = r.source.file;
+            reg.source.videoFile = r.source.videoFile.value_or("");
             reg.source.offsetSeconds = r.source.offsetSeconds;
             reg.fade.inSeconds = r.fade.inSeconds;
             reg.fade.outSeconds = r.fade.outSeconds;

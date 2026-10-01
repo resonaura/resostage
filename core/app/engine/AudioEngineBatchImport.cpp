@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // Batch WAV-stem import for AudioEngine. The background worker copies audio
 // and prepares peaks; the shared finishAsyncImport path reopens and restages
@@ -56,6 +58,7 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
     Project projectSnapshot = loader.project();
     std::string archivePath = loader.archivePath();
     busyImporting.store(true, std::memory_order_release);
+    cancelImport.store(false, std::memory_order_release);
 
     importThread = std::thread([this, songIndex, items, archivePath, projectSnapshot, songToRestore, wasPlaying, onComplete]() mutable {
         namespace fs = std::filesystem;
@@ -68,6 +71,11 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
         bool allOk = true;
 
         for (const auto& item : items) {
+            if (cancelImport.load(std::memory_order_acquire)) {
+                error = "Audio import cancelled";
+                allOk = false;
+                break;
+            }
             std::string base = item.filesystemPath;
             const auto slash = base.find_last_of("/\\");
             if (slash != std::string::npos)
@@ -136,7 +144,9 @@ void AudioEngine::importSongStemsBatchAsync(size_t songIndex, const std::vector<
         };
         pendingFinishImport = finishFn;
 
-        juce::MessageManager::callAsync([this]() {
+        juce::MessageManager::callAsync([this, lifetime = importCallbackLifetime]() {
+            if (!lifetime->load(std::memory_order_acquire))
+                return;
             if (pendingFinishImport) {
                 auto fn = std::move(pendingFinishImport);
                 pendingFinishImport = nullptr;

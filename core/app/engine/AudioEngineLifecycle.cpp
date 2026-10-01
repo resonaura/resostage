@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // AudioEngine construction and teardown order.
 // Keep worker startup and shutdown sequencing together, separate from the
@@ -86,19 +88,15 @@ AudioEngine::AudioEngine() {
 }
 
 AudioEngine::~AudioEngine() {
-    // If an async import is still running (rare -- app quit mid-import), let
-    // it finish rather than tearing down loader/streaming out from under its
-    // background thread. Imports are seconds, not minutes, so this is a
-    // bounded, acceptable delay on quit.
+    // Stop codec work and revoke queued import completions before joining;
+    // large media imports can take minutes and must not hold app shutdown.
+    importCallbackLifetime->store(false, std::memory_order_release);
+    cancelImport.store(true, std::memory_order_release);
     if (importThread.joinable())
         importThread.join();
     if (saveThread.joinable())
         saveThread.join();
-    if (pendingFinishImport) {
-        auto fn = std::move(pendingFinishImport);
-        pendingFinishImport = nullptr;
-        fn();
-    }
+    pendingFinishImport = nullptr;
     // Background peak builds also read `loader` (see rebuildTrackPeaks());
     // wait for them before streaming.stop() hands loader ownership to us.
     joinPendingPeakBuilds();

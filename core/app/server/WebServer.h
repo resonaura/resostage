@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #pragma once
 
@@ -1189,12 +1191,17 @@ public:
     void injectMidi(const uint8_t* data, int length, int targetTrackIndex = -1);
 
 
-    // HTTP-thread: stash which track a following .../import-wav/upload POST
-    // is for, plus the original filename (so the archive entry ends up
-    // "Audio/kick.wav" instead of a generic temp name) -- see
-    // WebCommandKind::BuilderTrackImportWavBegin/Upload.
-    void beginTrackImport(int songIndex, int trackIndex, std::string fileName, double startSeconds);
-    void takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName, double& startSeconds);
+    // HTTP-thread upload tickets prevent simultaneous controllers from taking
+    // each other's target. At most 64 tickets live for 15 minutes; an upload
+    // consumes its ticket before receiving bytes. Empty IDs preserve the old
+    // single-flight API and cannot replace another outstanding legacy ticket.
+    bool beginTrackImport(int songIndex, int trackIndex, std::string fileName, double startSeconds,
+                          const std::string& requestId = {});
+    bool takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName, double& startSeconds,
+                               const std::string& requestId = {});
+    // Message-thread completion; HTTP readers receive a copied job result.
+    void finishTrackImport(const std::string& requestId, bool success, std::string error);
+    int serveTrackImportStatus(struct lws* wsi, const std::string& requestId);
 
     // GET /api/v1/remote/discovered-devices -- LAN discovered ResoStage instances
     using DiscoveredDevicesProvider = std::function<std::vector<DiscoveredDevice>()>;
@@ -1344,10 +1351,21 @@ private:
     std::chrono::steady_clock::time_point audioRenderStartedAt{};
 
     mutable std::mutex importMutex;
-    int pendingImportSongIndex = -1;
-    int pendingImportTrackIndex = -1;
-    std::string pendingImportFileName;
-    double pendingImportStartSeconds = 0.0;
+    struct PendingTrackImport {
+        int songIndex = -1;
+        int trackIndex = -1;
+        std::string fileName;
+        double startSeconds = 0.0;
+        int64_t expiresAtMilliseconds = 0;
+    };
+    std::unordered_map<std::string, PendingTrackImport> pendingTrackImports;
+    struct TrackImportResult {
+        bool finished = false;
+        bool success = false;
+        std::string error;
+        int64_t expiresAtMilliseconds = 0;
+    };
+    std::unordered_map<std::string, TrackImportResult> trackImportResults;
 
     mutable std::mutex peaksMutex;
     std::string peaksJson = "{\"tracks\":[]}";

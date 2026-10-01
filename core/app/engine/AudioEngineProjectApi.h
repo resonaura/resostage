@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // Public project I/O / import / dirty-state API for AudioEngine.
 // Included only from AudioEngine.h inside `class AudioEngine { public: ... }`.
@@ -60,14 +62,20 @@
     // "unsaved" for prompting purposes even though projectPath() is non-empty.
     bool isDraftProject() const { return usingDraftArchive; }
 
-    // Imports a filesystem WAV into the open .rsnraset as Audio/<name>, points
-    // the given song's track at it, rewrites the archive, reopens, restages
-    // whatever song was playing before (independent of songIndex).
+    // Imports filesystem audio or video into the open .rsnraset. Audio is
+    // prepared as project-local WAV/RF64 under Audio/<name>; video keeps its
+    // original source under Video/<name> while its first audio stream is
+    // prepared as that WAV. Supported PCM WAV sources retain their exact
+    // original samples; other media becomes 48 kHz stereo float audio. The
+    // given song's track points at the prepared
+    // audio, then the package is rewritten and the previously active song is
+    // restaged (independent of songIndex).
     //
     // Reads the source file and rewrites the archive (both slow disk I/O --
     // real stems run tens to hundreds of MB) on a background thread so the
     // message thread, and with it the whole UI, never blocks on an import.
-    // onComplete fires on the message thread. Between calling this and
+    // Failed conversion adds no region/history entry. onComplete fires on the
+    // message thread. Between calling this and
     // onComplete firing, isBusy() is true and the caller MUST NOT let any
     // other code touch this AudioEngine's project/loader state (BuilderPanel
     // disables further edits and shows a spinner) -- see

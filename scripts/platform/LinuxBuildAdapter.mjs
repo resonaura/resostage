@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 import { existsSync, rmSync, cpSync, mkdirSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -23,6 +25,7 @@ import {
 } from "../lib.mjs";
 
 import { publishLinux } from "../publish.mjs";
+import { installFFmpegRuntime, prepareFFmpegRuntime, verifyFFmpegRuntime } from "../ffmpeg-runtime.mjs";
 
 export class LinuxBuildAdapter extends BuildAdapter {
   get key() {
@@ -85,6 +88,7 @@ export class LinuxBuildAdapter extends BuildAdapter {
       log(`${rawCore} missing -- skipping shell bundle assembly (build the app first)`);
       return;
     }
+    const ffmpegRuntime = prepareFFmpegRuntime(process.platform, process.arch, BUILD_DIR);
 
     const shellBundle = this.getShellAppBundle();
     const shellDir = dirname(shellBundle);
@@ -150,6 +154,12 @@ export class LinuxBuildAdapter extends BuildAdapter {
         execFileSync("chmod", ["+x", coreDstShort]);
       } catch {}
     }
+    installFFmpegRuntime(
+      ffmpegRuntime,
+      join(shellDir, "resostage-media"),
+      join(shellDir, "FFmpeg"),
+    );
+    verifyFFmpegRuntime(shellDir, process.platform, process.arch, "resostage-media");
 
     const scannerDst = join(shellDir, "resostage-plugin-scanner");
     const scannerRaw = findFileRecursively(BUILD_DIR, "resostage-plugin-scanner");

@@ -1,6 +1,8 @@
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 #pragma once
 
@@ -30,7 +32,8 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 8;
+inline constexpr int kCurrentFormatVersion = 9;
+// Format 9 retains optional original video resources next to prepared audio.
 // Format 8 adds MIDI loop source-window starts so left-trimming a loop can
 // crop its repeated source while split regions retain their original phase.
 // Format 7 adds a per-track pan law, defaulting to the prior 0 dB balance.
@@ -347,6 +350,7 @@ struct TrackDef {
 
 struct RegionSource {
     std::string file; // archive path, e.g. "Audio/song1_synths1.wav"
+    std::string videoFile; // Optional original video asset retained for future synchronized-video editing.
     double offsetSeconds = 0.0; // start offset into source audio file
 };
 
