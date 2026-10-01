@@ -20,7 +20,9 @@ import {
   parseDirectLanes,
   routeToOptionId,
   channelAvailable,
+  trackOutputDestinations,
 } from "@/screens/mixer/routing/logic/directOutput";
+import { missingRouteLabel, missingRouteOptionId } from "@/screens/mixer/routing/logic/missingOutputUtils";
 import { missingOutputSelectProps } from "@/screens/mixer/routing/components/MissingOutputSelect";
 import { RoutingSlotPlaceholder } from "@/screens/mixer/routing/components/RoutingSlotPlaceholder";
 
@@ -37,8 +39,8 @@ function serverPrimary(
   isExtAssigned: boolean,
 ): string {
   if (busId === "") return SENDS_ONLY_VALUE;
-  if (destinationBusses.some((b) => b.id === busId)) return busId;
   if (isExtAssigned) return EXT_OUTPUT_VALUE;
+  if (destinationBusses.some((b) => b.id === busId)) return busId;
   return (
     destinationBusses.find((b) => isMainBusId(b.id))?.id ?? SENDS_ONLY_VALUE
   );
@@ -74,11 +76,14 @@ export function TrackOutputRouting({
   onDirectOutput: (mono: boolean, startChannel: number, pair: boolean) => void;
 }) {
   const assigned = allBusses.find((b) => b.id === busId);
+  // Apply this at the shared picker boundary as inspector and mixer callers
+  // may receive fabricated hardware rows alongside persisted project buses.
+  const destinationBusses = trackOutputDestinations(busses);
   // A direct route is banked by its id(s): one mono lane "audio::out:N" or a
   // compound of two ("audio::out:1,audio::out:2"). Detect from the id so we never
   // rely on a fabricated "stereo pair bus" (which no longer exists).
   const directLanes = parseDirectLanes(busId);
-  const isExtAssigned = directLanes !== null;
+  const isExtAssigned = directLanes !== null || Boolean(assigned?.isDirectOut);
   const extTarget =
     directLanes && directLanes.length > 0 ? routeToOptionId(busId) : null;
 
@@ -95,7 +100,7 @@ export function TrackOutputRouting({
           assigned?.startChannel ?? 0,
           assigned?.channels ?? 2,
         );
-  const serverPrimaryValue = serverPrimary(busId, busses, isExtAssigned);
+  const serverPrimaryValue = serverPrimary(busId, destinationBusses, isExtAssigned);
 
   // Outputs the track is actually routed to that aren't reachable on this
   // device. A direct route is missing when ANY of its mono lanes is.
@@ -109,11 +114,19 @@ export function TrackOutputRouting({
   const firstLane =
     directLanes && directLanes.length > 0 ? directLanes[0] : undefined;
   const missingOptionId =
-    missing && firstLane != null ? `u:${firstLane}` : undefined;
+    missing
+      ? firstLane != null
+        ? `u:${firstLane}`
+        : assigned
+          ? missingRouteOptionId(assigned.startChannel, assigned.channels)
+          : undefined
+      : undefined;
   const missingLabel =
     isExtAssigned && directLanes && directLanes.length > 0
       ? directLanes.join("/")
-      : (assigned?.name ?? undefined);
+      : assigned
+        ? missingRouteLabel(assigned.startChannel, assigned.channels)
+        : undefined;
 
   // Optimistic UI: keep the user's pick until the WS state catches up.
   // Without this the metronome (and any Ext. Out strip) flickers — selecting
@@ -154,7 +167,7 @@ export function TrackOutputRouting({
   };
 
   const destinationOptions: SelectOption[] = [
-    ...busses.map((b) => ({ id: b.id, label: b.name || b.id })),
+    ...destinationBusses.map((b) => ({ id: b.id, label: b.name || b.id })),
     { id: SENDS_ONLY_VALUE, label: "Sends Only" },
     { id: EXT_OUTPUT_VALUE, label: "Ext. Out" },
   ];

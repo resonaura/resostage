@@ -18,6 +18,7 @@ import {
 import { ScrollShadow } from "@/components/ui";
 import { PluginChainModal } from "@/screens/mixer/plugins/PluginChainModal";
 import { extOutTarget } from "@/screens/mixer/logic/mixerIds";
+import { trackOutputDestinations } from "@/screens/mixer/routing/logic/directOutput";
 import { BusStrip } from "@/screens/mixer/strips/BusStrip";
 import { TrackStrip } from "@/screens/mixer/strips/TrackStrip";
 import {
@@ -70,7 +71,7 @@ export function EditorInspector({
   const selectedTrack = state.tracks[trackIndex] ?? null;
 
   const auxBusses = state.busses.filter((b) => b.isAux);
-  const destinationBusses = state.busses.filter((b) => !b.isAux);
+  const destinationBusses = trackOutputDestinations(state.busses);
 
   const { sendBusses, showMaster, master } = resolveInspectorBusses({
     selectedTrack,

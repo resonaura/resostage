@@ -4,8 +4,16 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import type { SettingsState } from "@/lib/state/types";
-import { extOutTarget, parseOutputLanes } from "@/screens/mixer/logic/mixerIds";
+import type { BusRow, SettingsState } from "@/lib/state/types";
+import { extOutTarget, isMainBusId, parseOutputLanes } from "@/screens/mixer/logic/mixerIds";
+
+/** Physical lanes belong in the Ext. Out channel picker, never the bus picker. */
+export function trackOutputDestinations(busses: readonly BusRow[]): BusRow[] {
+  return busses.filter(
+    (bus) => !bus.isDirectOut && parseOutputLanes(bus.id) === null &&
+      (isMainBusId(bus.id) || bus.isAux),
+  );
+}
 
 export type DirectOutOption = {
   /** Unique option id — must not collide when both pair and single share a start channel. */
