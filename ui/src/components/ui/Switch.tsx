@@ -13,12 +13,33 @@ type HeroSwitchProps = ComponentProps<typeof HeroSwitch>;
 
 export interface SwitchProps extends HeroSwitchProps {
   tone?: Tone;
+  /** Optional HTML tabIndex. Defaults to -1 to prevent cluttering DAW tab order. */
+  tabIndex?: number;
 }
 
-function SwitchRoot({ tone, className, children, ...rest }: SwitchProps) {
+function SwitchRoot({
+  tone,
+  className,
+  children,
+  tabIndex = -1,
+  onMouseDown,
+  ...rest
+}: SwitchProps) {
+  const handleMouseDown = (e: React.MouseEvent<HTMLElement>) => {
+    if (tabIndex === -1) {
+      e.preventDefault();
+    }
+    onMouseDown?.(e as any);
+  };
+
   if (typeof children === "function") {
     return (
-      <HeroSwitch className={withTone(className, tone)} {...rest}>
+      <HeroSwitch
+        {...(tabIndex !== undefined ? ({ tabIndex } as any) : {})}
+        onMouseDown={handleMouseDown}
+        className={withTone(className, tone)}
+        {...rest}
+      >
         {children}
       </HeroSwitch>
     );
@@ -33,7 +54,12 @@ function SwitchRoot({ tone, className, children, ...rest }: SwitchProps) {
   );
 
   return (
-    <HeroSwitch className={withTone(className, tone)} {...rest}>
+    <HeroSwitch
+      {...(tabIndex !== undefined ? ({ tabIndex } as any) : {})}
+      onMouseDown={handleMouseDown}
+      className={withTone(className, tone)}
+      {...rest}
+    >
       {hasContent ? (
         (children as React.ReactNode)
       ) : (

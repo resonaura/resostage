@@ -38,47 +38,52 @@ void MainComponent::rescanHardwareSettings() {
     // Prefer the currently selected type's names first.
     if (auto* curType = dm.getCurrentDeviceTypeObject()) {
         const auto names = curType->getDeviceNames(/*wantInputNames=*/false);
+        const auto inNames = curType->getDeviceNames(/*wantInputNames=*/true);
+
+        if (curType->hasSeparateInputsAndOutputs()) {
+            for (const auto& n : names)
+                out.outputDevices.push_back(n.toStdString());
+            for (const auto& n : inNames)
+                out.inputDevices.push_back(n.toStdString());
+        } else {
+            // For unified device types (e.g. ASIO), probe channel counts to separate inputs and outputs.
+            for (const auto& n : names) {
+                std::unique_ptr<juce::AudioIODevice> testDev(curType->createDevice(n, n));
+                if (testDev == nullptr)
+                    testDev.reset(curType->createDevice(n, ""));
+                if (testDev != nullptr) {
+                    if (testDev->getOutputChannelNames().size() > 0)
+                        out.outputDevices.push_back(n.toStdString());
+                    if (testDev->getInputChannelNames().size() > 0)
+                        out.inputDevices.push_back(n.toStdString());
+                } else {
+                    out.outputDevices.push_back(n.toStdString());
+                    out.inputDevices.push_back(n.toStdString());
+                }
+            }
+        }
+    } else if (!types.isEmpty() && types[0] != nullptr) {
+        auto* firstType = types[0];
+        const auto names = firstType->getDeviceNames(false);
         for (const auto& n : names)
             out.outputDevices.push_back(n.toStdString());
-        const auto inNames = curType->getDeviceNames(/*wantInputNames=*/true);
+        const auto inNames = firstType->getDeviceNames(true);
         for (const auto& n : inNames)
             out.inputDevices.push_back(n.toStdString());
     }
-    // Then any other types (aggregate, no dups).
-    {
-        juce::StringArray seen;
-        for (const auto& s : out.outputDevices)
-            seen.add(juce::String(s));
-        juce::StringArray seenIn;
-        for (const auto& s : out.inputDevices)
-            seenIn.add(juce::String(s));
-        for (auto* type : types) {
-            if (type == nullptr || type == dm.getCurrentDeviceTypeObject())
-                continue;
-            const auto names = type->getDeviceNames(false);
-            for (const auto& n : names) {
-                if (seen.contains(n))
-                    continue;
-                seen.add(n);
-                out.outputDevices.push_back(n.toStdString());
-            }
-            const auto inNames = type->getDeviceNames(true);
-            for (const auto& n : inNames) {
-                if (seenIn.contains(n))
-                    continue;
-                seenIn.add(n);
-                out.inputDevices.push_back(n.toStdString());
-            }
-        }
-    }
 
     const auto setup = dm.getAudioDeviceSetup();
+    auto* curDev = dm.getCurrentAudioDevice();
+    auto* curTypeObj = dm.getCurrentDeviceTypeObject();
+
     out.currentOutputDevice = setup.outputDeviceName.toStdString();
-    if (out.currentOutputDevice.empty()) {
-        if (auto* dev = dm.getCurrentAudioDevice())
-            out.currentOutputDevice = dev->getName().toStdString();
+    if (out.currentOutputDevice.empty() && curDev != nullptr && curDev->getOutputChannelNames().size() > 0) {
+        const auto activeName = curDev->getName();
+        if (curTypeObj != nullptr && curTypeObj->getDeviceNames(false).contains(activeName)) {
+            out.currentOutputDevice = activeName.toStdString();
+        }
     }
-    // Always list the active device even if scan returned nothing.
+    // Only keep currentOutputDevice if it is a valid output device in outputDevices.
     if (!out.currentOutputDevice.empty()) {
         bool found = false;
         for (const auto& d : out.outputDevices) {
@@ -87,21 +92,34 @@ void MainComponent::rescanHardwareSettings() {
                 break;
             }
         }
-        if (!found)
-            out.outputDevices.insert(out.outputDevices.begin(), out.currentOutputDevice);
+        if (!found) {
+            // Never insert an input-only device into outputDevices!
+            out.currentOutputDevice.clear();
+        }
     }
 
     out.currentInputDevice = setup.inputDeviceName.toStdString();
-    if (!out.currentInputDevice.empty()) {
-        bool found = false;
-        for (const auto& d : out.inputDevices) {
-            if (d == out.currentInputDevice) {
-                found = true;
-                break;
+    if (appSettings.audioInputDisabled) {
+        out.currentInputDevice.clear();
+    } else {
+        if (out.currentInputDevice.empty() && curDev != nullptr && curDev->getInputChannelNames().size() > 0) {
+            const auto activeName = curDev->getName();
+            if (curTypeObj != nullptr && curTypeObj->getDeviceNames(true).contains(activeName)) {
+                out.currentInputDevice = activeName.toStdString();
             }
         }
-        if (!found)
-            out.inputDevices.insert(out.inputDevices.begin(), out.currentInputDevice);
+        if (!out.currentInputDevice.empty()) {
+            bool found = false;
+            for (const auto& d : out.inputDevices) {
+                if (d == out.currentInputDevice) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                out.currentInputDevice.clear();
+            }
+        }
     }
 
     out.sampleRate = setup.sampleRate;
@@ -161,8 +179,10 @@ void MainComponent::rememberCurrentDeviceProfile() {
     const auto setup = engine.deviceManager().getAudioDeviceSetup();
     std::string name = setup.outputDeviceName.toStdString();
     if (name.empty()) {
-        if (auto* dev = engine.deviceManager().getCurrentAudioDevice())
-            name = dev->getName().toStdString();
+        if (auto* dev = engine.deviceManager().getCurrentAudioDevice()) {
+            if (dev->getOutputChannelNames().size() > 0)
+                name = dev->getName().toStdString();
+        }
     }
     if (name.empty())
         return;

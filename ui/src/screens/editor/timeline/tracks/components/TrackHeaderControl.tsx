@@ -169,6 +169,8 @@ export const TrackHeaderControl = memo(
             nextPol,
           );
         }}
+        tabIndex={-1}
+        onMouseDown={(e) => e.preventDefault()}
         className={`flex items-center justify-center rounded border font-bold transition-all select-none ${
           isPolActive
             ? "border-(--rs-phase)/70 bg-(--rs-phase)/20 text-(--rs-phase) font-black shadow-[0_0_6px_rgba(48,209,88,0.4)]"

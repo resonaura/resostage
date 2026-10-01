@@ -67,6 +67,10 @@ export interface ButtonProps extends Omit<HeroButtonProps, "variant"> {
    * neither prop can express alone. Wins over a tone named in `variant`.
    */
   tone?: Tone;
+  /** Optional HTML tabIndex. Defaults to -1 to prevent cluttering DAW tab order. */
+  tabIndex?: number;
+  /** Whether to exclude button from sequential tab navigation in React Aria. */
+  excludeFromTabOrder?: boolean;
 }
 
 /**
@@ -119,7 +123,14 @@ function splitVariant(variant: ButtonVariant | undefined): {
   return { heroVariant: undefined, tone: undefined };
 }
 
-export function Button({ variant, tone, className, ...rest }: ButtonProps) {
+export function Button({
+  variant,
+  tone,
+  className,
+  tabIndex = -1,
+  onMouseDown,
+  ...rest
+}: ButtonProps) {
   const group = use(ButtonGroupToneContext);
   const isGroupChild =
     (rest as Record<string, unknown>)[BUTTON_GROUP_CHILD] === true;
@@ -136,8 +147,24 @@ export function Button({ variant, tone, className, ...rest }: ButtonProps) {
     (variant === undefined ? fromGroup?.tone : undefined) ??
     (variant === undefined && !inheritsGroupVariant ? DEFAULT_TONE : undefined);
 
+  const handleMouseDown = (e: React.MouseEvent<HTMLButtonElement>) => {
+    // In a DAW, clicking buttons must NOT steal focus away from arrangement/editor canvas.
+    // Calling e.preventDefault() on mousedown preserves document.activeElement while still allowing
+    // click / onPress to fire normally.
+    if (tabIndex === -1) {
+      e.preventDefault();
+    }
+    onMouseDown?.(e);
+  };
+
+  const shouldExcludeFromTabOrder =
+    tabIndex === -1 || (rest as { excludeFromTabOrder?: boolean }).excludeFromTabOrder === true;
+
   return (
     <HeroButton
+      {...(tabIndex !== undefined ? ({ tabIndex } as any) : {})}
+      excludeFromTabOrder={shouldExcludeFromTabOrder}
+      onMouseDown={handleMouseDown}
       // A toned button still needs a base variant for its structural styles.
       // `tertiary` is the neutral one -- it sets background tokens and nothing
       // else, all four of which the tone class then overrides. Anything the

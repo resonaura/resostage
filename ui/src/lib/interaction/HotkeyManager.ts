@@ -73,6 +73,29 @@ export class HotkeyManager {
     const modified = event.metaKey || event.ctrlKey || event.altKey;
     const editable = isEditableTarget(event.target);
 
+    // Escape or Enter in an input field auto-blurs so keyboard control returns to DAW
+    if (editable) {
+      if (
+        description === "escape" ||
+        (description === "return" && (event.target as HTMLElement)?.tagName === "INPUT")
+      ) {
+        if (event.target instanceof HTMLElement) {
+          event.target.blur();
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+    }
+
+    // Space in DAW is strictly transport and must never trigger a focused button or scroll
+    if (!editable && (description === "space" || event.code === "Space")) {
+      const activeEl = document.activeElement;
+      if (activeEl && activeEl !== document.body && activeEl instanceof HTMLElement) {
+        activeEl.blur();
+      }
+    }
+
     // Musical typing reserves bare keys for note input. Modified application
     // commands remain available, as do explicitly registered MIDI-key commands.
     const blockBareGlobal = this.musicalTypingActive && !modified;
@@ -109,6 +132,20 @@ export class HotkeyManager {
     for (const command of candidates) {
       if ((command.options.priority ?? 0) > 10) continue;
       if (command.handler(event) === false) continue;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    // Outside text fields, prevent Tab from sequential tab focus cycling through DAW controls
+    if (!editable && (description === "tab" || description === "shift + tab" || event.key === "Tab")) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    // Space outside text fields must never scroll the page
+    if (!editable && (description === "space" || event.code === "Space")) {
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -184,7 +221,17 @@ export class HotkeyManager {
     if (this.musicalTypingActive && (action === "prev" || action === "next"))
       return false;
     const actionHandlers = this.handlers.get(action);
-    if (!actionHandlers?.size) return false;
+    if (!actionHandlers?.size) {
+      const command = [...this.commands.values()].find(
+        (cmd) =>
+          this.activeScopes.get(cmd.options.scope) === true &&
+          cmd.key.toLowerCase() === action.toLowerCase(),
+      );
+      if (command && command.handler(event) !== false) {
+        return true;
+      }
+      return false;
+    }
     for (const handler of [...actionHandlers]) {
       if (handler(event) === false) continue;
       return true;

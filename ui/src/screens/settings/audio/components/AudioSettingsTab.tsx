@@ -11,7 +11,6 @@ import {
   Select,
   Switch,
   ToggleButton,
-  type SelectOption,
 } from "@/components/ui";
 import { settings as settingsApi } from "@/lib/state/api";
 import type { WebUiState } from "@/lib/state/types";
@@ -20,6 +19,7 @@ import {
   writeLongImportPreference,
   type LongImportPreference,
 } from "@/transfer/audio/logic/importPrefs";
+import { filterAudioDevices } from "@/screens/settings/audio/logic/filterAudioDevices";
 import {
   SettingsField,
   SettingsSection,
@@ -42,12 +42,16 @@ export function AudioSettingsTab({ state }: { state: WebUiState }) {
       : false,
   );
   const s = state.settings;
-  const outputDevices =
-    s.outputDevices.length > 0
-      ? s.outputDevices
-      : s.currentOutputDevice
-        ? [s.currentOutputDevice]
-        : [];
+  const filtered = filterAudioDevices({
+    outputDevices: s.outputDevices,
+    inputDevices: s.inputDevices,
+    currentOutputDevice: s.currentOutputDevice,
+    currentInputDevice: s.currentInputDevice,
+  });
+  const outputDevices = filtered.outputDevices;
+  const deviceOptions = filtered.deviceOptions;
+  const inputDeviceOptions = filtered.inputDeviceOptions;
+
   const sampleRates =
     s.availableSampleRates.length > 0
       ? s.availableSampleRates
@@ -65,28 +69,6 @@ export function AudioSettingsTab({ state }: { state: WebUiState }) {
     outputDevices.length === 0 &&
     sampleRates.length === 0 &&
     (s.midiOutputs?.length ?? 0) === 0;
-
-  const deviceOptions: SelectOption[] = [
-    ...(s.currentOutputDevice && !outputDevices.includes(s.currentOutputDevice)
-      ? [{ id: s.currentOutputDevice, label: s.currentOutputDevice }]
-      : []),
-    ...outputDevices.map((d) => ({ id: d, label: d })),
-  ];
-
-  const inputDevices =
-    s.inputDevices && s.inputDevices.length > 0
-      ? s.inputDevices
-      : s.currentInputDevice
-        ? [s.currentInputDevice]
-        : [];
-
-  const inputDeviceOptions: SelectOption[] = [
-    { id: "", label: "None (Disabled)" },
-    ...(s.currentInputDevice && !inputDevices.includes(s.currentInputDevice)
-      ? [{ id: s.currentInputDevice, label: s.currentInputDevice }]
-      : []),
-    ...inputDevices.map((d) => ({ id: d, label: d })),
-  ];
 
   return (
     <div className="flex flex-col gap-4">
@@ -108,7 +90,7 @@ export function AudioSettingsTab({ state }: { state: WebUiState }) {
               aria-label="Output device"
               placeholder="No devices reported"
               options={deviceOptions}
-              value={s.currentOutputDevice || outputDevices[0] || ""}
+              value={filtered.currentOutputDevice || outputDevices[0] || ""}
               onChange={(d) => void settingsApi.setAudioOutputDevice(d)}
             />
           </SettingsField>
@@ -117,7 +99,7 @@ export function AudioSettingsTab({ state }: { state: WebUiState }) {
               aria-label="Input device"
               placeholder="No input devices"
               options={inputDeviceOptions}
-              value={s.currentInputDevice ?? ""}
+              value={filtered.currentInputDevice}
               onChange={(d) => void settingsApi.setAudioInputDevice(d)}
             />
           </SettingsField>

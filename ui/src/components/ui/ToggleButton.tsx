@@ -82,6 +82,10 @@ export interface ToggleButtonProps extends Omit<
   variant?: ToggleButtonVariant;
   /** The selected colour, independent of `variant`. Wins over a tone in `variant`. */
   tone?: Tone;
+  /** Optional HTML tabIndex. Defaults to -1 to prevent cluttering DAW tab order. */
+  tabIndex?: number;
+  /** Whether to exclude toggle button from sequential tab navigation in React Aria. */
+  excludeFromTabOrder?: boolean;
   /** Injected by HeroUI's ButtonGroup on every child; not for callers. */
   [BUTTON_GROUP_CHILD]?: boolean;
 }
@@ -125,6 +129,8 @@ export function ToggleButton({
   variant,
   tone,
   className,
+  tabIndex = -1,
+  onMouseDown,
   // ButtonGroup marks EVERY direct child, without checking the type -- so a
   // toggle placed in a plain ButtonGroup would forward an unknown attribute to
   // the DOM. Swallowed here so the two kinds of group mix freely.
@@ -140,8 +146,24 @@ export function ToggleButton({
   const effectiveSize = size ?? groupSize;
   const isXs = effectiveSize === "xs";
 
+  const handleMouseDown = (e: React.MouseEvent<any>) => {
+    // In a DAW, clicking toggle buttons must NOT steal focus away from arrangement/editor canvas.
+    // Calling e.preventDefault() on mousedown preserves document.activeElement while still allowing
+    // click / onPress to fire normally.
+    if (tabIndex === -1) {
+      e.preventDefault();
+    }
+    onMouseDown?.(e);
+  };
+
+  const shouldExcludeFromTabOrder =
+    tabIndex === -1 || (rest as { excludeFromTabOrder?: boolean }).excludeFromTabOrder === true;
+
   return (
     <HeroToggleButton
+      {...(tabIndex !== undefined ? ({ tabIndex } as any) : {})}
+      excludeFromTabOrder={shouldExcludeFromTabOrder}
+      onMouseDown={handleMouseDown as any}
       // `xs` is ours; HeroUI's `sm` is the closest structural base, and the
       // class below takes it the rest of the way down.
       size={isXs ? "sm" : effectiveSize}

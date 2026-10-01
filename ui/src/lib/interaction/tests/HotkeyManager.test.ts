@@ -107,4 +107,68 @@ describe("HotkeyManager", () => {
     press(" ");
     expect(handler).toHaveBeenCalledOnce();
   });
+
+  it("auto-blurs input elements when Escape or Enter is pressed", () => {
+    manager();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    const escEvent = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(escEvent);
+    expect(document.activeElement).not.toBe(input);
+    expect(escEvent.defaultPrevented).toBe(true);
+
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    const enterEvent = new KeyboardEvent("keydown", {
+      key: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(enterEvent);
+    expect(document.activeElement).not.toBe(input);
+    expect(enterEvent.defaultPrevented).toBe(true);
+
+    document.body.removeChild(input);
+  });
+
+  it("isolates Tab outside text inputs and executes registered Tab commands", () => {
+    const hotkeys = manager();
+    const tabHandler = vi.fn();
+    hotkeys.registerCommand(
+      "test.tab-action",
+      "tab",
+      { scope: HotkeyScope.Global, priority: 50 },
+      tabHandler,
+    );
+
+    const event = press("Tab");
+    expect(tabHandler).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("blurs active element and prevents default when Space is pressed outside inputs", () => {
+    const hotkeys = manager();
+    const playHandler = vi.fn();
+    hotkeys.setConfiguredBindings([{ action: "play", key: "space" }]);
+    hotkeys.registerActionHandler("play", playHandler);
+
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.focus();
+    expect(document.activeElement).toBe(button);
+
+    const event = press(" ");
+    expect(document.activeElement).not.toBe(button);
+    expect(event.defaultPrevented).toBe(true);
+    expect(playHandler).toHaveBeenCalledOnce();
+
+    document.body.removeChild(button);
+  });
 });

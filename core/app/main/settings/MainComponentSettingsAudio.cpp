@@ -38,6 +38,25 @@ void MainComponent::settingsSetAudioOutputDevice(const std::string& json) {
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
 
+    auto& dm = engine.deviceManager();
+    auto* curType = dm.getCurrentDeviceTypeObject();
+    if (curType != nullptr) {
+        const auto outNames = curType->getDeviceNames(/*wantInputNames=*/false);
+        if (!outNames.contains(juce::String(name))) {
+            setStatus("Audio output device not available or input-only: " + juce::String(name));
+            return;
+        }
+        if (!curType->hasSeparateInputsAndOutputs()) {
+            std::unique_ptr<juce::AudioIODevice> testDev(curType->createDevice(name, name));
+            if (testDev == nullptr)
+                testDev.reset(curType->createDevice(name, ""));
+            if (testDev != nullptr && testDev->getOutputChannelNames().size() == 0) {
+                setStatus("Audio device has no output channels: " + juce::String(name));
+                return;
+            }
+        }
+    }
+
     rememberCurrentDeviceProfile();
 
     auto setup = engine.deviceManager().getAudioDeviceSetup();
@@ -122,6 +141,26 @@ void MainComponent::settingsSetAudioInputDevice(const std::string& json) {
     std::string name;
     if (!parseJson(json, doc) || !getString(doc, "name", name))
         return;
+    if (!name.empty()) {
+        auto& dm = engine.deviceManager();
+        auto* curType = dm.getCurrentDeviceTypeObject();
+        if (curType != nullptr) {
+            const auto inNames = curType->getDeviceNames(/*wantInputNames=*/true);
+            if (!inNames.contains(juce::String(name))) {
+                setStatus("Audio input device not available or output-only: " + juce::String(name));
+                return;
+            }
+            if (!curType->hasSeparateInputsAndOutputs()) {
+                std::unique_ptr<juce::AudioIODevice> testDev(curType->createDevice(name, name));
+                if (testDev == nullptr)
+                    testDev.reset(curType->createDevice("", name));
+                if (testDev != nullptr && testDev->getInputChannelNames().size() == 0) {
+                    setStatus("Audio device has no input channels: " + juce::String(name));
+                    return;
+                }
+            }
+        }
+    }
 
     rememberCurrentDeviceProfile();
 
@@ -215,7 +254,22 @@ void MainComponent::settingsSetAudioDeviceType(const std::string& json) {
     }
 
     appSettings.audioDeviceType = type;
-    appSettings.outputDeviceName = dm.getCurrentAudioDevice()->getName().toStdString();
+    auto* curTypeObj = dm.getCurrentDeviceTypeObject();
+    if (auto* dev = dm.getCurrentAudioDevice()) {
+        if (dev->getOutputChannelNames().size() > 0 &&
+            (curTypeObj == nullptr || curTypeObj->getDeviceNames(false).contains(dev->getName()))) {
+            appSettings.outputDeviceName = dev->getName().toStdString();
+        } else if (curTypeObj != nullptr) {
+            const auto outNames = curTypeObj->getDeviceNames(false);
+            const int defIdx = curTypeObj->getDefaultDeviceIndex(false);
+            if (defIdx >= 0 && defIdx < outNames.size())
+                appSettings.outputDeviceName = outNames[defIdx].toStdString();
+            else if (!outNames.isEmpty())
+                appSettings.outputDeviceName = outNames[0].toStdString();
+            else
+                appSettings.outputDeviceName.clear();
+        }
+    }
     appSettings.activeOutputChannels.clear();
     saveAppSettingsToDisk();
     engine.rebuildDirectOutBusses();

@@ -1529,6 +1529,13 @@ function installHotkeyHandler(win: BrowserWindow): void {
     if (input.type !== "keyDown") return;
     // Held keys must not machine-gun Next Song.
     if (input.isAutoRepeat) return;
+
+    // Prevent accidental Chromium reload from tearing down the real-time audio session
+    if ((input.control || input.meta) && input.key.toLowerCase() === "r") {
+      event.preventDefault();
+      return;
+    }
+
     if (typingFocus) {
       const hasModifier = input.control || input.meta || input.alt;
       if (!hasModifier) return;
@@ -1536,6 +1543,15 @@ function installHotkeyHandler(win: BrowserWindow): void {
     if (!win.isFocused()) return;
     // Let Settings receive every key while it is learning a new binding.
     if (keyCaptureActive) return;
+
+    // Isolate Tab key: prevent Chromium native tab focus cycling when not typing in text fields
+    if (input.key === "Tab" && !typingFocus) {
+      event.preventDefault();
+      win.webContents.send("dispatch-hotkey", {
+        action: input.shift ? "shift_tab" : "tab",
+      });
+      return;
+    }
 
     const bindings = menuModel?.keybindings ?? {};
     for (const [action, binding] of Object.entries(bindings)) {
@@ -1556,6 +1572,14 @@ function installHotkeyHandler(win: BrowserWindow): void {
       win.webContents.send("dispatch-hotkey", {
         action: "toggle_musical_typing",
       });
+      return;
+    }
+
+    // Space is transport toggle when not typing in an input field
+    if (input.code === "Space" && !typingFocus) {
+      event.preventDefault();
+      win.webContents.send("dispatch-hotkey", { action: "play" });
+      return;
     }
   });
 }

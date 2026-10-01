@@ -116,10 +116,39 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
                 setup.outputDeviceName = appSettings.outputDeviceName;
                 setup.useDefaultOutputChannels = appSettings.activeOutputChannels.empty();
             } else {
-                setup.outputDeviceName.clear();
+                if (currentType != nullptr) {
+                    const int defOutIdx = currentType->getDefaultDeviceIndex(false);
+                    const auto outNames = currentType->getDeviceNames(false);
+                    if (defOutIdx >= 0 && defOutIdx < outNames.size())
+                        setup.outputDeviceName = outNames[defOutIdx];
+                    else if (!outNames.isEmpty())
+                        setup.outputDeviceName = outNames[0];
+                    else
+                        setup.outputDeviceName.clear();
+                } else {
+                    setup.outputDeviceName.clear();
+                }
                 setup.useDefaultOutputChannels = true;
             }
+        } else if (setup.outputDeviceName.isEmpty() && currentType != nullptr) {
+            const int defOutIdx = currentType->getDefaultDeviceIndex(false);
+            const auto outNames = currentType->getDeviceNames(false);
+            if (defOutIdx >= 0 && defOutIdx < outNames.size())
+                setup.outputDeviceName = outNames[defOutIdx];
+            else if (!outNames.isEmpty())
+                setup.outputDeviceName = outNames[0];
         }
+        if (currentType != nullptr && !setup.outputDeviceName.isEmpty() && !hasDevice(setup.outputDeviceName.toStdString(), false)) {
+            const int defOutIdx = currentType->getDefaultDeviceIndex(false);
+            const auto outNames = currentType->getDeviceNames(false);
+            if (defOutIdx >= 0 && defOutIdx < outNames.size())
+                setup.outputDeviceName = outNames[defOutIdx];
+            else if (!outNames.isEmpty())
+                setup.outputDeviceName = outNames[0];
+            else
+                setup.outputDeviceName.clear();
+        }
+
         if (appSettings.audioInputDisabled) {
             setup.inputDeviceName.clear();
             setup.inputChannels.clear();
@@ -132,6 +161,16 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
                 setup.inputDeviceName.clear();
                 setup.useDefaultInputChannels = true;
             }
+        }
+        if (!appSettings.audioInputDisabled && currentType != nullptr && !setup.inputDeviceName.isEmpty() && !hasDevice(setup.inputDeviceName.toStdString(), true)) {
+            const int defInIdx = currentType->getDefaultDeviceIndex(true);
+            const auto inNames = currentType->getDeviceNames(true);
+            if (defInIdx >= 0 && defInIdx < inNames.size())
+                setup.inputDeviceName = inNames[defInIdx];
+            else if (!inNames.isEmpty())
+                setup.inputDeviceName = inNames[0];
+            else
+                setup.inputDeviceName.clear();
         }
         setup.sampleRate = appSettings.sampleRate > 0.0 ? appSettings.sampleRate : 48000.0;
         if (appSettings.bufferSize > 0)

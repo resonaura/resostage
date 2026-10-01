@@ -47,6 +47,8 @@ export function StripButton({
   return (
     <button
       type="button"
+      tabIndex={-1}
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onPress}
       onContextMenu={onContextMenu}
       title={title}

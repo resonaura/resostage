@@ -71,10 +71,16 @@ function SliderRoot({
     onChange?.(value);
   };
 
+  const handleMouseDown = (e: React.MouseEvent<HTMLElement>) => {
+    // Sliders in DAW should not steal keyboard focus from the arrangement/editor canvas
+    e.preventDefault();
+  };
+
   return (
     <HeroSlider
       className={withTone(className, tone)}
       onChange={handleChange}
+      onMouseDown={handleMouseDown}
       {...rest}
     />
   );

@@ -96,6 +96,19 @@ export function EditorScreen({
     [toggleInspector],
   );
 
+  useEffect(() => {
+    return hotkeyManager.registerCommand(
+      "editor.toggle-tab",
+      "tab",
+      { scope: HotkeyScope.Global, priority: 50 },
+      () => {
+        if (compact) return false;
+        setTab((curr) => (curr === "timeline" ? "pianoroll" : "timeline"));
+        return true;
+      },
+    );
+  }, [compact]);
+
   if (!state.projectName) {
     return (
       <div className="p-6 text-sm text-foreground/50">No project loaded.</div>

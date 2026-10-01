@@ -25,10 +25,16 @@ export function TrackStateButtons({
   const base = `flex shrink-0 items-center justify-center rounded border font-bold transition-colors ${compact ? "h-4.5 w-4.5 text-[9px]" : "h-6 w-6 text-[11px]"}`;
   const inactive = "border-default/30 bg-surface/60 text-foreground/70 hover:bg-surface";
 
+  const handleMouseDown = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+  };
+
   return (
     <div className="inline-flex items-center gap-1" role="group" aria-label={`${track.name || track.id} track controls`}>
       <button
         type="button"
+        tabIndex={-1}
+        onMouseDown={handleMouseDown}
         className={`${base} ${track.mute ? "border-(--rs-mute) bg-(--rs-mute) text-white" : inactive}`}
         aria-label="Mute"
         aria-pressed={track.mute}
@@ -36,6 +42,8 @@ export function TrackStateButtons({
       >M</button>
       <button
         type="button"
+        tabIndex={-1}
+        onMouseDown={handleMouseDown}
         className={`${base} ${track.solo ? "border-(--rs-solo) bg-(--rs-solo) text-black" : inactive} ${track.soloSafe ? "ring-1 ring-danger ring-inset" : ""}`}
         aria-label="Solo"
         aria-pressed={track.solo}
@@ -51,6 +59,8 @@ export function TrackStateButtons({
       <span className="mx-0.5 h-4 w-px bg-default/30" aria-hidden="true" />
       <button
         type="button"
+        tabIndex={-1}
+        onMouseDown={handleMouseDown}
         disabled={!canRecord}
         className={`${base} ${track.recordArmed ? "border-(--rs-record) bg-(--rs-record) text-white" : inactive} disabled:opacity-30`}
         style={focused && !track.recordArmed ? { color: "var(--rs-record)" } : undefined}
@@ -60,6 +70,8 @@ export function TrackStateButtons({
       >R</button>
       <button
         type="button"
+        tabIndex={-1}
+        onMouseDown={handleMouseDown}
         disabled={!canRecord}
         className={`${base} ${track.inputMonitoring ? "border-(--rs-monitor) bg-(--rs-monitor) text-black" : inactive} disabled:opacity-30`}
         style={focused && !track.inputMonitoring ? { color: "var(--rs-monitor)" } : undefined}

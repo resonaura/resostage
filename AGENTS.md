@@ -182,6 +182,30 @@ binding in DOM menus and sends a platform accelerator to Electron menus.
 Electron-native labels must escape literal ampersands because Electron treats
 single `&` characters as mnemonic markers on Windows/Linux.
 
+DAW keyboard focus isolation and transport protection:
+- Standard DAW chrome controls (`Button`, `ToggleButton`, `Switch`, `Slider`,
+  `TrackStateButtons`, strip faders, knobs, and mute/solo/arm/monitor toggles)
+  default to `tabIndex={-1}` and React Aria `excludeFromTabOrder={true}` to prevent
+  accidental sequential Tab cycling through mixer/timeline parameters.
+- Control clicks prevent default on `mousedown` (`e.preventDefault()`) when
+  `tabIndex === -1` so clicking buttons or sliders does not steal DOM focus away
+  from the arrangement timeline or piano roll canvas.
+- `Tab` key outside editable text inputs is captured by `HotkeyManager` and Electron
+  `before-input-event`: it disables default browser sequential element cycling. In
+  `EditorScreen`, bare `Tab` dispatches `editor.toggle-tab` to toggle between the
+  timeline and piano roll (matching standard DAW ergonomics like Ableton Live/Bitwig).
+- Text input fields (`<input>`, `<textarea>`, contenteditable) auto-blur on
+  `Escape` and `Enter` (for single-line `input`), releasing focus back to the canvas.
+- `Space` key transport protection: Spacebar immediately blurs any lingering active
+  DOM element, prevents default browser scroll, and triggers transport toggle.
+- Electron main process guards: `before-input-event` catches `Cmd+R` / `Ctrl+R` to
+  prevent accidental web view reloads during live performance, handles Tab outside
+  typing, and ensures Spacebar transport fallback.
+- Settings Screen scrolling: All Settings tabs (`audio`, `midi`, `appearance`,
+  `performance`, `health`, `remote`, `plugins`) wrap their scrollable content in
+  `ScrollShadow` (`<ScrollShadow orientation="vertical">`) for deterministic visual
+  indicators at scroll boundaries without browser scrollbar artifacts.
+
 macOS Touch Bar and application menu flash affordances:
 - Touch Bar screen-switching tabs update in-place via `TouchBarButton.backgroundColor`
   rather than recreating and assigning a new `NSTouchBar` on each tab change.
@@ -353,12 +377,21 @@ Preserve these rules:
   using smooth 32-sample glide to prevent declick artifacts. The real-time timeline
   and mixer waveform canvas mirrors active polarity state by vertically inverting rendered
   peaks (`maxV = -minV`, `minV = -origMax`).
-- Hardware audio input configuration:
-  `AppSettings` persists `inputDeviceName` and `activeInputChannels` bitmap,
-  plus `audioInputDisabled` so an explicit user-selected “None” remains distinct
-  from an unset first-run preference. At startup, a saved device is applied
-  only if the active host API still exposes it; a missing saved device falls
-  back to the driver's default without erasing the saved name. Explicit input
+- Hardware audio input and output device separation:
+  `AppSettings` persists `inputDeviceName` and `outputDeviceName`, `activeInputChannels`
+  and `activeOutputChannels` bitmaps, plus `audioInputDisabled` so an explicit
+  user-selected “None” remains distinct from an unset first-run preference. Input-only
+  devices (such as microphones with 0 output channels) are strictly filtered and guarded
+  against appearing in output device lists or being chosen as `outputDeviceName` across
+  hardware scanning (`MainComponentSettingsHardware.cpp`), device switching
+  (`MainComponentSettingsAudio.cpp`), initialization fallback (`MainComponent.cpp`),
+  and UI presentation (`AudioSettingsTab.tsx` / `filterAudioDevices.ts`). Output-only
+  devices (speakers, headphones) are symmetrically excluded from input device lists.
+  For unified drivers (e.g. ASIO) channel counts are probed dynamically before
+  classifying device directions.
+  At startup, a saved device is applied only if the active host API still exposes it;
+  a missing saved device falls back to the driver's default output/input device without
+  erasing the saved name or selecting an input-only device as output. Explicit input
   disablement always overrides that fallback.
   `MainComponent` computes and publishes full hardware latency breakdown
   (`inputLatencyMs`, `outputLatencyMs`, `roundtripLatencyMs`) served via

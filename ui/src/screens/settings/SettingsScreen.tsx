@@ -14,7 +14,7 @@ import {
   SlidersHorizontal,
   Zap,
 } from "lucide-react";
-import { Tabs } from "@/components/ui";
+import { ScrollShadow, Tabs } from "@/components/ui";
 import type { WebUiState } from "@/lib/state/types";
 import { AudioSettingsTab } from "@/screens/settings/audio/components/AudioSettingsTab";
 import { HealthSettingsTab } from "@/screens/settings/health/components/HealthSettingsTab";
@@ -84,17 +84,27 @@ export function SettingsScreen({
           <Tabs.Panel
             key={tab.id}
             id={tab.id}
-            className="flex-1 overflow-auto pt-4 pb-6"
+            className="flex-1 min-h-0"
           >
-            {tab.id === "audio" && <AudioSettingsTab state={state} />}
-            {tab.id === "midi" && <MidiSettingsTab state={state} />}
-            {tab.id === "appearance" && <AppearanceSettingsTab theme={theme} />}
-            {tab.id === "performance" && (
-              <PerformanceSettingsTab state={state} performance={performance} />
+            {tab.id === "plugins" ? (
+              <div className="h-full p-4">
+                <PluginsTab />
+              </div>
+            ) : (
+              <ScrollShadow
+                orientation="vertical"
+                className="h-full w-full overflow-y-auto px-6 pt-4 pb-6"
+              >
+                {tab.id === "audio" && <AudioSettingsTab state={state} />}
+                {tab.id === "midi" && <MidiSettingsTab state={state} />}
+                {tab.id === "appearance" && <AppearanceSettingsTab theme={theme} />}
+                {tab.id === "performance" && (
+                  <PerformanceSettingsTab state={state} performance={performance} />
+                )}
+                {tab.id === "health" && <HealthSettingsTab state={state} />}
+                {tab.id === "remote" && <RemoteSettingsSection />}
+              </ScrollShadow>
             )}
-            {tab.id === "health" && <HealthSettingsTab state={state} />}
-            {tab.id === "plugins" && <PluginsTab />}
-            {tab.id === "remote" && <RemoteSettingsSection />}
           </Tabs.Panel>
         ))}
       </Tabs>

@@ -46,6 +46,8 @@ export function StripStateControls({
             {onRecordArm && (
               <button
                 type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={onRecordArm}
                 title={
                   recordArmed
@@ -73,6 +75,8 @@ export function StripStateControls({
             {onInputMonitor && (
               <button
                 type="button"
+                tabIndex={-1}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={onInputMonitor}
                 title={
                   inputMonitoring
