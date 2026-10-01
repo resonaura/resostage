@@ -16,6 +16,7 @@ interface PianoRollViewportGesturesOptions {
   isFollowSuspendedRef: MutableRefObject<boolean>;
   keyWidth: number;
   onViewportChange: Dispatch<SetStateAction<PianoRollViewport>>;
+  onSuspendFollow?: () => void;
 }
 
 /** Owns the non-passive trackpad/mouse listeners that zoom and pan the Piano Roll. */
@@ -26,6 +27,7 @@ export function usePianoRollViewportGestures({
   isFollowSuspendedRef,
   keyWidth,
   onViewportChange,
+  onSuspendFollow,
 }: PianoRollViewportGesturesOptions) {
   // ── Non-Passive Wheel & Trackpad Gesture Listeners ────────────────────────
   useEffect(() => {
@@ -102,6 +104,7 @@ export function usePianoRollViewportGestures({
         // Natural 2D scroll (trackpad pan or mouse wheel)
         if (isPlaying) {
           isFollowSuspendedRef.current = true;
+          onSuspendFollow?.();
         }
 
         if (e.shiftKey) {

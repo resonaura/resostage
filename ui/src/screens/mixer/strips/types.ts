@@ -61,6 +61,7 @@ export type ChannelStripProps = {
   recordArmed?: boolean;
   inputMonitoring?: boolean;
   isRecording?: boolean;
+  isFocused?: boolean;
   isMaster?: boolean;
   shortTermLufs?: number;
   onRecordArm?: () => void;
@@ -90,6 +91,7 @@ export type TrackStripProps = {
   anySoloInGroup?: boolean;
   pluginCatalog: PluginCatalogEntry[];
   isRecording?: boolean;
+  isFocused?: boolean;
   density?: "narrow" | "standard" | "wide";
   targetPluginSlots?: number;
   onDirectOutput: (

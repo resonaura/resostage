@@ -4,10 +4,12 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
+import { useCallback } from "react";
 import { Button } from "@/components/ui";
 import { Music, Plus } from "lucide-react";
 import { emptyProjectActions, EmptyProjectState } from "@/screens/editor/project/components/EmptyProjectState";
 import { builder, timelineHistory, transport } from "@/lib/state/api";
+import { useContinuousPlayhead } from "@/lib/state/optimistic";
 import { getTrackColor } from "@/lib/theme";
 import { songDurationSeconds } from "@/screens/editor/timeline/layout/logic/rows";
 import type {
@@ -140,10 +142,27 @@ export function PianoRollEditorTab({
       region.id !== activeRegion.id &&
       effectiveVisibleRegionIds.includes(region.id),
   );
-  const playheadBeats =
-    currentSong.bpm > 0
-      ? (state.playheadSeconds * currentSong.bpm) / 60.0
-      : 0;
+  const [playheadAbsoluteSec, , getLivePlayheadAbsolute] =
+    useContinuousPlayhead(
+      state.playheadSeconds,
+      state.playing,
+      state.projectName,
+      false, // frozen
+      undefined, // draggingRef
+      undefined, // cycleWrapRef
+      false, // publishToReact = false
+    );
+
+  const bpm = currentSong.bpm > 0 ? currentSong.bpm : 120;
+  const staticSongBeats = (playheadAbsoluteSec * bpm) / 60.0;
+  const playheadBeats = staticSongBeats - activeRegion.startBeats;
+
+  const getLivePlayheadBeats = useCallback(() => {
+    const liveSec = getLivePlayheadAbsolute();
+    const currentBpm = currentSong.bpm > 0 ? currentSong.bpm : 120;
+    const songBeats = (liveSec * currentBpm) / 60.0;
+    return songBeats - activeRegion.startBeats;
+  }, [getLivePlayheadAbsolute, currentSong.bpm, activeRegion.startBeats]);
 
   const handleNotesChange = (updatedNotes: MidiNoteRow[]) => {
     // Keep the lossless MIDI 2.0 shadow values in sync with the
@@ -260,7 +279,8 @@ export function PianoRollEditorTab({
           });
         }}
         trackColor={trackColor}
-        playheadBeats={playheadBeats - activeRegion.startBeats}
+        playheadBeats={playheadBeats}
+        getLivePlayheadBeats={getLivePlayheadBeats}
         timeSignatureNumerator={currentSong.tsNum || 4}
         isPlaying={state.playing}
         onSeek={(regionRelativeBeats) => {

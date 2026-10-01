@@ -82,19 +82,19 @@ export function AppHeader({
         {(!IS_EMBEDDED && !IS_ELECTRON) || remoteHost ? (
           <ProjectMenu state={state} onRender={onRender} />
         ) : null}
-        {/* Musical Typing / Virtual MIDI Keyboard Toggle */}
+        {/* Virtual Keyboard Toggle */}
         <Tooltip>
           <Button
             isIconOnly
             size="sm"
             variant={isVirtualKeyboardOpen ? "accent-soft" : "default-soft"}
             onPress={onToggleVirtualKeyboard}
-            aria-label="Musical Typing Keyboard"
+            aria-label="Virtual Keyboard"
             className={`h-8 w-8 ${isVirtualKeyboardOpen ? "text-accent" : "text-foreground/70 hover:text-foreground"}`}
           >
             <Keyboard size={15} />
           </Button>
-          <Tooltip.Content>Musical Typing / Virtual MIDI Keyboard (Cmd+K)</Tooltip.Content>
+          <Tooltip.Content>Virtual Keyboard (Cmd+K)</Tooltip.Content>
         </Tooltip>
 
         <ConnectionBadge

@@ -6,7 +6,6 @@
 
 import {
   GripVertical,
-  Keyboard,
   Minus,
   Plus,
   RotateCcw,
@@ -65,7 +64,7 @@ export function VirtualKeyboardHeader({
       onDoubleClick={standalone ? undefined : onResetPosition}
       title={
         standalone
-          ? "Musical Typing"
+          ? "Virtual Keyboard"
           : "Drag to reposition · Double-click to reset"
       }
       style={
@@ -91,10 +90,11 @@ export function VirtualKeyboardHeader({
             className="text-foreground/30 hover:text-foreground/60 shrink-0"
           />
         )}
-        <div className="flex items-center gap-1.5 font-semibold text-foreground">
-          <Keyboard size={16} className="text-accent" />
-          <span>Musical Typing</span>
-        </div>
+        {!standalone && (
+          <span className="font-semibold text-foreground text-xs">
+            Virtual Keyboard
+          </span>
+        )}
 
         {/* Active target track info & quick arm */}
         {activeInstrument && activeInstrumentIndex >= 0 ? (
@@ -225,7 +225,7 @@ export function VirtualKeyboardHeader({
         <div
           className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 text-[10px] font-mono transition-all select-none ${
             isSustainDown
-              ? "bg-accent/25 border-accent text-accent font-semibold shadow-[0_0_10px_rgba(255,214,10,0.35)]"
+              ? "bg-accent/25 border-accent text-accent font-semibold shadow-sm"
               : "bg-default/20 border-default/30 text-foreground/50"
           }`}
           title="Sustain Pedal (Hold Tab key to sustain notes · CC 64)"
@@ -252,7 +252,7 @@ export function VirtualKeyboardHeader({
         <button
           type="button"
           onClick={onClose}
-          title="Close Musical Typing (Esc / Cmd+K)"
+          title="Close Virtual Keyboard (Esc / Cmd+K)"
           className="flex h-6 w-6 items-center justify-center rounded-lg hover:bg-default/30 text-foreground/60 hover:text-foreground transition-colors"
         >
           <X size={15} />

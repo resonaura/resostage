@@ -150,7 +150,7 @@ export function VirtualMidiKeyboard({
     <div
       ref={containerRef}
       role="region"
-      aria-label="Virtual MIDI Keyboard"
+      aria-label="Virtual Keyboard"
       style={
         standalone
           ? undefined
@@ -163,10 +163,10 @@ export function VirtualMidiKeyboard({
       }
       className={
         standalone
-          ? "w-full h-full flex flex-col bg-background text-xs select-none p-3 overflow-hidden justify-between border-t border-white/5"
+          ? "w-full h-full flex flex-col bg-background text-xs select-none p-3 overflow-hidden justify-between border-t border-default/20"
           : `fixed ${
               position ? "" : "bottom-9 left-1/2 -translate-x-1/2"
-            } z-40 flex flex-col w-[96vw] max-w-170 rounded-2xl border border-white/10 bg-background-secondary/80 backdrop-blur-2xl p-2.5 text-xs select-none shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_2px_6px_rgba(0,0,0,0.35),0_12px_28px_-4px_rgba(0,0,0,0.55),0_36px_84px_-10px_rgba(0,0,0,0.7)] ${
+            } z-40 flex flex-col w-[96vw] max-w-170 rounded-2xl border border-default/30 bg-background-secondary/95 backdrop-blur-2xl p-2.5 text-xs select-none shadow-2xl ${
               isDragging ? "cursor-grabbing select-none" : ""
             }`
       }

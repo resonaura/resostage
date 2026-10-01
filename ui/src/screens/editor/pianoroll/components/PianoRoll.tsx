@@ -65,6 +65,7 @@ export function PianoRoll({
   onToggleRegionVisible,
   trackColor,
   playheadBeats,
+  getLivePlayheadBeats,
   timeSignatureNumerator = 4,
   isPlaying,
   onSeek,
@@ -174,18 +175,85 @@ export function PianoRoll({
     } catch {}
     return "snap";
   });
-  const [catchOnPlay, setCatchOnPlay] = useState<boolean>(true);
-  const [catchOnSeek, setCatchOnSeek] = useState<boolean>(true);
+  const [catchOnPlay, setCatchOnPlay] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("resostage.pianoroll.catchOnPlay") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const [catchOnSeek, setCatchOnSeek] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("resostage.pianoroll.catchOnSeek") !== "0";
+    } catch {
+      return true;
+    }
+  });
+
+  const preferredFollowRef = useRef<Exclude<TimelineFollowMode, "off">>(
+    followMode === "off" ? "snap" : followMode,
+  );
+  useEffect(() => {
+    if (followMode !== "off") preferredFollowRef.current = followMode;
+  }, [followMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("resostage.pianoroll.followMode", followMode);
+    } catch {}
+  }, [followMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("resostage.pianoroll.catchOnPlay", catchOnPlay ? "1" : "0");
+    } catch {}
+  }, [catchOnPlay]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("resostage.pianoroll.catchOnSeek", catchOnSeek ? "1" : "0");
+    } catch {}
+  }, [catchOnSeek]);
 
   const cycleFollowMode = useCallback(() => {
     setFollowMode((cur) => {
       const next = cur === "off" ? "snap" : cur === "snap" ? "smooth" : "off";
-      try {
-        localStorage.setItem("resostage.pianoroll.followMode", next);
-      } catch {}
       return next;
     });
   }, []);
+
+  const suspendFollowFromUserScroll = useCallback(() => {
+    setFollowMode((m) => {
+      if (m !== "off") preferredFollowRef.current = m;
+      return "off";
+    });
+  }, []);
+
+  const catchFollowOnPlay = useCallback(() => {
+    if (!catchOnPlay) return;
+    setFollowMode(preferredFollowRef.current);
+  }, [catchOnPlay]);
+
+  const catchFollowOnSeek = useCallback(() => {
+    if (!catchOnSeek) return;
+    setFollowMode(preferredFollowRef.current);
+  }, [catchOnSeek]);
+
+  const prevPlayingRef = useRef(isPlaying);
+  useEffect(() => {
+    if (isPlaying && !prevPlayingRef.current) {
+      catchFollowOnPlay();
+    }
+    prevPlayingRef.current = isPlaying;
+  }, [isPlaying, catchFollowOnPlay]);
+
+  const handleSeek = useCallback(
+    (beats: number) => {
+      catchFollowOnSeek();
+      onSeek?.(beats);
+    },
+    [catchFollowOnSeek, onSeek],
+  );
 
   const trackColorIndex = tracks?.findIndex((candidate) => candidate.id === track?.id) ?? -1;
   const effectiveTrackColor = trackColorIndex >= 0
@@ -406,15 +474,17 @@ export function PianoRoll({
           onRegionChange={onRegionChange}
           bottomLane={bottomLane}
           playheadBeats={playheadBeats}
+          getLivePlayheadBeats={getLivePlayheadBeats}
           activeMidiPitches={activeMidiPitches}
           timeSignatureNumerator={timeSignatureNumerator}
           isPlaying={isPlaying}
-          onSeek={onSeek}
+          onSeek={handleSeek}
           viewport={viewport}
           onViewportChange={setViewport}
           followMode={followMode}
           catchOnPlay={catchOnPlay}
           catchOnSeek={catchOnSeek}
+          onSuspendFollow={suspendFollowFromUserScroll}
           projectCycle={projectCycleState.cycle}
           projectSong={projectSong}
           projectSongIndex={projectSongIndex}

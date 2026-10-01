@@ -943,7 +943,7 @@ function openKeyboardWindow(): void {
     height,
     minWidth: 540,
     minHeight: 200,
-    title: "Musical Typing — ResoStage",
+    title: "Virtual Keyboard — ResoStage",
     backgroundColor: "#09090b",
     alwaysOnTop: true,
     autoHideMenuBar: true,
@@ -1624,7 +1624,7 @@ function buildMenuItem(item: MenuItemModel): MenuItemConstructorOptions {
   if (!action) return { label: item.title ?? "" };
   if (action === "toggle_musical_typing") {
     return {
-      label: item.title ?? "Show Musical Typing",
+      label: item.title ?? "Show Virtual Keyboard",
       accelerator: acceleratorFor(item.key),
       registerAccelerator: false,
       click: () => {

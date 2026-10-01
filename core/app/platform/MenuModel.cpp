@@ -225,7 +225,7 @@ static const std::vector<MenuSectionModel> kMenuModel = [] {
         section.title = "Window";
         {
             MenuItemModel item;
-            item.title = "Show Musical Typing";
+            item.title = "Show Virtual Keyboard";
             item.actionId = "toggle_musical_typing";
             item.key = mod + " + k";
             section.items.push_back(std::move(item));

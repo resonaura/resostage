@@ -115,6 +115,7 @@ export interface PianoRollProps {
   onToggleRegionVisible?: (regionId: string, visible: boolean) => void;
   trackColor?: string;
   playheadBeats?: number;
+  getLivePlayheadBeats?: () => number;
   timeSignatureNumerator?: number;
   isPlaying?: boolean;
   onSeek?: (beats: number) => void;

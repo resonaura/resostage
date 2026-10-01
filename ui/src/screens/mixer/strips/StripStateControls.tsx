@@ -11,6 +11,7 @@ export function StripStateControls({
   recordArmed,
   inputMonitoring,
   isRecording,
+  isFocused = false,
   onRecordArm,
   onInputMonitor,
   mute,
@@ -25,6 +26,7 @@ export function StripStateControls({
   recordArmed?: boolean;
   inputMonitoring?: boolean;
   isRecording: boolean;
+  isFocused?: boolean;
   onRecordArm?: () => void;
   onInputMonitor?: () => void;
   mute: boolean;
@@ -54,15 +56,25 @@ export function StripStateControls({
                     ? isRecording
                       ? "Recording active"
                       : "Record Armed (Click to disarm)"
-                    : "Record Arm (Click to arm)"
+                    : isFocused
+                      ? "Focused track — click to record-arm"
+                      : "Record Arm (Click to arm)"
                 }
-                aria-label="Record Arm"
+                aria-label={
+                  recordArmed
+                    ? "Record armed"
+                    : isFocused
+                      ? "Focused track — click to record-arm"
+                      : "Record Arm"
+                }
                 className={`relative flex h-4.5 flex-1 items-center justify-center rounded border text-[9px] font-bold transition-all select-none ${
                   recordArmed
                     ? isRecording
                       ? "border-(--rs-record) bg-(--rs-record) text-white shadow-[0_0_8px_rgba(255,59,48,0.7)]"
                       : "border-(--rs-record) bg-(--rs-record)/20 text-(--rs-record) rs-recording-blink font-bold"
-                    : "border-default/30 bg-surface/60 text-foreground/75 hover:border-(--rs-record)/60 hover:text-(--rs-record)"
+                    : isFocused
+                      ? "border-(--rs-record)/40 bg-surface/60 text-(--rs-record) font-black hover:border-(--rs-record)/80"
+                      : "border-default/30 bg-surface/60 text-foreground/75 hover:border-(--rs-record)/60 hover:text-(--rs-record)"
                 }`}
               >
                 {isRecording ? (
@@ -81,13 +93,23 @@ export function StripStateControls({
                 title={
                   inputMonitoring
                     ? "Input Monitoring Active"
-                    : "Input Monitoring"
+                    : isFocused
+                      ? "Focused track — input monitored automatically"
+                      : "Input Monitoring"
                 }
-                aria-label="Input Monitoring"
+                aria-label={
+                  inputMonitoring
+                    ? "Input monitoring enabled"
+                    : isFocused
+                      ? "Focused track — input monitored automatically"
+                      : "Input Monitoring"
+                }
                 className={`relative flex h-4.5 flex-1 items-center justify-center rounded border text-[9px] font-bold transition-all select-none ${
                   inputMonitoring
                     ? "border-(--rs-monitor) bg-(--rs-monitor) text-black font-bold shadow-[0_0_8px_rgba(255,149,0,0.5)]"
-                    : "border-default/30 bg-surface/60 text-foreground/75 hover:bg-surface hover:text-foreground"
+                    : isFocused
+                      ? "border-(--rs-monitor)/40 bg-surface/60 text-(--rs-monitor) font-black hover:border-(--rs-monitor)/80"
+                      : "border-default/30 bg-surface/60 text-foreground/75 hover:bg-surface hover:text-foreground"
                 }`}
               >
                 I

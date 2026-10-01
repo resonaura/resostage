@@ -16,7 +16,7 @@ import type { StripMenuTarget } from "@/screens/mixer/strips/StripContextMenu";
 
 type TrackRackState = Pick<
   WebUiState,
-  "tracks" | "busses" | "meters" | "settings" | "recording"
+  "tracks" | "busses" | "meters" | "settings" | "recording" | "activeTrackId"
 >;
 
 /** The horizontally virtualized track strips in the mixer. */
@@ -98,6 +98,7 @@ export function MixerTrackRack({
               anySoloInGroup={anySoloInGroup}
               pluginCatalog={pluginCatalog}
               isRecording={isRecording}
+              isFocused={track.id === state.activeTrackId}
               density={density}
               targetPluginSlots={targetPluginSlots}
               onDirectOutput={onDirectOutput}

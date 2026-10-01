@@ -81,7 +81,7 @@ export function PianoRollFollowControl({
           <ContextMenuItem
             checked={catchOnPlay ?? true}
             onClick={() => {
-              onCatchOnPlayChange(!catchOnPlay);
+              onCatchOnPlayChange(!(catchOnPlay ?? true));
             }}
           >
             Catch when Starting Playback
@@ -89,7 +89,7 @@ export function PianoRollFollowControl({
           <ContextMenuItem
             checked={catchOnSeek ?? true}
             onClick={() => {
-              onCatchOnSeekChange(!catchOnSeek);
+              onCatchOnSeekChange(!(catchOnSeek ?? true));
             }}
           >
             Catch when Moving Playhead

@@ -68,6 +68,11 @@ export function drawPianoRollBottomLane({
     ctx.font = "9px sans-serif";
     ctx.fillText("VELOCITY", 8, laneY + 14);
 
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(viewport.keyWidth, laneY, width - viewport.keyWidth, height - laneY);
+    ctx.clip();
+
     for (const { note, beat: noteBeat } of timeVisibleNotes) {
       const isSelected = selectedNoteIds.has(note.id);
       const x = beatToX(noteBeat);
@@ -89,6 +94,7 @@ export function drawPianoRollBottomLane({
       ctx.arc(x, stalkTop, 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.restore();
     return;
   }
 

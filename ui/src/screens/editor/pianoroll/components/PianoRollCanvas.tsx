@@ -50,6 +50,7 @@ interface PianoRollCanvasProps {
   onRegionChange?: (region: MidiRegionRow) => void;
   bottomLane?: PianoRollBottomLane;
   playheadBeats?: number;
+  getLivePlayheadBeats?: () => number;
   activeMidiPitches?: Set<number>;
   timeSignatureNumerator?: number;
   isPlaying?: boolean;
@@ -59,6 +60,7 @@ interface PianoRollCanvasProps {
   followMode?: TimelineFollowMode;
   catchOnPlay?: boolean;
   catchOnSeek?: boolean;
+  onSuspendFollow?: () => void;
   projectCycle?: CycleLocators;
   projectSong?: SongRow;
   projectSongIndex?: number;
@@ -86,6 +88,7 @@ export function PianoRollCanvas({
   onRegionChange,
   bottomLane = "velocity",
   playheadBeats,
+  getLivePlayheadBeats,
   activeMidiPitches = new Set<number>(),
   timeSignatureNumerator = 4,
   isPlaying = false,
@@ -95,6 +98,7 @@ export function PianoRollCanvas({
   followMode = "snap",
   catchOnPlay = true,
   catchOnSeek = true,
+  onSuspendFollow,
   projectCycle,
   projectSong,
   projectSongIndex = 0,
@@ -107,6 +111,7 @@ export function PianoRollCanvas({
 }: PianoRollCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const playheadRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
 
@@ -216,14 +221,19 @@ export function PianoRollCanvas({
 
   usePianoRollPlayheadFollow({
     canvasRef,
+    containerRef,
+    playheadRef,
     isFollowSuspendedRef,
     isPlaying,
     followMode,
     catchOnPlay,
+    catchOnSeek,
     playheadBeats,
+    getLivePlayheadBeats,
     viewport,
     projectBpm: projectSong?.bpm,
     onViewportChange,
+    draggingRef,
   });
 
   // ── Render Loop ────────────────────────────────────────────────────────
@@ -258,6 +268,7 @@ export function PianoRollCanvas({
     isFollowSuspendedRef,
     keyWidth: viewport.keyWidth,
     onViewportChange,
+    onSuspendFollow,
   });
 
   const handlePointerDown = usePianoRollPointerDownHandler({
@@ -406,12 +417,17 @@ export function PianoRollCanvas({
       />
       {playheadBeats !== undefined && (
         <div
-          className="pointer-events-none absolute inset-y-0 z-50 w-0"
-          style={{ left: beatToX(playheadBeats) }}
+          className="pointer-events-none absolute inset-y-0 inset-x-0 z-50 overflow-hidden"
+          style={{ clipPath: `inset(0 0 0 ${viewport.keyWidth}px)` }}
         >
-          <div className="absolute inset-y-0 left-0 w-[1.5px] -translate-x-1/2 bg-white shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
-          <div className="absolute left-0 top-0 -translate-x-1/2">
-            <div className="h-0 w-0 border-x-[5px] border-t-[7px] border-x-transparent border-t-white" />
+          <div
+            ref={playheadRef}
+            className="absolute inset-y-0 w-0"
+          >
+            <div className="absolute inset-y-0 left-0 w-[1.5px] -translate-x-1/2 bg-white shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+            <div className="absolute left-0 top-0 -translate-x-1/2">
+              <div className="h-0 w-0 border-x-[5px] border-t-[7px] border-x-transparent border-t-white" />
+            </div>
           </div>
         </div>
       )}

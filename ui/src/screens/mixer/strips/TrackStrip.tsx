@@ -31,6 +31,7 @@ function TrackStripInner({
   anySoloInGroup,
   pluginCatalog,
   isRecording = false,
+  isFocused = false,
   density = "standard",
   targetPluginSlots,
   onDirectOutput,
@@ -150,6 +151,7 @@ function TrackStripInner({
         recordArmed={t.recordArmed}
         inputMonitoring={t.inputMonitoring}
         isRecording={isRecording}
+        isFocused={isFocused}
         onRecordArm={
           canRecord
             ? () => void mixer.setTrackRecordArm(index, !t.recordArmed)

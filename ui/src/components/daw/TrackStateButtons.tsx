@@ -62,9 +62,21 @@ export function TrackStateButtons({
         tabIndex={-1}
         onMouseDown={handleMouseDown}
         disabled={!canRecord}
-        className={`${base} ${track.recordArmed ? "border-(--rs-record) bg-(--rs-record) text-white" : inactive} disabled:opacity-30`}
+        className={`${base} ${
+          track.recordArmed
+            ? "border-(--rs-record) bg-(--rs-record) text-white font-black"
+            : focused
+              ? "border-(--rs-record)/40 bg-surface/60 text-(--rs-record) font-black hover:border-(--rs-record)/80"
+              : inactive
+        } disabled:opacity-30`}
         style={focused && !track.recordArmed ? { color: "var(--rs-record)" } : undefined}
-        aria-label="Record arm"
+        aria-label={
+          track.recordArmed
+            ? "Record armed"
+            : focused
+              ? "Focused track — click to record-arm"
+              : "Record arm"
+        }
         aria-pressed={Boolean(track.recordArmed)}
         onClick={() => void mixer.setTrackRecordArm(index, !track.recordArmed)}
       >R</button>
@@ -73,9 +85,21 @@ export function TrackStateButtons({
         tabIndex={-1}
         onMouseDown={handleMouseDown}
         disabled={!canRecord}
-        className={`${base} ${track.inputMonitoring ? "border-(--rs-monitor) bg-(--rs-monitor) text-black" : inactive} disabled:opacity-30`}
+        className={`${base} ${
+          track.inputMonitoring
+            ? "border-(--rs-monitor) bg-(--rs-monitor) text-black font-black"
+            : focused
+              ? "border-(--rs-monitor)/40 bg-surface/60 text-(--rs-monitor) font-black hover:border-(--rs-monitor)/80"
+              : inactive
+        } disabled:opacity-30`}
         style={focused && !track.inputMonitoring ? { color: "var(--rs-monitor)" } : undefined}
-        aria-label="Input monitoring"
+        aria-label={
+          track.inputMonitoring
+            ? "Input monitoring enabled"
+            : focused
+              ? "Focused track — input monitored automatically"
+              : "Input monitoring"
+        }
         aria-pressed={Boolean(track.inputMonitoring)}
         onClick={() => void mixer.setTrackInputMonitor(index, !track.inputMonitoring)}
       >I</button>

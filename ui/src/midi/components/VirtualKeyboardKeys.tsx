@@ -33,7 +33,7 @@ export function VirtualKeyboardKeys({
 
   return (
     <div
-      className={`relative w-full ${standalone ? "flex-1 min-h-27.5" : "h-28 sm:h-32"} bg-background/90 rounded-xl p-1 overflow-hidden select-none touch-none shadow-inner border border-default/30`}
+      className={`relative w-full ${standalone ? "flex-1 min-h-27.5" : "h-28 sm:h-32"} bg-background-tertiary/60 rounded-xl p-1 overflow-hidden select-none touch-none shadow-inner border border-default/30`}
     >
       {/* White keys container */}
       <div className="flex h-full w-full">

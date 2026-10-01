@@ -50,6 +50,7 @@ export function ChannelStrip({
   recordArmed,
   inputMonitoring,
   isRecording = false,
+  isFocused = false,
   isMaster: _isMaster = false,
   shortTermLufs: _shortTermLufs,
   onRecordArm,
@@ -264,6 +265,7 @@ export function ChannelStrip({
         recordArmed={recordArmed}
         inputMonitoring={inputMonitoring}
         isRecording={isRecording}
+        isFocused={isFocused}
         onRecordArm={onRecordArm}
         onInputMonitor={onInputMonitor}
         mute={mute}

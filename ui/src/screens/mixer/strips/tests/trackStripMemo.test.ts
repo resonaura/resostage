@@ -155,6 +155,9 @@ describe("areTrackStripPropsEqual", () => {
       areTrackStripPropsEqual(current, { ...current, settings: { ...settings } }),
     ).toBe(false);
     expect(
+      areTrackStripPropsEqual(current, { ...current, isFocused: true }),
+    ).toBe(false);
+    expect(
       areTrackStripPropsEqual(current, { ...current, onOpenPlugins: () => {} }),
     ).toBe(false);
   });

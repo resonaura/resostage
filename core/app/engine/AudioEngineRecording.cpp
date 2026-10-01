@@ -45,39 +45,19 @@ void AudioEngine::startRecording(int targetTrackIndex) {
 
     auto& tracks = loader.project().tracks;
 
-    // Logic Pro standard behavior: If no tracks are record-armed when user hits record,
-    // automatically arm the target track (or first eligible audio/instrument track).
+    int ephemeralArmTrackIdx = -1;
     if (activeRecordArmCount.load(std::memory_order_relaxed) == 0 && !tracks.empty()) {
-        int armTrackIdx = -1;
         if (targetTrackIndex >= 0 && targetTrackIndex < static_cast<int>(tracks.size())
             && trackSupportsRecordArm(tracks[static_cast<size_t>(targetTrackIndex)])) {
-            armTrackIdx = targetTrackIndex;
-        }
-        if (armTrackIdx < 0 && focusedTrack() >= 0
-            && focusedTrack() < static_cast<int>(tracks.size())) {
-            if (trackSupportsRecordArm(tracks[static_cast<size_t>(focusedTrack())])) {
-                armTrackIdx = focusedTrack();
-            }
-        }
-        if (armTrackIdx < 0) {
-            for (size_t t = 0; t < tracks.size(); ++t) {
-                if (trackSupportsRecordArm(tracks[t])) {
-                    armTrackIdx = static_cast<int>(t);
-                    break;
-                }
-            }
-        }
-
-        if (armTrackIdx >= 0 && armTrackIdx < static_cast<int>(tracks.size())) {
-            tracks[static_cast<size_t>(armTrackIdx)].recordArmed = true;
-            refreshMonitoringAndArmCounts();
-            publishRoutingSnapshot();
-            markDirty();
+            ephemeralArmTrackIdx = targetTrackIndex;
+        } else if (focusedTrack() >= 0 && focusedTrack() < static_cast<int>(tracks.size())
+            && trackSupportsRecordArm(tracks[static_cast<size_t>(focusedTrack())])) {
+            ephemeralArmTrackIdx = focusedTrack();
         }
     }
 
     // Folder, lighting and bus-timeline rows cannot become recording targets.
-    if (activeRecordArmCount.load(std::memory_order_relaxed) == 0)
+    if (activeRecordArmCount.load(std::memory_order_relaxed) == 0 && ephemeralArmTrackIdx < 0)
         return;
 
     const double sr = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
@@ -126,7 +106,8 @@ void AudioEngine::startRecording(int targetTrackIndex) {
 
     for (size_t t = 0; t < tracks.size(); ++t) {
         const auto& track = tracks[t];
-        if (!track.recordArmed)
+        const bool isArmed = track.recordArmed || (static_cast<int>(t) == ephemeralArmTrackIdx);
+        if (!isArmed)
             continue;
 
         if (track.kind == TrackKind::Audio) {

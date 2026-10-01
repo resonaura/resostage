@@ -28,6 +28,7 @@ export function areTrackStripPropsEqual(
     prev.anySoloInGroup === next.anySoloInGroup &&
     prev.settings === next.settings &&
     prev.isRecording === next.isRecording &&
+    prev.isFocused === next.isFocused &&
     prev.onDirectOutput === next.onDirectOutput &&
     prev.onOpenPlugins === next.onOpenPlugins &&
     prev.pluginCatalog === next.pluginCatalog &&

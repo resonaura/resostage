@@ -4,10 +4,15 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
+import { useEffect } from "react";
 import { VirtualMidiKeyboard } from "@/midi/components/VirtualMidiKeyboard";
 import type { WebUiState } from "@/lib/state/types";
 
 export function StandaloneKeyboardWindow({ state }: { state: WebUiState }) {
+  useEffect(() => {
+    document.title = "Virtual Keyboard — ResoStage";
+  }, []);
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-background select-none text-foreground">
       <VirtualMidiKeyboard
