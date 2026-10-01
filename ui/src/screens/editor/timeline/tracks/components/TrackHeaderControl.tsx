@@ -7,8 +7,8 @@ import {
   TrackPanControl,
 } from "@/components/daw";
 import { TOGGLE_BLINK_ACCENT, ToggleButton } from "@/components/ui";
-import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { trackSelectionGesture, type TrackSelectionGesture } from "@/screens/editor/timeline/tracks/logic/trackSelection";
+import { getTrackHeaderLayout } from "@/screens/editor/timeline/tracks/logic/trackHeaderLayout";
 import { useTrackPanControl } from "@/screens/editor/timeline/tracks/hooks/useTrackPanControl";
 import { useTrackGainControl } from "@/screens/editor/timeline/tracks/hooks/useTrackGainControl";
 import { TrackGainControl } from "@/screens/editor/timeline/tracks/components/TrackGainControl";
@@ -53,27 +53,23 @@ export const TrackHeaderControl = memo(
       track.inputSource !== "none";
     const canRecord = hasAudioInput || isMidiInputTrack;
     const canMonitorInput = hasAudioInput || isMidiInputTrack;
-    const h = laneHeightPx(verticalZoom);
-    // Density tiers keyed to lane height (LANE_HEIGHT=56 at zoom 1).
-    const showVol = h >= 48;
-    const showPan = h >= 36;
-    // The fader row IS the meter, so the standalone bar is only for lanes too
-    // short to fit that row -- two meters on one track would just be the same
-    // number twice.
-    const showMeter = h >= 28 && !showVol;
-    const padY = h < 32 ? 2 : h < 48 ? 3 : h < 80 ? 4 : 6;
-    const padX = h < 36 ? 6 : 8;
-    const nameSize = h < 32 ? 10 : h < 64 ? 12 : 13;
-    const btn = showVol ? (h < 64 ? 18 : 20) : h < 36 ? 16 : 18;
-    const btnFont = showVol ? (h < 64 ? 8.5 : 9.5) : h < 36 ? 7.5 : 8.5;
-    const knobSize = showVol ? (h < 64 ? 18 : 20) : h < 48 ? 15 : 18;
-    // Quantize meter height so vertical zoom doesn't thrash ResizeObserver
-    // (and flash the canvas meters) on every sub-step.
-    const meterH = Math.round(Math.max(12, h - padY * 2 - 4) / 4) * 4;
-    // Bar height; the handle is drawn a few px proud of it (see MeterFader).
-    const faderH = h < 64 ? 12 : h < 96 ? 14 : 16;
-    const swatchH = h < 32 ? 10 : h < 64 ? 12 : 14;
-    const swatchW = h < 32 ? 5 : 6;
+    const layout = getTrackHeaderLayout(verticalZoom);
+    const {
+      height: h,
+      showVolume: showVol,
+      showPan,
+      showMeter,
+      verticalPadding: padY,
+      horizontalPadding: padX,
+      nameSize,
+      buttonSize: btn,
+      buttonFontSize: btnFont,
+      knobSize,
+      meterHeight: meterH,
+      faderHeight: faderH,
+      swatchHeight: swatchH,
+      swatchWidth: swatchW,
+    } = layout;
 
     // Optimistic polarity: instant visual toggle, 1200ms lock against stale echo
     const [optimisticPolarity, setOptimisticPolarity] = useState<
