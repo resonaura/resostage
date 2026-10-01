@@ -15,6 +15,7 @@
 #include <libwebsockets.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -436,9 +437,18 @@ int WebServer::serveLiveRecordingPeaks(struct lws* wsi, const char* uri, const c
     const std::string firstStr = queryParam(queryArgs, "first");
     const std::string countStr = queryParam(queryArgs, "count");
 
-    size_t level = levelStr.empty() ? 0 : static_cast<size_t>(std::max(0, std::stoi(levelStr)));
-    size_t first = firstStr.empty() ? 0 : static_cast<size_t>(std::max(0, std::stoi(firstStr)));
-    size_t count = countStr.empty() ? 512 : static_cast<size_t>(std::clamp(std::stoi(countStr), 1, 4096));
+    const auto parseUnsigned = [](const std::string& text, size_t& value) {
+        if (text.empty()) return true;
+        const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+        return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size();
+    };
+    size_t level = 0;
+    size_t first = 0;
+    size_t count = 512;
+    if (!parseUnsigned(levelStr, level) || level >= kMaxPeakLevels
+        || !parseUnsigned(firstStr, first) || !parseUnsigned(countStr, count))
+        return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid live peak range");
+    count = std::clamp<size_t>(count, 1, 4096);
 
     std::vector<PeakPair16> rawPeaks;
     if (livePeaksProvider) {

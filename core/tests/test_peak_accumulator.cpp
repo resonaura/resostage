@@ -8,6 +8,7 @@
 #include "audio/recording/AudioRecordWorker.h"
 
 #include <vector>
+#include <limits>
 
 using namespace resostage;
 
@@ -84,5 +85,47 @@ TEST_SUITE("PeakMipAccumulator") {
         // Query beyond end
         auto emptyChunk = pyramid.getPeaks(0, 150, 10);
         CHECK(emptyChunk.empty());
+
+        // The range end must not wrap when an internal caller asks for all
+        // remaining bins. HTTP requests impose their own 4096-bin cap.
+        auto remaining = pyramid.getPeaks(0, 95, std::numeric_limits<size_t>::max());
+        REQUIRE(remaining.size() == 5);
+        CHECK(remaining.back().max == 990);
+    }
+
+    TEST_CASE("Long-show live pyramid preserves extrema through every bounded coarse level") {
+        PeakMipAccumulator accumulator;
+        LivePeakPyramid pyramid;
+        const size_t baseCount = size_t{1} << (kMaxPeakLevels - 1);
+        size_t totalEmitted = 0;
+        size_t largestMerge = 0;
+        for (size_t i = 0; i < baseCount; ++i) {
+            size_t emittedThisPeak = 0;
+            const PeakPair16 peak{
+                static_cast<int16_t>(i == 17 ? -32000 : -100),
+                static_cast<int16_t>(i == baseCount - 1 ? 31000 : 100),
+            };
+            accumulator.pushLevel0(peak, [&](size_t level, PeakPair16 merged) {
+                REQUIRE(level < kMaxPeakLevels);
+                pyramid.addPeak(level, merged);
+                ++emittedThisPeak;
+                ++totalEmitted;
+            });
+            largestMerge = std::max(largestMerge, emittedThisPeak);
+        }
+
+        size_t legacyEmitted = 0;
+        for (size_t level = 0; level < kMaxPeakLevels; ++level) {
+            CHECK(pyramid.size(level) == (baseCount >> level));
+            if (level < 6) legacyEmitted += pyramid.size(level);
+        }
+        CHECK(totalEmitted == 2 * baseCount - 1);
+        CHECK(largestMerge == kMaxPeakLevels);
+        CHECK(totalEmitted - legacyEmitted < baseCount / 32);
+        const auto overview = pyramid.getPeaks(kMaxPeakLevels - 1, 0, 4096);
+        REQUIRE(overview.size() == 1);
+        CHECK(overview[0].min == -32000);
+        CHECK(overview[0].max == 31000);
+        CHECK(pyramid.getPeaks(kMaxPeakLevels, 0, 1).empty());
     }
 }

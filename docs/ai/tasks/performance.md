@@ -1,77 +1,79 @@
-# AU/VST3 power-control ownership and predictable callback work
+# Indexed plug-in activity and heavy-project acceptance
 
-## Objective
+Status: current follow-up, 2026-10-01. Earlier cross-thread power/bypass mailbox
+work is implemented and preserved in [the power architecture](../../architecture/PLUGIN_POWER_MANAGEMENT.md)
+and [dated benchmark evidence](../../performance/PLUGIN_BASELINE.md).
 
-Remove verified races between plug-in control requests and DSP power tracking,
-and make isolated helper power controls affect the vendor chain rather than
-only Core's proxy. Preserve crash containment, latency, tails, and bounded
-non-waiting callback work.
+## Current correctness/performance pass
 
-## Owners and boundaries
+Root is verifying these source changes before their separate commit:
 
-- `core/engine/plugins/PluginPowerManager.h`: DSP-owned follower and silent
-  sample accumulator; atomic cross-thread guard/request publication.
-- `core/engine/plugins/PluginHostProtocol.h`: fixed, versioned power mailboxes
-  and helper-published state, separate from the parameter/event queue.
-- `core/app/plugins/PluginHostProcess`, `PluginHostRuntime`, and
-  `PluginProcessorBank`: forwarding requests and reading actual helper state.
-- `core/tests/test_plugin_power_manager.cpp` and
-  `test_plugin_host_protocol.cpp`: concurrent controls, bounds, actual AU/VST3
-  power transitions, and regression coverage.
+- JUCE-free `PluginDelayBank`: builder never reads live mutable ring samples;
+  unchanged topology/rate/delay shares the one DSP owner's ring. Changed
+  delay/rate/topology starts fresh and can have a bounded refill transient.
+- Fixed helper-owned held/sustained MIDI intent keeps silent long-attack
+  instruments running. Overlapping notes/channel ownership, sustain and panic
+  are counted without growing storage. Saturation conservatively stays awake.
+- A guarded quiet tracker skips per-sample envelope work and starts a full
+  quiet hold after its guard leaves. The second intent application after vendor
+  processing is intentionally retained for concurrent control requests.
 
-Root owns project-load readiness/play gating and history/state publication.
-Do not change those paths or bank build signatures in this focused pass.
+Do not claim these are hardware/dropout verified until the final native and
+real AU/VST3 fixture tests finish. No IPC ABI or project schema change is needed.
 
-## Plan
+## Indexed lookahead — next implementation block
 
-1. Read the full architectural contract and record an optimized baseline.
-2. Keep envelope/decay counters exclusively on the DSP thread. Public power
-   methods publish coalesced atomic intentions; snapshots expose current
-   requested state without accessing mutable DSP fields.
-3. Forward coalesced bounded power controls to the helper, including one
-   chain-level prewarm edge. Do not flood the 256-entry parameter queue from
-   per-block arrangement lookahead.
-4. Publish real helper power state through fixed atomic per-slot telemetry;
-   do not report proxy-only suspension or unloading that does not occur.
-   Bypass is also a paired latest-wins mailbox intent, so a saturated musical
-   parameter queue cannot erase On/Off. Same-project history changes to bypass
-   or keep-awake synchronize reused healthy helpers without vendor restart.
-5. Verify guard changes, park/unpark, sustained tails, concurrent writers,
-   actual AU/VST3 output, and zero queue growth. Coordinate the shared native
-   build directory with root before compiling.
+`AudioEngine.cpp` currently calls `prewarmPluginsLookahead` per callback;
+`AudioEngineEventDispatch.cpp` scans every audio/MIDI region and looks up strings
+for overlaps. This is project-size work on the deadline path, including repeated
+requests for a single strip. Prepare the work rather than changing wake timing.
 
-## Initial evidence (2026-10-01)
+1. Prepare immutable per-hosted-strip merged activity intervals off audio and
+   prebind strip indices. Keys must include project epoch, song/revision,
+   routing layout, tempo-map revision and sample rate. Find every existing
+   mutation/rebuild site first: recording, history, region edits, source trims,
+   tempo changes, project/device replacement, song switching and cycle seeks.
+2. Convert beat-based MIDI geometry through the authoritative TempoMap. Match
+   existing audio/MIDI overlap semantics, including muted/empty/unknown lengths,
+   before deliberately improving them. A stale snapshot must not silently omit
+   a wake; either rebuild at the existing safe publication boundary or reject
+   it through a defined safe path.
+3. Query at most the 32 hosted chains, each with lower_bound on sorted merged
+   interval ends; coalesce one wake per intersecting strip. Preserve current
+   repeated prewarm behavior. Wake-on-entry alone is unsafe when the predictive
+   horizon exceeds a short reported tail: the helper can sleep before playback.
+   A future bounded predictive lease needs explicit protocol/timing tests.
+4. Compare indexed and old results over 10/1,000/100,000 regions, arbitrary
+   seeks, cyclic wrapped cursors, BPM/meter changes and history restoration.
+   Test zero callback allocation, fixed snapshot lifetime, no missed instruments
+   and callback cost independent of total project region count.
 
-macOS Apple Silicon, optimized `RelWithDebInfo` build, 48 kHz synthetic graph
-context. `PluginPerformance,PluginPowerManager` baseline: 13 cases / 577
-assertions passed. Eight synthetic insert chains at 256 frames cost 3.951
-microseconds per block. This is not a heavy-vendor/device dropout claim.
+## Remaining host integrations
 
-`setKeepAwake`, `setRecordArmed`, `setInputMonitoring`, `forceAwake`, and
-`unpark` currently modify ordinary flags/counters beside DSP processing.
-Isolated proxy controls do not reach the helper. Arrangement lookahead still
-scans all song regions per callback; preparing a compact indexed activity
-snapshot is a separate follow-up after this ownership fix is verified.
+- Forward actual arm/monitor guard changes to helper DSP if semantics require
+  keeping silent monitored instruments awake. Existing setters have no normal
+  production callers; a proxy-only flag is not vendor power ownership.
+- State capture skips node execution while the vendor serializes. Test note-off,
+  sustain release, panic and dense MIDI during long state capture; retain them
+  through a bounded node-owned queue rather than dropping them or allocating.
+- Helper message-thread control timer wakes at 8 ms even idle. Replace polling
+  only with a verified event-driven/coalesced edge that preserves editor,
+  parameter/state and latency-response time. Merely slowing it increases delay.
+- Surface actual deadline misses/control/MIDI rejection counters and realistic
+  recovery behavior. Don't remove meaningful bounded IPC copies speculatively.
+- Changed-latency PDC refill continuity is an explicit residual acoustic task;
+  unsafe concurrent history copying is not an acceptable solution.
 
-## Status
+## Acceptance and measurements
 
-Complete. Verified 2026-10-01.
-- `PluginPowerManager` maintains decay and envelope counters exclusively on the DSP thread; control calls publish atomic intents (`PluginPowerControl.h`).
-- Shared-memory mailbox ABI v6 cleanly isolates power and bypass mailboxes from parameter queue.
-- Coordinated optimized native rebuild and full test suite passed: `test_plugin_power_manager.cpp` (4 cases / 12 assertions passed), `test_plugin_host_protocol.cpp` (15 cases / 18,929 assertions passed including real Audio Unit AUDelay and VST3 MSED).
-- MixRenderer 8-insert chain benchmarks confirmed: ~4.19 µs/block (0.078% of audio deadline at 256 frames).
+Build optimized `RelWithDebInfo` with bounded job count (`-j2` on this 8 GiB Mac).
+Run full native suite idle after builds, report vendor fixture skips honestly.
+Record callback p50/p95/p99/max, hardware underruns, helper miss rate/CPU, meter
+silence, control overflow, PDC alignment and loop/seek recovery for saved-state
+AU/VST3 projects at 64/128/256/512 frames. Unit/synthetic microbenchmarks are not
+proof of heavy-vendor acoustic stability. Use recent projects only without
+overwriting them or changing the user's saved rig settings.
 
-
-## Ownership verification
-
-`PluginPowerManager.h` and `PluginHostProtocol.h` pass a C++23 syntax check.
-An independent optimized ThreadSanitizer probe on Apple Silicon completed
-successfully with zero reports: two concurrent control writers each issued
-100,000 guard/wake/park/unpark operations while the sole DSP thread processed
-64-sample silent blocks. The final pinned-awake and unpinned-suspended checks
-passed. This verifies the tracker/follower ownership change, not third-party
-vendor internals or the whole application.
-
-The repository's native test reproduces the same concurrent ownership workload
-at 20,000 iterations. The helper integration coverage additionally exercises
-AUDelay and MSED park/unpark, wake dominance, and sample-time suspension.
+No waiting, spinning, process I/O, vendor-state capture or allocation on the
+device callback. Preserve immutable publication epochs/layouts, helper reuse,
+bounded restart, MIDI/live voice ownership, tails and dry/silence fallback.

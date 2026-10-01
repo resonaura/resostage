@@ -226,6 +226,8 @@ export function AudioTrackLanes({
                   pxPerSec={pxPerSec}
                   laneHeight={laneHeightPx(verticalZoom)}
                   bpm={state.bpm || songs[state.songIndex]?.bpm || 120}
+                  rowColor={row.color}
+                  viewport={scrollState}
                 />
               );
             })()}

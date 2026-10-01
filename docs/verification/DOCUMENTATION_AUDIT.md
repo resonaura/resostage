@@ -1,7 +1,12 @@
-# Documentation audit and synchronization
+# Archived documentation audit and synchronization
 
-Status: complete source-document review and synchronization with loading, history,
+Historical status: complete source-document review and synchronization with loading, history,
 and performance implementations completed on 2026-10-01.
+
+This preserves the original file-by-file audit, not a current task or a claim
+that its inventory counts remain unchanged. Current implementation acceptance
+is recorded in [STATE_AND_HISTORY.md](STATE_AND_HISTORY.md); unfinished work
+is under `docs/ai/tasks`.
 
 ## Scope and ownership
 

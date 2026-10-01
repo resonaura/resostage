@@ -115,7 +115,7 @@ export function SummaryRow({
   value,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between gap-3 text-xs">

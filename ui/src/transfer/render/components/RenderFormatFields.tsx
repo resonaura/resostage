@@ -5,11 +5,31 @@
  */
 
 import { Select } from "@/components/ui";
-import { Field, Section } from "@/transfer/render/components/RenderFields";
+import type { ReactNode } from "react";
+import { Section } from "@/transfer/render/components/RenderFields";
+import { RenderFormatLabel } from "@/transfer/render/components/RenderFormatLabel";
 import {
   RENDER_FORMAT_OPTIONS, renderFormatProfile, resolveRenderEncoding,
   type RenderBitDepth, type RenderFormat,
 } from "@/transfer/render/logic/renderFormats";
+
+const FORMAT_OPTIONS = RENDER_FORMAT_OPTIONS.map((option) => ({
+  ...option, label: <RenderFormatLabel format={option.id} />,
+}));
+
+/** The selects have explicit accessible labels. Do not wrap their portalled
+ * options in a native label: its click forwarding can reopen a closed picker.
+ */
+function FormatField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div data-render-field className="min-w-0 space-y-1">
+      <span className="block whitespace-nowrap text-[10px] font-semibold uppercase text-foreground/45">
+        {label}
+      </span>
+      {children}
+    </div>
+  );
+}
 
 /** Format controls describe the exported file, not the private float-WAV stage. */
 export function RenderFormatFields({ format, sampleRate, bitDepth, onChange }: {
@@ -22,28 +42,28 @@ export function RenderFormatFields({ format, sampleRate, bitDepth, onChange }: {
   return (
     <Section title="File format">
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Format">
+        <FormatField label="Format">
           <Select size="sm" aria-label="Export file format" value={format}
-            options={RENDER_FORMAT_OPTIONS}
+            options={FORMAT_OPTIONS}
             onChange={(value) => {
               const next = value as RenderFormat;
               const encoding = resolveRenderEncoding(next, sampleRate, bitDepth);
               onChange(next, encoding.sampleRate, encoding.bitDepth);
             }} />
-        </Field>
-        <Field label="Sample rate">
+        </FormatField>
+        <FormatField label="Sample rate">
           <Select size="sm" aria-label="Export sample rate" value={sampleRate}
             onChange={(rate) => onChange(format, rate, bitDepth)}
             options={profile.rates.map((rate) => ({ id: String(rate), label: `${rate / 1000} kHz` }))} />
-        </Field>
+        </FormatField>
         {profile.bitDepths.length > 0 && (
-          <Field label="Encoding">
+          <FormatField label="Encoding">
             <Select size="sm" aria-label="Export encoding" value={bitDepth}
               onChange={(depth) => onChange(format, sampleRate, depth as RenderBitDepth)}
               options={profile.bitDepths.map((depth) => ({
                 id: depth, label: `${depth}-bit ${depth === "32" ? "float" : "PCM"}`,
               }))} />
-          </Field>
+          </FormatField>
         )}
       </div>
       <p className="text-[10px] text-foreground/55">{profile.description}</p>

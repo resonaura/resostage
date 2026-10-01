@@ -12,12 +12,13 @@ multi-scope evaluation; `AutomationRecorder` provides touch/latch/punch/RDP
 primitives. These types do not imply every domain has a complete editor or live
 write-mode lifecycle.
 
-The arrangement's plug-in automation editor lists parameter metadata copied
+The plug-in-chain panel's automation editor lists parameter metadata copied
 from the isolated host and edits normalized slot/parameter lanes. Live dispatch
 queues plug-in changes at block granularity; offline rendering evaluates lanes
 against its private session. MIDI-region CC/channel pitch bend is dispatched to
 instrument/external MIDI paths where applicable. General strip/fader/pan
-automation editing, unified lighting automation, and native per-note MIDI 2.0
+automation editing directly on arrangement tracks, unified lighting automation,
+and native per-note MIDI 2.0
 glide remain separate integration work. Never describe channel bend as per-note
 expression.
 

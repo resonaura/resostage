@@ -251,7 +251,7 @@ export function AudioSettingsTab({ state }: { state: WebUiState }) {
 
       <SettingsSection
         title="Signal Flow"
-        description="Every route the engine is currently rendering: tracks and the metronome through sends and the master, out to physical channels. Mute, solo and send levels are shown live."
+        description="The Core audio graph, including direct physical outputs, plus selected MIDI endpoints, live track input, regions and event routes. Uses the project’s track and mixer colours."
       >
         <div>
           <Button size="sm" variant="outline" onPress={() => setFlowOpen(true)}>
@@ -263,7 +263,7 @@ export function AudioSettingsTab({ state }: { state: WebUiState }) {
 
       {flowOpen && (
         <Suspense fallback={null}>
-          <SignalFlowDialog onClose={() => setFlowOpen(false)} />
+          <SignalFlowDialog state={state} onClose={() => setFlowOpen(false)} />
         </Suspense>
       )}
 

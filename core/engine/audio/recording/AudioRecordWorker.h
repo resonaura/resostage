@@ -25,12 +25,16 @@ struct PeakPair16 {
     int16_t max = 0;
 };
 
-static constexpr size_t kMaxPeakLevels = 6;
+// Sixteen geometric levels cover long show overviews in one bounded HTTP
+// chunk, including high sample rates. The extra levels above L5 add less than
+// 1.6% to existing peak emissions/storage; only the record worker builds them.
+static constexpr size_t kMaxPeakLevels = 16;
 static constexpr int64_t kBaseSamplesPerPeak = 128; // L0: 128 samples / peak
 
 /**
  * Iterative multi-level peak accumulator for live waveform rendering.
- * L0 = 128 frames, L1 = 256, L2 = 512, L3 = 1024, L4 = 2048, L5 = 4096.
+ * Level N covers 128 * 2^N frames (L0 = 128, L15 = 4,194,304).
+ * Merge depth is bounded by kMaxPeakLevels; no work moves onto the callback.
  */
 struct PeakMipAccumulator {
     PeakPair16 pending[kMaxPeakLevels]{};
@@ -90,7 +94,7 @@ struct LivePeakPyramid {
         if (level >= kMaxPeakLevels) return {};
         const auto& vec = levels[level];
         if (first >= vec.size()) return {};
-        const size_t end = std::min(vec.size(), first + count);
+        const size_t end = first + std::min(count, vec.size() - first);
         return std::vector<PeakPair16>(vec.begin() + static_cast<std::ptrdiff_t>(first),
                                        vec.begin() + static_cast<std::ptrdiff_t>(end));
     }

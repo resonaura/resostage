@@ -12,11 +12,7 @@
  * signalFlowLayout.test.ts).
  */
 
-import type {
-  MixGraphEdge,
-  MixGraphPayload,
-  MixGraphStrip,
-} from "@/lib/audio/mixGraph";
+import type { MixGraphStrip } from "@/lib/audio/mixGraph";
 
 export type {
   MixGraphEdge,
@@ -36,22 +32,28 @@ export interface PlacedStrip {
   y: number;
 }
 
-export const NODE_WIDTH = 190;
-export const NODE_HEIGHT = 74;
+/** Also accepts the Settings-only MIDI nodes, without extending Core's audio wire schema. */
+export interface LayoutStrip { id: string; kind: string }
+interface LayoutPayload<Strip extends LayoutStrip> {
+  strips: Strip[];
+  edges: Array<{ from: string; to: string }>;
+}
+
+export const NODE_WIDTH = 218;
+export const NODE_HEIGHT = 90;
 const COLUMN_GAP = 90;
 const ROW_GAP = 18;
 
 /**
  * Longest-path layering: a strip sits one column right of its furthest-left
- * source. Not "column per kind" -- a send that folds into Main has to land
- * left of Main, while a send that owns its own output lanes can sit in the
- * same column as Main, and only the edges know which is which.
+ * source. Sends and Main follow their actual connections; physical sinks
+ * share the final column so direct routes and disconnected lanes stay legible.
  *
  * The graph is a DAG by construction (buildMixGraph refuses bus -> bus, the
  * one edge that could close a loop), so a single pass in strip order is
  * enough: every edge runs from a lower strip index to a higher one.
  */
-export function layerStrips(payload: MixGraphPayload): Map<string, number> {
+export function layerStrips<Strip extends LayoutStrip>(payload: LayoutPayload<Strip>): Map<string, number> {
   const columns = new Map<string, number>();
   for (const strip of payload.strips) columns.set(strip.id, 0);
 
@@ -73,6 +75,19 @@ export function layerStrips(payload: MixGraphPayload): Map<string, number> {
     columns.set(strip.id, deepest);
   }
 
+  // Physical destinations share the rightmost column, including unused and
+  // shadow lanes. Their existence is authoritative even without an incoming
+  // edge; placing them beside sources made direct egress hard to follow.
+  let destinationColumn = 1;
+  for (const strip of payload.strips) {
+    const column = columns.get(strip.id) ?? 0;
+    destinationColumn = Math.max(destinationColumn,
+      strip.kind === "output" || strip.kind === "midi-output" ? column : column + 1);
+  }
+  for (const strip of payload.strips) {
+    if (strip.kind === "output" || strip.kind === "midi-output")
+      columns.set(strip.id, destinationColumn);
+  }
   return columns;
 }
 
@@ -83,19 +98,21 @@ export function layerStrips(payload: MixGraphPayload): Map<string, number> {
  * of opinion, and this makes it a number.
  */
 export function countCrossings(
-  edges: MixGraphEdge[],
+  edges: Array<{ from: string; to: string }>,
   columnOf: Map<string, number>,
   rowOf: Map<string, number>,
 ): number {
   let crossings = 0;
-  // Only edges between the same pair of adjacent columns can cross.
-  const byColumn = new Map<number, MixGraphEdge[]>();
+  // Compare routes connecting the same pair of columns independently, so
+  // direct routes that skip buses do not distort neighbouring-column scores.
+  const byColumn = new Map<string, Array<{ from: string; to: string }>>();
   for (const e of edges) {
     const c = columnOf.get(e.from);
     if (c === undefined) continue;
-    const list = byColumn.get(c);
+    const key = `${c}:${columnOf.get(e.to)}`;
+    const list = byColumn.get(key);
     if (list) list.push(e);
-    else byColumn.set(c, [e]);
+    else byColumn.set(key, [e]);
   }
   for (const list of byColumn.values()) {
     for (let i = 0; i < list.length; i++) {
@@ -136,8 +153,8 @@ const ORDERING_SWEEPS = 4;
  * Ties keep the engine's order, so a column nothing constrains still reads in
  * project order rather than being shuffled arbitrarily.
  */
-function orderRows(
-  payload: MixGraphPayload,
+function orderRows<Strip extends LayoutStrip>(
+  payload: LayoutPayload<Strip>,
   columns: Map<string, number>,
 ): Map<string, number> {
   const byColumn = new Map<number, string[]>();
@@ -213,11 +230,11 @@ function orderRows(
  * Columns come from the signal flow; rows are chosen to keep the wires
  * between them as untangled as the heuristic can manage -- see orderRows.
  */
-export function layoutSignalFlow(payload: MixGraphPayload): PlacedStrip[] {
+export function layoutSignalFlow<Strip extends LayoutStrip>(payload: LayoutPayload<Strip>): Array<Omit<PlacedStrip, "strip"> & { strip: Strip }> {
   const columns = layerStrips(payload);
   const rows = orderRows(payload, columns);
   const usedRows = new Map<number, number>();
-  const placed: PlacedStrip[] = [];
+  const placed: Array<Omit<PlacedStrip, "strip"> & { strip: Strip }> = [];
 
   for (const strip of payload.strips) {
     const column = columns.get(strip.id) ?? 0;
@@ -290,21 +307,28 @@ export interface FocusedPath {
  * terminates instead of hanging the render.
  */
 export function pathThrough(
-  edges: MixGraphEdge[],
+  edges: Array<{ from: string; to: string }>,
   stripId: string,
 ): FocusedPath {
   const strips = new Set<string>([stripId]);
   const kept = new Set<number>();
+  const incoming = new Map<string, number[]>();
+  const outgoing = new Map<string, number[]>();
+  edges.forEach((edge, index) => {
+    (incoming.get(edge.to) ?? incoming.set(edge.to, []).get(edge.to)!).push(index);
+    (outgoing.get(edge.from) ?? outgoing.set(edge.from, []).get(edge.from)!).push(index);
+  });
 
   const walk = (direction: "up" | "down") => {
     const frontier = [stripId];
     const seen = new Set<string>([stripId]);
+    const adjacent = direction === "down" ? outgoing : incoming;
     while (frontier.length > 0) {
       const node = frontier.pop() as string;
-      for (let i = 0; i < edges.length; i++) {
+      // Each reachable edge is visited once rather than rescanning the
+      // entire rig for every node while hovering dense routing graphs.
+      for (const i of adjacent.get(node) ?? []) {
         const e = edges[i];
-        const matches = direction === "down" ? e.from === node : e.to === node;
-        if (!matches) continue;
         kept.add(i);
         const next = direction === "down" ? e.to : e.from;
         strips.add(next);

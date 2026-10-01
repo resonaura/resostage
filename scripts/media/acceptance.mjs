@@ -9,7 +9,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { extname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
@@ -96,6 +96,7 @@ export async function runRenderAcceptance(coreExecutable, mediaExecutable, inspe
       assert.equal(status.state, "complete", `${format}: ${JSON.stringify(status)}\n${diagnostic}`);
       const file = status.outputPaths?.[0] || status.outputPath;
       assert.ok(resolve(file).startsWith(resolve(temp) + sep), `Export escaped private fixture: ${file}`);
+      assert.equal(extname(file), `.${format === "alac" ? "m4a" : format}`);
       const pcm = invoke(["-i", file, "-map", "0:a:0", "-vn", "-ar", "48000", "-ac", "2", "-f", "f32le", "-"]);
       assert.ok(Math.abs(pcm.length / 8 - 24000) <= 4096, `${format}: unexpected duration`);
       let peak = 0;

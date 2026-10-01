@@ -5,7 +5,6 @@
  */
 
 import {
-  AudioLines,
   ChevronDown,
   ChevronRight,
   FolderOutput,
@@ -16,6 +15,7 @@ import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal, Select, Switch } from "@/components/ui";
 import { useAudioRenderJob } from "@/transfer/render/hooks/useAudioRenderJob";
 import { RenderFormatFields } from "@/transfer/render/components/RenderFormatFields";
+import { RenderFormatLabel } from "@/transfer/render/components/RenderFormatLabel";
 import {
   estimatedRenderBytes, renderFormatProfile, resolveRenderEncoding,
   type RenderFormat,
@@ -271,19 +271,19 @@ export function RenderAudioDialog({
         isDismissable={!rendering}
         isKeyboardDismissDisabled={rendering}
       >
-        <Modal.Container size="lg" placement="center">
+        <Modal.Container size="3xl" placement="center">
           <Modal.Dialog
-            aria-label="Render and export audio"
+            aria-label="Render"
             className="max-h-[88vh] rounded-xl border border-default/40 p-0 shadow-2xl"
           >
             {!rendering && <Modal.CloseTrigger />}
-            <Modal.Header className="flex items-center justify-between border-b border-default/20 px-5 py-4">
-              <Modal.Heading className="flex items-center gap-2 text-lg font-bold text-accent">
-                <AudioLines size={20} /> Render / Export
+            <Modal.Header className="items-start border-b border-default/20 px-5 py-4">
+              <Modal.Heading className="text-lg font-bold text-foreground">
+                Render
               </Modal.Heading>
             </Modal.Header>
 
-            <Modal.Body className="grid min-h-0 gap-0 overflow-y-auto p-0 md:grid-cols-[minmax(0,1fr)_17rem]">
+            <Modal.Body className="m-0 grid min-h-0 gap-0 overflow-y-auto p-0 md:grid-cols-[minmax(0,1fr)_17rem]">
               <div className="space-y-5 p-5">
                 <RenderFormatFields format={outputFormat} sampleRate={sampleRate} bitDepth={bitDepth}
                   onChange={(format, rate, depth) => {
@@ -557,7 +557,7 @@ export function RenderAudioDialog({
                   label="Files"
                   value={String(selectedOutputs.length)}
                 />
-                <SummaryRow label="Format" value={formatProfile.label} />
+                <SummaryRow label="Format" value={<RenderFormatLabel format={outputFormat} />} />
                 <SummaryRow
                   label="Range"
                   value={formatDuration(upperDuration)}

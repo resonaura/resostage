@@ -16,6 +16,12 @@ describe("audio export format profiles", () => {
     ]);
     expect(renderFormatProfile("alac").section).toBe("Lossless");
     expect(renderFormatProfile("m4a").section).toBe("Compressed");
+    expect(renderFormatProfile("alac").extension).toBe(".m4a");
+    expect(renderFormatProfile("m4a").extension).toBe(".m4a");
+    expect(renderFormatProfile("alac").codec).toBe("ALAC");
+    expect(renderFormatProfile("m4a").codec).toBe("AAC");
+    expect(RENDER_FORMAT_OPTIONS.every((option) => /^\.[a-z0-9]+$/.test(option.label))).toBe(true);
+    expect(RENDER_FORMAT_OPTIONS.find((option) => option.id === "alac")?.textValue).toBe(".m4a ALAC");
   });
 
   it("limits final output rates and depths without silently labeling resampled audio", () => {
