@@ -152,7 +152,7 @@ void AudioEngine::applyHistoryProject(Project restored) {
     rebuildBussesFromProject();
     const auto* activeSong = currentSong < project.songs.size() ? &project.songs[currentSong] : nullptr;
     if (wasPlaying && sourcesReady && activeSong
-        && (activeSong->id != songId || activeSong->bpm != previousBpm
+        && (activeSong->id != songId || std::abs(activeSong->bpm - previousBpm) > 1e-6
             || activeSong->timeSignature.numerator != previousMeter.numerator
             || activeSong->timeSignature.denominator != previousMeter.denominator))
         syncMidiTransportToCurrentSong(/*sendContinue=*/false);
