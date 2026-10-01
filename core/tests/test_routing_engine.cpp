@@ -116,3 +116,39 @@ TEST_CASE("RoutingEngine: concurrent publish and render never tear or free early
     reader.join();
     CHECK(mismatches.load() == 0);
 }
+
+TEST_CASE("RoutingEngine: reclaim cleans up retired graphs on the message thread after audio drops reference") {
+    RoutingEngine engine;
+    auto g1 = makeGraph(1);
+    std::weak_ptr<const MixGraph> weakG1 = g1;
+    engine.publish(g1);
+    g1.reset();
+
+    // Acquire for render on simulated audio thread
+    auto audioHeld = engine.acquireForRender();
+    REQUIRE(audioHeld != nullptr);
+    CHECK(audioHeld->strips[0].projectIndex == 1);
+    CHECK(weakG1.use_count() == 2); // 1 in engine.active, 1 in audioHeld
+
+    // Message thread publishes graph 2
+    auto g2 = makeGraph(2);
+    engine.publish(g2);
+    g2.reset();
+
+    // Now g1 is in retiredGraphs, but still referenced by audioHeld
+    CHECK_FALSE(weakG1.expired());
+    CHECK(weakG1.use_count() == 2); // 1 in retiredGraphs, 1 in audioHeld
+
+    // Reclaim while audio thread still holds it: should NOT reclaim g1
+    engine.reclaim();
+    CHECK_FALSE(weakG1.expired());
+    CHECK(weakG1.use_count() == 2);
+
+    // Audio thread finishes and drops its reference
+    audioHeld.reset();
+    CHECK(weakG1.use_count() == 1); // Only held by retiredGraphs
+
+    // Now message thread calls reclaim(): g1 is safely erased and destroyed
+    engine.reclaim();
+    CHECK(weakG1.expired());
+}
