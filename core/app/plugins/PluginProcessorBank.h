@@ -10,6 +10,7 @@
 #include "audio/graph/MixLatency.h"
 #include "audio/graph/MixRenderer.h"
 #include "plugins/PluginPowerManager.h"
+#include "plugins/PluginDelayBank.h"
 #include "project/ProjectLoader.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -21,40 +22,6 @@
 #include <vector>
 
 namespace resostage {
-
-/** Immutable, graph-topology-specific PDC state with no vendor processors. */
-class PluginDelayBank final {
-public:
-    static std::shared_ptr<PluginDelayBank> build(
-        const MixGraph& graph,
-        const std::vector<uint32_t>& stripProcessorLatencySamples,
-        double sampleRate,
-        std::vector<std::string>& warnings,
-        const PluginDelayBank* previousDelayBank = nullptr);
-
-    PluginDelayBank(const PluginDelayBank&) = delete;
-    PluginDelayBank& operator=(const PluginDelayBank&) = delete;
-
-    void applyTo(MixProcessorView& view) const noexcept;
-    int latencySamples() const noexcept { return maximumLatencySamples; }
-
-private:
-    struct EdgeDelayLine;
-
-    PluginDelayBank() = default;
-    static void processEdgeDelay(void* context,
-                                 const float* inputLeft,
-                                 const float* inputRight,
-                                 float* outputLeft,
-                                 float* outputRight,
-                                 int numSamples,
-                                 bool inputEnabled) noexcept;
-
-    std::vector<std::unique_ptr<EdgeDelayLine>> edgeDelayLines;
-    std::vector<MixEdgeDelay> edgeDelayEntries;
-    std::vector<uint32_t> stripOutputLatencySamples;
-    int maximumLatencySamples = 0;
-};
 
 struct PluginTransportState {
     int64_t sample = 0;

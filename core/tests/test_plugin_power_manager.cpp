@@ -8,6 +8,7 @@
 
 #include "plugins/PluginPowerManager.h"
 #include "plugins/PluginHostProtocol.h"
+#include "plugins/PluginMidiActivity.h"
 #include "project/ProjectJson.h"
 #include "project/ProjectSchema.h"
 
@@ -21,6 +22,149 @@
 using namespace resostage;
 
 TEST_SUITE("PluginPowerManager") {
+
+TEST_CASE("PluginMidiActivity: silent held instrument attack outlasts declared tail") {
+    PluginMidiActivity activity;
+    PluginSlotPowerTracker tracker;
+    PluginPowerFlags flags;
+    flags.isInstrument = true;
+    tracker.prepare("delayed-synth", 48000.0, 0.01, flags);
+    const uint8_t noteOn[] = {0x90, 60, 100};
+    activity.consume(noteOn, 3);
+    std::array<float, 256> silence{};
+    // Two seconds without more packets exceeds the ten-ms vendor tail.
+    // The helper's held-note intent keeps processing the silent attack.
+    for (unsigned block = 0; block < 400; ++block) {
+        tracker.processBlockRealtime(silence.data(), silence.data(), 256,
+                                     activity.hasActiveNotes());
+        CHECK(tracker.isProcessingNeeded());
+    }
+    const uint8_t noteOff[] = {0x80, 60, 0};
+    activity.consume(noteOff, 3);
+    CHECK_FALSE(activity.hasActiveNotes());
+    for (unsigned block = 0; block < 4; ++block)
+        tracker.processBlockRealtime(silence.data(), silence.data(), 256,
+                                     activity.hasActiveNotes());
+    CHECK(tracker.state() == PluginPowerState::Suspended);
+}
+
+TEST_CASE("PluginMidiActivity: overlap velocity-zero and channel isolation") {
+    PluginMidiActivity activity;
+    const uint8_t on[] = {0x90, 60, 100};
+    const uint8_t off[] = {0x80, 60, 0};
+    const uint8_t zero[] = {0x90, 60, 0};
+    const uint8_t other[] = {0x91, 60, 100};
+    const uint8_t otherOff[] = {0x81, 60, 0};
+    activity.consume(on, 3);
+    activity.consume(on, 3);
+    activity.consume(other, 3);
+    activity.consume(off, 3);
+    CHECK(activity.hasActiveNotes());
+    activity.consume(zero, 3);
+    CHECK(activity.hasActiveNotes());
+    activity.consume(otherOff, 3);
+    CHECK_FALSE(activity.hasActiveNotes());
+    activity.consume(off, 3);
+    CHECK_FALSE(activity.hasActiveNotes());
+}
+
+TEST_CASE("PluginMidiActivity: sustain panic and controller reset preserve key ownership") {
+    PluginMidiActivity activity;
+    const uint8_t on[] = {0x90, 60, 100};
+    const uint8_t off[] = {0x80, 60, 0};
+    const uint8_t pedalDown[] = {0xb0, 64, 127};
+    const uint8_t pedalUp[] = {0xb0, 64, 0};
+    const uint8_t resetControllers[] = {0xb0, 121, 0};
+    const uint8_t notesOff[] = {0xb0, 123, 0};
+    const uint8_t soundOff[] = {0xb0, 120, 0};
+    activity.consume(pedalDown, 3);
+    activity.consume(on, 3);
+    activity.consume(off, 3);
+    CHECK(activity.hasActiveNotes());
+    activity.consume(on, 3);
+    activity.consume(resetControllers, 3);
+    CHECK(activity.hasActiveNotes()); // Still physically held
+    activity.consume(off, 3);
+    CHECK_FALSE(activity.hasActiveNotes());
+    activity.consume(pedalDown, 3);
+    activity.consume(on, 3);
+    activity.consume(notesOff, 3);
+    CHECK(activity.hasActiveNotes()); // All Notes Off respects sustain
+    activity.consume(pedalUp, 3);
+    CHECK_FALSE(activity.hasActiveNotes());
+    activity.consume(on, 3);
+    activity.consume(pedalDown, 3);
+    activity.consume(off, 3);
+    activity.consume(soundOff, 3);
+    CHECK_FALSE(activity.hasActiveNotes());
+    activity.consume(on, 3);
+    const uint8_t systemReset[] = {0xff};
+    activity.consume(systemReset, 1);
+    CHECK_FALSE(activity.hasActiveNotes());
+}
+
+TEST_CASE("PluginMidiActivity: saturated overlap stays conservative until panic") {
+    PluginMidiActivity activity;
+    const uint8_t on[] = {0x90, 60, 100};
+    const uint8_t off[] = {0x80, 60, 0};
+    for (unsigned event = 0; event < 65536; ++event)
+        activity.consume(on, 3);
+    for (unsigned event = 0; event < 65536; ++event)
+        activity.consume(off, 3);
+    CHECK(activity.hasActiveNotes());
+    const uint8_t soundOff[] = {0xb0, 120, 0};
+    activity.consume(soundOff, 3);
+    CHECK_FALSE(activity.hasActiveNotes());
+}
+
+TEST_CASE("PluginSlotPowerTracker: releasing a guard starts a complete quiet hold") {
+    PluginSlotPowerTracker tracker;
+    PluginPowerFlags flags;
+    flags.keepAwake = true;
+    tracker.prepare("guard-release", 48000.0, 0.1, flags);
+    std::array<float, 480> silence{};
+    for (unsigned block = 0; block < 100; ++block)
+        tracker.processBlockRealtime(silence.data(), silence.data(), 480, false);
+    CHECK(tracker.isProcessingNeeded());
+    tracker.setKeepAwake(false);
+    for (unsigned block = 0; block < 9; ++block) {
+        tracker.processBlockRealtime(silence.data(), silence.data(), 480, false);
+        CHECK(tracker.isProcessingNeeded());
+    }
+    tracker.processBlockRealtime(silence.data(), silence.data(), 480, false);
+    CHECK(tracker.state() == PluginPowerState::Suspended);
+}
+
+TEST_CASE("PluginSlotPowerTracker: guarded quiet block skips per-sample detector work") {
+    constexpr size_t slots = 50;
+    constexpr unsigned blocks = 2000;
+    std::array<PluginSlotPowerTracker, slots> trackers;
+    std::array<EnvelopeFollower, slots> previousDetectors;
+    PluginPowerFlags flags;
+    flags.keepAwake = true;
+    for (size_t slot = 0; slot < slots; ++slot) {
+        trackers[slot].prepare("pinned", 48000.0, 5.0, flags);
+        previousDetectors[slot].prepare(48000.0, 5.0, 50.0);
+    }
+    std::array<float, 256> silence{};
+    const auto start = std::chrono::steady_clock::now();
+    for (unsigned block = 0; block < blocks; ++block)
+        for (auto& detector : previousDetectors)
+            detector.processStereo(silence.data(), silence.data(), nullptr, 256);
+    const auto middle = std::chrono::steady_clock::now();
+    for (unsigned block = 0; block < blocks; ++block)
+        for (auto& tracker : trackers)
+            tracker.processBlockRealtime(silence.data(), silence.data(), 256, false);
+    const auto end = std::chrono::steady_clock::now();
+    const double previousMicros = std::chrono::duration<double, std::micro>(middle - start).count()
+        / blocks;
+    const double preparedMicros = std::chrono::duration<double, std::micro>(end - middle).count()
+        / blocks;
+    MESSAGE("50 pinned quiet slots @ 48 kHz/256: former detector work " << previousMicros
+            << " us/block, O(1) guarded tracking " << preparedMicros << " us/block");
+    for (const auto& tracker : trackers)
+        CHECK(tracker.isProcessingNeeded());
+}
 
 TEST_CASE("PluginSlotPowerTracker: Active -> Quiescent -> Suspended transition on tail decay") {
     PluginSlotPowerTracker tracker;

@@ -27,6 +27,7 @@ add_library(resostage_engine STATIC
   automation/RamerDouglasPeucker.cpp
   automation/AutomationRecorder.cpp
   plugins/PluginPowerManager.cpp
+  plugins/PluginDelayBank.cpp
   project/ProjectLoader.cpp
   project/ProjectJson.cpp
   project/ProjectHistory.cpp

@@ -430,6 +430,12 @@ Preserve these rules:
   - Selected notes are highlighted in bright Logic Pro amber `#ffd60a`.
 - Coefficient changes are smoothed (approximately 10 ms) to avoid zipper
   noise. Do not bypass smoothing for a “faster” fader.
+- `core/engine/plugins/PluginDelayBank` prepares PDC without vendor code.
+  Same-topology/same-rate rebuilds share unchanged audio-owned delay rings,
+  preserving the latest history without reading mutable samples on the
+  builder. Changed delay/rate/topology starts a fresh zero ring and can have
+  a bounded refill transient. Publications share exactly one DSP owner, never
+  another render session; retired publications keep reclamation off audio.
 - Strip plug-in chains run post-input-sum and pre-fader through the flat
   `MixProcessorView` hook. The renderer remains JUCE-free; application-owned
   live/offline processor banks publish one pre-bound function/context entry
@@ -464,7 +470,11 @@ Preserve these rules:
   publish atomic intents. Explicit parking is not cancelled by automatic wake.
   If a result misses its deadline, effects retain their dry input and instrument
   strips emit silence for that block. MIDI packets and host controls use bounded
-  queues; rejected control events increment a health counter without marking a
+  queues. A helper-DSP-owned fixed MIDI activity tracker preserves held and
+  sustained instrument voice intent across silent attacks; saturated overlaps
+  stay conservatively active until channel panic/reset. Guarded quiet power
+  trackers skip envelope scanning and restart a full quiet hold after release.
+  Rejected control events increment a health counter without marking a
   vendor processor faulted. Project saves request opaque vendor-state capture from the helper on
   the save worker; plugin processing continues while each node's state is
   captured, and Core copies capped state blobs back into `Plugins/<slot>.state`.

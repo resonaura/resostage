@@ -10,6 +10,7 @@
 #include "PluginPaths.h"
 #include "project/ProjectSchema.h"
 #include "plugins/PluginHostProtocol.h"
+#include "plugins/PluginMidiActivity.h"
 
 #include <algorithm>
 #include <array>
@@ -32,12 +33,6 @@ namespace {
 constexpr size_t kMaximumSlotsPerBank = 128;
 constexpr size_t kMaximumStateBytesPerSlot = 64 * 1024 * 1024;
 constexpr size_t kMaximumStateBytesPerBank = 256 * 1024 * 1024;
-// Delay compensation is intentionally bounded. A malicious or broken plug-in
-// can report an arbitrary latency and a dense routing graph multiplies that
-// by every faster incoming edge. Above this budget the bank still processes
-// audio, but publishes no partial compensation plan.
-constexpr uint64_t kMaximumDelayMemoryBytes = 128ull * 1024ull * 1024ull;
-constexpr double kMaximumCompensatedSeconds = 10.0;
 constexpr size_t kMaximumIsolatedChains = 32;
 std::atomic<uint64_t> nextPluginHostGeneration{1};
 
@@ -305,6 +300,7 @@ struct PluginProcessorBank::StripChain {
     uint64_t lastRemoteLatencyChangeCounter = 0;
     juce::AudioBuffer<float> audio;
     PluginMIDIBuffer midi;
+    PluginMidiActivity midiActivity;
     // Prepared once, then written only for actual events. Empty instrument
     // blocks must not clear a 12-KiB packet array on every device callback.
     std::array<plugin_host::MidiEvent,
@@ -315,130 +311,6 @@ struct PluginProcessorBank::StripChain {
     double tailSeconds = 0.0;
 };
 
-struct PluginDelayBank::EdgeDelayLine {
-    explicit EdgeDelayLine(uint32_t delaySamples)
-        : left(delaySamples, 0.0f), right(delaySamples, 0.0f) {}
-
-    std::vector<float> left;
-    std::vector<float> right;
-    std::atomic<uint32_t> cursor{0};
-};
-
-void PluginDelayBank::applyTo(MixProcessorView& view) const noexcept {
-    view.edgeDelays = edgeDelayEntries.data();
-    view.edgeDelayCount = edgeDelayEntries.size();
-    view.stripOutputLatencySamples = stripOutputLatencySamples.data();
-    view.stripOutputLatencyCount = stripOutputLatencySamples.size();
-}
-
-void PluginDelayBank::processEdgeDelay(
-    void* context, const float* inputLeft, const float* inputRight,
-    float* outputLeft, float* outputRight, int numSamples,
-    bool inputEnabled) noexcept {
-    auto& delay = *static_cast<EdgeDelayLine*>(context);
-    const uint32_t length = static_cast<uint32_t>(delay.left.size());
-    if (length == 0)
-        return;
-    uint32_t cursor = delay.cursor.load(std::memory_order_relaxed);
-    for (int sample = 0; sample < numSamples; ++sample) {
-        outputLeft[sample] = delay.left[cursor];
-        outputRight[sample] = delay.right[cursor];
-        delay.left[cursor] = inputEnabled ? inputLeft[sample] : 0.0f;
-        delay.right[cursor] = inputEnabled ? inputRight[sample] : 0.0f;
-        if (++cursor == length)
-            cursor = 0;
-    }
-    delay.cursor.store(cursor, std::memory_order_relaxed);
-}
-
-std::shared_ptr<PluginDelayBank> PluginDelayBank::build(
-    const MixGraph& graph,
-    const std::vector<uint32_t>& stripProcessorLatencySamples,
-    double sampleRate,
-    std::vector<std::string>& warnings,
-    const PluginDelayBank* previousDelayBank) {
-    auto bank = std::shared_ptr<PluginDelayBank>(new PluginDelayBank());
-    const MixLatencyPlan latencyPlan =
-        buildMixLatencyPlan(graph, stripProcessorLatencySamples);
-    bank->maximumLatencySamples = static_cast<int>(std::min<uint32_t>(
-        latencyPlan.maximumOutputLatencySamples,
-        static_cast<uint32_t>(INT_MAX)));
-    bank->stripOutputLatencySamples = latencyPlan.stripOutputLatencySamples;
-    bank->edgeDelayLines.resize(graph.edges.size());
-    bank->edgeDelayEntries.resize(graph.edges.size());
-
-    uint64_t delayMemoryBytes = 0;
-    for (const uint32_t delaySamples : latencyPlan.edgeDelaySamples) {
-        delayMemoryBytes += static_cast<uint64_t>(delaySamples)
-                            * 2ull * sizeof(float);
-    }
-    const uint64_t maximumLatencySamples = static_cast<uint64_t>(
-        std::max(1.0, sampleRate) * kMaximumCompensatedSeconds);
-    const bool latencyInRange =
-        latencyPlan.maximumOutputLatencySamples <= maximumLatencySamples;
-    const bool memoryInRange = delayMemoryBytes <= kMaximumDelayMemoryBytes;
-    if (!latencyInRange || !memoryInRange) {
-        warnings.push_back(
-            !latencyInRange
-                ? "Plug-in delay compensation exceeds the 10 second safety bound"
-                : "Plug-in delay compensation exceeds the 128 MiB memory budget");
-        bank->stripOutputLatencySamples.assign(graph.strips.size(), 0);
-        bank->maximumLatencySamples = 0;
-        return bank;
-    }
-
-    try {
-        for (size_t edgeIndex = 0;
-             edgeIndex < latencyPlan.edgeDelaySamples.size(); ++edgeIndex) {
-            const uint32_t delaySamples =
-                latencyPlan.edgeDelaySamples[edgeIndex];
-            if (delaySamples == 0)
-                continue;
-            auto delay = std::make_unique<EdgeDelayLine>(delaySamples);
-            if (previousDelayBank != nullptr
-                && edgeIndex < previousDelayBank->edgeDelayLines.size()
-                && previousDelayBank->edgeDelayLines[edgeIndex] != nullptr) {
-                const auto& prev = *previousDelayBank->edgeDelayLines[edgeIndex];
-                const uint32_t prevLen = static_cast<uint32_t>(prev.left.size());
-                if (prevLen > 0) {
-                    const uint32_t prevCursor =
-                        prev.cursor.load(std::memory_order_relaxed) % prevLen;
-                    for (uint32_t i = 0; i < delaySamples; ++i) {
-                        const uint32_t k = delaySamples - i;
-                        if (k <= prevLen) {
-                            const uint32_t prevIdx = (prevCursor + prevLen
-                                - (k % prevLen == 0 ? prevLen : (k % prevLen))) % prevLen;
-                            delay->left[i] = prev.left[prevIdx];
-                            delay->right[i] = prev.right[prevIdx];
-                        }
-                    }
-                    if (delaySamples > prevLen) {
-                        const uint32_t boundary = delaySamples - prevLen;
-                        const uint32_t fadeSamples = std::min<uint32_t>(64, prevLen);
-                        for (uint32_t f = 0; f < fadeSamples; ++f) {
-                            const float ramp = 0.5f * (1.0f - std::cos(
-                                3.14159265358979323846f * static_cast<float>(f)
-                                / static_cast<float>(fadeSamples)));
-                            delay->left[boundary + f] *= ramp;
-                            delay->right[boundary + f] *= ramp;
-                        }
-                    }
-                }
-            }
-            bank->edgeDelayEntries[edgeIndex] =
-                {delay.get(), processEdgeDelay};
-            bank->edgeDelayLines[edgeIndex] = std::move(delay);
-        }
-    } catch (const std::bad_alloc&) {
-        bank->edgeDelayEntries.assign(graph.edges.size(), MixEdgeDelay{});
-        bank->edgeDelayLines.clear();
-        bank->stripOutputLatencySamples.assign(graph.strips.size(), 0);
-        bank->maximumLatencySamples = 0;
-        warnings.push_back(
-            "Plug-in delay compensation could not allocate its bounded buffers");
-    }
-    return bank;
-}
 
 PluginProcessorBank::~PluginProcessorBank() {
     for (auto& chain : chains)
@@ -804,6 +676,10 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
     float* stereoChannels[] = {left, right};
 
     const bool hasMidi = !chain.midi.buffer().isEmpty();
+    // Consume once before vendor processing: instruments/FX may modify MIDI.
+    // The helper owns this fixed state, including blocks without new packets.
+    for (const juce::MidiMessageMetadata event : chain.midi.buffer())
+        chain.midiActivity.consume(event.data, event.numBytes);
 
     uint32_t nodeIndex = 0;
     for (auto& node : chain.nodes) {
@@ -839,7 +715,9 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
             }
         }
 
-        const bool hasInput = (node->instrument ? hasMidi : (hasAudioInput || hasMidi));
+        const bool hasInput = node->instrument
+            ? (hasMidi || chain.midiActivity.hasActiveNotes())
+            : (hasAudioInput || hasMidi);
         if (hasInput) {
             // Immediate instantaneous wake-up (< 0.05 ms) if incoming signal enters
             if (!node->powerTracker.isProcessingNeeded()) {

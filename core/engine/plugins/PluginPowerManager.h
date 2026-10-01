@@ -170,6 +170,16 @@ public:
             silentSamplesAccumulated = 0;
         }
 
+        if (guarded()) {
+            // No decay decision is possible while pinned/armed/monitored or
+            // infinitely ringing. Avoid a per-sample detector on these quiet
+            // blocks. Start a complete new quiet hold when the guard leaves,
+            // so omitted envelope history cannot cause premature suspension.
+            silentSamplesAccumulated = 0;
+            follower.reset();
+            return;
+        }
+
         // Quiescent state: monitor output tail decay
         follower.processStereo(outL, outR, nullptr, numSamples);
         const float peak = follower.getCurrentValue();
