@@ -11,13 +11,13 @@ import {
   normFor,
   RANGE_LOW_DB,
   stepBallistics,
-} from "@/components/daw/meterBallistics";
+} from "@/components/daw/logic/meterBallistics";
 
 // Ballistic peak meter: instant attack, release, peak-hold, clip latch at
 // the TOP only (never paints the whole bar red). Stereo L/R; solid track
 // colour fill via height clip (no CSS mask residue). The ballistics
 // themselves are shared with the timeline's MeterFader -- see
-// ./meterBallistics.
+// ./logic/meterBallistics.
 /** Clip latch band as % of bar height (top only). */
 const CLIP_BAND_PCT = 6;
 

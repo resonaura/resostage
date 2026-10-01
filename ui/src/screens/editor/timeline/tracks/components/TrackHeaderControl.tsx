@@ -4,11 +4,15 @@ import { mixer } from "@/lib/state/api";
 import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
 import { useLiveValue } from "@/lib/state/optimistic";
 import type { TrackRow } from "@/lib/state/types";
-import { LevelMeterBar, MeterFader } from "@/components/daw";
+import {
+  LevelMeterBar,
+  MeterFader,
+  TrackPanControl,
+} from "@/components/daw";
 import { TOGGLE_BLINK_ACCENT, ToggleButton } from "@/components/ui";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { trackSelectionGesture, type TrackSelectionGesture } from "@/screens/editor/timeline/tracks/logic/trackSelection";
-import { TrackPanControl } from "@/screens/editor/timeline/tracks/components/TrackPanControl";
+import { useTrackPanControl } from "@/screens/editor/timeline/tracks/hooks/useTrackPanControl";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with
 // waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ the combined
@@ -39,6 +43,7 @@ export const TrackHeaderControl = memo(
     const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
       mixer.setTrackGain(index, v),
     );
+    const pan = useTrackPanControl(track, index);
 
     const isDimmed = anySolo && !track.solo && !track.soloSafe;
     const isMidiInputTrack =
@@ -261,11 +266,19 @@ export const TrackHeaderControl = memo(
 
     const panControl = showPan && (
       <TrackPanControl
-        track={track}
-        index={index}
+        value={pan.value}
+        valueLabel={pan.valueLabel}
+        trackName={track.name || track.id}
+        activePanLaw={pan.activePanLaw}
+        panLaws={pan.panLaws}
+        menuPosition={pan.menuPosition}
         color={color}
         knobSize={knobSize}
-        laneHeight={h}
+        showPanValue={h >= 52}
+        onCommit={pan.setValue}
+        onContextMenu={pan.onContextMenu}
+        onCloseMenu={pan.onCloseMenu}
+        onSelectPanLaw={pan.onSelectPanLaw}
       />
     );
 

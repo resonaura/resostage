@@ -31,7 +31,7 @@ import { addRafTask } from "@/lib/state/rafLoop";
  * boundaries fell.
  *
  * It is still a MEASUREMENT, not a needle position. How fast a bar falls is
- * decided here, by the ballistics in components/daw/meterBallistics.ts, and
+ * decided here, by the ballistics in components/daw/logic/meterBallistics.ts, and
  * deliberately not in the engine: an engine-side release turned out to be
  * slower than this one, so it quietly took the decay over and a muted track
  * kept a bus meter gliding down for seconds after it had gone silent.

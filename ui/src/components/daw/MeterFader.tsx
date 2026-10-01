@@ -10,7 +10,7 @@ import {
   meterFill,
   normFor,
   stepBallistics,
-} from "@/components/daw/meterBallistics";
+} from "@/components/daw/logic/meterBallistics";
 
 /**
  * Volume fader and level meter as one control, the way Logic draws a track
