@@ -202,6 +202,29 @@ bool PluginHostProcess::enqueueParameterEvent(
     return enqueued;
 }
 
+bool PluginHostProcess::requestPowerControl(
+    uint32_t slotIndex, PluginPowerControl control) noexcept {
+    auto* area = sharedMemory.area();
+    return area != nullptr && isReady()
+        && plugin_host::publishPowerControl(*area, slotIndex, control);
+}
+
+void PluginHostProcess::requestChainPrewarm() noexcept {
+    auto* area = sharedMemory.area();
+    if (area != nullptr && isReady())
+        plugin_host::publishChainPrewarm(*area);
+}
+
+PluginPowerState PluginHostProcess::pluginSlotPowerState(size_t slotIndex) const noexcept {
+    const auto* area = sharedMemory.area();
+    if (area == nullptr || !isReady() || slotIndex >= area->pluginSlotCount
+        || slotIndex >= plugin_host::kMaximumPluginSlotsPerChain)
+        return PluginPowerState::Active;
+    const auto state = area->pluginSlotPowerStates[slotIndex].load(std::memory_order_relaxed);
+    return state <= static_cast<uint8_t>(PluginPowerState::Parked)
+        ? static_cast<PluginPowerState>(state) : PluginPowerState::Active;
+}
+
 bool PluginHostProcess::requestStateSnapshot() noexcept {
     return requestCommand(plugin_host::HostCommand::CaptureStates, 0,
                           std::chrono::seconds(5));

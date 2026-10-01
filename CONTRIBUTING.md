@@ -31,12 +31,29 @@ When you open a Pull Request on GitHub, our automated **CLA Assistant bot** will
 
 ---
 
-## 3. Real-Time Audio Constraints (Zero Allocation)
+## 3. Real-Time Audio Constraints
 
-ResoStage is built for live concert reliability. Code touching the real-time audio thread (`processBlock` and audio callbacks) must adhere strictly to the following invariants:
-- **No Heap Allocation:** Zero `new`, `malloc`, `std::vector::push_back`, or string formatting on the audio thread.
-- **Lock-Free Concurrency:** Never acquire a `std::mutex`, system lock, or call OS synchronization primitives in the audio path. Use pre-allocated ring buffers (`moodycamel::ReaderWriterQueue`) and atomic flags.
-- **Deterministic Latency:** Avoid system calls, disk I/O, or file operations in the audio thread.
+ResoStage is built for live concert reliability. Read [AGENTS.md](AGENTS.md)
+before editing a callback, cross-thread path, protocol, or persisted schema.
+
+- **Prepared storage:** No routine allocation, container growth, string
+  formatting, or unpredictable destruction in the device callback.
+- **Bounded, non-waiting concurrency:** Never add blocking locks, waits, joins,
+  or retries. The existing routing `try_lock` is deliberately non-waiting and
+  reports a silent block on contention; do not describe the callback as
+  completely lock-free or replace lifetime-safe snapshots speculatively.
+- **Ownership-correct queues:** Use prepared SPSC rings only with one producer
+  and one consumer. Concurrent MIDI producers use a bounded MPMC queue.
+  Specify capacity and overflow policy for every handoff.
+- **No slow I/O:** Decode, disk/network operations, JSON, and vendor process
+  management stay outside the callback. A non-waiting helper wake signal is
+  an existing bounded protocol operation, not permission for arbitrary OS work.
+- **Evidence:** Run the focused native tests and relevant UI/Electron suites;
+  measure optimized workloads before claiming a performance improvement.
+
+Repository-supported commands and shipping layouts are documented in
+[README.md](README.md) and `AGENTS.md`. New source files must preserve the
+standard ResoStage copyright/license header.
 
 ---
 

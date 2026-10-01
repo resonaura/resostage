@@ -570,23 +570,27 @@ void MainComponent::notifyRoutingChanged() {
 void MainComponent::performTimelineUndo() {
     std::string label;
     if (engine.undoTimelineEdit(label)) {
-        notifyProjectStructureChanged(); // sets its own status first; overridden below
-        publishWebState();
+        // AudioEngine has already rebuilt routing. A second rebuild only
+        // adds UI latency and can schedule redundant plug-in bank work.
+        ensureSongSelected();
+        engine.notifyLightEngineProjectChanged();
         setStatus("Undo: " + juce::String(label));
     } else {
         setStatus("Nothing to undo");
     }
+    publishWebState();
 }
 
 void MainComponent::performTimelineRedo() {
     std::string label;
     if (engine.redoTimelineEdit(label)) {
-        notifyProjectStructureChanged();
-        publishWebState();
+        ensureSongSelected();
+        engine.notifyLightEngineProjectChanged();
         setStatus("Redo: " + juce::String(label));
     } else {
         setStatus("Nothing to redo");
     }
+    publishWebState();
 }
 
 

@@ -64,6 +64,21 @@ export interface SourceOutput {
  */
 export type SoloGroup = "sources" | "sends" | "main" | "none";
 
+/** Ephemeral Core-owned publication gate; never stored in a project file. */
+export interface PluginLoadingState {
+  epoch: number;
+  generation: number;
+  phase: "idle" | "loading" | "ready" | "degraded" | "failed";
+  blocksPlayback: boolean;
+  showDialog: boolean;
+  playRequested: boolean;
+  total: number;
+  completed: number;
+  failed: number;
+  currentName: string;
+  error: string;
+}
+
 export interface PluginSlotRow {
   id: string;
   pluginId: string;
@@ -74,7 +89,7 @@ export interface PluginSlotRow {
   bypassed: boolean;
   hasState: boolean;
   keepAwake?: boolean;
-  powerState?: "active" | "quiescent" | "suspended" | "parked";
+  powerState?: "active" | "quiescent" | "suspended" | "parked" | "loading" | "missing" | "failed";
   /** Runtime processor state; never persisted in the project. */
   loadState?: "loading" | "loaded" | "missing" | "failed";
   loadError?: string;
@@ -1025,6 +1040,14 @@ export interface WebUiState {
   canRedo: boolean;
   undoLabel: string;
   redoLabel: string;
+  /** Core process identity; revision ordering resets only when this changes. */
+  stateSessionId?: string;
+  /** Monotonic project/history mutation revision (not a transport clock). */
+  stateRevision?: number;
+  /** Reliable Undo/Redo request last applied to this published snapshot. */
+  lastHistoryRequestId?: number;
+  /** All views receive loading status, including remote controllers. */
+  pluginLoading?: PluginLoadingState;
   songs: SongRow[];
   /** Single project-wide cycle zone (not per-song). */
   cycle?: ProjectCycleRow;

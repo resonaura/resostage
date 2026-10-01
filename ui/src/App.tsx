@@ -18,6 +18,7 @@ import { AppFooter } from "@/shell/components/AppFooter";
 import { AppHeader } from "@/shell/components/AppHeader";
 import { AppNavigation } from "@/shell/components/AppNavigation";
 import { BackendStatusBanner } from "@/shell/components/BackendStatusBanner";
+import { HistoryStatusBanner } from "@/shell/history/components/HistoryStatusBanner";
 import { HardwareAlarmToasts } from "@/shell/components/HardwareAlarmToasts";
 import { useCoreExit } from "@/shell/hooks/useCoreExit";
 import { useHardwareAlarmToasts } from "@/shell/hooks/useHardwareAlarmToasts";
@@ -110,8 +111,9 @@ export default function App() {
       />
 
       <AppFooter state={state} />
+      <HistoryStatusBanner />
 
-      <AppDialogLayer state={state} transferWorkflows={transferWorkflows} />
+      <AppDialogLayer state={state} transferWorkflows={transferWorkflows} connected={status === "live" && !coreExit} />
 
       {!window.resostageElectron?.isElectron && (
         <VirtualMidiKeyboard

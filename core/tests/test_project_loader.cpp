@@ -697,7 +697,7 @@ TEST_CASE("ProjectLoader stream-copies portable video resources and preserves me
     REQUIRE(loader.saveAsWithExtras(package.string(), {extra}, error));
     ProjectLoader reopened;
     REQUIRE(reopened.open(package.string(), error));
-    CHECK(reopened.project().format.version == 9);
+    CHECK(reopened.project().format.version == kCurrentFormatVersion);
     CHECK(reopened.project().songs[0].regions[0].source.videoFile == "Video/original.mp4");
     std::vector<uint8_t> copied;
     REQUIRE(reopened.extractFile("Video/original.mp4", copied, error));

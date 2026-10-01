@@ -10,7 +10,7 @@
 
 import { useEffect, useRef } from "react";
 import { performAction, type ActionId } from "@/lib/state/actions";
-import { transport } from "@/lib/state/api";
+import { transport, timelineHistory } from "@/lib/state/api";
 import { apiFetch } from "@/lib/state/backend";
 import { IS_ELECTRON } from "@/lib/platform/electron";
 import { IS_EMBEDDED } from "@/lib/platform/embedded";
@@ -80,6 +80,7 @@ export function useGlobalHotkeys(
       hotkeyManager.registerActionHandler(action, (event) => {
         const now = Date.now();
         if (
+          action !== "undo" && action !== "redo" &&
           action === lastSpaActionRef.current &&
           now - lastSpaActionAtRef.current < 120
         ) return true;
@@ -87,6 +88,13 @@ export function useGlobalHotkeys(
         lastSpaActionAtRef.current = now;
 
         flashMenuAction(action);
+
+        // Menus, rebindable global keys, and scoped Piano Roll shortcuts use
+        // one acknowledged history path, not a fire-and-forget action POST.
+        if (action === "undo" || action === "redo") {
+          void timelineHistory[action]();
+          return true;
+        }
 
         void apiFetch("/api/v1/action", {
           method: "POST",

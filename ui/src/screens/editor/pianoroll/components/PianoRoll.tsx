@@ -12,6 +12,7 @@ import type { MidiNoteRow } from "@/lib/state/types";
 import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import { useCycleState } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 import { timelineHistory } from "@/lib/state/api";
+import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import { getTrackColor } from "@/lib/theme";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
 import { PianoRollHeader } from "@/screens/editor/pianoroll/components/PianoRollHeader";
@@ -108,6 +109,10 @@ export function PianoRoll({
   } | null>(null);
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
+  useEffect(() => subscribeHistoryBoundary(() => {
+    setOptimisticNotes(null);
+    setLoopLengthDraft(null);
+  }), []);
 
   useEffect(() => setLoopLengthDraft(null), [region.id, region.loopLengthBeats]);
 

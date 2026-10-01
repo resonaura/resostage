@@ -13,6 +13,7 @@
 //   across gapless song boundaries.
 
 import { useEffect, useRef, useState } from "react";
+import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 
 export const OPTIMISTIC_LOCK_MS = 500;
 
@@ -54,6 +55,11 @@ const defaultScheduler: CommitScheduler = {
 
 /** How long to wait for a frame that may never come. */
 const COMMIT_STALL_MS = 100;
+const pendingCommitFlushes = new Set<() => void>();
+/** Deliver pending last-frame values before a reliable history command. */
+export function flushPendingCommits(): void {
+  for (const flush of [...pendingCommitFlushes]) flush();
+}
 
 /** The hook's mechanism, free of React so it can be tested directly. */
 export function createCoalescedCommit<T>(
@@ -65,6 +71,7 @@ export function createCoalescedCommit<T>(
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const flush = () => {
+    pendingCommitFlushes.delete(flush);
     if (frame) {
       scheduler.cancelFrame(frame);
       frame = 0;
@@ -79,6 +86,7 @@ export function createCoalescedCommit<T>(
   };
 
   const send = (v: T) => {
+    pendingCommitFlushes.add(flush);
     pending = { value: v };
     if (frame) return;
     frame = scheduler.requestFrame(flush);
@@ -116,9 +124,20 @@ export function useLiveValue(
   const [value, setValue] = useState(serverValue);
   const lastLocalEdit = useRef(0);
   const [send] = useCoalescedCommit(commit);
+  const serverValueRef = useRef(serverValue);
+  serverValueRef.current = serverValue;
+  useEffect(() => subscribeHistoryBoundary(() => {
+    lastLocalEdit.current = 0;
+    setValue(serverValueRef.current);
+  }), []);
 
   useEffect(() => {
-    if (Date.now() - lastLocalEdit.current > lockMs) setValue(serverValue);
+    const remaining = lockMs - (Date.now() - lastLocalEdit.current);
+    if (remaining <= 0) { setValue(serverValue); return; }
+    // The authoritative value may stop changing before the optimistic lock
+    // expires. Reconcile on expiry too, not only on a later prop transition.
+    const timer = setTimeout(() => setValue(serverValueRef.current), remaining);
+    return () => clearTimeout(timer);
   }, [serverValue, lockMs]);
 
   const onChange = (v: number) => {

@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "plugins/PluginPowerControl.h"
+
 #include <array>
 #include <atomic>
 #include <cmath>
@@ -20,7 +22,7 @@ namespace resostage::plugin_host {
 // header free of JUCE, STL containers, pointers, and platform handles: the
 // mapped area is a byte-level process boundary, not a shared object graph.
 inline constexpr uint32_t kMagic = 0x52535048; // "RSPH"
-inline constexpr uint32_t kProtocolVersion = 5;
+inline constexpr uint32_t kProtocolVersion = 7;
 inline constexpr size_t kSlotCount = 3;
 inline constexpr uint32_t kMaximumBlockSamples = 8192;
 inline constexpr uint32_t kMaximumMidiEventsPerBlock = 512;
@@ -28,7 +30,7 @@ inline constexpr uint32_t kMaximumMidiEventBytes = 16;
 inline constexpr uint32_t kMaximumParameterEventsPerBlock = 256;
 inline constexpr uint32_t kMaximumPluginSlotsPerChain = 128;
 inline constexpr uint32_t kMaximumParameterDescriptorsPerChain = 2048;
-inline constexpr uint32_t kControlEventQueueCapacity = 256;
+inline constexpr uint32_t kControlEventQueueCapacity = 2048;
 // One callback of asynchronous headroom was too fragile when macOS briefly
 // deprioritized a background helper. Keep a second bounded quantum between
 // submission and playout; MixGraph PDC includes the same delay.
@@ -168,6 +170,14 @@ struct alignas(64) SharedArea {
     double processorTailSeconds = 0.0;
     uint32_t pluginSlotCount = 0;
     std::array<uint8_t, kMaximumPluginSlotsPerChain> pluginSlotStatuses{};
+    // Latest-wins fixed power mailboxes do not compete with sample/parameter
+    // events. Core may publish from UI or lookahead; helper DSP alone consumes
+    // requests and publishes actual power state. No extra polling worker/wake.
+    std::atomic<bool> chainPrewarmRequested{false};
+    std::array<std::atomic<uint32_t>, kMaximumPluginSlotsPerChain>
+        pluginSlotPowerRequests{};
+    std::array<std::atomic<uint8_t>, kMaximumPluginSlotsPerChain>
+        pluginSlotPowerStates{};
     // Startup/slot diagnostics are written by the helper before publishing
     // HostState::Ready/Failed, then remain immutable for this generation.
     // Fixed-size text avoids a second IPC channel and preserves bounded reads.
@@ -204,6 +214,9 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free,
               "Plug-in host shared ABI requires lock-free 32-bit atomics");
 static_assert(std::atomic<uint64_t>::is_always_lock_free,
               "Plug-in host shared ABI requires lock-free 64-bit atomics");
+static_assert(std::atomic<uint8_t>::is_always_lock_free
+              && std::atomic<bool>::is_always_lock_free,
+              "Plug-in power mailboxes require lock-free small atomics");
 static_assert(std::is_standard_layout_v<TransportSnapshot>);
 static_assert(std::is_trivially_copyable_v<TransportSnapshot>);
 static_assert(std::is_standard_layout_v<MidiEvent>);
@@ -212,6 +225,57 @@ static_assert(std::is_standard_layout_v<ParameterEvent>);
 static_assert(std::is_trivially_copyable_v<ParameterEvent>);
 static_assert(std::is_trivially_copyable_v<ParameterDescriptor>);
 static_assert(std::is_standard_layout_v<ControlEventCell>);
+
+/** Predictive wake is one coalesced chain edge, regardless of its insert count. */
+inline void publishChainPrewarm(SharedArea& area) noexcept {
+    if (!area.chainPrewarmRequested.load(std::memory_order_relaxed))
+        area.chainPrewarmRequested.store(true, std::memory_order_release);
+}
+
+// Paired controls preserve their newest value; wakes coalesce. Eight CAS
+// attempts bound concurrent UI/automation contention, with the existing
+// shared control rejection counter accounting for the rejected newest intent.
+inline bool publishPowerControl(SharedArea& area, uint32_t slotIndex,
+                                PluginPowerControl control) noexcept {
+    if (slotIndex >= area.pluginSlotCount
+        || slotIndex >= kMaximumPluginSlotsPerChain) {
+        area.missedControlEvents.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    uint32_t replaceMask = 0;
+    switch (control) {
+        case PluginPowerControl::Wake: break;
+        case PluginPowerControl::Park:
+        case PluginPowerControl::Unpark:
+            replaceMask = pluginPowerControlMask(PluginPowerControl::Park)
+                | pluginPowerControlMask(PluginPowerControl::Unpark);
+            break;
+        case PluginPowerControl::KeepAwakeEnable:
+        case PluginPowerControl::KeepAwakeDisable:
+            replaceMask = pluginPowerControlMask(PluginPowerControl::KeepAwakeEnable)
+                | pluginPowerControlMask(PluginPowerControl::KeepAwakeDisable);
+            break;
+        case PluginPowerControl::BypassEnable:
+        case PluginPowerControl::BypassDisable:
+            replaceMask = pluginPowerControlMask(PluginPowerControl::BypassEnable)
+                | pluginPowerControlMask(PluginPowerControl::BypassDisable);
+            break;
+        default:
+            area.missedControlEvents.fetch_add(1, std::memory_order_relaxed);
+            return false;
+    }
+    auto& mailbox = area.pluginSlotPowerRequests[slotIndex];
+    auto previous = mailbox.load(std::memory_order_relaxed);
+    for (unsigned attempt = 0; attempt < 8; ++attempt) {
+        const auto next = (previous & ~replaceMask) | pluginPowerControlMask(control);
+        if (previous == next
+            || mailbox.compare_exchange_weak(previous, next, std::memory_order_release,
+                                             std::memory_order_relaxed))
+            return true;
+    }
+    area.missedControlEvents.fetch_add(1, std::memory_order_relaxed);
+    return false;
+}
 
 // Bounded lock-free multi-producer/single-consumer controls. UI, automation,
 // and transport producers may enqueue concurrently; the helper worker owns

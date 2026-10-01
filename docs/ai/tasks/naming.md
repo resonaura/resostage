@@ -22,16 +22,31 @@ Folder names remain short lowercase words per the user's convention.
 
 ## Status
 
-Completed initial canonical acronym normalization pass on 2026-09-30.
+Initial symbol/alias normalization was implemented on 2026-09-30; the repository
+wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
 - `PluginMIDIBuffer.h`: canonicalized from `PluginMidiBuffer.h` (`PluginMIDIBuffer`, `PluginMIDICopyResult`, `copyPluginMIDIEventsToHost`).
-- `UUID.h`: canonical RFC 9562 `generateUUIDv7()` introduced in `core/engine/project/` with backward-compatible `generateUuidV7()` alias and `UUID.h` header wrapper.
-- `WAVStreamDecoder.h` & `WAVMetadata.h`: canonical `WAVStreamDecoder` type alias, `extractTempoFromWAVFile()` helper, and forwarding headers.
-- `OfflineWAVWriter.h`: canonical `WAVWriter` type alias and header wrapper.
+- `core/engine/project/Uuid.h`: canonical RFC 9562 `generateUUIDv7()` with the
+  backward-compatible `generateUuidV7()` alias. There is no separate `UUID.h`
+  wrapper in the current inventory.
+- `core/engine/audio/streaming/WavStreamDecoder.h` and `WavMetadata.h`: canonical
+  `WAVStreamDecoder` type alias and `extractTempoFromWAVFile()` forwarding helper;
+  the legacy filenames remain. No case-only forwarding headers are present.
+- `core/app/engine/OfflineWavWriter.h`: canonical `WAVWriter` type alias in the
+  existing header; the filename remains unchanged.
 - `AudioRecordWorker`: canonicalized internal header writer `writeWAVHeader()`.
-- `UDPDiscovery.h`: canonical `UDPDiscovery` alias and header wrapper.
+- `core/app/network/UdpDiscovery.h`: canonical `UDPDiscovery` alias in the
+  existing header, without a separate case-only wrapper.
 - `EventDispatcher.h`: canonical `HTTPTriggerCommand`, `DMXTriggerCommand`, `enqueueHTTP()`, `sendHTTP()`, `enqueueDMX()`, `sendDMX()`.
-- `WebServerHTTP.h`: canonical `writeHTTPResponse()` alias and header wrapper.
+- `core/app/server/WebServerHttp.h`: canonical `writeHTTPResponse()` forwarding
+  helper in the legacy header; no separate `WebServerHTTP.h` exists.
 - Invariants preserved:
   - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
   - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
-  - Dual headers ensure case-insensitive file system safety across macOS, Windows, and Linux.
+  - Do not create both case-only variants of one header: they collide on common
+    macOS/Windows file systems. A future rename needs a two-step Git move and
+    reference-aware updates, not ambiguous duplicate paths.
+
+Remaining: inventory all internal identifiers/callers, choose actual canonical
+filenames where safe, migrate internal usages away from transitional aliases,
+and run the full cross-language build/resolution matrix. Preserve external
+wire/persisted/JUCE spellings unless a deliberate compatibility change is made.

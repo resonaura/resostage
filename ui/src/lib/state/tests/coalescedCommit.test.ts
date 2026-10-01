@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { createCoalescedCommit, type CommitScheduler } from "@/lib/state/optimistic";
+import { createCoalescedCommit, flushPendingCommits, type CommitScheduler } from "@/lib/state/optimistic";
 
 /** A hand-cranked clock: nothing runs until the test says so. */
 function fakeScheduler() {
@@ -52,6 +52,17 @@ function fakeScheduler() {
 }
 
 describe("createCoalescedCommit", () => {
+  it("flushes pending last-frame values before history navigation", () => {
+    const seen: number[] = [];
+    const clock = fakeScheduler();
+    const { send } = createCoalescedCommit<number>((value) => seen.push(value), clock.scheduler);
+    send(3);
+    send(7);
+    flushPendingCommits();
+    clock.tickFrame();
+    clock.tickTimer();
+    expect(seen).toEqual([7]);
+  });
   it("collapses a burst within one frame into a single latest-wins commit", () => {
     const seen: number[] = [];
     const clock = fakeScheduler();

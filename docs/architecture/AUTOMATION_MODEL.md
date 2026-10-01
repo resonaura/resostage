@@ -1,6 +1,28 @@
 # Architecture Specification: Unified Automation & Modulation Framework
 
-**Status**: `IN_PROGRESS` (Phase 4)
+**Status**: domain/schema and focused plug-in/MIDI lane integration implemented;
+full console/arrangement workflow remains in progress. Source review: 2026-10-01.
+
+## Implemented scope
+
+`ProjectSchema.h` defines targets, scopes, write modes, and points. Song, audio
+region, and MIDI region lanes are persisted and published as structural state.
+`AutomationEvaluator` and `AutomationCurve` provide deterministic curve and
+multi-scope evaluation; `AutomationRecorder` provides touch/latch/punch/RDP
+primitives. These types do not imply every domain has a complete editor or live
+write-mode lifecycle.
+
+The arrangement's plug-in automation editor lists parameter metadata copied
+from the isolated host and edits normalized slot/parameter lanes. Live dispatch
+queues plug-in changes at block granularity; offline rendering evaluates lanes
+against its private session. MIDI-region CC/channel pitch bend is dispatched to
+instrument/external MIDI paths where applicable. General strip/fader/pan
+automation editing, unified lighting automation, and native per-note MIDI 2.0
+glide remain separate integration work. Never describe channel bend as per-note
+expression.
+
+The type excerpts below are design summaries. The schema is the source of
+truth and includes `AutomationLane::scope` in addition to the abbreviated fields.
 
 ---
 
@@ -16,7 +38,7 @@ Rather than fragmenting parameter automation across four separate subsystems, Re
 
 Key design principles:
 1. **Target Agnostic**: Curves do not care whether they modulate an audio EQ, a synth oscillator, a DMX dimmer, or a MIDI CC.
-2. **Deterministic Real-Time Evaluation**: Bounded per-block curve sampling with curvature matching `AutomationEnvelope` ($pow(t, 2^{-curve \cdot 2})$). Zero heap allocation and vectorized SIMD smoothing.
+2. **Deterministic Real-Time Evaluation**: Curve sampling with curvature matching `AutomationEnvelope` ($pow(t, 2^{-curve \cdot 2})$), prepared storage, and no routine evaluator allocation. Do not assume every live dispatch is sample-wise or SIMD; the current plug-in control path is block-granular.
 3. **Multi-Scope Hierarchy**:
    - `TrackAutomation`: Anchored to the timeline/song, continuous across regions.
    - `RegionAutomation`: Attached to an audio or MIDI region; moves, trims, duplicates, and loops with the region.
@@ -89,7 +111,9 @@ u & \text{if } curve = 0
 
 $$v(t) = v_1 + (v_2 - v_1) \cdot u_{shaped}$$
 
-This exact formula matches ResoStage's `RegionFade` and `AutomationEnvelope`, guaranteeing perceptual linearity for volume, filter cutoff, and lighting fades.
+This formula matches ResoStage's curve convention. Perceptual mapping depends
+on the target's units and normalization; a shared curve formula alone cannot
+guarantee perceptual linearity for gain, frequency, or color.
 
 ---
 
@@ -103,4 +127,9 @@ This exact formula matches ResoStage's `RegionFade` and `AutomationEnvelope`, gu
 | **`Write`** | Overwrites existing curve across entire playback range. | Records user touches continuously. | Continues recording current fader position. |
 
 ### Data Thinning (Ramer-Douglas-Peucker)
-High-rate hardware controller gestures (e.g. 100 Hz USB/MIDI fader updates) generate thousands of points. Upon recording punch-out, an asynchronous background task applies the **Ramer-Douglas-Peucker (RDP)** reduction algorithm with a configurable error tolerance ($\epsilon \approx 0.002$ in normalized space), reducing point counts by 85–95% while preserving audible curve shape.
+High-rate gestures can generate many points. The recorder/builder applies
+**Ramer-Douglas-Peucker (RDP)** reduction with configurable tolerance (default
+$\epsilon = 0.002$ in normalized space). Reduction ratio depends on the input;
+85–95% is not a measured universal result. `MainComponentBuilderAutomation.cpp`
+owns command mutation on the message thread; do not assume a background task
+or use these vector-growing recording helpers in the audio callback.

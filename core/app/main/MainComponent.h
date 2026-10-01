@@ -210,6 +210,7 @@ private:
     // Shared by WebCommandKind::TimelineUndo/Redo and performAction("undo"/"redo").
     void performTimelineUndo();
     void performTimelineRedo();
+    uint64_t lastHistoryRequestId_ = 0; // Applied on the message thread, published with its restored project.
 
     // Native folder picker when web sends import without a path (rare).
     void importSongFolderNative();

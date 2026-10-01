@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { builder } from "@/lib/state/api";
+import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import type { MidiNoteRow, WebUiState } from "@/lib/state/types";
 
 export interface PendingMidiRegionCreation {
@@ -33,6 +34,13 @@ export function useMidiRegionEditorState(state: WebUiState) {
   const midiRecordingWasActiveRef = useRef(false);
   const midiRecordingBaselineRef = useRef<Map<string, number>>(new Map());
   const awaitingRecordedMidiRef = useRef(false);
+
+  useEffect(() => subscribeHistoryBoundary(() => {
+    // A provisional create/follow-up from before Undo must never recreate
+    // notes after the authoritative region has been removed by history.
+    pendingMidiRegionCreatesRef.current.clear();
+    awaitingRecordedMidiRef.current = false;
+  }), []);
 
   useEffect(() => {
     const pendingCreates = pendingMidiRegionCreatesRef.current;

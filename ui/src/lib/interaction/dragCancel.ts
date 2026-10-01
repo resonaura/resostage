@@ -104,3 +104,10 @@ export function beginCancellableDrag(revert: () => void): CancellableDrag {
 export function activeDragCount(): number {
   return stack.length;
 }
+
+/** Cancel all existing gestures before project history replaces their state. */
+export function cancelActiveDrags(): void {
+  // Only the captured entries: a revert must not make a newly-started drag
+  // loop forever, and cancellation must remain proportional to active gestures.
+  for (const entry of [...stack].reverse()) revertEntry(entry);
+}

@@ -7,6 +7,7 @@
 #include "doctest.h"
 
 #include "project/ProjectHistory.h"
+#include "project/HistoryRestore.h"
 
 using namespace resostage;
 
@@ -171,4 +172,65 @@ TEST_CASE("ProjectHistory clear() empties both stacks") {
     history.clear();
     CHECK_FALSE(history.canUndo());
     CHECK_FALSE(history.canRedo());
+}
+
+TEST_CASE("ProjectHistory navigation closes replayed gestures before branching") {
+    ProjectHistory history;
+    Project state = makeProjectWithRegions({});
+    for (const char* id : {"gesture-a", "gesture-b"}) {
+        history.beginEdit(state, id, id);
+        state.name = id;
+        history.commitEdit(state);
+    }
+    state = *history.undo();
+    state = *history.undo();
+    state = *history.redo();
+    REQUIRE(history.canRedo());
+    // A slider can retain the same gesture ID across a quick Undo/Redo.
+    // This edit must invalidate B and get its own undo boundary, not mutate A.
+    history.beginEdit(state, "gesture-a", "New branch");
+    state.name = "branch";
+    history.commitEdit(state);
+    CHECK_FALSE(history.canRedo());
+    state = *history.undo();
+    CHECK(state.name == "gesture-a");
+    state = *history.undo();
+    CHECK(state.name != "gesture-a");
+}
+
+TEST_CASE("ProjectHistory revision orders mutation snapshots across clear") {
+    ProjectHistory history;
+    Project state = makeProjectWithRegions({"a"});
+    const auto initial = history.revision();
+    history.beginEdit(state, "edit", "Rename");
+    state.name = "After";
+    history.commitEdit(state);
+    const auto committed = history.revision();
+    CHECK(committed > initial);
+    REQUIRE(history.undo().has_value());
+    CHECK(history.revision() > committed);
+    const auto undone = history.revision();
+    REQUIRE(history.redo().has_value());
+    CHECK(history.revision() > undone);
+    const auto redone = history.revision();
+    history.clear();
+    CHECK(history.revision() > redone);
+    const auto cleared = history.revision();
+    CHECK_FALSE(history.undo().has_value());
+    CHECK(history.revision() == cleared);
+}
+
+TEST_CASE("History restore keeps stable song focus across reorder and handles removal") {
+    Project project;
+    SongDef a; a.id = "a";
+    SongDef b; b.id = "b";
+    project.songs = {b, a};
+    REQUIRE(resolveHistorySongIndex(project, "a", 0).has_value());
+    CHECK(*resolveHistorySongIndex(project, "a", 0) == 1);
+    CHECK(*resolveHistorySongIndex(project, "b", 1) == 0);
+    project.songs = {b};
+    CHECK(*resolveHistorySongIndex(project, "a", 10) == 0);
+    CHECK(*resolveHistorySongIndex(project, "", static_cast<size_t>(-1)) == 0);
+    project.songs.clear();
+    CHECK_FALSE(resolveHistorySongIndex(project, "b", 0).has_value());
 }

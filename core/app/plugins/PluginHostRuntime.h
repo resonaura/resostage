@@ -29,6 +29,10 @@ public:
                  std::atomic<uint32_t>* activePluginIndex,
                  std::string& error);
     bool process(plugin_host::AudioSlot& block) noexcept;
+    /** Helper DSP only: consume fixed power mailboxes before rendering a block. */
+    void applyPowerRequests(plugin_host::SharedArea& area) noexcept;
+    /** Helper DSP only: publish actual per-node state after rendering. */
+    void publishPowerStates(plugin_host::SharedArea& area) const noexcept;
     void applyControlEvent(const plugin_host::ParameterEvent& event) noexcept;
     bool captureStateFiles(std::string& error);
     bool consumeStateChange() noexcept;

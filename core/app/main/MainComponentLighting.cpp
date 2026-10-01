@@ -558,13 +558,13 @@ void MainComponent::lightingCueRemove(const std::string& json) {
         return;
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
-    auto it = std::remove_if(s.lightCues.begin(), s.lightCues.end(),
+    const auto it = std::find_if(s.lightCues.begin(), s.lightCues.end(),
                               [&](const LightCue& c) { return c.id == cueId; });
     if (it != s.lightCues.end()) {
         std::string gestureId;
         getString(doc, "gestureId", gestureId);
         engine.projectHistoryBeginEdit(gestureId, "Remove light cue");
-        s.lightCues.erase(it, s.lightCues.end());
+        std::erase_if(s.lightCues, [&](const LightCue& c) { return c.id == cueId; });
         engine.projectHistoryCommitEdit();
         notifyProjectStructureChanged();
         engine.notifyLightEngineProjectChanged();

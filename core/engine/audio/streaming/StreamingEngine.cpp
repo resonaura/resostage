@@ -788,6 +788,9 @@ std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::bindSongToPool(
     std::string& error, bool openMissing) {
     auto staged = std::make_shared<StagedSong>();
     staged->songIndex = songIndex;
+    staged->songId = song.id;
+    staged->ringCapacityFrames = ringCapacityFrames;
+    staged->deviceSampleRate = deviceSampleRate;
 
     // Must run before the per-region pool lookup below: otherwise a file
     // already resident in the pool from a previous device rate would be
@@ -805,6 +808,9 @@ std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::bindSongToPool(
     }
 
     for (const Region* r : regions) {
+        staged->sourceBindings.push_back({r->id, r->trackId, r->source.file,
+            r->source.offsetSeconds, r->durationSeconds, r->loop.enabled,
+            r->loop.lengthSeconds, r->playback.speed, r->playback.reverse});
         std::shared_ptr<StreamingTrackBuffer> buf;
         {
             std::lock_guard<std::mutex> lock(filePoolMutex);
@@ -836,6 +842,84 @@ std::shared_ptr<StreamingEngine::StagedSong> StreamingEngine::bindSongToPool(
     return staged;
 }
 
+bool StreamingEngine::stagedSongMatches(const StagedSong& staged, size_t songIndex,
+                                        const SongDef& song, int64_t ringCapacityFrames,
+                                        double deviceSampleRate, bool matchWindows) {
+    if (staged.songIndex != songIndex || staged.songId != song.id
+        || staged.ringCapacityFrames != ringCapacityFrames
+        || std::abs(staged.deviceSampleRate - deviceSampleRate) > 1e-6)
+        return false;
+    size_t binding = 0;
+    for (const auto& region : song.regions) {
+        if (region.source.file.empty())
+            continue;
+        if (binding >= staged.sourceBindings.size())
+            return false;
+        const auto& expected = staged.sourceBindings[binding++];
+        if (expected.regionId != region.id || expected.trackId != region.trackId
+            || expected.file != region.source.file)
+            return false;
+        if (matchWindows && (expected.offsetSeconds != region.source.offsetSeconds
+            || expected.durationSeconds != region.durationSeconds
+            || expected.loop != region.loop.enabled
+            || expected.loopLengthSeconds != region.loop.lengthSeconds
+            || expected.speed != region.playback.speed || expected.reverse != region.playback.reverse))
+            return false;
+    }
+    return binding == staged.sourceBindings.size();
+}
+
+bool StreamingEngine::activeSongMatches(size_t songIndex, const SongDef& song,
+                                        int64_t ringCapacityFrames, double deviceSampleRate) const {
+    const auto staged = std::atomic_load_explicit(&active, std::memory_order_acquire);
+    return staged && stagedSongMatches(*staged, songIndex, song, ringCapacityFrames, deviceSampleRate);
+}
+
+void StreamingEngine::invalidateIncompatibleWarmSongs(const std::vector<SongDef>& songs,
+                                                       int64_t ringCapacityFrames,
+                                                       double deviceSampleRate) {
+    // Abort in-flight warm jobs before they can publish a map built against
+    // the previous document. Keep completed compatible maps and pooled files.
+    warmGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    std::lock_guard<std::mutex> lock(precacheMutex);
+    const auto compatible = [&](const std::shared_ptr<StagedSong>& staged) {
+        return staged && staged->songIndex < songs.size()
+            && stagedSongMatches(*staged, staged->songIndex, songs[staged->songIndex],
+                                 ringCapacityFrames, deviceSampleRate, /*matchWindows=*/true);
+    };
+    std::erase_if(warmByIndex, [&](const auto& item) { return !compatible(item.second); });
+    std::erase_if(warmLru, [&](size_t index) { return !warmByIndex.contains(index); });
+    if (!compatible(precached))
+        precached.reset();
+}
+
+bool StreamingEngine::rebindActiveSongAt(size_t songIndex, const SongDef& song,
+                                        int64_t ringCapacityFrames, double deviceSampleRate,
+                                        int64_t deviceFrame, std::string& error) {
+    // Caller excludes the device callback while replacing Project storage.
+    // Bind/seek off audio, publish only a complete map, and let normal workers
+    // refill rings rather than block the message thread for a prime timeout.
+    auto staged = bindSongToPool(songIndex, song, ringCapacityFrames, deviceSampleRate, error,
+                                 /*openMissing=*/true);
+    if (!staged)
+        return false;
+    {
+        std::lock_guard<std::mutex> lock(projectLoaderMutex);
+        for (const auto& buffer : staged->buffers) {
+            if (buffer && !buffer->hardSeekTo(std::max<int64_t>(0, deviceFrame), error))
+                return false;
+        }
+    }
+    stageEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    std::atomic_store_explicit(&active, std::move(staged), std::memory_order_release);
+    return true;
+}
+
+void StreamingEngine::clearActiveSong() {
+    stageEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    std::atomic_store_explicit(&active, std::shared_ptr<StagedSong>{}, std::memory_order_release);
+}
+
 bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
                                 double deviceSampleRate, std::string& error, double primeSeconds,
                                 double primeMaxWait, std::atomic<bool>* muteBeforeSwap, bool asyncFill,
@@ -857,6 +941,11 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
             precached.reset();
         }
     }
+    // Index-only warm-cache hits are invalid after song reorder, source edits,
+    // or a device-rate change. Never pair their old map with the new document.
+    if (next && !stagedSongMatches(*next, songIndex, song, ringCapacityFrames, deviceSampleRate,
+                                  /*matchWindows=*/true))
+        next.reset();
 
     // Shared file-pool stems usually need a rewind (left mid-file by the
     // previous song). Do fseek-only first; fill AFTER the active flip so the
@@ -919,6 +1008,7 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
 
 void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames,
                                    double deviceSampleRate, uint64_t epoch, bool requireEpochMatch) {
+    const auto generation = warmGeneration_.load(std::memory_order_acquire);
     if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
         return;
 
@@ -958,6 +1048,8 @@ void StreamingEngine::precacheSong(size_t songIndex, const SongDef& song, int64_
         return;
 
     std::lock_guard<std::mutex> lock(precacheMutex);
+    if (generation != warmGeneration_.load(std::memory_order_acquire))
+        return;
     if (requireEpochMatch && epoch != stageEpoch_.load(std::memory_order_acquire))
         return;
     if (hasWarmLocked(songIndex))

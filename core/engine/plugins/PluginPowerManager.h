@@ -7,6 +7,7 @@
 #pragma once
 
 #include "audio/dsp/EnvelopeFollower.h"
+#include "plugins/PluginPowerControl.h"
 #include "project/ProjectSchema.h"
 
 #include <algorithm>
@@ -21,33 +22,6 @@
 #include <vector>
 
 namespace resostage {
-
-/**
- * 4-tier power states specified in docs/architecture/PLUGIN_POWER_MANAGEMENT.md
- */
-enum class PluginPowerState : uint8_t {
-    Active = 0,    ///< Processing every block. Full DSP consumption.
-    Quiescent = 1, ///< Input silent; output envelope monitored as tails ring out.
-    Suspended = 2, ///< Tail decayed < -90 dBFS; processBlock is bypassed O(1).
-    Parked = 3     ///< State serialized; plugin binary instance unloaded.
-};
-
-inline const char* pluginPowerStateToString(PluginPowerState state) noexcept {
-    switch (state) {
-        case PluginPowerState::Active: return "active";
-        case PluginPowerState::Quiescent: return "quiescent";
-        case PluginPowerState::Suspended: return "suspended";
-        case PluginPowerState::Parked: return "parked";
-    }
-    return "active";
-}
-
-inline PluginPowerState pluginPowerStateFromString(std::string_view str) noexcept {
-    if (str == "quiescent") return PluginPowerState::Quiescent;
-    if (str == "suspended") return PluginPowerState::Suspended;
-    if (str == "parked") return PluginPowerState::Parked;
-    return PluginPowerState::Active;
-}
 
 struct PluginPowerConfig {
     float silenceThresholdDb = -90.0f;
@@ -67,6 +41,9 @@ struct PluginPowerFlags {
 
 /**
  * Tracks power state, tail decay, and real-time bypass status for a single plugin slot.
+ * After prepare(), the DSP thread alone writes the follower, silence counter,
+ * and published state. Controls from any thread only update atomic intents or
+ * guards. Instances must not be prepared again while processing is possible.
  * Real-time safe: zero heap allocations, zero blocking locks.
  */
 class PluginSlotPowerTracker final {
@@ -81,45 +58,83 @@ public:
                           ? tailSecondsIn
                           : 5.0;
         flags = flagsIn;
-        if (std::isinf(tailSecondsIn)) {
+        if (std::isinf(tailSecondsIn) || tailSecondsIn >= 3600.0) {
             flags.infiniteTail = true;
         }
 
         silenceThresholdLinear = std::pow(10.0f, silenceThresholdDb / 20.0f);
         tailSamplesThreshold = static_cast<int64_t>(tailSeconds * sampleRate);
         silentSamplesAccumulated = 0;
+        mutableGuards.store((flags.keepAwake ? kKeepAwake : 0u)
+                                | (flags.trackRecordArmed ? kRecordArmed : 0u)
+                                | (flags.trackInputMonitoring ? kInputMonitoring : 0u),
+                            std::memory_order_relaxed);
+        pendingIntent.store(Intent::None, std::memory_order_relaxed);
+        explicitlyParked.store(false, std::memory_order_relaxed);
 
         follower.prepare(sampleRate, 5.0, 50.0, EnvelopeDetectorMode::Peak);
-
-        if (flags.keepAwake || flags.neverSuspend || flags.infiniteTail
-            || flags.trackRecordArmed || flags.trackInputMonitoring) {
-            currentState.store(PluginPowerState::Active, std::memory_order_relaxed);
-            processingNeeded.store(true, std::memory_order_relaxed);
-        } else {
-            currentState.store(PluginPowerState::Active, std::memory_order_relaxed);
-            processingNeeded.store(true, std::memory_order_relaxed);
-        }
+        currentState.store(PluginPowerState::Active, std::memory_order_relaxed);
     }
 
     /** Real-time O(1) branch test for processChain. */
     [[nodiscard]] bool isProcessingNeeded() const noexcept {
-        return processingNeeded.load(std::memory_order_relaxed);
+        const auto powerState = state();
+        return powerState != PluginPowerState::Suspended
+            && powerState != PluginPowerState::Parked;
     }
 
     [[nodiscard]] PluginPowerState state() const noexcept {
-        return currentState.load(std::memory_order_relaxed);
+        if (explicitlyParked.load(std::memory_order_acquire))
+            return PluginPowerState::Parked;
+        const auto intent = pendingIntent.load(std::memory_order_acquire);
+        if (intent == Intent::Wake)
+            return PluginPowerState::Active;
+        if (intent == Intent::Suspend && !guarded())
+            return PluginPowerState::Suspended;
+        const auto published = currentState.load(std::memory_order_relaxed);
+        if (published == PluginPowerState::Parked
+            || (published == PluginPowerState::Suspended && guarded()))
+            return PluginPowerState::Active;
+        return published;
     }
 
     [[nodiscard]] const std::string& getSlotId() const noexcept {
         return slotId;
     }
 
-    [[nodiscard]] const PluginPowerFlags& getFlags() const noexcept {
-        return flags;
+    /** Thread-safe value snapshot; never returns a reference to mutable flags. */
+    [[nodiscard]] PluginPowerFlags getFlags() const noexcept {
+        auto snapshot = flags;
+        const auto guards = mutableGuards.load(std::memory_order_acquire);
+        snapshot.keepAwake = (guards & kKeepAwake) != 0;
+        snapshot.trackRecordArmed = (guards & kRecordArmed) != 0;
+        snapshot.trackInputMonitoring = (guards & kInputMonitoring) != 0;
+        return snapshot;
     }
 
     [[nodiscard]] double getTailSeconds() const noexcept {
         return tailSeconds;
+    }
+
+    /** DSP thread only, including suspended blocks before the bypass decision. */
+    void beginBlockRealtime() noexcept {
+        // Avoid a cache-line RMW on every silent/active block when no producer
+        // published a request. A request racing this load remains for the next
+        // block, and state()/isProcessingNeeded() already observe its intent.
+        const auto intent = pendingIntent.load(std::memory_order_relaxed) == Intent::None
+            ? Intent::None : pendingIntent.exchange(Intent::None, std::memory_order_acq_rel);
+        if (explicitlyParked.load(std::memory_order_acquire)) {
+            currentState.store(PluginPowerState::Parked, std::memory_order_relaxed);
+            silentSamplesAccumulated = 0;
+        } else if (intent == Intent::Wake
+                   || currentState.load(std::memory_order_relaxed) == PluginPowerState::Parked
+                   || (guarded() && currentState.load(std::memory_order_relaxed)
+                       == PluginPowerState::Suspended)) {
+            silentSamplesAccumulated = 0;
+            currentState.store(PluginPowerState::Active, std::memory_order_relaxed);
+        } else if (intent == Intent::Suspend && !guarded()) {
+            currentState.store(PluginPowerState::Suspended, std::memory_order_relaxed);
+        }
     }
 
     /**
@@ -128,6 +143,8 @@ public:
      */
     void processBlockRealtime(const float* outL, const float* outR, int numSamples,
                               bool hasInputOrEvents) noexcept {
+        if (numSamples <= 0) return;
+        beginBlockRealtime();
         const auto st = currentState.load(std::memory_order_relaxed);
         if (st == PluginPowerState::Parked) {
             return;
@@ -138,7 +155,6 @@ public:
             if (st == PluginPowerState::Quiescent || st == PluginPowerState::Suspended) {
                 currentState.store(PluginPowerState::Active, std::memory_order_relaxed);
             }
-            processingNeeded.store(true, std::memory_order_relaxed);
             return;
         }
 
@@ -162,14 +178,9 @@ public:
             silentSamplesAccumulated += numSamples;
 
             // Check guard rails before allowing suspension
-            const bool guarded = flags.keepAwake || flags.neverSuspend
-                                 || flags.infiniteTail || flags.trackRecordArmed
-                                 || flags.trackInputMonitoring;
-
-            if (!guarded && silentSamplesAccumulated >= tailSamplesThreshold) {
+            if (!guarded() && silentSamplesAccumulated >= tailSamplesThreshold) {
                 // Transition Quiescent -> Suspended
                 currentState.store(PluginPowerState::Suspended, std::memory_order_relaxed);
-                processingNeeded.store(false, std::memory_order_relaxed);
             }
         } else {
             // Output still ringing above -90 dBFS; reset silent accumulator
@@ -177,57 +188,58 @@ public:
         }
     }
 
-    /** Pre-warm or awaken plugin to Active state (< 0.05 ms, zero lock). */
+    /** Any thread: coalesced wake intent; explicit parking requires unpark(). */
     void forceAwake() noexcept {
-        silentSamplesAccumulated = 0;
-        currentState.store(PluginPowerState::Active, std::memory_order_release);
-        processingNeeded.store(true, std::memory_order_release);
+        pendingIntent.store(Intent::Wake, std::memory_order_release);
     }
 
     /** Suspend immediately if guard rails permit. */
     void forceSuspend() noexcept {
-        const bool guarded = flags.keepAwake || flags.neverSuspend
-                             || flags.infiniteTail || flags.trackRecordArmed
-                             || flags.trackInputMonitoring;
-        if (!guarded) {
-            currentState.store(PluginPowerState::Suspended, std::memory_order_release);
-            processingNeeded.store(false, std::memory_order_release);
-        }
+        if (!guarded())
+            pendingIntent.store(Intent::Suspend, std::memory_order_release);
     }
 
     void park() noexcept {
-        currentState.store(PluginPowerState::Parked, std::memory_order_release);
-        processingNeeded.store(false, std::memory_order_release);
+        explicitlyParked.store(true, std::memory_order_release);
     }
 
     void unpark() noexcept {
-        silentSamplesAccumulated = 0;
-        currentState.store(PluginPowerState::Active, std::memory_order_release);
-        processingNeeded.store(true, std::memory_order_release);
+        explicitlyParked.store(false, std::memory_order_release);
+        forceAwake();
     }
 
     void setKeepAwake(bool keepAwakeIn) noexcept {
-        flags.keepAwake = keepAwakeIn;
-        if (flags.keepAwake) {
-            forceAwake();
-        }
+        setGuard(kKeepAwake, keepAwakeIn);
     }
 
     void setRecordArmed(bool armed) noexcept {
-        flags.trackRecordArmed = armed;
-        if (armed) {
-            forceAwake();
-        }
+        setGuard(kRecordArmed, armed);
     }
 
     void setInputMonitoring(bool mon) noexcept {
-        flags.trackInputMonitoring = mon;
-        if (mon) {
-            forceAwake();
-        }
+        setGuard(kInputMonitoring, mon);
     }
 
 private:
+    enum class Intent : uint8_t { None, Wake, Suspend };
+    static constexpr uint8_t kKeepAwake = 1u;
+    static constexpr uint8_t kRecordArmed = 2u;
+    static constexpr uint8_t kInputMonitoring = 4u;
+
+    [[nodiscard]] bool guarded() const noexcept {
+        return mutableGuards.load(std::memory_order_acquire) != 0
+            || flags.neverSuspend || flags.infiniteTail;
+    }
+
+    void setGuard(uint8_t bit, bool enabled) noexcept {
+        if (enabled) {
+            mutableGuards.fetch_or(bit, std::memory_order_release);
+            forceAwake();
+        } else {
+            mutableGuards.fetch_and(static_cast<uint8_t>(~bit), std::memory_order_release);
+        }
+    }
+
     std::string slotId;
     double sampleRate = 48000.0;
     double tailSeconds = 5.0;
@@ -239,7 +251,9 @@ private:
     PluginPowerFlags flags;
 
     std::atomic<PluginPowerState> currentState{PluginPowerState::Active};
-    std::atomic<bool> processingNeeded{true};
+    std::atomic<Intent> pendingIntent{Intent::None};
+    std::atomic<uint8_t> mutableGuards{0};
+    std::atomic<bool> explicitlyParked{false};
 };
 
 struct PluginPowerStats {

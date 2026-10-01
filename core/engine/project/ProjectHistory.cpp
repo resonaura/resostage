@@ -36,6 +36,7 @@ void ProjectHistory::commitEdit(const Project& after) {
     if (undoStack_.empty())
         return;
     undoStack_.back().after = after;
+    ++revision_;
 }
 
 bool ProjectHistory::commitOpenEdit(const std::string& gestureId, const Project& after) {
@@ -44,6 +45,7 @@ bool ProjectHistory::commitOpenEdit(const std::string& gestureId, const Project&
     if (undoStack_.back().openGestureId != gestureId)
         return false;
     undoStack_.back().after = after;
+    ++revision_;
     return true;
 }
 
@@ -52,7 +54,13 @@ std::optional<Project> ProjectHistory::undo() {
         return std::nullopt;
     Entry entry = std::move(undoStack_.back());
     undoStack_.pop_back();
+    // History navigation ends a gesture. Reusing its client ID after redo
+    // must create a new branch, not overwrite the replayed step's `after`.
+    entry.openGestureId.clear();
+    if (!undoStack_.empty())
+        undoStack_.back().openGestureId.clear();
     Project restored = entry.before;
+    ++revision_;
     redoStack_.push_back(std::move(entry));
     if (redoStack_.size() > kMaxDepth)
         redoStack_.pop_front();
@@ -64,7 +72,9 @@ std::optional<Project> ProjectHistory::redo() {
         return std::nullopt;
     Entry entry = std::move(redoStack_.back());
     redoStack_.pop_back();
+    entry.openGestureId.clear();
     Project restored = entry.after;
+    ++revision_;
     undoStack_.push_back(std::move(entry));
     if (undoStack_.size() > kMaxDepth)
         undoStack_.pop_front();
@@ -74,6 +84,7 @@ std::optional<Project> ProjectHistory::redo() {
 void ProjectHistory::clear() {
     undoStack_.clear();
     redoStack_.clear();
+    ++revision_;
 }
 
 } // namespace resostage

@@ -342,6 +342,17 @@ bool PluginHostSharedMemory::isOwner() const noexcept {
     return impl->owner;
 }
 
+void PluginHostSharedMemory::unlinkNamespace() noexcept {
+#if !defined(_WIN32)
+    if (impl && impl->owner && !impl->mappingName.empty()) {
+        sem_unlink(wakeName(impl->mappingName).c_str());
+        sem_unlink(controlWakeName(impl->mappingName).c_str());
+        shm_unlink(impl->mappingName.c_str());
+        impl->mappingName.clear();
+    }
+#endif
+}
+
 bool PluginHostSharedMemory::signalWake() noexcept {
     if (impl->shared == nullptr)
         return false;

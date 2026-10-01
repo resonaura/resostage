@@ -445,7 +445,7 @@ export function MidiRegionBlock({
               return (
                 <span
                   key={`${note.id}:${iteration}:${displayStart}`}
-                  className="absolute rounded-[1px]"
+                  className="absolute rounded-xs"
                   style={{
                     left: `${noteLeftPercent}%`,
                     width: `${noteWidthPercent}%`,
@@ -464,7 +464,7 @@ export function MidiRegionBlock({
           return (
             <span
               key={`sustain-${index}`}
-              className="absolute bottom-px h-[2px] rounded-none"
+              className="absolute bottom-px h-0.5 rounded-none"
               style={{
                 left: `${(start / effectiveDurationBeats) * 100}%`,
                 width: `${Math.max((1 / previewWidthPx) * 100, ((end - start) / effectiveDurationBeats) * 100)}%`,

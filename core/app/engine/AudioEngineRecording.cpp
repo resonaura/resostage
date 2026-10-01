@@ -35,6 +35,9 @@ using audio_engine_detail::dbToGain;
 using audio_engine_detail::kRingBufferSeconds;
 
 void AudioEngine::startRecording(int targetTrackIndex) {
+    // Never arm a capture session/count-in while this document's vendor
+    // processors are incomplete. Record is not a deferred plain-Play intent.
+    if (!pluginLoadingSession.requestTransport(false)) return;
     if (isRecordingState.load(std::memory_order_acquire))
         return;
 
@@ -579,4 +582,3 @@ std::vector<PeakPair16> AudioEngine::getLiveRecordingPeaks(const std::string& tr
 }
 
 } // namespace resostage
-

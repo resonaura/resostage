@@ -321,7 +321,7 @@ struct PluginDelayBank::EdgeDelayLine {
 
     std::vector<float> left;
     std::vector<float> right;
-    uint32_t cursor = 0;
+    std::atomic<uint32_t> cursor{0};
 };
 
 void PluginDelayBank::applyTo(MixProcessorView& view) const noexcept {
@@ -339,7 +339,7 @@ void PluginDelayBank::processEdgeDelay(
     const uint32_t length = static_cast<uint32_t>(delay.left.size());
     if (length == 0)
         return;
-    uint32_t cursor = delay.cursor;
+    uint32_t cursor = delay.cursor.load(std::memory_order_relaxed);
     for (int sample = 0; sample < numSamples; ++sample) {
         outputLeft[sample] = delay.left[cursor];
         outputRight[sample] = delay.right[cursor];
@@ -348,14 +348,15 @@ void PluginDelayBank::processEdgeDelay(
         if (++cursor == length)
             cursor = 0;
     }
-    delay.cursor = cursor;
+    delay.cursor.store(cursor, std::memory_order_relaxed);
 }
 
 std::shared_ptr<PluginDelayBank> PluginDelayBank::build(
     const MixGraph& graph,
     const std::vector<uint32_t>& stripProcessorLatencySamples,
     double sampleRate,
-    std::vector<std::string>& warnings) {
+    std::vector<std::string>& warnings,
+    const PluginDelayBank* previousDelayBank) {
     auto bank = std::shared_ptr<PluginDelayBank>(new PluginDelayBank());
     const MixLatencyPlan latencyPlan =
         buildMixLatencyPlan(graph, stripProcessorLatencySamples);
@@ -394,6 +395,36 @@ std::shared_ptr<PluginDelayBank> PluginDelayBank::build(
             if (delaySamples == 0)
                 continue;
             auto delay = std::make_unique<EdgeDelayLine>(delaySamples);
+            if (previousDelayBank != nullptr
+                && edgeIndex < previousDelayBank->edgeDelayLines.size()
+                && previousDelayBank->edgeDelayLines[edgeIndex] != nullptr) {
+                const auto& prev = *previousDelayBank->edgeDelayLines[edgeIndex];
+                const uint32_t prevLen = static_cast<uint32_t>(prev.left.size());
+                if (prevLen > 0) {
+                    const uint32_t prevCursor =
+                        prev.cursor.load(std::memory_order_relaxed) % prevLen;
+                    for (uint32_t i = 0; i < delaySamples; ++i) {
+                        const uint32_t k = delaySamples - i;
+                        if (k <= prevLen) {
+                            const uint32_t prevIdx = (prevCursor + prevLen
+                                - (k % prevLen == 0 ? prevLen : (k % prevLen))) % prevLen;
+                            delay->left[i] = prev.left[prevIdx];
+                            delay->right[i] = prev.right[prevIdx];
+                        }
+                    }
+                    if (delaySamples > prevLen) {
+                        const uint32_t boundary = delaySamples - prevLen;
+                        const uint32_t fadeSamples = std::min<uint32_t>(64, prevLen);
+                        for (uint32_t f = 0; f < fadeSamples; ++f) {
+                            const float ramp = 0.5f * (1.0f - std::cos(
+                                3.14159265358979323846f * static_cast<float>(f)
+                                / static_cast<float>(fadeSamples)));
+                            delay->left[boundary + f] *= ramp;
+                            delay->right[boundary + f] *= ramp;
+                        }
+                    }
+                }
+            }
             bank->edgeDelayEntries[edgeIndex] =
                 {delay.get(), processEdgeDelay};
             bank->edgeDelayLines[edgeIndex] = std::move(delay);
@@ -789,6 +820,12 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
         if (node->instance == nullptr || node->faulted.load(std::memory_order_relaxed))
             continue;
 
+        // Only this DSP thread applies requests to the decay accumulator.
+        // Explicit parking cannot be cancelled by input or predictive wake.
+        node->powerTracker.beginBlockRealtime();
+        if (node->powerTracker.state() == PluginPowerState::Parked)
+            continue;
+
         bool hasAudioInput = false;
         // Instrument activity comes from MIDI; scanning its incoming silent
         // audio cannot change the wake decision. Effects still inspect their
@@ -897,7 +934,10 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     bool nonRealtime, const PluginProcessorBank* previousBank,
     const std::vector<StateBlob>* transientStates,
     ExecutionMode executionMode,
-    int hostedPipelineLatencySamples) {
+    int hostedPipelineLatencySamples,
+    const std::function<void(uint32_t, const std::string&)>& progress,
+    const std::function<bool()>& cancelled,
+    const PluginDelayBank* previousDelayBank) {
     BuildResult result;
     auto bank = std::shared_ptr<PluginProcessorBank>(new PluginProcessorBank());
     if (previousBank != nullptr)
@@ -917,9 +957,33 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     size_t slotCount = 0;
     size_t isolatedChainCount = 0;
     size_t loadedStateBytes = 0;
+    uint32_t completedSlots = 0;
     for (size_t stripIndex = 0; stripIndex < graph.strips.size(); ++stripIndex) {
+        // Superseded document/chain requests cannot keep creating helpers.
+        // An already-started helper has its own bounded initialization timeout.
+        if (cancelled && cancelled()) return {};
         const auto* slots = slotsForStrip(project, graph.strips[stripIndex]);
         if (slots == nullptr || slots->empty()) continue;
+        // Budget the complete prepared bank, including reused vendors. Partial
+        // chains must not pass a larger private snapshot to an isolated child.
+        if (slots->size() > kMaximumSlotsPerBank - slotCount) {
+            result.warnings.push_back("Plug-in bank exceeds 128 slots; chain skipped: "
+                + graph.strips[stripIndex].name);
+            completedSlots += static_cast<uint32_t>(slots->size());
+            if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+            continue;
+        }
+        if (executionMode == ExecutionMode::IsolatedProcess
+            && isolatedChainCount >= kMaximumIsolatedChains) {
+            result.warnings.push_back("Plug-in bank exceeds 32 isolated chains; chain skipped: "
+                + graph.strips[stripIndex].name);
+            completedSlots += static_cast<uint32_t>(slots->size());
+            if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+            continue;
+        }
+        slotCount += slots->size();
+        if (executionMode == ExecutionMode::IsolatedProcess) ++isolatedChainCount;
+        if (progress) progress(completedSlots, graph.strips[stripIndex].name);
         auto chain = std::make_unique<StripChain>(maximumBlockSize, nonRealtime);
         chain->stripId = graph.strips[stripIndex].id;
         chain->sampleRate = sampleRate;
@@ -947,9 +1011,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                             && !node->faulted.load(std::memory_order_acquire)
                             && node->slotId == slot.id
                             && node->pluginIdentifier == slot.plugin.identifier
-                            && node->instrument == slot.plugin.instrument
-                            && node->bypassed.load(std::memory_order_acquire)
-                                == slot.bypassed;
+                            && node->instrument == slot.plugin.instrument;
                     }
                     if (identical) {
                         reusableChain = candidate.get();
@@ -961,6 +1023,22 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             if (reusableChain != nullptr) {
                 chain->nodes = reusableChain->nodes;
                 chain->hostedProcess = reusableChain->hostedProcess;
+                // History can restore a different guard without changing the
+                // vendor chain identity. Synchronize the requested snapshot;
+                // never reload a healthy instance merely to pin it awake.
+                for (size_t index = 0; index < slots->size(); ++index)
+                    (void)chain->hostedProcess->process->requestPowerControl(
+                        static_cast<uint32_t>(index), (*slots)[index].keepAwake
+                            ? PluginPowerControl::KeepAwakeEnable
+                            : PluginPowerControl::KeepAwakeDisable);
+                for (size_t index = 0; index < slots->size(); ++index) {
+                    const auto bypassed = (*slots)[index].bypassed;
+                    if (chain->nodes[index]->bypassed.load(std::memory_order_acquire) != bypassed
+                        && chain->hostedProcess->process->requestPowerControl(
+                            static_cast<uint32_t>(index), bypassed
+                                ? PluginPowerControl::BypassEnable : PluginPowerControl::BypassDisable))
+                        chain->nodes[index]->bypassed.store(bypassed, std::memory_order_release);
+                }
                 chain->processorLatencySamples = static_cast<int>(std::min<uint32_t>(
                     chain->hostedProcess->process->processorLatencySamples(),
                     static_cast<uint32_t>(INT_MAX)));
@@ -972,7 +1050,6 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                     INT_MAX));
                 chain->tailSeconds = reusableChain->tailSeconds;
             } else {
-                ++isolatedChainCount;
                 std::vector<StateBlob> liveChainStates;
                 const std::vector<StateBlob>* chainStates = transientStates;
                 if (chainStates == nullptr && previousBank != nullptr) {
@@ -1023,11 +1100,6 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                     }
                 }
                 for (const auto& slot : *slots) {
-                    if (++slotCount > kMaximumSlotsPerBank) {
-                        result.warnings.push_back(
-                            "Plug-in bank exceeds 128 slots; remaining inserts were skipped");
-                        break;
-                    }
                     auto node = std::make_shared<Node>();
                     node->slotId = slot.id;
                     node->pluginIdentifier = slot.plugin.identifier;
@@ -1070,10 +1142,18 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                                 INT_MAX));
                             const double hostTail = chain->hostedProcess->process
                                 ->processorTailSeconds();
-                            chain->tailSeconds = std::isfinite(hostTail)
-                                ? std::max(0.0, hostTail) : 0.0;
+                            const bool isInfiniteTail = std::isinf(hostTail) || hostTail >= 3600.0;
+                            chain->tailSeconds = isInfiniteTail
+                                ? std::numeric_limits<double>::infinity()
+                                : ((std::isfinite(hostTail) && hostTail > 0.0) ? hostTail : 0.0);
                             for (size_t i = 0; i < chain->nodes.size(); ++i) {
                                 auto& node = chain->nodes[i];
+                                if (node != nullptr) {
+                                    PluginPowerFlags pflags = node->powerTracker.getFlags();
+                                    if (isInfiniteTail)
+                                        pflags.infiniteTail = true;
+                                    node->powerTracker.prepare(node->slotId, sampleRate, chain->tailSeconds, pflags);
+                                }
                                 switch (chain->hostedProcess->process->pluginSlotStatus(i)) {
                                     case plugin_host::PluginSlotStatus::Loaded:
                                         node->loadState = "loaded";
@@ -1132,15 +1212,13 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             stripProcessorLatencies[stripIndex] =
                 static_cast<uint32_t>(chain->latencySamples);
             stripProcessorTails[stripIndex] = chain->tailSeconds;
+            completedSlots += static_cast<uint32_t>(chain->nodes.size());
+            if (progress) progress(completedSlots, graph.strips[stripIndex].name);
             bank->chains[stripIndex] = std::move(chain);
             continue;
         }
 
         for (const auto& slot : *slots) {
-            if (++slotCount > kMaximumSlotsPerBank) {
-                result.warnings.push_back("Plug-in bank exceeds 128 slots; remaining inserts were skipped");
-                break;
-            }
             std::shared_ptr<Node> reusableNode;
             if (previousBank != nullptr) {
                 for (const auto& previousChain : previousBank->chains) {
@@ -1172,8 +1250,17 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                         static_cast<uint64_t>(INT_MAX)));
                     if (reusableNode->instance != nullptr) {
                         const double tail = reusableNode->instance->getTailLengthSeconds();
-                        if (std::isfinite(tail) && tail > 0.0)
+                        const bool isInf = std::isinf(tail) || tail >= 3600.0;
+                        if (isInf) {
+                            chain->tailSeconds = std::numeric_limits<double>::infinity();
+                            PluginPowerFlags pflags = reusableNode->powerTracker.getFlags();
+                            pflags.infiniteTail = true;
+                            reusableNode->powerTracker.prepare(reusableNode->slotId, sampleRate, tail, pflags);
+                        } else if (std::isfinite(tail) && tail > 0.0) {
                             chain->tailSeconds += tail;
+                            PluginPowerFlags pflags = reusableNode->powerTracker.getFlags();
+                            reusableNode->powerTracker.prepare(reusableNode->slotId, sampleRate, tail, pflags);
+                        }
                     }
                 } catch (...) {
                     reusableNode->faulted.store(true, std::memory_order_relaxed);
@@ -1264,8 +1351,13 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 chain->latencySamples = static_cast<int>(std::min<uint64_t>(
                     accumulatedLatency, static_cast<uint64_t>(INT_MAX)));
                 const double reportedTail = node->instance->getTailLengthSeconds();
-                if (std::isfinite(reportedTail) && reportedTail > 0.0)
+                const bool isInf = std::isinf(reportedTail) || reportedTail >= 3600.0;
+                if (isInf) {
+                    chain->tailSeconds = std::numeric_limits<double>::infinity();
+                    pflags.infiniteTail = true;
+                } else if (std::isfinite(reportedTail) && reportedTail > 0.0) {
                     chain->tailSeconds += reportedTail;
+                }
                 node->powerTracker.prepare(slot.id, sampleRate, reportedTail, pflags);
                 node->loadState = "loaded";
             } catch (const std::exception& exception) {
@@ -1295,6 +1387,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         stripProcessorLatencies[stripIndex] =
             static_cast<uint32_t>(chain->latencySamples);
         stripProcessorTails[stripIndex] = chain->tailSeconds;
+        completedSlots += static_cast<uint32_t>(chain->nodes.size());
+        if (progress) progress(completedSlots, graph.strips[stripIndex].name);
         bank->chains[stripIndex] = std::move(chain);
     }
 
@@ -1319,7 +1413,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     bank->stripProcessorLatencySamples = std::move(stripProcessorLatencies);
     result.delayBank = PluginDelayBank::build(
         graph, bank->stripProcessorLatencySamples, sampleRate,
-        result.warnings);
+        result.warnings, previousDelayBank);
     // Subscribe only after preparation and state restore. Notifications from
     // those setup calls describe the latency already measured above and must
     // not trigger a rebuild loop immediately after publication.
@@ -1523,16 +1617,14 @@ bool PluginProcessorBank::setSlotBypassed(const std::string& slotId,
             if (node != nullptr && node->slotId == slotId) {
                 if (chain->hostedProcess != nullptr
                     && chain->hostedProcess->process != nullptr) {
-                    if (slotIndex > std::numeric_limits<uint16_t>::max())
-                        return false;
-                    plugin_host::ParameterEvent event;
-                    event.slotIndex = static_cast<uint16_t>(slotIndex);
-                    event.parameterIndex = -2; // bounded bypass control command
-                    event.normalizedValue = bypassed ? 1.0f : 0.0f;
-                    if (!chain->hostedProcess->process->enqueueParameterEvent(event))
+                    if (!chain->hostedProcess->process->requestPowerControl(
+                            static_cast<uint32_t>(slotIndex), bypassed
+                                ? PluginPowerControl::BypassEnable : PluginPowerControl::BypassDisable))
                         return false;
                 }
                 node->bypassed.store(bypassed, std::memory_order_release);
+                if (!bypassed)
+                    node->powerTracker.forceAwake();
                 return true;
             }
         }
@@ -1541,15 +1633,58 @@ bool PluginProcessorBank::setSlotBypassed(const std::string& slotId,
 }
 
 PluginPowerState PluginProcessorBank::getSlotPowerState(const std::string& slotId) const noexcept {
-    for (const auto& chain : chains) {
+    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
+        const auto& chain = chains[stripIndex];
         if (chain == nullptr) continue;
-        for (const auto& node : chain->nodes) {
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
             if (node != nullptr && node->slotId == slotId) {
-                return node->powerTracker.state();
+                return slotPowerState(stripIndex, slotIndex);
             }
         }
     }
     return PluginPowerState::Active;
+}
+
+PluginPowerState PluginProcessorBank::slotPowerState(
+    size_t stripIndex, size_t slotIndex) const noexcept {
+    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
+        return PluginPowerState::Active;
+    const auto& chain = *chains[stripIndex];
+    if (slotIndex >= chain.nodes.size() || chain.nodes[slotIndex] == nullptr)
+        return PluginPowerState::Active;
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr)
+        return chain.hostedProcess->process->pluginSlotPowerState(slotIndex);
+    return chain.nodes[slotIndex]->powerTracker.state();
+}
+
+void PluginProcessorBank::applySlotPowerControl(
+    size_t stripIndex, size_t slotIndex, PluginPowerControl control) noexcept {
+    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
+        return;
+    auto& chain = *chains[stripIndex];
+    if (slotIndex >= chain.nodes.size() || chain.nodes[slotIndex] == nullptr)
+        return;
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr) {
+        (void)chain.hostedProcess->process->requestPowerControl(
+            static_cast<uint32_t>(slotIndex), control);
+        return;
+    }
+    auto& tracker = chain.nodes[slotIndex]->powerTracker;
+    switch (control) {
+        case PluginPowerControl::Wake: tracker.forceAwake(); break;
+        case PluginPowerControl::Park: tracker.park(); break;
+        case PluginPowerControl::Unpark: tracker.unpark(); break;
+        case PluginPowerControl::KeepAwakeEnable: tracker.setKeepAwake(true); break;
+        case PluginPowerControl::KeepAwakeDisable: tracker.setKeepAwake(false); break;
+        case PluginPowerControl::BypassEnable:
+            chain.nodes[slotIndex]->bypassed.store(true, std::memory_order_release);
+            break;
+        case PluginPowerControl::BypassDisable:
+            chain.nodes[slotIndex]->bypassed.store(false, std::memory_order_release);
+            tracker.forceAwake();
+            break;
+    }
 }
 
 std::string PluginProcessorBank::getSlotLoadState(const std::string& slotId) const {
@@ -1644,11 +1779,14 @@ std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) con
 }
 
 void PluginProcessorBank::setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept {
-    for (const auto& chain : chains) {
+    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
+        const auto& chain = chains[stripIndex];
         if (chain == nullptr) continue;
-        for (const auto& node : chain->nodes) {
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
             if (node != nullptr && node->slotId == slotId) {
-                node->powerTracker.setKeepAwake(keepAwake);
+                applySlotPowerControl(stripIndex, slotIndex, keepAwake
+                    ? PluginPowerControl::KeepAwakeEnable : PluginPowerControl::KeepAwakeDisable);
                 return;
             }
         }
@@ -1658,6 +1796,11 @@ void PluginProcessorBank::setSlotKeepAwake(const std::string& slotId, bool keepA
 void PluginProcessorBank::prewarmStrip(size_t stripIndex) noexcept {
     if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
         return;
+    const auto& chain = *chains[stripIndex];
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr) {
+        chain.hostedProcess->process->requestChainPrewarm();
+        return;
+    }
     for (const auto& node : chains[stripIndex]->nodes) {
         if (node != nullptr) {
             node->powerTracker.forceAwake();
@@ -1666,11 +1809,13 @@ void PluginProcessorBank::prewarmStrip(size_t stripIndex) noexcept {
 }
 
 void PluginProcessorBank::prewarmSlot(const std::string& slotId) noexcept {
-    for (const auto& chain : chains) {
+    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
+        const auto& chain = chains[stripIndex];
         if (chain == nullptr) continue;
-        for (const auto& node : chain->nodes) {
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
             if (node != nullptr && node->slotId == slotId) {
-                node->powerTracker.forceAwake();
+                applySlotPowerControl(stripIndex, slotIndex, PluginPowerControl::Wake);
                 return;
             }
         }
@@ -1678,11 +1823,13 @@ void PluginProcessorBank::prewarmSlot(const std::string& slotId) noexcept {
 }
 
 void PluginProcessorBank::parkSlot(const std::string& slotId) noexcept {
-    for (const auto& chain : chains) {
+    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
+        const auto& chain = chains[stripIndex];
         if (chain == nullptr) continue;
-        for (const auto& node : chain->nodes) {
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
             if (node != nullptr && node->slotId == slotId) {
-                node->powerTracker.park();
+                applySlotPowerControl(stripIndex, slotIndex, PluginPowerControl::Park);
                 return;
             }
         }
@@ -1690,11 +1837,13 @@ void PluginProcessorBank::parkSlot(const std::string& slotId) noexcept {
 }
 
 void PluginProcessorBank::unparkSlot(const std::string& slotId) noexcept {
-    for (const auto& chain : chains) {
+    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
+        const auto& chain = chains[stripIndex];
         if (chain == nullptr) continue;
-        for (const auto& node : chain->nodes) {
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
             if (node != nullptr && node->slotId == slotId) {
-                node->powerTracker.unpark();
+                applySlotPowerControl(stripIndex, slotIndex, PluginPowerControl::Unpark);
                 return;
             }
         }
@@ -1703,12 +1852,14 @@ void PluginProcessorBank::unparkSlot(const std::string& slotId) noexcept {
 
 PluginPowerStats PluginProcessorBank::powerStats() const noexcept {
     PluginPowerStats s;
-    for (const auto& chain : chains) {
+    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
+        const auto& chain = chains[stripIndex];
         if (chain == nullptr) continue;
-        for (const auto& node : chain->nodes) {
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
             if (node == nullptr) continue;
             ++s.totalSlots;
-            switch (node->powerTracker.state()) {
+            switch (slotPowerState(stripIndex, slotIndex)) {
                 case PluginPowerState::Active: ++s.activeCount; break;
                 case PluginPowerState::Quiescent: ++s.quiescentCount; break;
                 case PluginPowerState::Suspended: ++s.suspendedCount; break;

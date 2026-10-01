@@ -564,10 +564,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     }
 
     // The whole mix for this block runs against ONE graph, held alive by this
-    // shared_ptr for as long as the callback needs it. The message thread may
-    // republish meanwhile; that only swaps what the NEXT block acquires, so a
-    // knob move can never tear a half-rendered block.
-    const std::shared_ptr<const MixGraph> snap = routing.acquireForRender();
+    // real-time safe RCU handle for as long as the callback needs it. Memory
+    // reclamation of retired graphs is deferred exclusively to the non-RT thread,
+    // guaranteeing ZERO deallocations on the audio thread.
+    const auto snap = routing.acquireForRender();
     if (snap == nullptr) {
         bailSilently();
         return;
@@ -610,6 +610,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     }
 
     std::unique_lock<std::recursive_mutex> routeLock(routingMutex, std::try_to_lock);
+    if (!routeLock.owns_lock()) {
+        for (int retry = 0; retry < 8 && !routeLock.owns_lock(); ++retry) {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+    #if defined(_MSC_VER)
+            _mm_pause();
+    #else
+            __builtin_ia32_pause();
+    #endif
+#elif defined(__aarch64__) || defined(_M_ARM64) || defined(__arm__)
+            asm volatile("yield" ::: "memory");
+#endif
+            routeLock.try_lock();
+        }
+    }
     if (!routeLock.owns_lock()) {
         bailSilently();
         return;

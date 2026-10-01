@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { builder } from "@/lib/state/api";
+import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import type { ProjectCycleRow } from "@/lib/state/types";
 
 /**
@@ -82,6 +83,14 @@ export function useCycleState(
   const draggingRef = useRef(false);
   const latestRef = useRef(cycle);
   latestRef.current = cycle;
+  const serverRef = useRef({ serverCycle, activeSongIndex, cycleSongLength });
+  serverRef.current = { serverCycle, activeSongIndex, cycleSongLength };
+
+  useEffect(() => subscribeHistoryBoundary(() => {
+    draggingRef.current = false;
+    const latest = serverRef.current;
+    setCycle(fromServer(latest.serverCycle, latest.activeSongIndex, latest.cycleSongLength));
+  }), []);
 
   useEffect(() => {
     if (draggingRef.current) return;

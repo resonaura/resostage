@@ -539,14 +539,15 @@ void MainComponent::builderRegionRemove(const std::string& json) {
         return;
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
-    auto it = std::remove_if(s.regions.begin(), s.regions.end(), [&](const Region& r) { return r.id == regionId; });
+    const auto it = std::find_if(s.regions.begin(), s.regions.end(), [&](const Region& r) { return r.id == regionId; });
     if (it != s.regions.end()) {
         std::string gestureId;
         getString(doc, "gestureId", gestureId);
         engine.projectHistoryBeginEdit(gestureId, "Remove region");
-        s.regions.erase(it, s.regions.end());
+        // The before-snapshot must precede erase/remove's move compaction.
+        std::erase_if(s.regions, [&](const Region& r) { return r.id == regionId; });
         engine.projectHistoryCommitEdit();
-    notifyProjectStructureChanged();
+        notifyProjectStructureChanged();
         setStatus("Region removed");
     }
 }
@@ -683,12 +684,12 @@ void MainComponent::builderMidiRegionRemove(const std::string& json) {
         return;
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
-    auto it = std::remove_if(s.midiRegions.begin(), s.midiRegions.end(), [&](const MidiRegion& r) { return r.id == regionId; });
+    const auto it = std::find_if(s.midiRegions.begin(), s.midiRegions.end(), [&](const MidiRegion& r) { return r.id == regionId; });
     if (it != s.midiRegions.end()) {
         std::string gestureId;
         getString(doc, "gestureId", gestureId);
         engine.projectHistoryBeginEdit(gestureId, "Remove MIDI region");
-        s.midiRegions.erase(it, s.midiRegions.end());
+        std::erase_if(s.midiRegions, [&](const MidiRegion& r) { return r.id == regionId; });
         engine.projectHistoryCommitEdit();
         engine.markDirty();
         notifyProjectStructureChanged();
@@ -750,4 +751,3 @@ void MainComponent::builderMidiRegionUpdate(const std::string& json) {
 }
 
 } // namespace resostage
-

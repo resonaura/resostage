@@ -149,6 +149,11 @@ std::string WebServer::buildStateJson(const char* view) const {
     WEngineTelemetryPayload wire;
 
     wire.projectName = snap.projectName;
+    const auto& loading = snap.pluginLoading;
+    wire.pluginLoading = {loading.epoch, loading.generation, loading.phase,
+        loading.blocksPlayback, loading.showDialog, loading.playRequested,
+        loading.total, loading.completed, loading.failed,
+        loading.currentName, loading.error};
     wire.songName = snap.songName;
     wire.activeTrackId = snap.activeTrackId;
     wire.playheadSeconds = finiteOrZero(snap.playheadSeconds);
@@ -207,6 +212,9 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.canRedo = snap.canRedo;
     wire.undoLabel = snap.undoLabel;
     wire.redoLabel = snap.redoLabel;
+    wire.stateSessionId = snap.stateSessionId;
+    wire.stateRevision = snap.stateRevision;
+    wire.lastHistoryRequestId = snap.lastHistoryRequestId;
     wire.lastAction = snap.lastAction;
     wire.lastActionNonce = static_cast<uint64_t>(std::max(0, snap.lastActionNonce));
     wire.telemetryHz = effectiveTelemetryHz();

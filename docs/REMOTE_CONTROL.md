@@ -77,7 +77,8 @@ REMOTE_HOST=192.168.5.115 REMOTE_PORT=2899 pnpm test:remote
 ```
 
 The test performs a non-destructive command/state round-trip, subscribes an
-ephemeral local UDP socket, validates protocol-v8 frame headers and sequence
+ephemeral local UDP socket, accepts supported sequenced headers (minimum v8;
+current Core emits v9), validates sequence
 ordering for three seconds, and reports loss plus average/p95 packet interval.
 It does not replace the in-app cable-loss/recovery check above.
 
@@ -96,12 +97,14 @@ runs on a background worker against an immutable project snapshot; it neither
 stops transport nor enters the real-time callback. Source audio is decoded
 through bounded seek caches instead of loading the whole set into RAM.
 
-Cancelling is cooperative at the next render block and removes every partial
-WAV belonging to the job. `Leave tail` is bounded by both a quiet detector and
+Cancelling is cooperative at bounded render/conversion steps and removes every
+partial output belonging to the job. `Leave tail` is bounded by both a quiet detector and
 the configured maximum tail time, so a non-decaying future processor cannot
 make a remote render run forever.
 
 `Wrap` performs a discarded priming pass followed by the recorded pass, keeping
 state across the range boundary. Normalized jobs use a temporary float spool
 on the playback machine; completed files appear atomically only after final
-conversion, dither, and WAV finalization.
+conversion, dither, and output finalization. Non-WAV formats use the bundled
+media worker on the playback Core; the controller does not need a system
+FFmpeg installation. See [FFMPEG.md](FFMPEG.md).

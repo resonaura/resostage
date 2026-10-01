@@ -54,6 +54,21 @@ public:
 
     struct StagedSong {
         size_t songIndex = static_cast<size_t>(-1);
+        struct SourceBinding {
+            std::string regionId;
+            std::string trackId;
+            std::string file;
+            double offsetSeconds = 0.0;
+            double durationSeconds = 0.0;
+            bool loop = false;
+            double loopLengthSeconds = 0.0;
+            double speed = 1.0;
+            bool reverse = false;
+        };
+        std::string songId;
+        std::vector<SourceBinding> sourceBindings;
+        int64_t ringCapacityFrames = 0;
+        double deviceSampleRate = 0.0;
         // shared_ptr: same file may be held by active + warm + filePool.
         std::vector<std::shared_ptr<StreamingTrackBuffer>> buffers;
         std::unordered_map<std::string, StreamingTrackBuffer*> byId;
@@ -113,7 +128,7 @@ public:
     // can abandon themselves on rapid hopscotch. Completed warm entries stay
     // until LRU eviction.
     uint64_t stageEpoch() const { return stageEpoch_.load(std::memory_order_acquire); }
-    // Bumped on start()/stop() — warm-all after load aborts if project changes.
+    // Bumped on start()/stop()/history restore — stale warm jobs abandon commit.
     uint64_t warmGeneration() const { return warmGeneration_.load(std::memory_order_acquire); }
 
     // Prepare next song (warm promote or cold open — may take a while), then
@@ -183,6 +198,18 @@ public:
     ActiveSongHandle acquireActiveSong();
     void updateRegionWindow(const Region& region, double deviceSampleRate = 0.0);
 
+    // Message-thread history reconciliation. Geometry-only changes reuse the
+    // active buffers; source/ID/track changes replace maps at the saved cursor,
+    // without reopening unchanged pooled files or starting a song from zero.
+    bool activeSongMatches(size_t songIndex, const SongDef& song,
+                           int64_t ringCapacityFrames, double deviceSampleRate) const;
+    void invalidateIncompatibleWarmSongs(const std::vector<SongDef>& songs,
+                                        int64_t ringCapacityFrames, double deviceSampleRate);
+    bool rebindActiveSongAt(size_t songIndex, const SongDef& song,
+                           int64_t ringCapacityFrames, double deviceSampleRate,
+                           int64_t deviceFrame, std::string& error);
+    void clearActiveSong();
+
     template <typename Fn>
     void withProjectLoaderLock(Fn&& fn) {
         std::lock_guard<std::mutex> lock(projectLoaderMutex);
@@ -190,6 +217,9 @@ public:
     }
 
 private:
+    static bool stagedSongMatches(const StagedSong& staged, size_t songIndex,
+                                  const SongDef& song, int64_t ringCapacityFrames,
+                                  double deviceSampleRate, bool matchWindows = false);
     void ioWorkerLoop(int workerIndex);
     void residentThreadLoop();
     void primeBuffersLocked(StagedSong& staged, double minSeconds, double deviceSampleRate,

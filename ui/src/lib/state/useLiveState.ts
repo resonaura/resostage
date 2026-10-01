@@ -30,7 +30,8 @@ import {
   unregisterLiveMidiSender,
   clearApiCaches,
 } from "@/lib/state/api";
-import { shareStructure } from "@/lib/state/structuralShare";
+import { mergeState } from "@/lib/state/mergeState";
+import { StructuralSnapshotOrder } from "@/lib/state/structuralOrder";
 import { IS_ELECTRON } from "@/lib/platform/electron";
 import { IS_EMBEDDED } from "@/lib/platform/embedded";
 import { emptyState, type WebUiState } from "@/lib/state/types";
@@ -39,162 +40,6 @@ export type ConnectionStatus = "connecting" | "live" | "reconnecting";
 /** Live-state transport: UDP in embedded (Electron) mode, WS in remote browser mode. */
 export type TransportKind = "ws" | "udp" | "none";
 
-/**
- * Merge a partial WS snapshot into the previous state. The server only
- * includes arrays relevant to the active SPA tab (see WebServer::
- * buildStateJson(view)); omitted keys keep their previous values so tab
- * switches don't blank out the UI before the next full-for-view frame.
- *
- * Meter peaks are NOT max-merged here — that would be fake hold. Live
- * levels go through pushLiveLevels() on every frame so ballistics see
- * the true signal including brief silence between metronome hits.
- *
- * Health cpu/ram numbers are frozen here and only applied on the 1 Hz
- * sample tick so the Player widget doesn't jitter.
- */
-function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
-  return shareStructure(prev, buildMergedState(prev, next));
-}
-
-function buildMergedState(
-  prev: WebUiState,
-  next: Partial<WebUiState>,
-): WebUiState {
-  return {
-    ...prev,
-    ...next,
-    songs: next.songs ?? prev.songs,
-    meters: next.meters ?? prev.meters,
-    tracks: next.tracks
-      ? next.tracks.map((nt) => {
-          const pt = prev.tracks.find((t) => t.id === nt.id);
-          return {
-            ...nt,
-            output: {
-              ...nt.output,
-              sends:
-                nt.output.sends.length > 0
-                  ? nt.output.sends
-                  : (pt?.output?.sends ?? nt.output.sends),
-            },
-          };
-        })
-      : prev.tracks,
-    busses: next.busses ?? prev.busses,
-    health: next.health
-      ? {
-          // Keep underrun/client counters live; freeze cpu/ram until 1 Hz tick.
-          ...prev.health,
-          underrunCount: next.health.underrunCount ?? prev.health.underrunCount,
-          silentBlockCount:
-            next.health.silentBlockCount ?? prev.health.silentBlockCount,
-          streamStarveCount:
-            next.health.streamStarveCount ?? prev.health.streamStarveCount,
-          audioCallbackCount:
-            next.health.audioCallbackCount ?? prev.health.audioCallbackCount,
-          webClientCount:
-            next.health.webClientCount ?? prev.health.webClientCount,
-          freeBytes: next.health.freeBytes ?? prev.health.freeBytes,
-          processes: prev.health.processes ?? [],
-        }
-      : prev.health,
-    settings: next.settings
-      ? {
-          ...prev.settings,
-          ...next.settings,
-          // Only overwrite fields that are actually present & meaningful.
-          // Server omits device lists on non-settings views; never treat
-          // missing/empty as "clear the UI".
-          ...(next.settings.currentOutputDevice !== undefined &&
-          next.settings.currentOutputDevice !== ""
-            ? { currentOutputDevice: next.settings.currentOutputDevice }
-            : { currentOutputDevice: prev.settings.currentOutputDevice }),
-          currentInputDevice:
-            next.settings.currentInputDevice !== undefined
-              ? next.settings.currentInputDevice
-              : prev.settings.currentInputDevice,
-          inputDevices: next.settings.inputDevices?.length
-            ? next.settings.inputDevices
-            : prev.settings.inputDevices,
-          ...(next.settings.sampleRate !== undefined &&
-          next.settings.sampleRate > 0
-            ? { sampleRate: next.settings.sampleRate }
-            : { sampleRate: prev.settings.sampleRate }),
-          ...(next.settings.bufferSize !== undefined &&
-          next.settings.bufferSize > 0
-            ? { bufferSize: next.settings.bufferSize }
-            : { bufferSize: prev.settings.bufferSize }),
-          outputDevices: next.settings.outputDevices?.length
-            ? next.settings.outputDevices
-            : prev.settings.outputDevices,
-          availableSampleRates: next.settings.availableSampleRates?.length
-            ? next.settings.availableSampleRates
-            : prev.settings.availableSampleRates,
-          availableBufferSizes: next.settings.availableBufferSizes?.length
-            ? next.settings.availableBufferSizes
-            : prev.settings.availableBufferSizes,
-          outputChannelNames: next.settings.outputChannelNames?.length
-            ? next.settings.outputChannelNames
-            : prev.settings.outputChannelNames,
-          activeOutputChannels: next.settings.activeOutputChannels?.length
-            ? next.settings.activeOutputChannels
-            : prev.settings.activeOutputChannels,
-          inputChannelNames: next.settings.inputChannelNames?.length
-            ? next.settings.inputChannelNames
-            : prev.settings.inputChannelNames,
-          activeInputChannels: next.settings.activeInputChannels?.length
-            ? next.settings.activeInputChannels
-            : prev.settings.activeInputChannels,
-          audioDrivers: next.settings.audioDrivers?.length
-            ? next.settings.audioDrivers
-            : prev.settings.audioDrivers,
-          currentAudioDriver:
-            next.settings.currentAudioDriver ??
-            prev.settings.currentAudioDriver,
-          hasControlPanel:
-            next.settings.hasControlPanel ?? prev.settings.hasControlPanel,
-          inputLatencyMs:
-            next.settings.inputLatencyMs ?? prev.settings.inputLatencyMs,
-          outputLatencyMs:
-            next.settings.outputLatencyMs ?? prev.settings.outputLatencyMs,
-          roundtripLatencyMs:
-            next.settings.roundtripLatencyMs ??
-            prev.settings.roundtripLatencyMs,
-          midiOutputs: next.settings.midiOutputs?.length
-            ? next.settings.midiOutputs
-            : prev.settings.midiOutputs,
-          midiInputs: next.settings.midiInputs?.length
-            ? next.settings.midiInputs
-            : prev.settings.midiInputs,
-          currentMidiInput:
-            next.settings.currentMidiInput ?? prev.settings.currentMidiInput,
-          selectedMidiOutputs:
-            next.settings.selectedMidiOutputs ?? prev.settings.selectedMidiOutputs,
-          selectedMidiInputs:
-            next.settings.selectedMidiInputs ?? prev.settings.selectedMidiInputs,
-          virtualMidiPortEnabled:
-            next.settings.virtualMidiPortEnabled ??
-            prev.settings.virtualMidiPortEnabled,
-          keybindings: next.settings.keybindings ?? prev.settings.keybindings,
-          recentProjects:
-            next.settings.recentProjects ?? prev.settings.recentProjects,
-          midiBindings:
-            next.settings.midiBindings ?? prev.settings.midiBindings,
-          midiLearnAction:
-            next.settings.midiLearnAction ?? prev.settings.midiLearnAction,
-          uiRenderEngine:
-            next.settings.uiRenderEngine ?? prev.settings.uiRenderEngine,
-          theme: next.settings.theme ?? prev.settings.theme,
-          advancedSendRouting:
-            next.settings.advancedSendRouting ??
-            (typeof localStorage !== "undefined"
-              ? localStorage.getItem("resostage:advanced-send-routing") ===
-                "true"
-              : prev.settings.advancedSendRouting),
-        }
-      : prev.settings,
-  };
-}
 
 export function useLiveState(view: string = "player") {
   const [state, setState] = useState<WebUiState>(emptyState);
@@ -220,6 +65,7 @@ export function useLiveState(view: string = "player") {
   });
   const wsRef = useRef<WebSocket | null>(null);
   const viewRef = useRef(view);
+  const structuralOrderRef = useRef(new StructuralSnapshotOrder());
   viewRef.current = view;
 
   useEffect(() => {
@@ -403,6 +249,7 @@ export function useLiveState(view: string = "player") {
     // reliable HTTP control API. A healthy HTTP poll is a valid degraded-mode
     // connection when the optional UDP subscription/receive lane goes stale.
     let lastHttpStateSuccessAt = 0;
+    let nextStateRequest = 0;
 
     const isEmbeddedMode =
       IS_EMBEDDED || IS_ELECTRON || "resostageElectron" in window;
@@ -416,11 +263,14 @@ export function useLiveState(view: string = "player") {
 
     const fetchState = async () => {
       if (cancelled) return;
+      const generation = structuralOrderRef.current.generation();
+      const request = ++nextStateRequest;
       try {
         const res = await apiFetch("/api/v1/state");
         if (res.ok) {
           lastHttpStateSuccessAt = Date.now();
           const data = (await res.json()) as Partial<WebUiState>;
+          if (cancelled || !structuralOrderRef.current.accept(data, generation, request)) return;
           if (data.tracks) setTrackIds(data.tracks.map((t) => t.id));
           if (data.meters) setMeterIds(data.meters.map((m) => m.id));
 
@@ -539,6 +389,8 @@ export function useLiveState(view: string = "player") {
           if (cancelled) return;
           try {
             ws = new WebSocket(wsUrl(), "resoset");
+            const connectedSocket = ws;
+            const connectionGeneration = structuralOrderRef.current.generation();
             ws.binaryType = "arraybuffer";
             wsRef.current = ws;
             setTransport("ws");
@@ -552,6 +404,8 @@ export function useLiveState(view: string = "player") {
               void fetchState();
             };
             ws.onmessage = (ev) => {
+              if (cancelled || wsRef.current !== connectedSocket
+                || connectionGeneration !== structuralOrderRef.current.generation()) return;
               if (ev.data instanceof ArrayBuffer) {
                 pushLiveBinaryFrame(ev.data);
                 return;
@@ -565,6 +419,7 @@ export function useLiveState(view: string = "player") {
               } catch {
                 return;
               }
+              if (!structuralOrderRef.current.accept(parsed, structuralOrderRef.current.generation())) return;
               if (parsed.meters) {
                 setMeterIds(parsed.meters.map((m) => m.id));
               }
@@ -589,9 +444,9 @@ export function useLiveState(view: string = "player") {
               if (hasActiveMidiTelemetrySnapshot()) {
                 const { activeMidiNotes: _activeMidiNotes, ...jsonState } = parsed;
                 void _activeMidiNotes;
-                pendingStateRef.current = jsonState;
+                pendingStateRef.current = { ...pendingStateRef.current, ...jsonState };
               } else {
-                pendingStateRef.current = parsed;
+                pendingStateRef.current = { ...pendingStateRef.current, ...parsed };
               }
               scheduleFlush();
             };
@@ -601,7 +456,8 @@ export function useLiveState(view: string = "player") {
               } catch {}
             };
             ws.onclose = () => {
-              if (wsRef.current === ws) wsRef.current = null;
+              if (wsRef.current !== connectedSocket) return;
+              wsRef.current = null;
               if (cancelled) return;
               setStatus("reconnecting");
               reconnectTimer = setTimeout(
@@ -717,6 +573,7 @@ export function useLiveState(view: string = "player") {
     setupConnection();
 
     const unsubBackend = onBackendChange(() => {
+      structuralOrderRef.current.reset();
       pendingStateRef.current = {};
       setState(emptyState);
       resetLiveLevels();
@@ -726,7 +583,19 @@ export function useLiveState(view: string = "player") {
       void fetchState();
     });
 
-    registerRefetchHandler(() => void fetchState());
+    registerRefetchHandler((snapshot) => {
+      if (!snapshot) { void fetchState(); return; }
+      if (!structuralOrderRef.current.accept(snapshot, structuralOrderRef.current.generation())) return;
+      // A confirmed history snapshot is already authoritative. Publish it
+      // now instead of making another round-trip and waiting for a poll tick.
+      if (snapshot.tracks) setTrackIds(snapshot.tracks.map((track) => track.id));
+      if (snapshot.meters) setMeterIds(snapshot.meters.map((meter) => meter.id));
+      pendingStateRef.current = { ...pendingStateRef.current, ...snapshot };
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      // Cached positional flags may still belong to the pre-Undo topology.
+      mixerFlagsRef.current = null;
+      flushPending();
+    });
     void fetchState();
     const statePollInterval = setInterval(fetchState, 1000);
     // Embedded mode has no WebSocket lifecycle to drive the connection dot.

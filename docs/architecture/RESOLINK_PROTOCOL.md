@@ -1,73 +1,74 @@
-# Architecture Specification: ResoLink Session Synchronization & Distributed Engine Protocol
+# ResoLink session synchronization foundation
 
-**Status**: `IN_PROGRESS` (Phase 6)
+Status: engine protocol/PLL primitives and tests implemented; application
+network-session, clock actuation, redundancy, and distributed DSP integration
+remain proposed. Source review: 2026-10-01.
 
----
+## Do not confuse remote control with Core-to-Core synchronization
 
-## 1. Motivation & Principles
+Native remote control is implemented: Electron commands a playback Core over
+HTTP and receives UDP telemetry. ResoLink is a different prospective topology
+for several playback Cores. The existence of packet structures or a PLL test
+does not make redundant playback or remote instruments a shipped capability.
 
-Modern live productions often deploy multiple redundant or distributed computers:
-- **Redundant Playback**: Primary and Secondary Core engines running in lockstep with automatic glitch-free failover.
-- **Distributed Processing**: Offloading heavy synth instruments or sample libraries to a secondary rack machine, while mixing and master bus processing remain on the main rig.
-- **Multi-Musician Jam / Session Sync**: Multiple performers running ResoStage synchronizing tempos, section boundaries, and transport without manual MIDI clock cables.
+| Path | Current scope |
+| --- | --- |
+| Electron/Core telemetry | Current v9 sampled state on a controller-selected UDP port, plus reliable HTTP commands. |
+| ResoLink primitives | Version-1 beacon and ping/pong encoding, validation, and follower-clock calculation in `core/engine/resolink/`. |
+| ResoLink app session | No implemented Core network-session owner/dispatch or rate-actuation path found in `core/app/` during this review. |
+| Distributed audio/MIDI | Proposed; no shipped remote vendor-render/audio-return routing verified. |
 
-ResoLink provides a native, low-latency Core-to-Core protocol designed specifically for show-critical reliability.
+QUIC, TCP fallback, audio jitter buffers, leader election, and automatic
+glitch-free failover are design possibilities, not implemented transports.
 
----
+## Implemented binary primitives
 
-## 2. Protocol Boundaries: ResoLink vs Electron Telemetry
+`ResoLinkProtocol.h` defines magic `0x52534C4B`, version 1, and the proposed
+default port 28992. Little-endian encode/decode helpers validate packet shape
+and fields. `ResoLinkBeacon` is 72 bytes and carries sequence, flags, time
+signature, tempo-map version, leader identity/time, signed sample position,
+sample rate, beat position, and BPM. `ResoLinkPingPong` is 56 bytes and carries
+peer IDs, ping sequence, and three monotonic timestamps. Those concrete
+structures are the ABI; earlier smaller illustrative beacon examples are not.
 
-It is vital to distinguish between ResoStage's existing UI telemetry and ResoLink:
+## Implemented follower-clock calculation
 
-| Feature | Electron UI Telemetry (v8) | ResoLink Session Protocol |
-| --- | --- | --- |
-| **End-Points** | Core -> Electron Renderer / UI | Core <-> Core (Peer-to-Peer / Leader-Follower) |
-| **Transport** | Ephemeral UDP (Port 2898/ephemeral) | QUIC (TCP fallback) + UDP Real-Time Datagrams |
-| **Payload** | Meter levels, playhead position, health counters | Transport locks, TempoMap diffs, Clock Beacons, Multi-channel Audio/MIDI streams |
-| **Reliability** | Latest-wins sampled (drops are ignored) | Guaranteed delivery for states; Jitter-buffered for audio/clock |
-| **Clock Precision** | Millisecond UI smoothing (~60 Hz) | Sub-millisecond sample phase synchronization |
+`SessionClock` owns configurable role/lock state and publishes a bounded
+`SeqLock<SessionClockSnapshot>` for readers. Defaults from `SessionClock.h`:
 
----
+- maximum calculated frequency slew: ±100 ppm;
+- lock tolerance: 1 ms;
+- sample-snap request above 50 ms phase error;
+- holdover after 500 ms without a beacon;
+- unlocked after two seconds without a beacon.
 
-## 3. Clock Synchronization: `SessionClock`
+Beacon/pong handlers calculate drift/offset and can request a sample snap.
+They do not themselves change the audio hardware clock or insert a fractional
+resampler. A prospective session worker must own all mutating PLL calls and
+apply transport/rate changes through established engine boundaries. “PTP-grade”
+or sub-millisecond end-to-end synchronization requires network/hardware evidence
+beyond the math primitive.
 
-### 3.1. Anchor Beacons
-The designated ResoLink Master (elected or configured) periodically transmits Anchor Beacons over UDP:
+## Persisted execution metadata
 
-```cpp
-struct ResoLinkAnchorBeacon {
-    uint32_t magic;             // 'RSLK' (0x52534C4B)
-    uint16_t protocolVersion;   // 1
-    uint16_t flags;             // e.g. IS_LEADER, TRANSPORT_RUNNING
-    uint64_t leaderMonotonicNs; // SystemMonotonicClock ticks of the sender
-    uint64_t samplePosition;    // Master hardware sample counter
-    uint32_t sampleRate;        // e.g. 48000
-    uint32_t tempoMapVersion;   // Version of the authoritative TempoMap
-    double playheadBeats;       // Authoritative musical beat position
-};
-```
+`TrackDef` can retain `ExecutionTarget::Local` or `RemotePeer`, along with peer
+metadata. This is preparatory schema, not proof that remote tracks are rendered
+on another machine or that network latency is included in live PDC. Implement
+and test the command, timing, stream, failure, and recovery paths together.
 
-### 3.2. Follower Clock Tracking
-Follower Core engines listen to the Anchor Beacons:
-1. Measure round-trip time (RTT) and one-way network jitter using ping/pong timestamps.
-2. Filter clock drift using a proportional-integral (PI) phase-locked loop (PLL).
-3. If follower hardware sample clock drifts from master, a fractional Sinc resampler adjusts audio output stream pitch by less than $\pm 10\text{ PPM}$ ($\pm 0.001\%$), ensuring phase lock with zero audible pitch artifacts.
+## Remaining implementation/acceptance
 
----
+1. Define a bounded session worker, peer lifecycle, trustworthy packet source,
+   delivery policies, and stale-generation handling.
+2. Integrate clock calculations with authoritative transport/sample timing,
+   without callback I/O, blocking, allocation, or abrupt rate changes.
+3. Specify practical leader selection, loss/holdover, seek, restart, and
+   mismatched-tempo/device behavior.
+4. Design distributed MIDI/audio transport and bounded jitter/PDC only if that
+   scope is accepted; do not build it implicitly from an execution-target flag.
+5. Validate real multi-machine phase/error distributions, failover, long runs,
+   cable loss, and clock drift before advertising redundancy.
 
-## 4. Distributed Instrument Execution
-
-ResoLink allows individual tracks to specify an execution target:
-
-```text
-TrackDef:
-  kind: TrackKind::Instrument
-  executionTarget: ExecutionTarget::RemotePeer("synth-rack-mac-studio")
-```
-
-When transport runs:
-1. Primary machine sends sample-aligned MIDI events over ResoLink UDP stream to the remote peer.
-2. Remote peer renders the synth instrument through its local `MixProcessorView`.
-3. Remote peer streams audio frames back via low-latency uncompressed UDP datagrams.
-4. Primary machine's `MixRenderer` receives the remote audio stream directly into the preallocated track scratch buffer.
-5. Plug-in delay compensation (PDC) automatically accounts for network buffer round-trip time, phase-aligning the remote instrument with local tracks.
+`core/tests/test_resolink_protocol.cpp` covers packet round-trips, malformed
+frames, follower PLL/snap/holdover, ping/pong calculation, and concurrent
+snapshot reads. It does not exercise a running two-Core session.

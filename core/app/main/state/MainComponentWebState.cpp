@@ -57,9 +57,14 @@ void MainComponent::publishWebState() {
     state.hardwareAlarm = transport.hardwareAlarm.load(std::memory_order_relaxed);
 
     const Project& proj = engine.project();
+    const auto loading = engine.pluginLoadingSnapshot();
+    state.pluginLoading = {loading.epoch, loading.generation, loading.phase,
+        loading.blocksPlayback, loading.showDialog, loading.playRequested,
+        loading.total, loading.completed, loading.failed,
+        loading.currentName, loading.error};
     const auto activeBank = engine.hasCurrentPluginProcessorBank()
         ? engine.activePluginProcessorBank() : nullptr;
-    const auto copyPluginSlots = [&activeBank](const std::vector<PluginSlot>& slots) {
+    const auto copyPluginSlots = [&activeBank, &loading](const std::vector<PluginSlot>& slots) {
         std::vector<WebUiState::PluginSlotRow> rows;
         rows.reserve(slots.size());
         for (const auto& slot : slots) {
@@ -77,10 +82,16 @@ void MainComponent::publishWebState() {
                 row.powerState = pluginPowerStateToString(activeBank->getSlotPowerState(slot.id));
                 row.loadState = activeBank->getSlotLoadState(slot.id);
                 row.loadError = activeBank->getSlotLoadError(slot.id);
+                if (row.loadState == "loading" && loading.phase != "loading") {
+                    row.loadState = "failed";
+                    row.loadError = "Plug-in slot was not initialized (host capacity or load failure)";
+                }
             } else {
-                row.powerState = "active";
-                row.loadState = "loading";
+                row.loadState = loading.phase == "failed" ? "failed" : "loading";
+                row.loadError = loading.error;
             }
+            // Power telemetry describes a running processor, not a configured slot.
+            if (row.loadState != "loaded") row.powerState = row.loadState;
             rows.push_back(std::move(row));
         }
         return rows;
@@ -178,6 +189,8 @@ void MainComponent::publishWebState() {
     state.canRedo = engine.canRedoTimeline();
     state.undoLabel = engine.undoTimelineLabel();
     state.redoLabel = engine.redoTimelineLabel();
+    state.stateRevision = engine.projectHistoryRevision();
+    state.lastHistoryRequestId = lastHistoryRequestId_;
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {

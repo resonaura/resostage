@@ -264,27 +264,13 @@ void MainComponent::drainWebCommands() {
                 break;
             }
             case WebCommandKind::SetTrackSend: {
-                std::string gestureId;
-                glz::generic doc;
-                if (builder_json::parseJson(cmd.json, doc)) {
-                    builder_json::getString(doc, "gestureId", gestureId);
-                    if (gestureId.empty()) {
-                        int trackIndex = -1;
-                        std::string busId;
-                        builder_json::getInt(doc, "trackIndex", trackIndex);
-                        builder_json::getString(doc, "busId", busId);
-                        gestureId = "ts" + std::to_string(trackIndex) + "_" + busId;
-                    }
-                }
-                engine.projectHistoryBeginEdit(gestureId, "Set Track Send");
+                // The validated handler owns this transaction. Wrapping it
+                // here too creates an empty step and commits to the wrong one.
                 setTrackSendFromJson(cmd.json);
-                engine.projectHistoryCommitEdit();
                 break;
             }
             case WebCommandKind::RemoveTrackSend: {
-                engine.projectHistoryBeginEdit("", "Remove Track Send");
                 removeTrackSendFromJson(cmd.json);
-                engine.projectHistoryCommitEdit();
                 break;
             }
             case WebCommandKind::SetProjectName: setProjectNameFromJson(cmd.json); break;
@@ -395,6 +381,13 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::PluginSlotMove: pluginSlotMove(cmd.json); break;
             case WebCommandKind::PluginSlotBypass: pluginSlotBypass(cmd.json); break;
             case WebCommandKind::PluginSlotRetry: pluginSlotRetry(cmd.json); break;
+            case WebCommandKind::PluginLoadDecision: {
+                wire::WPluginLoadDecisionPayload p;
+                if (glz::read_json(p, cmd.json)
+                    || !engine.decidePluginLoading(p.epoch, p.generation, p.decision))
+                    setStatus("Plug-in loading changed; use the current loading dialog");
+                break;
+            }
             case WebCommandKind::PluginSlotOpenEditor: pluginSlotOpenEditor(cmd.json); break;
             case WebCommandKind::PluginSlotKeepAwake: pluginSlotKeepAwake(cmd.json); break;
             case WebCommandKind::PluginSlotPark: pluginSlotPark(cmd.json); break;
@@ -461,8 +454,18 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::LightCueAdd: lightingCueAdd(cmd.json); break;
             case WebCommandKind::LightCueRemove: lightingCueRemove(cmd.json); break;
             case WebCommandKind::LightCueUpdate: lightingCueUpdate(cmd.json); break;
-            case WebCommandKind::TimelineUndo: performTimelineUndo(); break;
-            case WebCommandKind::TimelineRedo: performTimelineRedo(); break;
+            case WebCommandKind::TimelineUndo:
+                performTimelineUndo();
+                if (cmd.historyRequestId != 0)
+                    lastHistoryRequestId_ = cmd.historyRequestId;
+                publishWebState();
+                break;
+            case WebCommandKind::TimelineRedo:
+                performTimelineRedo();
+                if (cmd.historyRequestId != 0)
+                    lastHistoryRequestId_ = cmd.historyRequestId;
+                publishWebState();
+                break;
             case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
             case WebCommandKind::SetAudioInputDevice: settingsSetAudioInputDevice(cmd.json); break;
             case WebCommandKind::SetAudioDeviceType: settingsSetAudioDeviceType(cmd.json); break;

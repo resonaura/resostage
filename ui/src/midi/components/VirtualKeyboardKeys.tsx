@@ -58,7 +58,7 @@ export function VirtualKeyboardKeys({
                     }
                   : undefined
               }
-              className={`relative flex-1 h-full mx-px rounded-b-[2px] border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none ${
+              className={`relative flex-1 h-full mx-px rounded-b-sm border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none ${
                 isPressed
                   ? "text-white! z-0"
                   : "bg-[#f7f7f5] text-[#171717] border-[#393939] hover:bg-white"
@@ -113,7 +113,7 @@ export function VirtualKeyboardKeys({
                   }
                 : {}),
             }}
-            className={`absolute top-1 h-[60%] rounded-b-[2px] border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none z-10 ${
+            className={`absolute top-1 h-[60%] rounded-b-sm border transition-colors duration-75 flex flex-col justify-between items-center pb-1 pt-1 cursor-pointer select-none z-10 ${
               isPressed
                 ? "text-white!"
                 : "bg-[#171717] text-[#f7f7f5]/85 border-[#393939] hover:bg-[#242424]"

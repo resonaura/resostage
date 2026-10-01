@@ -15,6 +15,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,7 +29,8 @@ public:
         const MixGraph& graph,
         const std::vector<uint32_t>& stripProcessorLatencySamples,
         double sampleRate,
-        std::vector<std::string>& warnings);
+        std::vector<std::string>& warnings,
+        const PluginDelayBank* previousDelayBank = nullptr);
 
     PluginDelayBank(const PluginDelayBank&) = delete;
     PluginDelayBank& operator=(const PluginDelayBank&) = delete;
@@ -135,7 +137,10 @@ public:
                              const PluginProcessorBank* previousBank = nullptr,
                              const std::vector<StateBlob>* transientStates = nullptr,
                              ExecutionMode executionMode = ExecutionMode::InProcess,
-                             int hostedPipelineLatencySamples = 0);
+                             int hostedPipelineLatencySamples = 0,
+                             const std::function<void(uint32_t, const std::string&)>& progress = {},
+                             const std::function<bool()>& cancelled = {},
+                             const PluginDelayBank* previousDelayBank = nullptr);
 
     ~PluginProcessorBank() override;
     PluginProcessorBank(const PluginProcessorBank&) = delete;
@@ -201,8 +206,13 @@ public:
     /** Message-thread bypass update; preserves the live vendor instance. */
     bool setSlotBypassed(const std::string& slotId, bool bypassed) noexcept;
 
-    /** Power management inspection and control (Phase 5). */
+    /** Atomic power inspection and coalesced controls; callable across threads. */
     PluginPowerState getSlotPowerState(const std::string& slotId) const noexcept;
+    /** Prepared index query for helper DSP; no string search per block. */
+    PluginPowerState slotPowerState(size_t stripIndex, size_t slotIndex) const noexcept;
+    /** Apply typed power intent to a prepared node; never touches its DSP counters. */
+    void applySlotPowerControl(size_t stripIndex, size_t slotIndex,
+                               PluginPowerControl control) noexcept;
     std::string getSlotLoadState(const std::string& slotId) const;
     std::string getSlotLoadError(const std::string& slotId) const;
     /** Non-realtime discovery from a hosted chain's startup snapshot. */

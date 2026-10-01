@@ -88,4 +88,12 @@ architectures. Native media/project/RF64 tests passed: 20 cases, 21,718 assertio
 Core compiled successfully. ARM64 Windows/Linux packages are selected/pinned;
 hardware execution there and a physical Intel macOS pass remain release checks.
 
-See `docs/ai/tasks/ffmpeg.md` for current implementation and handoff status.
+## Remaining release acceptance
+
+Integration is implemented. Full outer-app assembly/signature and actual
+HTTP import/export acceptance after concurrent changes remain separate checks;
+standalone codec smoke cannot prove project/history commit or vendor rendering.
+The earlier full native run had one AU-editor timing failure during compilation,
+which passed alone afterward; rerun idle before presenting a clean full result.
+Do not infer ARM Windows/Linux or physical Intel Mac coverage from pinned
+packages or Rosetta. The current plan is [ai/tasks/media.md](ai/tasks/media.md).

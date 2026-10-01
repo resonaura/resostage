@@ -9,12 +9,18 @@
 #include "server/WireTypes.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace resostage {
 
 using namespace wire;
 
 juce::File appSettingsFile() {
+    // Acceptance harnesses can isolate rig preferences without changing HOME
+    // or touching a performer's saved devices, bindings, or recent projects.
+    if (const char* overridePath = std::getenv("RESOSTAGE_SETTINGS_FILE");
+        overridePath != nullptr && juce::File::isAbsolutePath(overridePath))
+        return juce::File(overridePath);
     const juce::File userData = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory);
 #if JUCE_MAC
     // JUCE's userApplicationDataDirectory maps to ~/Library on macOS, not

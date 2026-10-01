@@ -17,13 +17,16 @@ void PluginPowerManager::lookaheadScan(const Project& project, size_t activeSong
     }
 
     const auto& song = project.songs[activeSongIndex];
-    const double bpm = std::max(1.0, song.bpm);
-    const double lookaheadBars = std::max(0.5, config.lookaheadBars);
-    const double lookaheadBeats = lookaheadBars * std::max(1.0, beatsPerBar);
-    const double lookaheadEndBeat = currentBeat + lookaheadBeats;
+    const double bpm = (std::isfinite(song.bpm) && song.bpm >= 1.0) ? song.bpm : 120.0;
+    const double lookaheadBars = (std::isfinite(config.lookaheadBars) && config.lookaheadBars >= 0.5)
+                                     ? config.lookaheadBars : 2.0;
+    const double validBeatsPerBar = (std::isfinite(beatsPerBar) && beatsPerBar >= 1.0) ? beatsPerBar : 4.0;
+    const double lookaheadBeats = lookaheadBars * validBeatsPerBar;
+    const double validCurrentBeat = std::isfinite(currentBeat) ? currentBeat : 0.0;
+    const double lookaheadEndBeat = validCurrentBeat + lookaheadBeats;
 
     const double secondsPerBeat = 60.0 / bpm;
-    const double currentSeconds = currentBeat * secondsPerBeat;
+    const double currentSeconds = validCurrentBeat * secondsPerBeat;
     const double lookaheadEndSeconds = lookaheadEndBeat * secondsPerBeat;
 
     std::unordered_set<std::string> upcomingActiveTracks;

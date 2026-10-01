@@ -43,11 +43,15 @@ namespace {
 
 void prioritizePluginAudioWorker() noexcept {
 #if defined(__APPLE__)
-    // Keep helper DSP ahead of ordinary UI/background workers, but below the
-    // device callback's realtime workgroup so a plug-in can never starve CoreAudio.
-    (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, -8);
+    // Elevate helper DSP to USER_INTERACTIVE so Darwin schedules it on Performance (P)
+    // cores rather than demoting to Efficiency (E) cores during heavy live playback.
+    (void)pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 #elif defined(_WIN32)
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+#elif defined(__unix__)
+    struct sched_param param{};
+    param.sched_priority = 50;
+    (void)pthread_setschedparam(pthread_self(), SCHED_RR, &param);
 #endif
 }
 
@@ -261,11 +265,49 @@ public:
         armParentDeathWatchdog(parentProcessId);
 
         if (projectDirectory.isNotEmpty() && registryPath.isNotEmpty()) {
+            std::atomic<bool> initDone{false};
+            std::thread initWatchdog([area, &initDone] {
+                const auto deadline = std::chrono::steady_clock::now()
+                    + std::chrono::seconds(25);
+                while (std::chrono::steady_clock::now() < deadline) {
+                    if (initDone.load(std::memory_order_acquire))
+                        return;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                }
+                if (!initDone.load(std::memory_order_acquire)) {
+                    const char msg[] = "Plug-in initialization timed out (modal dialog or authorization freeze)";
+                    if (area != nullptr) {
+                        juce::String::fromUTF8(msg).copyToUTF8(
+                            area->startupError.data(), area->startupError.size());
+                        area->commandResult.store(5, std::memory_order_relaxed);
+                        area->hostState.store(
+                            static_cast<uint32_t>(resostage::plugin_host::HostState::Failed),
+                            std::memory_order_release);
+                    }
+                    std::cerr << msg << '\n';
+                    std::_Exit(5);
+                }
+            });
+
             runtime = std::make_unique<resostage::PluginHostRuntime>();
-            if (!runtime->prepare(juce::File(projectDirectory),
-                                  juce::File(registryPath), sampleRate,
-                                  static_cast<int>(blockSize),
-                                  &area->activePluginIndex, error)) {
+            bool prepared = false;
+            try {
+                prepared = runtime->prepare(
+                    juce::File(projectDirectory), juce::File(registryPath),
+                    sampleRate, static_cast<int>(blockSize),
+                    &area->activePluginIndex, error);
+            } catch (const std::exception& e) {
+                error = e.what();
+                prepared = false;
+            } catch (...) {
+                error = "Unknown exception during plug-in host runtime preparation";
+                prepared = false;
+            }
+            initDone.store(true, std::memory_order_release);
+            if (initWatchdog.joinable())
+                initWatchdog.join();
+
+            if (!prepared) {
                 fail(5, error);
                 return;
             }
@@ -401,11 +443,13 @@ private:
                     std::fill_n(slot->output.data() + blockSize,
                                 blockSize, 0.0f);
                 } else if (runtime != nullptr) {
+                    runtime->applyPowerRequests(area);
                     if (!runtime->process(*slot)) {
                         std::fill_n(slot->output.data(), slot->numSamples, 0.0f);
                         std::fill_n(slot->output.data() + blockSize,
                                     slot->numSamples, 0.0f);
                     }
+                    runtime->publishPowerStates(area);
                 } else {
                     std::copy_n(slot->input.data(), slot->numSamples,
                                 slot->output.data());

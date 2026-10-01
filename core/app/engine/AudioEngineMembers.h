@@ -73,6 +73,7 @@
     std::optional<PluginBankBuildRequest> pendingPluginBankBuild;
     std::vector<std::shared_ptr<const PublishedPluginBank>> retiredPluginBanks;
     std::atomic<uint64_t> pluginBankGeneration{0};
+    PluginLoadingSession pluginLoadingSession;
     // Latest graph layout, published atomically so UI/editor requests never
     // mistake a continuity-only previous bank for the requested plug-in.
     std::atomic<uint64_t> currentProcessorLayoutKey{0};
@@ -548,6 +549,9 @@
     // wholesale-replaces the Project, since that bypasses the per-region
     // updateRegionWindow() call builderRegionUpdate() normally makes.
     void resyncStreamingWindowsForCurrentSong();
+    // History restores project content without changing its plug-in epoch.
+    // Reconcile stable song/track focus and prepared sources before un-gating audio.
+    void applyHistoryProject(Project restored);
 
     // Cascades a live device sample-rate change (detected in
     // audioDeviceAboutToStart) through everything that caches the old rate:

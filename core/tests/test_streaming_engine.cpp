@@ -114,6 +114,69 @@ std::string makeTwoSongArchive() {
 
 } // namespace
 
+TEST_CASE("Streaming history reuses geometry-only buffers and rebinds source IDs without stale fallback") {
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(makeTwoSongArchive(), error));
+    SongDef song; song.id = "song";
+    Region a; a.id = "a"; a.trackId = "track"; a.source.file = "Audio/a.wav";
+    song.regions = {a};
+    StreamingEngine engine;
+    engine.start(&loader);
+    REQUIRE(engine.stageSong(0, song, 4096, 48000, error));
+    auto original = engine.acquireActiveSong();
+    auto* originalBuffer = original.region("a");
+    REQUIRE(originalBuffer != nullptr);
+    song.regions[0].durationSeconds = 0.25;
+    song.regions[0].source.offsetSeconds = 0.1;
+    CHECK(engine.activeSongMatches(0, song, 4096, 48000));
+    CHECK_FALSE(engine.activeSongMatches(1, song, 4096, 48000));
+    CHECK_FALSE(engine.activeSongMatches(0, song, 4096, 44100));
+    song.regions[0].id = "restored";
+    CHECK_FALSE(engine.activeSongMatches(0, song, 4096, 48000));
+    REQUIRE(engine.rebindActiveSongAt(0, song, 4096, 48000, 8000, error));
+    auto rebound = engine.acquireActiveSong();
+    CHECK(rebound.region("a") == nullptr);
+    CHECK(rebound.region("restored") == originalBuffer); // pooled unchanged file
+    CHECK(original.region("a") == originalBuffer); // old acquired snapshot stays alive
+    song.regions[0].source.file = "Audio/b.wav";
+    CHECK_FALSE(engine.activeSongMatches(0, song, 4096, 48000));
+    REQUIRE(engine.rebindActiveSongAt(0, song, 4096, 48000, 8000, error));
+    CHECK(engine.acquireActiveSong().region("restored") != originalBuffer);
+    engine.clearActiveSong();
+    CHECK_FALSE(static_cast<bool>(engine.acquireActiveSong()));
+    engine.stop();
+}
+
+TEST_CASE("Streaming history invalidates only incompatible warm maps including prepared windows") {
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(makeTwoSongArchive(), error));
+    SongDef a; a.id = "a";
+    Region ra; ra.id = "ra"; ra.trackId = "ta"; ra.source.file = "Audio/a.wav";
+    a.regions = {ra};
+    SongDef b; b.id = "b";
+    Region rb; rb.id = "rb"; rb.trackId = "tb"; rb.source.file = "Audio/b.wav";
+    b.regions = {rb};
+    StreamingEngine engine;
+    engine.start(&loader);
+    engine.precacheSong(0, a, 4096, 48000, engine.stageEpoch());
+    engine.precacheSong(1, b, 4096, 48000, engine.stageEpoch());
+    REQUIRE(engine.hasPrecacheFor(0));
+    REQUIRE(engine.hasPrecacheFor(1));
+    a.regions[0].source.offsetSeconds = 0.25;
+    engine.invalidateIncompatibleWarmSongs({a, b}, 4096, 48000);
+    CHECK_FALSE(engine.hasPrecacheFor(0));
+    CHECK(engine.hasPrecacheFor(1));
+    // Index-only staging also rejects stale warm sources even when the caller
+    // forgot to invalidate: ordinary song selection shares this safety check.
+    b.regions[0].id = "new-b";
+    REQUIRE(engine.stageSong(1, b, 4096, 48000, error));
+    CHECK(engine.acquireActiveSong().region("rb") == nullptr);
+    CHECK(engine.acquireActiveSong().region("new-b") != nullptr);
+    engine.stop();
+}
+
 TEST_CASE("StreamingEngine survives concurrent stageSong() and acquireActiveSong()/read() without crashing") {
     // Regression coverage for the exact bug class caught in RoutingEngine:
     // a raw-pointer-swap-plus-manual-delete design that "should" be safe
@@ -452,4 +515,3 @@ TEST_CASE("StreamingEngine: seekActiveSongTo requires staged song and succeeds f
 
     engine.stop();
 }
-

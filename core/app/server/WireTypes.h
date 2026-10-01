@@ -17,6 +17,14 @@
 
 namespace resostage::wire {
 
+// Queue admission is not history application. Clients wait until the same
+// Core session publishes this request ID with its restored project snapshot.
+struct WHistoryAccepted {
+    bool ok = true;
+    uint64_t historyRequestId = 0;
+    std::string stateSessionId;
+};
+
 // ── App Settings ─────────────────────────────────────────────────────────────
 
 struct WMidiMapping {
@@ -835,6 +843,26 @@ struct WSettingsTelemetry {
     std::string midiLearnAction;
 };
 
+struct WPluginLoadDecisionPayload {
+    uint64_t epoch = 0;
+    uint64_t generation = 0;
+    std::string decision;
+};
+
+struct WPluginLoadingTelemetry {
+    uint64_t epoch = 0;
+    uint64_t generation = 0;
+    std::string phase = "idle";
+    bool blocksPlayback = false;
+    bool showDialog = false;
+    bool playRequested = false;
+    uint32_t total = 0;
+    uint32_t completed = 0;
+    uint32_t failed = 0;
+    std::string currentName;
+    std::string error;
+};
+
 struct WEngineTelemetryPayload {
     struct ActiveMidiNote {
         std::string trackId;
@@ -842,6 +870,7 @@ struct WEngineTelemetryPayload {
         int trackIndex = 0;
     };
     std::string projectName;
+    WPluginLoadingTelemetry pluginLoading;
     std::string songName;
     std::string activeTrackId;
     double playheadSeconds = 0.0;
@@ -876,6 +905,9 @@ struct WEngineTelemetryPayload {
     bool canRedo = false;
     std::string undoLabel;
     std::string redoLabel;
+    std::string stateSessionId;
+    uint64_t stateRevision = 0;
+    uint64_t lastHistoryRequestId = 0;
     std::string lastAction;
     uint64_t lastActionNonce = 0;
     int telemetryHz = 0;

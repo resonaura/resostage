@@ -108,6 +108,8 @@ export function StripInputControls({
           <PluginSlotControl
             name={inputRouting.instrumentName || "Unknown instrument"}
             bypassed={!!inputRouting.instrumentBypassed}
+            loadState={inputRouting.instrumentLoadState}
+            loadError={inputRouting.instrumentLoadError}
             onOpen={() => inputRouting.onOpenInstrument?.()}
             onToggle={() => inputRouting.onToggleInstrumentBypass?.()}
             onSwap={(event) => {

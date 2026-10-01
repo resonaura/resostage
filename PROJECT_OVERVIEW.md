@@ -2,7 +2,7 @@
 
 **Purpose of this document:** Give a technically informed reader a clear, honest picture of what ResoStage is, what it is trying to become, how it is built, where it may stand out, what is already implemented, and what still needs proof or development. This is a project overview, not a market study, legal opinion, or promise of future features.
 
-**Status reference:** This document reflects repository documentation available on 2026-09-29. Implementation changes over time. For feature status, the source code, tests, release notes, and the most specific current status documents take precedence over this overview.
+**Status reference:** Technical claims reviewed against repository source on 2026-10-01. Implementation changes over time. Source, tests, and specific status documents take precedence over this overview; dated test reports are not new hardware certification.
 
 ---
 
@@ -60,6 +60,12 @@ The project model covers audio, instrument, MIDI, external MIDI, lighting, folde
 
 The design includes fades, looping, speed and pitch treatments, automation, metering, and plug-in processing. Per-track pan-law choices are persisted and shared by live/offline mixing. Plug-in parameter lanes can be selected from the plug-in's exposed parameter list and edited with a point curve. Automation is still narrower than a mature DAW: general-purpose strip/fader/pan automation editing and a full arrangement automation mode remain unfinished.
 
+Audio/video import and audio format conversion use an application-bundled
+FFmpeg worker. Imported video retains its original project-local resource while
+only its audio is playable. Offline audio export still renders instruments and
+effects through the production graph before encoding the chosen format. See
+`docs/FFMPEG.md` for actual codec profiles, bounds, and platform validation.
+
 ### 5.2 MIDI and instruments
 
 The project supports MIDI regions and instrument tracks, scheduled MIDI events, plug-in instruments, MIDI capture, focused-track audition, and MIDI editing. Core handles event timing; the UI receives published state rather than reading callback-owned counters directly.
@@ -82,19 +88,21 @@ The documented native remote mode separates command delivery from live telemetry
 - Frequently sampled state such as playhead, meters, health, and lighting preview uses UDP, where fresh state is more useful than retrying stale frames.
 - LAN discovery announces available Core nodes.
 
-The controller subscribes to a Core-selected UDP destination and renews that subscription. Electron validates packet source, protocol header, length, and sequence ordering before data reaches the renderer. The remote-control document includes a two-machine verification procedure and describes offline rendering on the active Core, including when that Core is remote.
+The controller chooses an ephemeral UDP receive port and renews its subscription. Electron validates packet source, protocol header, length, and sequence ordering before data reaches the renderer. Core currently emits protocol v9, including complete sparse active-note snapshots. The remote-control document includes a two-machine verification procedure and describes offline rendering on the active Core, including when that Core is remote.
 
 This is more concrete than a generic claim of “cloud control”: it is a documented local-network controller/playback topology. It does not imply that secure internet access, global NAT traversal, hosted relay, or remote collaboration between cities is already shipped.
 
 ### 5.5 ResoLink and multi-Core synchronization
 
-`docs/architecture/RESOLINK_PROTOCOL.md` describes a more ambitious Core-to-Core session protocol for synchronized machines, redundant playback, and possibly remote instrument execution. That document marks the work `IN_PROGRESS` and describes protocol direction and design. It should be presented as research or roadmap, not as a finished capability of the current product. Do not conflate ResoLink with the implemented Electron-to-Core remote control path.
+`docs/architecture/RESOLINK_PROTOCOL.md` distinguishes tested engine-level packet and PLL primitives from the unimplemented Core-to-Core networking, synchronized execution, and redundancy workflow. There is no application session transport or distributed vendor rendering merely because these primitives and execution-target fields exist. Treat that integration as roadmap work, separate from the implemented Electron-to-Core remote-control path.
 
 ### 5.6 Plug-ins
 
 ResoStage includes plug-in scanning and live AU/VST3 hosting workflows. Both discovery and live DSP run outside Core: the scanner helper owns enumeration, and a separate helper process owns each non-empty live serial plug-in chain. A native fault or hang therefore takes down that chain rather than unwinding through Core or unrelated chains. A bounded shared-memory protocol transports audio, MIDI, parameters, and transport state; a watchdog can make one automatic restart attempt. This is process isolation, not a reduced-permission security sandbox, and a plug-in may still affect resources available to the current user.
 
 Offline render deliberately owns a separate in-process processor bank so it can give plug-ins non-realtime render context. A native offline plug-in crash is not contained by the live-host boundary. Exact behavior, protocol limits, and recovery scope are documented in `docs/PLUGIN_FAILURE_CONTAINMENT.md`.
+
+Opening a project exposes its content while Core holds Play/Record until a matching processor bank is ready. Failed loads require an explicit retry/keep-stopped/continue-with-available decision. Slot readiness is separate from bypass and power state, and ordinary same-project insert edits retain compatible banks for continuity. The exact generation-scoped gate and modal behavior are documented in `docs/PLUGIN_HOSTING.md`.
 
 ## 6. Why the engineering approach is relevant to live use
 
@@ -205,11 +213,11 @@ ResoStage is an ambitious product with a substantial implementation and document
 - **Callback terminology:** The callback is designed to be bounded and non-waiting but does use `try_lock`; describing it as completely lock-free would conflict with `AGENTS.md`.
 - **Plug-ins:** Live plug-ins run in per-chain helper processes, but those helpers are not OS sandboxes. Offline plug-in rendering remains in-process and can still fail with the renderer.
 - **Automation:** Plug-in parameter lanes and MIDI-region CC/channel pitch bend are editable and dispatched at block granularity. General strip automation editing and per-note MIDI 2.0 glide are not implemented.
-- **ResoLink:** Core-to-Core synchronization and distributed execution are marked in progress, separate from the documented native remote-control mode.
+- **ResoLink:** Packet/PLL foundations are tested, but application Core-to-Core synchronization and distributed execution are not integrated; they are separate from native remote-control mode.
 - **MIDI 2.0:** Some file and project support is implemented; end-to-end UMP hardware and plug-in support is not complete.
-- **DAW expansion:** The unified track/channel-strip architecture and several broad DAW subsystems have design documents marked `IN_PROGRESS`.
+- **DAW expansion:** Track-kind/strip-link and automation foundations exist, but their architecture documents distinguish them from unfinished broader console, arrangement, and decoupled-track workflows.
 - **Cloud:** ResoCloud is a future direction, not a currently available service.
-- **README consistency:** The README includes strong claims about a `kaishaku` supervisor, recovery timing, zero-dropout operation, and lock-free behavior. The current engineering guide describes the normal application as Electron plus Core and explicitly narrows the audio callback guarantee. Those strong claims should be reconciled with the shipped architecture and direct verification before being repeated externally.
+- **Supervision scope:** Kaishaku is an execution helper, not a UI heartbeat/restart supervisor. Process separation and plug-in watchdogs have different scopes; neither guarantees uninterrupted output under arbitrary faults or machine overload.
 
 This list is not a dismissal of the project. A technically ambitious early-stage system is expected to have boundaries and unfinished work. Naming them gives users, collaborators, and potential partners a more useful basis for trust than presenting every roadmap objective as complete.
 
@@ -229,7 +237,7 @@ This list is not a dismissal of the project. A technically ambitious early-stage
 | --- | --- |
 | “Zero dropouts” or “guaranteed uninterrupted playback” | “Designed for bounded real-time playback; published tests cover specific workloads and hardware.” |
 | “Completely lock-free audio engine” | “The callback avoids blocking waits and uses preallocated/bounded communication; routing contention can result in a silent block.” |
-| “All plug-in crashes are isolated” | “Plug-in scanning runs in a helper; live plug-ins still execute inside Core.” |
+| “All plug-in crashes are isolated” | “Scanning and live serial chains run in helpers; offline vendor execution remains in-process, and helpers are not OS sandboxes.” |
 | “Full MIDI 2.0 support” | Name the implemented MIDI Clip File/project features and state that live UMP support is incomplete. |
 | “ResoLink is ready for redundant rigs” | “ResoLink is an in-progress Core-to-Core protocol design.” |
 | “ResoCloud provides collaboration and backup” | “Optional hosted collaboration and backup are being considered for a future ResoCloud service.” |
@@ -272,7 +280,9 @@ The stated direction is optional managed services whose value depends on ongoing
 Build a useful product, demonstrate real engineering work in public, develop an audience around that work, and make it easier for people to discover other well-made, reasonably priced software from the same independent developer.
 
 **What should a newcomer keep in mind?**  
-ResoStage is ambitious and already has detailed technical architecture, but it is actively developed. Some strong marketing statements in README need reconciliation with the more precise engineering guide; hardware validation and several roadmap features remain open work.
+ResoStage is ambitious and actively developed. The documentation distinguishes
+bounded design goals from measured workloads; hardware validation and several
+roadmap features remain open work.
 
 ## 17. Repository references
 

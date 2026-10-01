@@ -127,6 +127,7 @@ enum class WebCommandKind : uint8_t {
     PluginSlotMove,
     PluginSlotBypass,
     PluginSlotRetry,
+    PluginLoadDecision,
     PluginSlotOpenEditor,
     PluginSlotKeepAwake,
     PluginSlotPark,
@@ -289,6 +290,7 @@ struct WebCommand {
     double value = 0.0; // gain (dB) / pan (-1..1) / bool (0.0 or 1.0) depending on kind
     std::string path = {};   // LoadProjectFromPath / BuilderTrackImportWavUpload: temp file path
     std::string json = {};   // Builder*: raw POST body, parsed message-thread-side
+    uint64_t historyRequestId = 0; // Nonzero only for reliable HTTP Undo/Redo acknowledgements.
 };
 
 // Snapshot of everything the SPA needs, written by the message thread (~30 Hz)
@@ -337,6 +339,20 @@ struct WebUiState {
         std::string loadError;
     };
 
+    struct PluginLoadingRow {
+        uint64_t epoch = 0;
+        uint64_t generation = 0;
+        std::string phase = "idle";
+        bool blocksPlayback = false;
+        bool showDialog = false;
+        bool playRequested = false;
+        uint32_t total = 0;
+        uint32_t completed = 0;
+        uint32_t failed = 0;
+        std::string currentName;
+        std::string error;
+    };
+    PluginLoadingRow pluginLoading;
     std::string projectName;
     std::string activeTrackId;
     // Project-global metronome (same for every song).
@@ -459,6 +475,11 @@ struct WebUiState {
     bool canRedo = false;
     std::string undoLabel;
     std::string redoLabel;
+    // Core-session identity plus project mutation revision order structural
+    // responses without increasing idle WS traffic on every timer publish.
+    std::string stateSessionId;
+    uint64_t stateRevision = 0;
+    uint64_t lastHistoryRequestId = 0;
 
     struct SongRow {
         std::string name;
@@ -1314,6 +1335,9 @@ private:
 
     mutable std::mutex stateMutex;
     WebUiState state;
+    const std::string stateSessionId_ = std::to_string(
+        std::chrono::system_clock::now().time_since_epoch().count());
+    uint64_t nextHistoryRequestId_ = 0; // WebServer thread only.
 
     // Pre-serialized frames, rebuilt in publishState() on the message thread.
     // WS service thread only does shared_ptr copy + lws_write — no ostringstream.

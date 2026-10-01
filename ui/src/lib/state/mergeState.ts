@@ -1,0 +1,152 @@
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
+
+import { shareStructure } from "@/lib/state/structuralShare";
+import type { WebUiState } from "@/lib/state/types";
+
+/**
+ * Merge a partial WS snapshot into the previous state. The server only
+ * includes arrays relevant to the active SPA tab (see WebServer::
+ * buildStateJson(view)); omitted keys keep their previous values so tab
+ * switches don't blank out the UI before the next full-for-view frame.
+ *
+ * Meter peaks are NOT max-merged here — that would be fake hold. Live
+ * levels go through pushLiveLevels() on every frame so ballistics see
+ * the true signal including brief silence between metronome hits.
+ *
+ * Health cpu/ram numbers are frozen here and only applied on the 1 Hz
+ * sample tick so the Player widget doesn't jitter.
+ */
+export function mergeState(prev: WebUiState, next: Partial<WebUiState>): WebUiState {
+  return shareStructure(prev, buildMergedState(prev, next));
+}
+
+function buildMergedState(
+  prev: WebUiState,
+  next: Partial<WebUiState>,
+): WebUiState {
+  return {
+    ...prev,
+    ...next,
+    songs: next.songs ?? prev.songs,
+    meters: next.meters ?? prev.meters,
+    // An explicit empty sends array is authoritative (including after Undo).
+    tracks: next.tracks ?? prev.tracks,
+    busses: next.busses ?? prev.busses,
+    health: next.health
+      ? {
+          // Keep underrun/client counters live; freeze cpu/ram until 1 Hz tick.
+          ...prev.health,
+          underrunCount: next.health.underrunCount ?? prev.health.underrunCount,
+          silentBlockCount:
+            next.health.silentBlockCount ?? prev.health.silentBlockCount,
+          streamStarveCount:
+            next.health.streamStarveCount ?? prev.health.streamStarveCount,
+          audioCallbackCount:
+            next.health.audioCallbackCount ?? prev.health.audioCallbackCount,
+          webClientCount:
+            next.health.webClientCount ?? prev.health.webClientCount,
+          freeBytes: next.health.freeBytes ?? prev.health.freeBytes,
+          processes: prev.health.processes ?? [],
+        }
+      : prev.health,
+    settings: next.settings
+      ? {
+          ...prev.settings,
+          ...next.settings,
+          // Only overwrite fields that are actually present & meaningful.
+          // Server omits device lists on non-settings views; never treat
+          // missing/empty as "clear the UI".
+          ...(next.settings.currentOutputDevice !== undefined &&
+          next.settings.currentOutputDevice !== ""
+            ? { currentOutputDevice: next.settings.currentOutputDevice }
+            : { currentOutputDevice: prev.settings.currentOutputDevice }),
+          currentInputDevice:
+            next.settings.currentInputDevice !== undefined
+              ? next.settings.currentInputDevice
+              : prev.settings.currentInputDevice,
+          inputDevices: next.settings.inputDevices?.length
+            ? next.settings.inputDevices
+            : prev.settings.inputDevices,
+          ...(next.settings.sampleRate !== undefined &&
+          next.settings.sampleRate > 0
+            ? { sampleRate: next.settings.sampleRate }
+            : { sampleRate: prev.settings.sampleRate }),
+          ...(next.settings.bufferSize !== undefined &&
+          next.settings.bufferSize > 0
+            ? { bufferSize: next.settings.bufferSize }
+            : { bufferSize: prev.settings.bufferSize }),
+          outputDevices: next.settings.outputDevices?.length
+            ? next.settings.outputDevices
+            : prev.settings.outputDevices,
+          availableSampleRates: next.settings.availableSampleRates?.length
+            ? next.settings.availableSampleRates
+            : prev.settings.availableSampleRates,
+          availableBufferSizes: next.settings.availableBufferSizes?.length
+            ? next.settings.availableBufferSizes
+            : prev.settings.availableBufferSizes,
+          outputChannelNames: next.settings.outputChannelNames?.length
+            ? next.settings.outputChannelNames
+            : prev.settings.outputChannelNames,
+          activeOutputChannels: next.settings.activeOutputChannels?.length
+            ? next.settings.activeOutputChannels
+            : prev.settings.activeOutputChannels,
+          inputChannelNames: next.settings.inputChannelNames?.length
+            ? next.settings.inputChannelNames
+            : prev.settings.inputChannelNames,
+          activeInputChannels: next.settings.activeInputChannels?.length
+            ? next.settings.activeInputChannels
+            : prev.settings.activeInputChannels,
+          audioDrivers: next.settings.audioDrivers?.length
+            ? next.settings.audioDrivers
+            : prev.settings.audioDrivers,
+          currentAudioDriver:
+            next.settings.currentAudioDriver ??
+            prev.settings.currentAudioDriver,
+          hasControlPanel:
+            next.settings.hasControlPanel ?? prev.settings.hasControlPanel,
+          inputLatencyMs:
+            next.settings.inputLatencyMs ?? prev.settings.inputLatencyMs,
+          outputLatencyMs:
+            next.settings.outputLatencyMs ?? prev.settings.outputLatencyMs,
+          roundtripLatencyMs:
+            next.settings.roundtripLatencyMs ??
+            prev.settings.roundtripLatencyMs,
+          midiOutputs: next.settings.midiOutputs?.length
+            ? next.settings.midiOutputs
+            : prev.settings.midiOutputs,
+          midiInputs: next.settings.midiInputs?.length
+            ? next.settings.midiInputs
+            : prev.settings.midiInputs,
+          currentMidiInput:
+            next.settings.currentMidiInput ?? prev.settings.currentMidiInput,
+          selectedMidiOutputs:
+            next.settings.selectedMidiOutputs ?? prev.settings.selectedMidiOutputs,
+          selectedMidiInputs:
+            next.settings.selectedMidiInputs ?? prev.settings.selectedMidiInputs,
+          virtualMidiPortEnabled:
+            next.settings.virtualMidiPortEnabled ??
+            prev.settings.virtualMidiPortEnabled,
+          keybindings: next.settings.keybindings ?? prev.settings.keybindings,
+          recentProjects:
+            next.settings.recentProjects ?? prev.settings.recentProjects,
+          midiBindings:
+            next.settings.midiBindings ?? prev.settings.midiBindings,
+          midiLearnAction:
+            next.settings.midiLearnAction ?? prev.settings.midiLearnAction,
+          uiRenderEngine:
+            next.settings.uiRenderEngine ?? prev.settings.uiRenderEngine,
+          theme: next.settings.theme ?? prev.settings.theme,
+          advancedSendRouting:
+            next.settings.advancedSendRouting ??
+            (typeof localStorage !== "undefined"
+              ? localStorage.getItem("resostage:advanced-send-routing") ===
+                "true"
+              : prev.settings.advancedSendRouting),
+        }
+      : prev.settings,
+  };
+}

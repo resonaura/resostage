@@ -13,14 +13,17 @@ import {
 import type { WebUiState } from "@/lib/state/types";
 import { TransferDialogs } from "@/transfer/workflows/components/TransferDialogs";
 import type { TransferWorkflows } from "@/transfer/workflows/hooks/useTransferWorkflows";
+import { PluginLoadingDialog } from "@/shell/plugins/components/PluginLoadingDialog";
 
 /** Mounts app-wide confirmation, quit, and file-transfer dialogs. */
 export function AppDialogLayer({
   state,
   transferWorkflows,
+  connected,
 }: {
   state: WebUiState;
   transferWorkflows: TransferWorkflows;
+  connected: boolean;
 }) {
   const [isQuittingOverlay, setIsQuittingOverlay] = useState(false);
 
@@ -33,6 +36,13 @@ export function AppDialogLayer({
       <OpenConfirmDialog state={state} />
       <QuitOverlay open={isQuittingOverlay} />
       <TransferDialogs state={state} transfer={transferWorkflows} />
+      {state.pluginLoading && (
+        <PluginLoadingDialog
+          key={`${state.pluginLoading.epoch}:${state.pluginLoading.generation}`}
+          loading={state.pluginLoading}
+          connected={connected}
+        />
+      )}
     </>
   );
 }

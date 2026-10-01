@@ -1,6 +1,6 @@
 # MIDI 2.0 Support: Implemented Scope and Remaining Work
 
-Status reviewed: 2026-09-28
+Status reviewed against file codecs, project schema, and live bridge: 2026-10-01.
 
 This document describes the MIDI 2.0 work currently present in ResoStage and
 the gaps that remain before calling the application end-to-end MIDI 2.0
@@ -24,8 +24,9 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   MIDI 1.0 Channel Voice UMP, MIDI 2.0 Note On/Off, note group, 16-bit attack
   and release velocity, and the note attribute fields represented in the
   current project schema.
-- Project schema version 6 stores MIDI 2.0 note fields and timed opaque UMP
-  packets on MIDI regions. Older project files are migrated. UI state and
+- Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
+  packets on MIDI regions; the current format 10 retains them. Readable additive older
+  formats receive defaults; other older files require `pnpm migrate`. UI state and
   project serialization carry these fields so unsupported UMP packets can
   survive a save/load and MIDI Clip File round-trip.
 - The Piano Roll edits normalized note velocity/release velocity and updates

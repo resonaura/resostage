@@ -858,6 +858,7 @@ void WebServer::publishState(const WebUiState& next) {
     {
         std::lock_guard<std::mutex> lock(stateMutex);
         state = next;
+        state.stateSessionId = stateSessionId_;
     }
 
     const auto watched = [this](ViewSlot slot) {

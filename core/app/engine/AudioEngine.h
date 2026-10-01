@@ -48,6 +48,7 @@
 #include "LightEngine.h"
 #include "midi/CoreMidiDispatcher.h"
 #include "plugins/PluginProcessorBank.h"
+#include "plugins/PluginLoadingSession.h"
 #include "project/ProjectHistory.h"
 #include "project/ProjectLoader.h"
 #include "project/ProjectSchema.h"
@@ -169,6 +170,9 @@ public:
     /** True only when that bank matches the latest project's plug-in layout. */
     bool hasCurrentPluginProcessorBank() const noexcept;
     bool retryPluginSlot(const std::string& slotId);
+    // Message-thread structural state / decisions; never used by audio.
+    PluginLoadingSnapshot pluginLoadingSnapshot() const;
+    bool decidePluginLoading(uint64_t epoch, uint64_t generation, const std::string& decision);
     /** Applies slot bypass immediately and refreshes any in-flight bank request. */
     void setPluginSlotBypassed(const std::string& slotId, bool bypassed);
 

@@ -285,17 +285,24 @@ that value with monotonic nanoseconds.
 ### The actual non-blocking guarantee
 
 Do not describe the callback as academically 100% lock-free. It uses atomic
-`shared_ptr` snapshot acquisition and currently performs a `try_lock` on the
-routing mutex. The important operational guarantee is **bounded and
-non-waiting**: it never waits for the mutex. If state is being restaged, the
+`shared_ptr` snapshot acquisition and performs a non-blocking `try_lock` on the
+routing mutex with a bounded CPU pause-retry loop. The important operational guarantee is **bounded and
+non-waiting**: it never blocks or waits for the mutex. Non-structural edits (fader,
+pan, send levels) publish atomic snapshots without acquiring `routingMutex` at all.
+If state is being structurally restaged (track additions/deletions), the
 callback services the driver with silence and records a silent block instead
 of missing the hardware deadline.
+
+Mix graph deallocation never occurs on the real-time audio thread: retired graphs
+are retained in a message-thread retirement queue and reclaimed only after the audio
+callback's local reference drops (`use_count == 1`), ensuring `free()` and `delete MixGraph`
+execute exclusively on the non-real-time thread.
 
 Never turn that `try_lock` into a blocking lock. Conversely, do not replace the
 atomic `shared_ptr` with a hand-written raw-pointer/hazard scheme: previous
 attempts had real use-after-free failures caught by the routing concurrency
-tests. Correct lifetime reclamation is more important than removing one
-atomic reference-count operation.
+tests. Correct lifetime reclamation via message-thread retirement queues is
+provably safe, leak-free, and allocation/deallocation-free on the audio thread.
 
 ## 5. Why it performs well in real time
 
@@ -447,7 +454,10 @@ Preserve these rules:
   rejected before allocation and counted by the bank. Complete channel-wide
   32/48-event panic bursts take priority over pending musical packets. Offline
   non-realtime banks retain full SysEx/growing buffers; never use that mode in
-  a live callback. The IPC ABI remains unchanged.
+  a live callback. The live-host shared-memory ABI is version 6; fixed per-slot
+  power/bypass mailboxes coalesce latest-state controls independently of the
+  parameter queue. Helper DSP owns power counters/envelopes; other threads
+  publish atomic intents. Explicit parking is not cancelled by automatic wake.
   If a result misses its deadline, effects retain their dry input and instrument
   strips emit silence for that block. MIDI packets and host controls use bounded
   queues; rejected control events increment a health counter without marking a
@@ -462,6 +472,17 @@ Preserve these rules:
   healthy helper. Only changed/failed chains are rebuilt;
   project-epoch changes invalidate all old helpers. Editor windows live inside
   the corresponding helper.
+  Bypass/keep-awake history changes synchronize coalesced controls to an
+  otherwise unchanged healthy helper rather than reinstantiating the vendor.
+  A new project's plug-in loading session is epoch/generation scoped and
+  gates Play/Record in Core until the completed bank is published. Structural
+  state includes progress and per-slot loading/loaded/missing/failed states.
+  Loading slots must not look active or offer an editor. A missing/failing bank
+  requires an explicit continue-with-available decision; Stop clears queued
+  Play, and a decision from a superseded dialog cannot unlock the new document.
+  Ordinary same-document insert edits retain compatible playback without a
+  project-loading modal. This handoff uses a worker/message-thread mutex only;
+  the audio callback must never read or wait on the loading session.
   Intelligent power management (`PluginPowerManager`)
   monitors strip signal activity via preallocated envelope followers, automatically
   suspending processing during silence while preserving tail decay and waking up
@@ -614,14 +635,14 @@ audio/light/workers
   -> React view
 ```
 
-The binary frame currently uses magic `0x5253`, protocol version `8`, a
+The binary frame currently uses magic `0x5253`, protocol version `9`, a
 wrapping 32-bit sequence number at byte offset 4, and a 66-byte header. Do not
 edit layout in only one language. A protocol change requires, in the same
 change:
 
 1. bump/define the Core protocol version and encoder layout;
 2. update `electron/src/udpTelemetry.ts` validation and tests;
-3. update `ui/src/lib/liveLevels.ts` decoding and tests;
+3. update `ui/src/lib/audio/liveLevels.ts` decoding and tests;
 4. update `scripts/test-remote.mjs` and protocol documentation;
 5. verify malformed, truncated, duplicate, reordered, wraparound, restart, and
    host-switch behaviour.
@@ -676,16 +697,14 @@ compile-time reflection DTOs with external linkage (`server/WireTypes.h`,
 `project/ProjectJson.cpp`). Fragile substring searches and `juce::JSON` tree
 allocations are prohibited.
 
-For distributed multi-machine live rigs and redundant failover, Cores exchange
-compact binary beacons (`kResoLinkMagic = 0x52534C4B` on UDP `28992`) and
-NTP/PTP-grade Ping/Pong packets (`resolink/ResoLinkProtocol.h`). Follower
-instances run a Proportional-Integral (PI) phase-locked loop (PLL) tracking
-leader monotonic time and sample render position (`resolink/SessionClock.h`),
-bounded to safe $\pm 100\text{ PPM}$ frequency slewing without zipper noise,
-snapping on large seeks ($> 50\text{ ms}$), and providing 2-second holdover
-coasting during network packet loss. Individual tracks can be targeted for local
-execution or remote peer delegation via `ExecutionTarget` in `TrackDef`. Real-time
-threads query clock snapshots and rate multipliers wait-free via `SeqLock`.
+ResoLink currently provides engine-side packet and clock foundations, not a
+running Core-to-Core networking or distributed DSP service. Binary packet
+primitives use `kResoLinkMagic = 0x52534C4B` and reserve UDP `28992`
+(`resolink/ResoLinkProtocol.h`). `SessionClock` calculates a PI follower PLL,
+bounded to ±100 PPM slewing, 50 ms seek snaps and 2-second holdover;
+snapshots use `SeqLock`. `ExecutionTarget` persists intended track placement.
+App-level session dispatch, failover and audio rate actuation still require
+integration; do not describe these primitives as deployed network playback.
 
 ## 9. Timing, events, MIDI, and lighting
 
@@ -725,7 +744,7 @@ parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `9`. A `.rsnraset` is normally a directory package containing
+format version is `10`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -739,6 +758,9 @@ Key ownership rules:
 - Optional strings serialize as JSON `null`, not an empty-string convention.
 - Application/device preferences live in `AppSettings`; they are not portable
   musical project content.
+  `RESOSTAGE_SETTINGS_FILE` may select an absolute alternate preference file
+  for acceptance harnesses; relative overrides are ignored. Never change HOME
+  or test against an operator's preferences or original project package.
 - Track, click, send, and main strips own ordered `PluginSlot` chains. Each
   slot persists a catalog identifier plus fallback vendor/name metadata;
   opaque vendor state lives in a separate package resource referenced by
@@ -761,7 +783,9 @@ The external migration script also upgrades later formats: v6 adds the
 per-track pan law, v7 adds a MIDI loop source-window start defaulting to zero,
 and v8 persists that trimmed MIDI loop window. v9 adds optional
 `RegionSource::videoFile`, retaining a project-local original video alongside
-the playable audio resource; v8 remains a readable additive exception.
+the playable audio resource; v8 remains a readable additive exception. v10
+persists an explicit click solo-safe opt-out; earlier documents adopt the
+solo-safe default. Saving v10 must preserve false on subsequent reopen.
 MIDI regions keep source note
 coordinates; `clipOffsetBeats` identifies the current source phase, while
 `loopStartBeats` and `loopLengthBeats` bound the loop source window. Trimming

@@ -32,7 +32,9 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 9;
+inline constexpr int kCurrentFormatVersion = 10;
+// Format 10 persists an explicit metronome solo-safe opt-out. Older projects
+// adopt the solo-safe default; v10 false values must survive a save/reopen.
 // Format 9 retains optional original video resources next to prepared audio.
 // Format 8 adds MIDI loop source-window starts so left-trimming a loop can
 // crop its repeated source while split regions retain their original phase.

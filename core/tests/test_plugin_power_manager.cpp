@@ -7,12 +7,15 @@
 #include "doctest.h"
 
 #include "plugins/PluginPowerManager.h"
+#include "plugins/PluginHostProtocol.h"
 #include "project/ProjectJson.h"
 #include "project/ProjectSchema.h"
 
 #include <chrono>
+#include <array>
 #include <cmath>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 using namespace resostage;
@@ -111,6 +114,96 @@ TEST_CASE("PluginSlotPowerTracker: Instantaneous resumption to Active (< 0.05 ms
     CHECK(tracker.isProcessingNeeded() == true);
 }
 
+TEST_CASE("PluginSlotPowerTracker: explicit parking survives input and predictive wakes") {
+    PluginSlotPowerTracker tracker;
+    tracker.prepare("parked-slot", 48000.0, 0.01, {});
+    std::array<float, 256> silence{};
+    tracker.park();
+    tracker.forceAwake();
+    tracker.setKeepAwake(true);
+    CHECK(tracker.state() == PluginPowerState::Parked);
+    CHECK_FALSE(tracker.isProcessingNeeded());
+    tracker.processBlockRealtime(silence.data(), silence.data(), 256, true);
+    CHECK(tracker.state() == PluginPowerState::Parked);
+    tracker.unpark();
+    CHECK(tracker.state() == PluginPowerState::Active);
+    tracker.beginBlockRealtime();
+    CHECK(tracker.isProcessingNeeded());
+    tracker.processBlockRealtime(silence.data(), silence.data(), 256, false);
+    CHECK(tracker.state() != PluginPowerState::Parked);
+}
+
+TEST_CASE("PluginSlotPowerTracker: independent atomic guards cannot overwrite each other") {
+    PluginSlotPowerTracker tracker;
+    tracker.prepare("guard-slot", 48000.0, 0.001, {});
+    tracker.forceSuspend();
+    tracker.setKeepAwake(true);
+    tracker.setRecordArmed(true);
+    tracker.setInputMonitoring(true);
+    tracker.setKeepAwake(false);
+    CHECK_FALSE(tracker.getFlags().keepAwake);
+    CHECK(tracker.getFlags().trackRecordArmed);
+    CHECK(tracker.getFlags().trackInputMonitoring);
+    std::array<float, 256> silence{};
+    for (unsigned block = 0; block < 100; ++block)
+        tracker.processBlockRealtime(silence.data(), silence.data(), 256, false);
+    CHECK(tracker.isProcessingNeeded());
+    tracker.setRecordArmed(false);
+    tracker.setInputMonitoring(false);
+    for (unsigned block = 0; block < 100; ++block)
+        tracker.processBlockRealtime(silence.data(), silence.data(), 256, false);
+    CHECK(tracker.state() == PluginPowerState::Suspended);
+}
+
+TEST_CASE("PluginSlotPowerTracker: concurrent controls leave DSP counters single-writer") {
+    PluginSlotPowerTracker tracker;
+    tracker.prepare("concurrent-slot", 48000.0, 0.001, {});
+    constexpr unsigned iterations = 20000;
+    std::atomic<bool> started{false};
+    std::atomic<bool> stopped{false};
+    std::thread dsp([&] {
+        std::array<float, 64> silence{};
+        started.store(true, std::memory_order_release);
+        while (!stopped.load(std::memory_order_acquire)) {
+            tracker.beginBlockRealtime();
+            tracker.processBlockRealtime(silence.data(), silence.data(), 64, false);
+        }
+    });
+    while (!started.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    std::thread controls([&] {
+        for (unsigned index = 0; index < iterations; ++index) {
+            tracker.setKeepAwake((index % 2) != 0);
+            tracker.setRecordArmed((index % 3) != 0);
+            tracker.setInputMonitoring((index % 5) != 0);
+            tracker.forceAwake();
+        }
+    });
+    for (unsigned index = 0; index < iterations; ++index) {
+        tracker.park();
+        tracker.forceSuspend();
+        tracker.unpark();
+        (void)tracker.state();
+        (void)tracker.getFlags();
+    }
+    controls.join();
+    stopped.store(true, std::memory_order_release);
+    dsp.join();
+    tracker.unpark();
+    tracker.setKeepAwake(true);
+    tracker.setRecordArmed(false);
+    tracker.setInputMonitoring(false);
+    std::array<float, 64> silence{};
+    for (unsigned block = 0; block < 100; ++block)
+        tracker.processBlockRealtime(silence.data(), silence.data(), 64, false);
+    CHECK(tracker.isProcessingNeeded());
+    CHECK(tracker.getFlags().keepAwake);
+    tracker.setKeepAwake(false);
+    for (unsigned block = 0; block < 100; ++block)
+        tracker.processBlockRealtime(silence.data(), silence.data(), 64, false);
+    CHECK(tracker.state() == PluginPowerState::Suspended);
+}
+
 TEST_CASE("PluginSlotPowerTracker: Guard rails strictly prevent suspension") {
     constexpr int kBlock = 256;
     std::vector<float> silent(kBlock, 0.0f);
@@ -153,6 +246,44 @@ TEST_CASE("PluginSlotPowerTracker: Guard rails strictly prevent suspension") {
         }
         CHECK(tracker.state() != PluginPowerState::Suspended);
         CHECK(tracker.isProcessingNeeded() == true);
+    }
+
+    SUBCASE("extreme reported tail automatically enables infiniteTail flag and prevents suspension") {
+        PluginSlotPowerTracker tracker;
+        PluginPowerFlags flags; // infiniteTail is false
+        tracker.prepare("slot-extreme-tail", 48000.0, 3600.0, flags, -90.0f);
+        CHECK(tracker.getFlags().infiniteTail == true);
+
+        for (int i = 0; i < 50; ++i) {
+            tracker.processBlockRealtime(silent.data(), silent.data(), kBlock, false);
+        }
+        CHECK(tracker.state() != PluginPowerState::Suspended);
+        CHECK(tracker.isProcessingNeeded() == true);
+    }
+
+    SUBCASE("infinity reported tail automatically enables infiniteTail flag even when initially false") {
+        PluginSlotPowerTracker tracker;
+        PluginPowerFlags flags; // infiniteTail is false
+        tracker.prepare("slot-inf-tail", 48000.0, std::numeric_limits<double>::infinity(), flags, -90.0f);
+        CHECK(tracker.getFlags().infiniteTail == true);
+        CHECK(tracker.isProcessingNeeded() == true);
+    }
+
+    SUBCASE("NaN tail gracefully falls back to default 5.0 seconds") {
+        PluginSlotPowerTracker tracker;
+        PluginPowerFlags flags;
+        tracker.prepare("slot-nan-tail", 48000.0, std::numeric_limits<double>::quiet_NaN(), flags, -90.0f);
+        CHECK(tracker.getFlags().infiniteTail == false);
+        CHECK(tracker.getTailSeconds() == 5.0);
+    }
+
+    SUBCASE("zero or negative numSamples in processBlockRealtime is safely ignored") {
+        PluginSlotPowerTracker tracker;
+        PluginPowerFlags flags;
+        tracker.prepare("slot-zero-samples", 48000.0, 0.1, flags, -90.0f);
+        tracker.processBlockRealtime(silent.data(), silent.data(), 0, false);
+        tracker.processBlockRealtime(silent.data(), silent.data(), -1, false);
+        CHECK(tracker.state() == PluginPowerState::Active);
     }
 
     SUBCASE("trackRecordArmed prevents suspension") {
@@ -270,6 +401,14 @@ TEST_CASE("PluginPowerManager: MIDI Region 2-bar lookahead prewarming") {
     // Beat 6: horizon [6, 14] -> mreg is at 12.0 -> prewarm!
     manager.lookaheadScan(project, 0, 6.0, 4.0);
     CHECK(tracker->state() == PluginPowerState::Active);
+
+    // Non-finite values (NaN / Inf) should not crash or throw
+    tracker->forceSuspend();
+    CHECK(tracker->state() == PluginPowerState::Suspended);
+    manager.lookaheadScan(project, 0, std::numeric_limits<double>::quiet_NaN(), 4.0);
+    manager.lookaheadScan(project, 0, 0.0, std::numeric_limits<double>::infinity());
+    // Tracker remains in safe state
+    CHECK(tracker->state() == PluginPowerState::Suspended);
 }
 
 TEST_CASE("PluginPowerManager: Real-time throughput & bypass benchmark") {
@@ -324,6 +463,33 @@ TEST_CASE("PluginPowerManager: Real-time throughput & bypass benchmark") {
 
     // Suspended bypass must be dramatically faster (> 20x) than running 50 DSP passes
     CHECK(activeMs > suspendedMs * 15.0);
+}
+
+TEST_CASE("PluginPowerManager: chain prewarm edge avoids per-insert request work") {
+    constexpr unsigned slots = 64;
+    constexpr unsigned iterations = 20000;
+    std::array<PluginSlotPowerTracker, slots> trackers;
+    for (auto& tracker : trackers)
+        tracker.prepare("prewarm-slot", 48000.0, 5.0, {});
+    plugin_host::SharedArea area{};
+    const auto previousStart = std::chrono::steady_clock::now();
+    for (unsigned iteration = 0; iteration < iterations; ++iteration)
+        for (auto& tracker : trackers)
+            tracker.forceAwake();
+    const auto previousEnd = std::chrono::steady_clock::now();
+    for (unsigned iteration = 0; iteration < iterations; ++iteration)
+        plugin_host::publishChainPrewarm(area);
+    const auto coalescedEnd = std::chrono::steady_clock::now();
+    const auto previousMicros = std::chrono::duration<double, std::micro>(
+        previousEnd - previousStart).count() / iterations;
+    const auto coalescedMicros = std::chrono::duration<double, std::micro>(
+        coalescedEnd - previousEnd).count() / iterations;
+    MESSAGE("64-insert chain prewarm: per-node intents " << previousMicros
+            << " us/call, coalesced chain edge " << coalescedMicros << " us/call");
+    CHECK(area.chainPrewarmRequested.load(std::memory_order_acquire));
+    CHECK(area.controlEnqueuePosition.load(std::memory_order_relaxed) == 0);
+    CHECK(area.missedControlEvents.load(std::memory_order_relaxed) == 0);
+    CHECK(trackers.back().isProcessingNeeded());
 }
 
 TEST_CASE("ProjectJson: Lossless roundtrip of PluginSlot keepAwake") {

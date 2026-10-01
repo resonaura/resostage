@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { builder } from "@/lib/state/api";
+import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import {
   beginCancellableDrag,
   type CancellableDrag,
@@ -76,6 +77,14 @@ export function useRegionDrag({
    * moment", whatever caused the mismatch.
    */
   const draftWrittenAtRef = useRef<Record<string, number>>({});
+
+  useEffect(() => subscribeHistoryBoundary(() => {
+    // A committed drag overlay must not hide a global/native Undo result
+    // while waiting for its old geometry echo or age-out timeout.
+    regionGeomDraftRef.current = {};
+    draftWrittenAtRef.current = {};
+    setRegionGeomDraft({});
+  }), []);
 
   const regionDragRef = useRef<RegionDragSession | null>(null);
   const regionDragCtxRef = useRef<RegionDragCtx>({

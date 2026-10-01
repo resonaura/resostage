@@ -1326,7 +1326,8 @@ async function postAction(
 ): Promise<boolean> {
   const now = Date.now();
   // Debounce identical back-to-back actions within 120ms (e.g. Cocoa NSMenuItem keyEquivalent click + webContents before-input-event)
-  if (action === lastPostedAction && now - lastPostedActionAt < 120) {
+  if (action !== "undo" && action !== "redo"
+      && action === lastPostedAction && now - lastPostedActionAt < 120) {
     return true;
   }
   lastPostedAction = action;
@@ -1342,6 +1343,14 @@ async function postAction(
 
   if (action === "toggle_musical_typing") {
     toggleKeyboardWindow();
+    return true;
+  }
+
+  // Native menus enter the renderer's acknowledged history queue, just like
+  // toolbars and keyboard shortcuts. A second Core POST would apply twice.
+  if (action === "undo" || action === "redo") {
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return false;
+    mainWindow.webContents.send("dispatch-hotkey", { action });
     return true;
   }
 

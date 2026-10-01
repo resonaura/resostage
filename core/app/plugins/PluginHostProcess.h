@@ -86,6 +86,12 @@ public:
     /** Bounded shared-memory MPMC control ingress; never waits for the helper. */
     bool enqueueParameterEvent(
         const plugin_host::ParameterEvent& event) noexcept;
+    /** Latest-wins bounded power mailbox; consumed on the next helper DSP block. */
+    bool requestPowerControl(uint32_t slotIndex, PluginPowerControl control) noexcept;
+    /** O(1) coalesced prewarm for the whole serial chain; no parameter queue/wake. */
+    void requestChainPrewarm() noexcept;
+    /** Atomic helper-produced power state, not the Core proxy's tracker. */
+    PluginPowerState pluginSlotPowerState(size_t slotIndex) const noexcept;
     /** Bounded non-RT request used by the project save worker. */
     bool requestStateSnapshot() noexcept;
     bool requestOpenEditor(uint32_t slotIndex) noexcept;

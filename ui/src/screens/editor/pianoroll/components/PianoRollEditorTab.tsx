@@ -35,7 +35,13 @@ interface PianoRollEditorTabProps {
   onSelectTrack: (trackId: string | null) => void;
 }
 
-export function PianoRollEditorTab({
+interface PianoRollActiveViewProps extends PianoRollEditorTabProps {
+  currentSong: NonNullable<WebUiState["songs"][number]>;
+  availableTracks: WebUiState["tracks"];
+  midiRegions: NonNullable<WebUiState["songs"][number]["midiRegions"]>;
+}
+
+function PianoRollActiveView({
   state,
   peaks,
   selectedTrackId,
@@ -47,62 +53,10 @@ export function PianoRollEditorTab({
   setVisibleMidiRegionIds,
   pendingMidiRegionCreates,
   onSelectTrack,
-}: PianoRollEditorTabProps) {
-  const currentSong = state.songs[state.songIndex];
-  if (!currentSong) {
-    return (
-      <EmptyProjectState
-        title="No song active"
-        description="Select or create a song to edit MIDI notes."
-        actions={emptyProjectActions({
-          onCreateSong: () => builder.songAdd(),
-        })}
-      />
-    );
-  }
-
-  const midiRegions = currentSong.midiRegions || [];
-
-  // Piano Roll is strictly for Software Instrument / MIDI tracks
-  const availableTracks = state.tracks.filter(
-    (track) =>
-      track.kind === "instrument" ||
-      track.kind === "midi" ||
-      midiRegions.some((region) => region.trackId === track.id),
-  );
-
-  if (availableTracks.length === 0) {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-purple-500/20 bg-purple-500/10 text-purple-400">
-          <Music size={24} />
-        </div>
-        <div className="text-sm font-semibold text-foreground/90">
-          No Instrument Tracks in Project
-        </div>
-        <div className="max-w-sm text-xs text-foreground/50">
-          Piano Roll is dedicated to editing MIDI notes and melodies for
-          Software Instruments. Audio tracks contain recorded audio waveforms
-          and cannot be edited in Piano Roll.
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="border-purple-500/40 text-purple-300 hover:bg-purple-500/15"
-          onPress={() =>
-            void builder.trackAdd(state.songIndex, {
-              kind: "instrument",
-              name: "Classic Electric Piano",
-            })
-          }
-        >
-          <Plus size={14} className="mr-1" />
-          Create Instrument Track
-        </Button>
-      </div>
-    );
-  }
-
+  currentSong,
+  availableTracks,
+  midiRegions,
+}: PianoRollActiveViewProps) {
   const activeTrack =
     availableTracks.find((track) => track.id === selectedTrackId) ||
     availableTracks.find((track) => track.id === selectedMidiTrackId) ||
@@ -326,3 +280,70 @@ export function PianoRollEditorTab({
     </div>
   );
 }
+
+export function PianoRollEditorTab(props: PianoRollEditorTabProps) {
+  const currentSong = props.state.songs[props.state.songIndex];
+  if (!currentSong) {
+    return (
+      <EmptyProjectState
+        title="No song active"
+        description="Select or create a song to edit MIDI notes."
+        actions={emptyProjectActions({
+          onCreateSong: () => builder.songAdd(),
+        })}
+      />
+    );
+  }
+
+  const midiRegions = currentSong.midiRegions || [];
+
+  // Piano Roll is strictly for Software Instrument / MIDI tracks
+  const availableTracks = props.state.tracks.filter(
+    (track) =>
+      track.kind === "instrument" ||
+      track.kind === "midi" ||
+      midiRegions.some((region) => region.trackId === track.id),
+  );
+
+  if (availableTracks.length === 0) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-purple-500/20 bg-purple-500/10 text-purple-400">
+          <Music size={24} />
+        </div>
+        <div className="text-sm font-semibold text-foreground/90">
+          No Instrument Tracks in Project
+        </div>
+        <div className="max-w-sm text-xs text-foreground/50">
+          Piano Roll is dedicated to editing MIDI notes and melodies for
+          Software Instruments. Audio tracks contain recorded audio waveforms
+          and cannot be edited in Piano Roll.
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-purple-500/40 text-purple-300 hover:bg-purple-500/15"
+          onPress={() =>
+            void builder.trackAdd(props.state.songIndex, {
+              kind: "instrument",
+              name: "Classic Electric Piano",
+            })
+          }
+        >
+          <Plus size={14} className="mr-1" />
+          Create Instrument Track
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <PianoRollActiveView
+      {...props}
+      currentSong={currentSong}
+      availableTracks={availableTracks}
+      midiRegions={midiRegions}
+    />
+  );
+}
+

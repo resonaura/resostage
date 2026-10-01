@@ -53,7 +53,7 @@ ResoStage (laptop)  --WS binary client :7862-->  each ESP (WS server)
 ```
 
 In the app, default is **preview only**. Bind a fixture IP in
-Settings → Light → fixture → Hardware Link (or click a discovered board).
+Light screen → project lighting/fixture → Hardware Link (or click a discovered board).
 Port is always the protocol default — no UI for it.
 
 ## Scripts

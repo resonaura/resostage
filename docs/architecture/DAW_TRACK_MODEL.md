@@ -1,6 +1,30 @@
 # Architecture Specification: Unified Track & Channel Strip Model
 
-**Status**: `IN_PROGRESS` (Phase 1)
+**Status**: track-kind/strip-link schema implemented; broader decoupled DAW
+workflows remain in progress. Source review: 2026-10-01.
+
+## Current ownership versus proposed workflows
+
+`ProjectSchema.h` owns global `Project::tracks` and each track's controls,
+optional `stripId`, plug-in slots, and execution-target metadata. Songs own
+audio/MIDI regions and song-level automation lanes referencing those tracks.
+The compiled `MixGraph` owns transient strip topology/buffers; it is not a
+second mutable project document. `TrackDef::resolvedStripId()` falls back to the
+track ID when no explicit strip is supplied.
+
+The hierarchy below sketches the intended domain relationships, not the exact
+serialized JSON shape. Tracks do not currently contain their own global
+`audioRegions`/`midiRegions` arrays; those are song-owned. Separate strip IDs do
+not by themselves implement multi-timbral sharing, take folders, distributed
+execution, or hardware audio-return workflows. Verify each routing consumer
+before expanding those capabilities.
+
+The current project file format is 10. Its additive change makes the click
+strip's solo-safe default true while preserving an explicitly saved false
+value. Older compatible documents receive the default on load; the external
+`pnpm migrate` path preserves existing canonical IDs and resources when upgrading
+format 9 to 10. Runtime loading progress and power state do not become persisted
+project fields.
 
 ---
 
@@ -11,7 +35,7 @@ Historically, ResoStage paired timeline tracks 1:1 with audio channel strips. To
 - **Track (`TrackDef`)**: An entity belonging to the timeline, arrangement, and recording domain. It owns audio or MIDI regions, automation lanes, take folders, record-arming, and monitoring states.
 - **Channel Strip (`MixStrip`)**: A signal-processing and mixing node belonging to the audio mixing graph (`MixGraph`). It owns pre/post-fader buffers, faders, pan, plugin insert chains, sends, and routing egress.
 
-By establishing `track.id != stripId`, ResoStage natively supports:
+Allowing an explicit strip identity provides a foundation for workflows such as:
 - Multiple MIDI tracks playing the same multi-timbral instrument strip.
 - Aux, submix, and master strips represented on the timeline for automation without becoming audio streaming tracks.
 - External MIDI tracks sending MIDI to hardware ports with optional audio return monitoring.

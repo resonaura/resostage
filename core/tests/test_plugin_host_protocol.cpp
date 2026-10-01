@@ -44,6 +44,54 @@ juce::File pluginHostTestExecutable() {
         ? juce::File(overridePath)
         : juce::File(RESOSTAGE_PLUGIN_HOST_PATH);
 }
+
+void exerciseHostPowerControls(PluginHostProcess& host, bool verifySuspension) {
+    std::array<float, 512> left{};
+    std::array<float, 512> right{};
+    const TransportSnapshot transport{};
+    const auto pump = [&](unsigned blocks) {
+        for (unsigned block = 0; block < blocks; ++block) {
+            left.fill(0.0f);
+            right.fill(0.0f);
+            const auto previous = host.completedBlocks();
+            (void)host.processBlock(left.data(), right.data(), 512,
+                                    nullptr, 0, nullptr, 0, transport, false);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (host.completedBlocks() <= previous
+                   && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            REQUIRE(host.completedBlocks() > previous);
+        }
+    };
+    REQUIRE(host.requestPowerControl(0, PluginPowerControl::Park));
+    pump(3);
+    CHECK(host.pluginSlotPowerState(0) == PluginPowerState::Parked);
+    REQUIRE(host.requestPowerControl(0, PluginPowerControl::Wake));
+    REQUIRE(host.requestPowerControl(0, PluginPowerControl::KeepAwakeEnable));
+    host.requestChainPrewarm();
+    pump(3);
+    CHECK(host.pluginSlotPowerState(0) == PluginPowerState::Parked);
+    REQUIRE(host.requestPowerControl(0, PluginPowerControl::Unpark));
+    pump(3);
+    CHECK(host.pluginSlotPowerState(0) != PluginPowerState::Parked);
+    CHECK(host.pluginSlotPowerState(0) != PluginPowerState::Suspended);
+    if (verifySuspension) {
+        // MSED has no declared tail; its default guard time is five seconds.
+        // Advance sample time (not wall time) through 6.8 seconds of silence.
+        pump(640);
+        CHECK(host.pluginSlotPowerState(0) != PluginPowerState::Suspended);
+        REQUIRE(host.requestPowerControl(0, PluginPowerControl::KeepAwakeDisable));
+        pump(640);
+        CHECK(host.pluginSlotPowerState(0) == PluginPowerState::Suspended);
+        host.requestChainPrewarm();
+        pump(3);
+        CHECK(host.pluginSlotPowerState(0) != PluginPowerState::Suspended);
+        REQUIRE(host.requestPowerControl(0, PluginPowerControl::KeepAwakeEnable));
+        pump(3);
+        CHECK(host.pluginSlotPowerState(0) != PluginPowerState::Suspended);
+    }
+    CHECK(host.missedControlEvents() == 0);
+}
 #endif
 
 void initialize(SharedArea& area, uint64_t generation, uint32_t blockSize) {
@@ -187,6 +235,61 @@ TEST_CASE("plug-in host control overflow is bounded and counted") {
         REQUIRE(tryEnqueueControl(area, ParameterEvent{i, 0, 0, 0.5f}));
     CHECK_FALSE(tryEnqueueControl(area, ParameterEvent{0, 0, 1, 0.25f}));
     CHECK(area.missedControlEvents.load(std::memory_order_relaxed) == 1);
+}
+
+TEST_CASE("plug-in host power mailboxes coalesce independently of the parameter queue") {
+    SharedArea area{};
+    area.pluginSlotCount = kMaximumPluginSlotsPerChain;
+    for (uint16_t index = 0; index < kControlEventQueueCapacity; ++index)
+        REQUIRE(tryEnqueueControl(area, ParameterEvent{index, 0, 0, 0.5f}));
+    const auto enqueueCursor = area.controlEnqueuePosition.load(std::memory_order_relaxed);
+    for (uint32_t slotIndex = 0; slotIndex < kMaximumPluginSlotsPerChain; ++slotIndex) {
+        for (unsigned repetition = 0; repetition < 100; ++repetition)
+            REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::Wake));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::KeepAwakeEnable));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::KeepAwakeDisable));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::Park));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::Unpark));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::BypassEnable));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::BypassDisable));
+        const auto mask = area.pluginSlotPowerRequests[slotIndex].exchange(0);
+        CHECK(hasPluginPowerControl(mask, PluginPowerControl::Wake));
+        CHECK_FALSE(hasPluginPowerControl(mask, PluginPowerControl::KeepAwakeEnable));
+        CHECK(hasPluginPowerControl(mask, PluginPowerControl::KeepAwakeDisable));
+        CHECK_FALSE(hasPluginPowerControl(mask, PluginPowerControl::Park));
+        CHECK(hasPluginPowerControl(mask, PluginPowerControl::Unpark));
+        CHECK_FALSE(hasPluginPowerControl(mask, PluginPowerControl::BypassEnable));
+        CHECK(hasPluginPowerControl(mask, PluginPowerControl::BypassDisable));
+    }
+    CHECK(area.controlEnqueuePosition.load(std::memory_order_relaxed) == enqueueCursor);
+    CHECK(area.missedControlEvents.load(std::memory_order_relaxed) == 0);
+    CHECK_FALSE(publishPowerControl(area, kMaximumPluginSlotsPerChain, PluginPowerControl::Wake));
+    CHECK_FALSE(publishPowerControl(area, 0, static_cast<PluginPowerControl>(0xffffffffu)));
+    CHECK(area.missedControlEvents.load(std::memory_order_relaxed) == 2);
+}
+
+TEST_CASE("plug-in host power mailbox retains independent requests from concurrent producers") {
+    SharedArea area{};
+    area.pluginSlotCount = 1;
+    std::atomic<bool> start{false};
+    std::array<std::thread, 3> producers;
+    constexpr PluginPowerControl controls[] = {
+        PluginPowerControl::Wake, PluginPowerControl::KeepAwakeEnable, PluginPowerControl::Park};
+    for (size_t index = 0; index < producers.size(); ++index)
+        producers[index] = std::thread([&, index] {
+            while (!start.load(std::memory_order_acquire))
+                std::this_thread::yield();
+            for (unsigned repetition = 0; repetition < 10000; ++repetition)
+                (void)publishPowerControl(area, 0, controls[index]);
+        });
+    start.store(true, std::memory_order_release);
+    for (auto& producer : producers)
+        producer.join();
+    const auto mask = area.pluginSlotPowerRequests[0].exchange(0);
+    for (const auto control : controls)
+        CHECK(hasPluginPowerControl(mask, control));
+    CHECK(area.controlEnqueuePosition.load(std::memory_order_relaxed) == 0);
+    CHECK(area.pluginSlotPowerRequests[0].load(std::memory_order_relaxed) == 0);
 }
 
 #if defined(RESOSTAGE_TEST_PLUGIN_HOST)
@@ -506,6 +609,7 @@ TEST_CASE("isolated helper loads a real macOS Audio Unit and opens its editor") 
     CHECK(host.requestOpenEditor(0));
     CHECK(host.requestCloseEditor(0));
 
+    exerciseHostPowerControls(host, false);
     host.stop();
 }
 
@@ -720,6 +824,7 @@ TEST_CASE("isolated helper loads a real VST3 and opens its editor") {
         std::this_thread::sleep_for(std::chrono::milliseconds(11));
     }
     CHECK(host.missedOutputBlocks() == 0);
+    exerciseHostPowerControls(host, true);
     host.stop();
 
     // Small device buffers leave little room for cross-process wake latency.

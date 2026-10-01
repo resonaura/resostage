@@ -9,6 +9,7 @@
 #include "ProjectSchema.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <optional>
 #include <string>
@@ -58,6 +59,9 @@ public:
     bool canRedo() const { return !redoStack_.empty(); }
     std::string undoLabel() const { return undoStack_.empty() ? std::string() : undoStack_.back().label; }
     std::string redoLabel() const { return redoStack_.empty() ? std::string() : redoStack_.back().label; }
+    // Message-thread mutation generation; intentionally survives clear() so
+    // stale network snapshots cannot win after replacing the document.
+    uint64_t revision() const noexcept { return revision_; }
 
     // Pops the most recent step and returns the Project state to restore
     // (its "before" snapshot), or nullopt if there's nothing to undo. The
@@ -81,6 +85,7 @@ private:
 
     std::deque<Entry> undoStack_;
     std::deque<Entry> redoStack_;
+    uint64_t revision_ = 0;
 };
 
 } // namespace resostage

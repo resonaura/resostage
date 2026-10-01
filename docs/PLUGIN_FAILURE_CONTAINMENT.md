@@ -22,16 +22,22 @@ still execute plug-ins in the renderer process.
 
 ## Audio/control protocol
 
-The versioned `PluginHostProtocol.h` ABI maps three fixed-capacity audio slots
+The current version-6 `PluginHostProtocol.h` ABI maps three fixed-capacity audio slots
 into shared memory. Each slot is an explicit ownership sequence
 `Empty -> Writing -> Ready -> Processing -> Complete -> Empty`; generation and
 layout are validated on both sides. Audio is planar float. Each block carries a
 bounded transport snapshot and up to 512 MIDI 1.0 packets of at most 16 bytes;
-larger MIDI/SysEx packets are not forwarded. Parameter and bypass changes use a
-separate bounded MPMC queue. Audio and control workers use separate coalesced
+larger MIDI/SysEx packets are not forwarded. Parameter changes use a separate
+bounded MPMC queue; bypass uses the fixed mailboxes described below. Audio and
+control workers use separate coalesced
 binary wake edges, preventing stale semaphore tokens and avoiding parameter
 traffic waking the audio worker. Commands for state capture and editor
 lifecycle are non-audio operations.
+
+Power/bypass controls have separate fixed latest-wins mailboxes (up to 128 slots) and
+helper-published state atomics, so wake/park/keep-awake/On-Off do not flood the parameter
+queue. Chain prewarm is one coalesced flag consumed by helper DSP. Parent/child
+ABI validation must reject stale helpers after a protocol-layout change.
 
 The device callback never waits for a host, takes no process-control lock,
 allocates no memory, and performs no filesystem or child-process work. It copies
@@ -50,6 +56,12 @@ chain. Sample-rate or shared-buffer-capacity changes do require a new helper.
 - Helper startup has a bounded 30-second readiness deadline. Plug-in creation
   and restoration occur inside the child, so a native failure cannot unwind
   through Core.
+- A newly opened document's Play/Record gate remains in Core until a matching
+  final bank publication is ready. Terminal failures require an explicit
+  retry/keep-stopped/continue-with-available decision; Stop clears pending Play.
+  Generation and project epoch reject stale worker results and dialog actions.
+  See [loading and slot readiness](PLUGIN_HOSTING.md#project-loading-and-slot-readiness)
+  for runtime state, UI, and control API semantics.
 - A non-realtime watchdog observes helper liveness, audio progress, and pending
   command age. A stalled/dead helper is terminated away from audio. The current
   chain becomes unavailable; Core makes one automatic restart attempt per
@@ -66,10 +78,15 @@ chain. Sample-rate or shared-buffer-capacity changes do require a new helper.
   Save asks the helper to capture state on a non-realtime worker; Core validates
   and copies bounded state files into the ordinary project save. Capture is
   isolated per plug-in from its audio call; it does not pause the whole chain.
-- Parameter/bypass changes are delivered even while transport is stopped. Host
+- Parameter/bypass changes are delivered even while transport is stopped. Power
+  intentions are consumed on the next helper DSP block, without an extra poll
+  worker or wake edge. Host
   parameter changes notify Core so the project can be marked dirty. Plug-in
   editors run in the owning helper, separate from Core's UI and audio callback.
-- Same-project graph edits reuse unchanged hosts. Device/block-size changes
+- Same-project graph edits reuse unchanged hosts. Bypass is excluded from
+  reuse identity and synchronized to the retained helper, rather than causing
+  a vendor reload; the previous `processBlockBypassed` behavior is preserved.
+  Device/block-size changes
   rebuild delay compensation using the new nominal callback quantum without
   unnecessarily replacing a healthy chain helper.
 
@@ -87,7 +104,8 @@ chain. Sample-rate or shared-buffer-capacity changes do require a new helper.
 - The implementation is not a sandbox. It does not promise protection against
   plug-in data exfiltration, OS-level attacks, kernel faults, exhausting shared
   machine resources, or damage through intentionally shared external devices.
-- The bounded pipeline adds a device-block of live latency. Low-latency
+- The bounded pipeline adds two nominal callback quanta of live latency, plus
+  vendor-reported latency. Low-latency
   monitoring policy remains responsible for bypassing unsafe/high-latency
   monitoring paths; no process IPC can provide same-callback plug-in output.
 
@@ -96,7 +114,7 @@ chain. Sample-rate or shared-buffer-capacity changes do require a new helper.
 `test_plugin_host_protocol.cpp` covers ABI/generation validation, slot ownership
 and malformed frames, concurrent bounded control producers, cross-process
 shared memory and wake signaling, and a real helper-process round trip with
-one-block latency and variable callback-size FIFO handling. Native build also
+two-callback latency and variable callback-size FIFO handling. Native build also
 verifies that the host executable is linked and embedded beside Core. The test
 suite does not yet inject a real third-party plug-in crash/hang or verify
 restart with vendor-specific state; those remain important follow-up integration
@@ -108,7 +126,8 @@ tests on macOS, Windows, and Linux.
 | --- | --- | --- |
 | Project A has several live chains | Load project B with different plug-ins | Advance epoch; A helpers become ineligible and are stopped away from audio; B restores only B state. |
 | Project A has plug-ins | Load a project with no plug-ins | Publish an empty bank; no prior helper audio or MIDI remains. |
-| Several chains are healthy | Add/remove/bypass one slot | Reuse unaffected helpers; replace only the edited chain, preserving a live state snapshot where available. |
+| Several chains are healthy | Add/remove one slot | Reuse unaffected helpers; replace only the changed chain, preserving a live state snapshot where available. |
+| Several chains are healthy | Toggle bypass | Reuse the healthy chain and publish bypass through its mailbox; do not recreate its vendor instances. |
 | One helper crashes or stalls | Continue transport | Core remains alive; only that chain misses output; make one automatic restart, then require explicit retry. |
 | State parser crashes during live restore | Open project | Helper exits; Core remains alive and reports the affected chain failed. |
 | State parser crashes during offline render | Export | Renderer process may fail; this live-host safety boundary does not apply. |

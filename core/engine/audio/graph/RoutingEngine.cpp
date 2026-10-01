@@ -9,14 +9,30 @@
 namespace resostage {
 
 RoutingEngine::RoutingEngine() = default;
-RoutingEngine::~RoutingEngine() = default;
+
+RoutingEngine::~RoutingEngine() {
+    active.reset();
+    retiredGraphs.clear();
+}
 
 void RoutingEngine::publish(std::shared_ptr<const MixGraph> next) {
-    std::atomic_store_explicit(&active, std::move(next), std::memory_order_release);
+    auto previous = std::atomic_exchange_explicit(&active, std::move(next), std::memory_order_acq_rel);
+    if (previous != nullptr) {
+        retiredGraphs.push_back(std::move(previous));
+    }
+    reclaimRetired();
 }
 
 std::shared_ptr<const MixGraph> RoutingEngine::acquireForRender() {
     return std::atomic_load_explicit(&active, std::memory_order_acquire);
+}
+
+void RoutingEngine::reclaim() noexcept {
+    reclaimRetired();
+}
+
+void RoutingEngine::reclaimRetired() noexcept {
+    std::erase_if(retiredGraphs, [](const auto& retired) { return retired.use_count() == 1; });
 }
 
 } // namespace resostage

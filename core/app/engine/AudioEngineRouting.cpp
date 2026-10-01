@@ -272,28 +272,47 @@ void AudioEngine::publishRoutingSnapshot() {
     bool latencyLayoutChanged = false;
     bool projectChanged = false;
 
-    // ── Critical section: swap the prebuilt state in ────────────────────────
-    {
+    const bool tracksChanged = (trackIdByIndex != newTrackIds);
+    const int samples = std::max({currentBlockSize, mixRenderer.maxBlockSize(), 1});
+    bool scratchNeedsResize = tracksChanged || (trackScratch.size() != newTrackIds.size());
+    if (!scratchNeedsResize) {
+        for (const auto& scratch : trackScratch) {
+            if (scratch.getNumChannels() != 2 || scratch.getNumSamples() != samples) {
+                scratchNeedsResize = true;
+                break;
+            }
+        }
+    }
+    const bool rendererNeedsGrowth = (mixRenderer.capacity() < needed
+                                      || mixRenderer.edgeCapacityValue() < neededEdges);
+    bool busRowsChanged = (busses.size() != rows.size());
+    if (!busRowsChanged) {
+        for (size_t i = 0; i < rows.size(); ++i) {
+            if (busses[i].id != rows[i].id
+                || busses[i].channelCount != rows[i].channelCount
+                || busses[i].startChannel != rows[i].startChannel
+                || busses[i].stripIndex != rows[i].stripIndex) {
+                busRowsChanged = true;
+                break;
+            }
+        }
+    }
+    const bool structuralChange = tracksChanged || scratchNeedsResize
+                                  || rendererNeedsGrowth || busRowsChanged
+                                  || clickStripIndex != clickStrip;
+
+    // ── Critical section: swap the prebuilt state in only when structurally changed ──
+    if (structuralChange) {
         std::lock_guard<std::recursive_mutex> lock(routingMutex);
-        const bool tracksChanged = (trackIdByIndex != newTrackIds);
         if (tracksChanged || trackScratch.size() != newTrackIds.size()) {
             trackIdByIndex = std::move(newTrackIds);
             trackScratch.assign(trackIdByIndex.size(), juce::AudioBuffer<float>());
             ensureTrackMeters(trackIdByIndex.size());
         }
-        const int samples = std::max({currentBlockSize, mixRenderer.maxBlockSize(), 1});
         for (auto& scratch : trackScratch) {
             if (scratch.getNumChannels() != 2 || scratch.getNumSamples() != samples)
                 scratch.setSize(2, samples, false, false, true);
         }
-        processorLayoutChanged = publishedGraph == nullptr
-            || publishedGraph->processorLayoutKey != graph->processorLayoutKey;
-        routingLayoutChanged = publishedGraph == nullptr
-            || publishedGraph->routingLayoutKey != graph->routingLayoutKey;
-        latencyLayoutChanged = publishedGraph == nullptr
-            || publishedGraph->latencyLayoutKey != graph->latencyLayoutKey;
-        projectChanged = publishedGraph == nullptr
-            || publishedGraph->projectEpoch != graph->projectEpoch;
         clickStripIndex = clickStrip;
         installBusRows(std::move(rows));
         // Sizing the renderer reallocates buffers the callback reads, so it
@@ -306,8 +325,17 @@ void AudioEngine::publishRoutingSnapshot() {
                 std::max(needed, mixRenderer.capacity()),
                 std::max(neededEdges, mixRenderer.edgeCapacityValue()));
         }
-        publishedGraph = graph;
     }
+
+    processorLayoutChanged = publishedGraph == nullptr
+        || publishedGraph->processorLayoutKey != graph->processorLayoutKey;
+    routingLayoutChanged = publishedGraph == nullptr
+        || publishedGraph->routingLayoutKey != graph->routingLayoutKey;
+    latencyLayoutChanged = publishedGraph == nullptr
+        || publishedGraph->latencyLayoutKey != graph->latencyLayoutKey;
+    projectChanged = publishedGraph == nullptr
+        || publishedGraph->projectEpoch != graph->projectEpoch;
+    publishedGraph = graph;
 
     // Atomic shared_ptr swap -- its own synchronisation, no lock needed, and
     // deliberately outside so the callback picks the new graph up even if it

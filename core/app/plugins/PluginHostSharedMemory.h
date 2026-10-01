@@ -43,6 +43,9 @@ public:
     const std::string& name() const noexcept;
     bool isOwner() const noexcept;
 
+    /** Unlinks named filesystem/semaphore entries so abnormal termination leaves no orphans. */
+    void unlinkNamespace() noexcept;
+
     /** Non-waiting wake from Core to the helper after publishing a request. */
     bool signalWake() noexcept;
     /** Blocks the helper worker until signalled; never call from an audio callback. */

@@ -79,7 +79,7 @@ bool PluginHostRuntime::prepare(const juce::File& snapshotDirectory,
     }
 
     // One helper owns one serial chain. The complete routing graph remains in
-    // Core; its existing PDC compensates for this host's one-block pipeline.
+    // Core; its existing PDC compensates for this host's two-callback pipeline.
     MixStrip strip;
     strip.id = project.tracks.front().effectiveStripId();
     strip.name = project.tracks.front().name;
@@ -279,6 +279,44 @@ void PluginHostRuntime::publishParameterDescriptors(
         // Metadata is optional; a vendor throwing while enumerating it must
         // not prevent the already-prepared audio chain from starting.
         area.parameterMetadataTruncated = 1;
+    }
+}
+
+void PluginHostRuntime::applyPowerRequests(plugin_host::SharedArea& area) noexcept {
+    if (builtBank.bank == nullptr)
+        return;
+    if (area.chainPrewarmRequested.load(std::memory_order_relaxed)
+        && area.chainPrewarmRequested.exchange(false, std::memory_order_acq_rel))
+        builtBank.bank->prewarmStrip(0);
+    const auto count = std::min<uint32_t>(area.pluginSlotCount,
+                                         plugin_host::kMaximumPluginSlotsPerChain);
+    for (uint32_t index = 0; index < count; ++index) {
+        auto& mailbox = area.pluginSlotPowerRequests[index];
+        if (mailbox.load(std::memory_order_relaxed) == 0)
+            continue;
+        const auto requests = mailbox.exchange(0, std::memory_order_acq_rel);
+        // Keep-awake is an independent guard. Explicit park/unpark dominates
+        // a predictive wake in the same batch; a wake cannot cancel parking.
+        constexpr PluginPowerControl order[] = {
+            PluginPowerControl::KeepAwakeEnable, PluginPowerControl::KeepAwakeDisable,
+            PluginPowerControl::BypassEnable, PluginPowerControl::BypassDisable,
+            PluginPowerControl::Wake, PluginPowerControl::Park, PluginPowerControl::Unpark};
+        for (const auto control : order)
+            if (hasPluginPowerControl(requests, control))
+                builtBank.bank->applySlotPowerControl(0, index, control);
+    }
+}
+
+void PluginHostRuntime::publishPowerStates(plugin_host::SharedArea& area) const noexcept {
+    if (builtBank.bank == nullptr)
+        return;
+    const auto count = std::min<uint32_t>(area.pluginSlotCount,
+                                         plugin_host::kMaximumPluginSlotsPerChain);
+    for (uint32_t index = 0; index < count; ++index) {
+        const auto state = static_cast<uint8_t>(builtBank.bank->slotPowerState(0, index));
+        auto& published = area.pluginSlotPowerStates[index];
+        if (published.load(std::memory_order_relaxed) != state)
+            published.store(state, std::memory_order_relaxed);
     }
 }
 

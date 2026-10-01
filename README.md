@@ -4,7 +4,7 @@
 
 [![Version](https://img.shields.io/badge/Version-0.1.0-blue.svg)](package.json)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
-[![Audio Engine](https://img.shields.io/badge/Native%20Engine-C%2B%2B20%20%7C%20JUCE%209-00599C.svg?logo=cplusplus&logoColor=white)](#technical-architecture)
+[![Audio Engine](https://img.shields.io/badge/Native%20Engine-C%2B%2B23%20%7C%20JUCE%209-00599C.svg?logo=cplusplus&logoColor=white)](#technical-architecture)
 [![UI](https://img.shields.io/badge/UI-Electron%20%7C%20React%2019-61DAFB.svg?logo=react&logoColor=black)](#technical-architecture)
 [![Visualizer](https://img.shields.io/badge/Visualizer-Three.js%20(WebGL)-049EF4.svg?logo=three.js&logoColor=white)](#technical-architecture)
 [![Stage Lighting](https://img.shields.io/badge/Stage%20Lighting-DMX--512%20%7C%20sACN%20%7C%20Art--Net-FF8C00.svg)](#stage-lighting--hardware-protocols)
@@ -16,7 +16,7 @@
 
 Deterministic real-time live performance workstation combining a sample-accurate digital audio engine, multi-protocol stage lighting automation, and 3D stage visualizer.
 
-Built **by a musician for musicians** — engineered from the ground up for touring bands, live electronic performers, and stage technicians who need guaranteed zero-dropout multitrack playback synchronized with automated lighting fixtures.
+Built **by a musician for musicians** — designed for touring bands, live electronic performers, and stage technicians who need predictable multitrack playback synchronized with automated lighting fixtures. Reliability depends on the machine, devices, project, and plug-ins; published tests describe specific workloads, not a universal no-dropout guarantee.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-player.png" width="850" alt="ResoStage Live Performance Workstation" />
@@ -26,13 +26,14 @@ Built **by a musician for musicians** — engineered from the ground up for tour
 
 ## Overview
 
-**ResoStage** is a cross-platform live performance workstation engineered for touring bands, live electronic performers, and stage technicians who need guaranteed zero-dropout multitrack playback synchronized with automated lighting fixtures.
+**ResoStage** is a cross-platform live performance workstation combining multitrack playback, editing, mixing, MIDI, and lighting workflows in one locally operated project.
 
-Most DAWs are built for studio production: they are loaded with heavy graphic pipelines, non-deterministic plugin chains, complex menus, and cloud DRM licensing checks that risk failing on stage. DIY stage playback rigs, on the other hand, often consist of fragile scripts bridging separate audio players, MIDI clock generators, and lighting consoles.
+A live rig can otherwise require separate playback, routing, MIDI, lighting, and remote-control tools. ResoStage brings these responsibilities together while keeping the native playback authority separate from the graphical interface.
 
-ResoStage bridges this divide with a unified, high-reliability architecture:
-- A **native C++20 / JUCE 9 audio core** executing strict zero-heap-allocation callbacks.
-- A **native process supervisor (`kaishaku`)** that isolates the user interface from the audio engine, ensuring audio never drops even if the UI crashes.
+ResoStage bridges this divide with a unified architecture:
+
+- A **native C++23 / JUCE 9 Core** with prepared buffers and bounded, non-waiting audio work.
+- A **separate Electron controller**, so renderer scheduling is not the audio clock, and per-chain helpers that contain live AU/VST3 crashes.
 - A **real-time 60 Hz lighting automation engine** outputting synchronized DMX-512, Art-Net, sACN (ANSI E1.31), and direct ESP32 addressable LED strip packets.
 - An **interactive 3D stage visualizer** powered by Three.js and WebGL.
 - A **local Wi-Fi remote control** interface allowing musicians and FOH engineers to monitor and adjust mixes from phones or tablets on the same venue network.
@@ -49,14 +50,14 @@ ResoStage bridges this divide with a unified, high-reliability architecture:
 
 ## Key Highlights
 
-- **Zero-Allocation Audio Thread**: Strict zero-heap-allocation policy inside the real-time audio callback (`processBlock`). All voice structures, mixing nodes, and stem buffers are pre-allocated at song initialization.
-- **Sample-Accurate Sinc Resampling**: Precomputed 64-point Kaiser-windowed Sinc interpolator handles pitch shifting and tempo variations with harmonic aliasing suppression while consuming under 2% CPU per voice at 96 kHz.
-- **Lock-Free Concurrency**: Audio threads communicate with background workers and disk streamers via lock-free Single-Producer Single-Consumer (SPSC) ring buffers and atomic memory fences. System calls and mutex locks never enter the audio rendering path.
-- **Kaishaku Process Supervision**: Independent native supervisor daemon monitors IPC heartbeats. If the graphical interface ever terminates or stalls, the audio engine continues rendering audio uninterrupted while `kaishaku` relaunches the UI and restores active playback state within 300 ms.
-- **Adaptive Disk I/O Pressure Management**: Multitrack streams pull from ring buffers monitored by an adaptive read-ahead policy. If disk read stalls occur on slow USB drives, the engine automatically expands read-ahead windows before starvation can reach the DAC.
+- **Prepared Audio Path**: Core prepares graph, strip, MIDI, and streaming storage outside the callback. Routine allocation, disk I/O, and blocking waits are prohibited on that path.
+- **Sample-Based Playback**: Audio and mathematical click use the same hardware sample position. Source resampling and region pitch treatment are prepared/rendered by the native engine.
+- **Bounded Concurrency**: Fixed-capacity SPSC/MPMC queues, immutable snapshots, atomics, and bounded `SeqLock` reads connect workers. Routing uses a non-waiting `try_lock`; contention emits a measured silent block rather than waiting for a deadline.
+- **Isolated Live Plug-ins**: AU/VST3 serial chains execute in independent helper processes with bounded audio/MIDI IPC and watchdog recovery. Offline vendor code remains in-process; this is not an OS security sandbox.
+- **Bounded Streaming**: Workers refill prepared rings and selectively retain source windows. Starvation is reported and becomes silence; no read-ahead policy can guarantee recovery from arbitrary storage stalls.
 - **Hardware Lighting Control**: Outputs synchronized 60 Hz fixture control packets across DMX-512, Art-Net, and sACN (ANSI E1.31) over UDP, plus a custom binary protocol driving networked ESP32 microcontrollers with per-pixel gamma correction.
 - **Interactive 3D Stage Visualizer**: Real-time 60 FPS WebGL scene powered by Three.js, rendering stage trusses, moving head fixture orientations, and volumetric light cones.
-- **Zero Subscriptions & Zero Telemetry**: Offline-first design built for real concert environments. No internet connection required during soundcheck or showtime.
+- **Offline-First Operation**: Local playback does not require a cloud service. Local/LAN telemetry provides meters and health diagnostics; it is distinct from analytics sent to an external service.
 
 ---
 
@@ -70,7 +71,10 @@ Dedicated performance screen featuring large, high-visibility timecode and bar/b
 </p>
 
 ### 2. Multitrack Live Mixing Console
-Console designed for rapid soundcheck balance adjustments. Features per-stem faders, physical output channel assignment matrix (e.g. outputs 1/2 for master PA, 3/4 for in-ear monitors, 5/6 for bass, 7/8 for click), send buses, and true peak metering.
+Console designed for rapid soundcheck balance adjustments. Features per-stem
+faders, physical output channel assignment (e.g. outputs 1/2 for PA, 3/4 for
+in-ear monitors, 7/8 for click), send buses, and peak/RMS metering. Current strip
+telemetry uses sample peaks, not a certified inter-sample true-peak meter.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-mixer.png" width="850" alt="ResoStage Live Mixer" />
@@ -91,7 +95,7 @@ Timeline automation for lighting fixtures synchronized to audio transport ticks.
 </p>
 
 ### 5. Audio Engine, Driver & Routing Configuration
-Low-latency hardware driver configuration supporting CoreAudio (macOS), ASIO and WASAPI (Windows), and ALSA/JACK/RTKit (Linux). Configurable sample rates (44.1 kHz to 192 kHz), hardware buffer sizes (64 to 2048 samples), and interactive signal flow routing diagrams.
+Hardware driver configuration uses the JUCE audio backends available in the build, including CoreAudio on macOS and ASIO/WASAPI on Windows. Linux backend availability depends on build dependencies and the host. Sample rates, buffer sizes, and input/output channels are selected from the active driver's capabilities, not a guaranteed fixed range.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/resonaura/resostage/main/media/resostage-settings.png" width="850" alt="ResoStage Audio Settings" />
@@ -115,55 +119,56 @@ and jitter instead of treating an HTTP connection as proof that telemetry is
 healthy. See [docs/REMOTE_CONTROL.md](docs/REMOTE_CONTROL.md) for ports,
 firewall rules, the wire contract, and a two-machine verification checklist.
 
-**Render…** in the Project toolbar performs a background offline WAV render
+**Render…** in the Project toolbar performs a background offline audio render
 without stopping the live audio device. It can render the entire set or one
 song, and can select Main, an individual track, an aux bus, or the metronome.
 Output options include 44.1–192 kHz, 16/24-bit PCM or 32-bit float, and a
 configurable tail. Renders use the same `MixGraph` and `MixRenderer` as live
 playback, so faders, pan, mute/solo, sends, bus routing, fades, loops, speed,
 and pitch treatment follow the live mix rather than a parallel approximation.
+The bundled media worker also supports AIFF, FLAC, MP3, AAC, ALAC, Opus,
+Vorbis, and WMA export. Audio/video import prepares project-local audio and
+retains imported video originals; video playback is not implemented yet.
+See [docs/FFMPEG.md](docs/FFMPEG.md) for codec, packaging, and validation limits.
 
 ---
 
 ## Technical Architecture
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                   Electron / React 19                    │
-│      Three.js 3D Visualizer  •  Timeline  •  Mixer       │
-└──────────────┬────────────────────────────▲──────────────┘
-               │ Local WebSocket IPC        │
-               ▼                            │ State Broadcast
-┌───────────────────────────────────────────┴──────────────┐
-│                 Native Supervisor (Kaishaku)             │
-│            Heartbeat Watchdog  •  Auto-Recovery          │
-└──────────────┬────────────────────────────▲──────────────┘
-               │ SPSC Lock-Free Ring Buffers│ Shared Memory
-               ▼                            │
-┌───────────────────────────────────────────┴──────────────┐
-│              C++20 / JUCE 9 Audio Core                   │
-│   Zero-Alloc Audio Callback  •  Sinc Resampler (Kaiser)  │
-│   Multitrack Stem Engine     •  60Hz DMX/sACN/Art-Net    │
-└──────────────────────────────────────────────────────────┘
+```text
+Electron + React -- HTTP commands --> Core (project/transport authority)
+                 <-- UDP telemetry --   |-- audio device and mixing graph
+                                         |-- streaming, MIDI, lighting workers
+                                         |-- per-chain live plug-in hosts
+                                         |-- plug-in scanner (on request)
+                                         `-- media converter (import/export)
 ```
 
-### Real-Time Audio Engine (C++20 / JUCE 9)
-Audio processing runs on a dedicated high-priority thread isolated from the operating system UI scheduler. The audio callback operates under a strict zero-heap-allocation policy: all buffers, mix graphs, and voice states are pre-allocated during project initialization.
+### Real-Time Audio Engine (C++23 / JUCE 9)
 
-- **Sample-Accurate Resampling**: Pitch-shifting and time-stretching run through a precomputed 64-point Kaiser-windowed Sinc interpolator. This eliminates harmonic aliasing while keeping CPU overhead below 2% per voice at 96 kHz.
-- **Lock-Free Concurrency**: Audio threads communicate with background workers using single-producer single-consumer (SPSC) lock-free ring buffers and atomic state flags. Mutex locks and system calls never enter the rendering path.
-- **Disk I/O Pressure Management**: Multitrack audio streams pull from background ring buffers monitored by an adaptive I/O pressure policy. If disk read stalls occur on slow external drives, the engine expands read-ahead windows before starvation can hit the DAC.
-- **Thread Scheduling**: The engine requests real-time OS privileges on startup (`AudioUnit` high-priority workgroups on macOS, `THREAD_PRIORITY_TIME_CRITICAL` on Windows, and `SCHED_FIFO` via RTKit on Linux).
+The audio device callback advances playback from hardware sample positions.
+The message thread publishes immutable routing/state and workers prepare
+streams. The callback never waits for files, commands, or plug-in children.
+Atomic shared-pointer acquisition and a non-waiting routing `try_lock` are part
+of the implementation; the guarantee is bounded/non-waiting, not academically
+lock-free. Scheduling boosts are best-effort and platform-specific.
+See [AGENTS.md](AGENTS.md) for ownership and real-time invariants and
+[the dated performance baseline](docs/performance/DAW_BASELINE.md) for measured
+workloads.
 
-### Process Supervision & Crash Isolation (Kaishaku)
-Live performance software cannot drop audio if a graphic render stalls or an Electron window crashes. ResoStage isolates the interface from the audio core using a native supervisor daemon named `kaishaku`.
+### Process Isolation and Helpers
 
-- The supervisor runs as an independent OS process linked to the audio engine and UI shell through local IPC heartbeat channels.
-- If the graphical interface terminates unexpectedly, the audio engine continues playback without interruption.
-- `kaishaku` restarts the interface process and repopulates the active project state within 300 milliseconds.
+Core and the desktop interface are separate processes. The scanner isolates
+vendor enumeration; each non-empty live plug-in chain has its own DSP/editor
+host. `Kaishaku` is a small execution helper used to terminate requested PIDs,
+not a heartbeat supervisor or a 300-ms UI recovery service. Explicit application
+shutdown can still stop Core; process separation is not a promise that every UI
+exit preserves playback. See [plug-in containment](docs/PLUGIN_FAILURE_CONTAINMENT.md).
 
 ### Stage Lighting & Hardware Protocols
-The lighting subsystem generates and transmits fixture control data at a steady 60 Hz refresh rate, synchronized to audio transport ticks and musical tempo maps.
+The lighting worker resolves fixture control at a nominal 60 Hz from the
+transport/tempo map. Physical delivery rates depend on the output protocol and
+hardware; DMX universe refresh limits are not a universal 60-Hz promise.
 
 - **DMX-512**: Serial output via FTDI / USB-DMX interfaces with hardware break timing control.
 - **Art-Net & sACN (ANSI E1.31)**: Multicast and unicast UDP packet transmission across multiple universes, supporting moving heads, strobes, and LED bars.
@@ -173,8 +178,12 @@ The lighting subsystem generates and transmits fixture control data at a steady 
 The frontend runs inside Electron using React 19 and Three.js.
 
 - **Real-Time WebGL Rendering**: Renders full 3D stage setups, truss structures, moving head fixtures, and volumetric light cones.
-- **Synchronized Playback**: The 3D viewport updates at 60 frames per second using state broadcasts from the C++ core over local WebSocket connections.
-- **Touch & Hardware Control**: Supports bi-directional MIDI control surfaces with motorized fader feedback and touch-friendly live operation layouts.
+- **Synchronized Playback**: Native Electron receives sampled UDP telemetry;
+  HTTP/WebSocket structural state remains available for lower-rate updates and
+  browser control. Rendering speed depends on the machine and scene.
+- **Touch & Hardware Control**: MIDI learn and selectable input/output endpoints
+  support performance controls. Dedicated motorized-fader feedback profiles
+  are not certified by this document.
 
 ---
 
@@ -209,19 +218,35 @@ brew install --cask resostage
 
 ### Prerequisites
 
-- C++20 compliant compiler (Clang 16+, GCC 13+, or MSVC 2022)
+- C++23-capable compiler compatible with the pinned native dependencies
 - CMake 3.28+
-- Node.js 20+ and pnpm 10+
+- Node.js 20+ and the pinned pnpm 10 major (`packageManager` in `package.json`)
 - Ninja build system
+
+Initial full assembly downloads pinned media runtimes; macOS Apple Silicon
+uses build-time Homebrew FFmpeg and relocates its complete non-system library
+closure. The installed application does not require Homebrew or a system
+FFmpeg. See [media packaging](docs/FFMPEG.md) for per-architecture profiles.
+
+For local macOS microphone consent across rebuilds, create the repository-private
+self-signed identity without an Apple account:
+
+```bash
+pnpm codesign:setup-local
+```
+
+Development otherwise warns and falls back to ad-hoc signing, whose microphone
+consent may not persist after rebuilding. Release packaging requires a usable
+named distribution identity; local self-signing is not Gatekeeper/notarization.
 
 ### 1. Build Native Audio Engine
 
 ```bash
 # Configure CMake
-cmake -B core/build -S core -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -B core/build -S core -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 # Compile binaries
-cmake --build core/build --config Release
+cmake --build core/build --config RelWithDebInfo
 
 # Run automated tests
 ctest --test-dir core/build --output-on-failure
@@ -236,8 +261,14 @@ pnpm install
 # Start development environment (core engine + web UI)
 pnpm dev
 
-# Package production application
-pnpm build:app
+# Assemble the full desktop application without launching
+pnpm rebuild
+
+# Build Core only (not the full shipping application)
+pnpm app
+
+# Rebuild and produce installer packages
+pnpm publish:rebuild
 ```
 
 ---
@@ -251,7 +282,10 @@ ResoStage is built with a deep commitment to open-source software and the live m
 - **Physical Lighting Rigs & Fixture Profiles**:
   Test your physical DMX-512 fixtures, USB-DMX interfaces (Enttec, FTDI), Art-Net, or sACN nodes during soundchecks and rehearsals. Submit PRs with verified fixture JSON profiles, timing reports, or Wireshark packet captures.
 - **Real-Time DSP & Audio Engine**:
-  Contributions to the C++20 / JUCE 9 core engine are welcome. Any code touching the audio rendering path must strictly adhere to the **zero-heap-allocation** policy and use lock-free SPSC primitives.
+  Contributions to the C++23 / JUCE 9 Core are welcome. Changes on the audio path
+  must preserve bounded work and avoid routine allocation, I/O, and blocking
+  waits. Choose SPSC or MPMC queues according to producer ownership; see
+  [AGENTS.md](AGENTS.md), rather than assuming every handoff has one producer.
 - **Hardware Controller & MIDI Surface Profiles**:
   Add mappings for motorized fader surfaces, MIDI pedalboards, and pad controllers.
 - **UI Ergonomics & 3D Stage Visualizer**:

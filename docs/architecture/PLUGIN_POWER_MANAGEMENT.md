@@ -1,90 +1,90 @@
-# Architecture Specification: Conservative Plugin Power Management
+# Conservative plug-in power management
 
-**Status**: `IN_PROGRESS` (Phase 5)
+Status: tracker/isolated-host ownership hardening implemented in the current
+working tree; focused build/test verification is in progress. Heavy-project
+optimization remains broader work. Source review: 2026-10-01.
 
----
+## Purpose
 
-## 1. Motivation & Principles
+Inactive chains should avoid unnecessary DSP without unloading live vendors,
+cutting tails, resetting sampler state, or making the device callback wait.
+Correctness and stable ownership take priority over average CPU savings.
 
-Modern production sessions frequently contain 50 to 150 plugin instances (synths, sample libraries, amp modelers, reverbs, delays, mastering limiters). Running all DSP instances simultaneously can saturate real-time audio threads, even when tracks are inactive for minutes at a time.
+The implementation is in `core/engine/plugins/PluginPowerManager.h/.cpp`, with
+graph-facing integration in `core/app/plugins/PluginProcessorBank.cpp` and
+lookahead in `core/app/engine/AudioEngineEventDispatch.cpp`. The isolated helper
+owns live vendor DSP. Mutating a Core proxy's tracker alone must not be treated
+as control of the corresponding remote vendor instance.
 
-However, naive "silence-gate" auto-unloading causes disastrous failures in live performance:
-- Unloading a reverb or delay abruptly cuts off natural decay tails with clicks.
-- Re-instantiating heavy VST3/AU samplers (Kontakt, Serum, Omnisphere) takes 100–1000 ms, causing severe audio dropouts and hardware deadline misses.
-- Certain plugins (tape emulations, analog modeled preamps, vinyl simulators) intentionally generate continuous low-level harmonics or noise even with zero input.
-- Abrupt sample-rate or buffer resets on suspension can crash legacy plugin wrappers.
+## Current tracker behavior
 
-ResoStage implements a **conservative, multi-tiered state machine** designed specifically for real-time safety and zero audio interruptions.
+| State | Meaning in the tracker |
+| --- | --- |
+| `Active` | Input/MIDI activity requests processing and resets decay accounting. |
+| `Quiescent` | No input/event activity; processing continues while the output envelope/tail is observed. |
+| `Suspended` | Processing may be skipped after quiet output remains below the configured threshold for the required tail interval. The vendor instance stays allocated. |
+| `Parked` | Explicit processing-disabled state. This implementation does **not** serialize/unload the vendor instance. |
 
----
+The defaults are a -90 dBFS silence threshold and a five-second fallback tail.
+Actual vendor tail information and guard flags determine eligibility. The
+tracker enters quiescence when input/events disappear; an eight-bar idle delay
+is not implemented by the tracker even though a configuration field exists.
 
-## 2. Power State Machine
+Keep-awake, never-suspend, infinite-tail, armed-track, and live-monitor flags
+guard automatic suspension. Do not infer vendor noise-generation heuristics or
+arrangement readiness solely from catalog names. Waking a retained instance is
+a state edge, not a verified numerical latency guarantee.
 
-```text
-                   Audio / MIDI Incoming (< 2 bars)
-             ┌──────────────────────────────────────────────┐
-             │                                              │
-             ▼                                              │
-       ┌───────────┐    No Input (> 8 bars)    ┌────────────┴┐
-       │  ACTIVE   │ ────────────────────────> │  QUIESCENT  │
-       └─────┬─────┘                           └──────┬──────┘
-             │                                        │
-             │ Prewarm                                │ Output Silence (> Tail Time)
-             │ Budget                                 ▼
-             │                                 ┌─────────────┐
-             └──────────────────────────────── │  SUSPENDED  │
-                                               └──────┬──────┘
-                                                      │
-                                                      │ User Park / Extreme Memory Pressure
-                                                      ▼
-                                               ┌─────────────┐
-                                               │   PARKED    │
-                                               └─────────────┘
-```
+## Ownership and live-host boundary
 
-### 2.1. States Defined
+The tracker now keeps follower/quiet-sample accounting and published state on
+the DSP writer. Any-thread controls publish atomic guard values and coalesced
+intents; they do not touch ordinary DSP counters. Explicit park survives input
+or prewarm and requires explicit unpark. No blocking lock was added.
 
-1. **`ACTIVE`**:
-   - The plugin processes every audio block.
-   - Zero latency, full DSP consumption.
-2. **`QUIESCENT`**:
-   - Track has no upcoming regions/notes, but the plugin's internal buffers or tails may still be ringing out.
-   - Audio input is zeroed; plugin `process()` is called normally.
-   - Output envelope is monitored via `EnvelopeFollower`.
-3. **`SUSPENDED`**:
-   - Output level has dropped below $-90\text{ dBFS}$ for longer than the plugin's reported tail time (or default 5.0 seconds).
-   - Audio callback bypasses the plugin DSP call completely.
-   - Plugin state, RAM buffers, and licenses remain locked in memory.
-   - Audio input/output buffers are maintained in preallocated scratch memory.
-   - Resuming to `ACTIVE` takes $< 0.05\text{ ms}$ (simply flipping a bypass atomic).
-4. **`PARKED`**:
-   - Plugin state chunk is serialized and cached to RAM/disk.
-   - Vendor binary instance is released from memory to free massive RAM/VRAM.
-   - Resuming requires background reload ($100 - 500\text{ ms}$), triggered well ahead of time by arrangement lookahead or manual operator unmute.
+Host ABI v6 adds 128 fixed per-slot latest-wins power mailboxes and helper-owned
+power-state atomics, separate from the parameter queue. Keep-awake/park/unpark/
+wake reach the owning child; predictive prewarm uses one coalesced chain flag.
+The helper consumes intentions at its next DSP block and publishes actual state.
+There is no extra poll worker or OS wake for power control. Mailbox producers
+cap concurrent CAS attempts at eight and count a rejected newest intention.
+Paired bypass enable/disable shares these mailboxes: normal On/Off does not
+compete with parameter events. Reuse identity ignores bypass and synchronizes
+the requested bypass/keep-awake state to a reused healthy helper, so bypass
+history edits do not reload its vendor chain. Existing JUCE
+`processBlockBypassed` semantics remain the DSP policy.
+Read the matching current `PluginHostProtocol.h`; old helpers fail ABI validation.
 
----
+These are source-verified ownership/protocol changes, not a completed
+performance/device validation claim. The current task records focused results.
 
-## 3. Transition Rules & Guard Rails
+The standalone manager's lookahead helper walks project regions/lanes and uses
+dynamic containers; it is not suitable for a device callback. The live engine
+has a separate callback lookahead path. A future prepared index should be
+published when song/region structure changes, bounded by a documented capacity,
+and deliver wake requests on state edges rather than rescanning the complete
+song every callback.
 
-### 3.1. Never-Suspend Heuristics
-A plugin is excluded from automatic suspension if:
-- Track is record-armed or in input monitoring mode.
-- Plugin manifests flag `NeverSuspend` or `ContinuousNoiseGenerator` (e.g. vinyl crackle, tape hiss).
-- User explicitly toggles "Keep Awake" in the plugin header.
-- Plugin reports infinite tail (`tailSamples == std::numeric_limits<uint32_t>::max()`).
+## Future work, not shipped guarantees
 
-### 3.2. Predictive Prewarming
-Before playback reaches an inactive track:
-1. Arrangement Lookahead scans the timeline 2 bars ahead of the playhead.
-2. If upcoming audio regions, MIDI notes, or automation events are detected on a `SUSPENDED` track:
-   - Audio engine flips state to `ACTIVE`.
-   - Sends empty/priming blocks if the plugin requires clock sync.
-   - All filters and internal oscillators stabilize before audible audio enters the strip.
+- True parking with bounded state capture, instance unload, and background
+  reload requires a separate lifecycle design. Current `Parked` only skips DSP.
+- Predicted warm-up/priming must be tested against AU/VST3 samplers, generators,
+  and effects; “two bars ahead” is a policy, not proof that every vendor is ready.
+- Idle helper timers and dense helper scheduling need measured weak-machine
+  workloads. Do not promise a fixed resume time or percentage CPU saving.
+- UI/telemetry should expose remote power state and packet-drop diagnostics,
+  not only an intent kept in a proxy object.
 
----
+## Verification
 
-## 4. Real-Time Thread Invariants
+`core/tests/test_plugin_power_manager.cpp` covers tracker guards, decay,
+suspension, and lookahead foundations. Host/processor tests cover the separate
+IPC boundary. Add concurrent control/DSP tests and real helper transitions when
+changing ownership. Record actual helper count, sample rate, nominal block
+size, vendor chain, callback wall/CPU distributions, misses, and idle CPU before
+making performance claims.
 
-- The audio thread **never** allocates memory, unloads libraries, or acquires locks during power transitions.
-- State checks are single atomic bitmasks (`uint32_t activeMask`).
-- Skipping a suspended plugin in `MixProcessorView` is a single branch instruction ($O(1)$).
+See [PLUGIN_HOSTING.md](../PLUGIN_HOSTING.md),
+[PLUGIN_FAILURE_CONTAINMENT.md](../PLUGIN_FAILURE_CONTAINMENT.md), and the
+current [performance task](../ai/tasks/performance.md).

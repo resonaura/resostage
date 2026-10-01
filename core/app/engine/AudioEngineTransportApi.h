@@ -123,12 +123,12 @@
     std::string undoTimelineLabel() const { return projectHistory.undoLabel(); }
 
     std::string redoTimelineLabel() const { return projectHistory.redoLabel(); }
+    uint64_t projectHistoryRevision() const noexcept { return projectHistory.revision(); }
 
-    // Applies the popped undo/redo step wholesale and re-syncs the
-    // currently active song's StreamingEngine region windows (mirrors what
-    // builderRegionUpdate already does per-region -- a no-op for regions
-    // belonging to a non-active song). Returns false ("nothing to undo/
-    // redo") without touching any state.
+    // Applies the popped project step and reconciles stable runtime focus,
+    // prepared sources, tempo/click, and routing before releasing the callback.
+    // Window-only edits reuse buffers; source changes rebind at the same cursor.
+    // Returns false for no history without touching any state.
     bool undoTimelineEdit(std::string& appliedLabel);
 
     bool redoTimelineEdit(std::string& appliedLabel);

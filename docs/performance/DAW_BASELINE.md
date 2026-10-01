@@ -1,14 +1,18 @@
 # ResoStage DAW Architecture: Performance Baseline
 
-This document records the empirical baseline measurements of ResoStage before expanding into the full DAW architecture. Every subsequent performance-sensitive change must measure before and after on equivalent workloads.
+This document records the historical 2026-09-24 baseline before the live
+per-chain plug-in host expansion. It is not the current test count or a benchmark
+of arbitrary vendor DSP. Subsequent performance-sensitive changes must compare
+equivalent workloads; see [PLUGIN_BASELINE.md](PLUGIN_BASELINE.md) for the dated
+packet-preparation pass and current tasks for unfinished load measurements.
 
 ## Test Environment
 
 - **Date**: 2026-09-24
-- **Operating System**: macOS Darwin 24.x (macOS Sonoma/Sequoia)
+- **Operating System**: recorded as macOS Darwin 24.x; exact OS product/build was not retained
 - **Machine**: Apple M1 (8 cores, 4 performance + 4 efficiency)
 - **Total Physical Memory**: 8 GB (8,589,934,592 bytes)
-- **Audio Device**: CoreAudio virtual / hardware endpoint
+- **Audio Device**: not identified precisely in the original report; renderer microbenchmarks are not a device acceptance run
 - **Sample Rate**: 48,000 Hz
 - **Build Type**: `RelWithDebInfo` (`-O2 -g`)
 - **Git Commit**: `5ef04ee35370351ed2dc71fe10f458b2e4ca9dc8`
@@ -52,7 +56,7 @@ Continuous evaluation of 1,024,000 samples in single-threaded audio processing:
 
 ## 4. Real-Time Invariants Compliance
 
-- **Audio Callback Allocations**: Strictly 0 heap allocations during `audioDeviceIOCallbackWithContext`.
+- **Audio Callback Allocations**: Reported zero heap allocations in the tested callback workload; not a universal allocation proof for all vendors or paths.
 - **Audio Callback Locking**: Bounded non-waiting `try_lock` on `routingMutex`; zero blocking mutex acquisitions.
 - **Audio Callback File/Network I/O**: Strictly 0 disk or socket operations in callback.
 - **Test Suite Status**: 404/404 unit/stress/performance tests passed (148,012 assertions).

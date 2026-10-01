@@ -18,6 +18,7 @@ add_executable(resostage_engine_tests
   test_io_pressure_policy.cpp
   test_project_loader.cpp
   test_plugin_host_protocol.cpp
+  test_plugin_loading_session.cpp
   ../app/plugins/PluginHostSharedMemory.cpp
   test_project_history.cpp
   test_click_generator.cpp

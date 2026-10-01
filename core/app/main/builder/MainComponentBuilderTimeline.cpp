@@ -73,15 +73,16 @@ void MainComponent::builderSectionRemove(const std::string& json) {
         return;
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
-    auto it = std::remove_if(s.sections.begin(), s.sections.end(),
+    const auto it = std::find_if(s.sections.begin(), s.sections.end(),
                               [&](const SongSection& sec) { return sec.id == sectionId; });
     if (it != s.sections.end()) {
         std::string gestureId;
         getString(doc, "gestureId", gestureId);
         engine.projectHistoryBeginEdit(gestureId, "Remove section");
-        s.sections.erase(it, s.sections.end());
+        // Compaction moves rows too: capture history before erase/remove.
+        std::erase_if(s.sections, [&](const SongSection& sec) { return sec.id == sectionId; });
         engine.projectHistoryCommitEdit();
-    notifyProjectStructureChanged();
+        notifyProjectStructureChanged();
         setStatus("Section removed");
     }
 }
@@ -283,4 +284,3 @@ void MainComponent::builderEventUpdate(const std::string& json) {
 }
 
 } // namespace resostage
-

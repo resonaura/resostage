@@ -170,6 +170,8 @@ export function PluginInsertSlots({
                 <PluginSlotControl
                   name={slot.name || "Unknown plug-in"}
                   bypassed={slot.bypassed}
+                  loadState={slot.loadState}
+                  loadError={slot.loadError}
                   onOpen={() => void pluginChains.openEditor(stripId, slot.id)}
                   onToggle={() =>
                     void pluginChains.setBypassed(stripId, slot.id, !slot.bypassed)

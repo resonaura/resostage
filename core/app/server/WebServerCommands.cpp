@@ -313,6 +313,14 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::PluginSlotBypass, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/retry") == 0) {
         cmd = {WebCommandKind::PluginSlotRetry, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/loading/decision") == 0) {
+        wire::WPluginLoadDecisionPayload p;
+        const auto err = glz::read_json(p, std::string_view(body, bodyLen));
+        if (err || (p.decision != "continue" && p.decision != "stop" && p.decision != "retry")) {
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid plug-in loading decision");
+            return true;
+        }
+        cmd = {WebCommandKind::PluginLoadDecision, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/editor") == 0) {
         cmd = {WebCommandKind::PluginSlotOpenEditor, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/keep-awake") == 0) {
@@ -406,11 +414,23 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     if (!ok)
         return false;
 
+    const bool isHistory = cmd.kind == WebCommandKind::TimelineUndo
+        || cmd.kind == WebCommandKind::TimelineRedo;
+    if (isHistory)
+        cmd.historyRequestId = ++nextHistoryRequestId_;
+    const uint64_t historyRequestId = cmd.historyRequestId;
     if (!enqueueCommand(std::move(cmd))) {
         writeJsonError(wsi, 503, "Core command queue is full; retry the command");
         return true;
     }
-    writeJsonOk(wsi);
+    if (isHistory) {
+        wire::WHistoryAccepted accepted{true, historyRequestId, stateSessionId_};
+        const auto json = glz::write_json(accepted).value_or("{}");
+        webserver_http::writeHttpResponse(wsi, HTTP_STATUS_OK,
+            "application/json", json.data(), json.size());
+    } else {
+        writeJsonOk(wsi);
+    }
     return true;
 }
 

@@ -8,6 +8,7 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type { AutomationLaneRow, MidiNoteRow } from "@/lib/state/types";
 import { beginCancellableDrag, type CancellableDrag } from "@/lib/interaction/dragCancel";
+import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import type {
   DraggingState,
   PianoRollControllerGesture,
@@ -96,6 +97,16 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
   const lostPointerCapture = useCallback((pointerId: number) => {
     if (pointerIdRef.current === pointerId) cancelGesture();
   }, [cancelGesture]);
+
+  useLayoutEffect(() => subscribeHistoryBoundary(() => {
+    const current = currentRef.current;
+    endGesture();
+    clearGesture();
+    current.pendingCommitRef.current = null;
+    current.pendingAutomationCommitRef.current = null;
+    current.setLocalNotes(null);
+    current.setControllerPreview(null);
+  }), [clearGesture, endGesture]);
 
   useLayoutEffect(() => {
     const current = currentRef.current;

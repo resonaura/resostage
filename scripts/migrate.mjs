@@ -44,7 +44,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 9;
+export const TARGET_FORMAT_VERSION = 10;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -664,6 +664,15 @@ export function upgradeFormat8VideoSources(old) {
   return upgraded;
 }
 
+/** Preserve canonical IDs/media while adopting the v10 click solo-safe default. */
+export function upgradeFormat9ClickSoloSafe(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  upgraded.click ??= {};
+  upgraded.click.soloSafe = true;
+  return upgraded;
+}
+
 function resolveProjectJsonPath(target) {
   const abs = path.resolve(target);
   if (!fs.existsSync(abs)) {
@@ -717,9 +726,12 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
       migrated = upgradeFormat7MidiLoopWindows(oldObj);
     } else if (!isLegacy && fromVersion === 8) {
       migrated = upgradeFormat8VideoSources(oldObj);
+    } else if (!isLegacy && fromVersion === 9) {
+      migrated = upgradeFormat9ClickSoloSafe(oldObj);
     } else {
       migrated = upgradeFormat6PanLawData(migrateProjectObject(oldObj));
     }
+    if (fromVersion < 10) migrated = upgradeFormat9ClickSoloSafe(migrated);
     fs.writeFileSync(outPath, `${JSON.stringify(migrated, null, 2)}\n`, "utf-8");
     if (isLegacy) fs.rmSync(jsonPath, { force: true });
     console.log(

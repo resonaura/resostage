@@ -39,6 +39,8 @@ void AudioEngine::play() {
     if (currentSong == static_cast<size_t>(-1))
         return;
 
+    if (!pluginLoadingSession.requestTransport(true)) return;
+
     const int64_t pendingCountInStart = pendingCountInStartSample.exchange(
         std::numeric_limits<int64_t>::min(), std::memory_order_acq_rel);
     const bool startingWithCountIn = pendingCountInStart != std::numeric_limits<int64_t>::min();
@@ -142,6 +144,7 @@ void AudioEngine::play() {
 }
 
 void AudioEngine::stop() {
+    pluginLoadingSession.stop();
     if (isRecordingState.load(std::memory_order_acquire)) {
         stopRecording();
     }
@@ -280,6 +283,13 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
         auto pluginPub = std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
         if (pluginPub != nullptr && pluginPub->bank != nullptr) {
             pluginPub->bank->requestAllNotesOff();
+            if (targetSong < proj.songs.size()) {
+                const SongDef& song = proj.songs[targetSong];
+                const auto tempoMap = std::atomic_load_explicit(&activeTempoMap, std::memory_order_acquire);
+                prewarmPluginsLookahead(song, sample, currentSampleRate,
+                                        publishedGraph.get(), pluginPub->bank.get(),
+                                        tempoMap.get());
+            }
         }
         activeMidiNotesClearRequested.store(true, std::memory_order_release);
 

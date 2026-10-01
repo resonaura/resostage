@@ -4,8 +4,11 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { apiUrl, apiFetch } from "@/lib/state/backend";
+import { apiUrl, apiFetch, backendOrigin } from "@/lib/state/backend";
 import { importMediaFile } from "@/transfer/audio/logic/importRequest";
+import { cancelActiveDrags } from "@/lib/interaction/dragCancel";
+import { flushPendingCommits } from "@/lib/state/optimistic";
+import { createHistoryNavigator } from "@/lib/state/historyNavigation";
 import type { MixGraphPayload } from "@/lib/audio/mixGraph";
 import type {
   AllPeaksResponse,
@@ -13,6 +16,7 @@ import type {
   LightCueRow,
   LivePeakChunkResponse,
   PeaksResponse,
+  WebUiState,
 } from "@/lib/state/types";
 
 // ── Immediate-refetch hook ────────────────────────────────────────────────────
@@ -23,10 +27,10 @@ import type {
 //
 // The handler is debounced: rapid-fire actions (e.g. multiple mixer toggles in
 // quick succession) coalesce into one fetch instead of stampeding the server.
-let _refetchHandler: (() => void) | null = null;
+let _refetchHandler: ((snapshot?: Partial<WebUiState>) => void) | null = null;
 let _refetchTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function registerRefetchHandler(fn: () => void): void {
+export function registerRefetchHandler(fn: (snapshot?: Partial<WebUiState>) => void): void {
   _refetchHandler = fn;
 }
 export function unregisterRefetchHandler(): void {
@@ -78,12 +82,31 @@ function _triggerRefetch(): void {
 }
 
 // Mirrors WebServer::handleHttpApi().
+// One reliable admission order across tabs/toolbars prevents concurrent
+// multi-region edits or Undo overtaking their preceding POSTs. Continuous
+// controls still coalesce their pending values before entering this queue.
+let _commandTail: Promise<unknown> = Promise.resolve();
+let _queuedCommands = 0;
+function serializeCommand<T>(command: () => Promise<T>): Promise<T> {
+  if (_queuedCommands >= 256) return Promise.reject(new Error("Too many pending Core commands"));
+  const origin = backendOrigin();
+  ++_queuedCommands;
+  const request = _commandTail.then(() => {
+    if (backendOrigin() !== origin) throw new Error("Core changed before the command was sent");
+    return command();
+  }).finally(() => { --_queuedCommands; });
+  _commandTail = request.catch(() => {});
+  return request;
+}
 async function post(path: string, body?: unknown): Promise<void> {
   try {
-    await apiFetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : "{}",
+    await serializeCommand(async () => {
+      const response = await apiFetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : "{}",
+      });
+      if (!response.ok) throw new Error(`Core rejected ${path} (HTTP ${response.status})`);
     });
     _triggerRefetch();
   } catch {
@@ -91,6 +114,23 @@ async function post(path: string, body?: unknown): Promise<void> {
     // command just means the next state frame won't reflect it and the
     // user can press again; there's nothing useful to surface here.
   }
+}
+
+/** Decisions are generation-bound; unlike best-effort controls, errors stay visible. */
+export async function decidePluginLoading(
+  epoch: number,
+  generation: number,
+  decision: "continue" | "stop" | "retry",
+): Promise<void> {
+  await serializeCommand(async () => {
+    const response = await apiFetch("/api/v1/plugins/loading/decision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ epoch, generation, decision }),
+    });
+    if (!response.ok) throw new Error(`Core rejected loading decision (HTTP ${response.status})`);
+  });
+  _triggerRefetch();
 }
 
 // ── Continuous parameter coalescing ──────────────────────────────────────────
@@ -106,7 +146,14 @@ const _continuousInFlight = new Map<
   { pending: unknown; busy: boolean }
 >();
 
-async function postContinuous(path: string, body: unknown): Promise<void> {
+const _continuousPromises = new Set<Promise<void>>();
+function postContinuous(path: string, body: unknown): Promise<void> {
+  const request = postContinuousImpl(path, body);
+  _continuousPromises.add(request);
+  void request.finally(() => { _continuousPromises.delete(request); });
+  return request;
+}
+async function postContinuousImpl(path: string, body: unknown): Promise<void> {
   const targetKey = `${path}:${(body as Record<string, unknown>)?.index ?? (body as Record<string, unknown>)?.trackIndex ?? ""}`;
   let state = _continuousInFlight.get(targetKey);
   if (!state) {
@@ -125,10 +172,14 @@ async function postContinuous(path: string, body: unknown): Promise<void> {
   try {
     while (nextPayload !== null) {
       state.pending = null;
-      await apiFetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextPayload),
+      const payload = nextPayload;
+      await serializeCommand(async () => {
+        const response = await apiFetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) throw new Error(`Core rejected ${path} (HTTP ${response.status})`);
       });
       nextPayload = state.pending;
     }
@@ -1116,9 +1167,24 @@ export const lighting = {
 
 // Timeline undo/redo (regions + sections of the currently loaded project).
 // See ProjectHistory.h / AudioEngine::undoTimelineEdit()/redoTimelineEdit().
+const navigateHistory = createHistoryNavigator({
+  fetch: apiFetch,
+  origin: backendOrigin,
+  serialize: serializeCommand,
+  prepare: async () => {
+    cancelActiveDrags();
+    // Finish text fields before history, otherwise their later blur can write
+    // the pre-Undo draft back into Core and silently create a new branch.
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement)
+      document.activeElement.blur();
+    flushPendingCommits();
+    while (_continuousPromises.size > 0) await Promise.all([..._continuousPromises]);
+  },
+  applySnapshot: (snapshot) => { _refetchHandler?.(snapshot); },
+});
 export const timelineHistory = {
-  undo: () => post("/api/v1/timeline/undo"),
-  redo: () => post("/api/v1/timeline/redo"),
+  undo: () => navigateHistory("undo"),
+  redo: () => navigateHistory("redo"),
 };
 
 // Settings parity -- mirrors SettingsPanel.cpp's AudioDeviceSelectorComponent

@@ -7,7 +7,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { activeDragCount, beginCancellableDrag } from "@/lib/interaction/dragCancel";
+import { activeDragCount, beginCancellableDrag, cancelActiveDrags } from "@/lib/interaction/dragCancel";
 
 const esc = () =>
   window.dispatchEvent(
@@ -25,6 +25,14 @@ afterEach(() => {
 });
 
 describe("beginCancellableDrag", () => {
+  it("history cancels all existing nested gestures exactly once", () => {
+    const seen: string[] = [];
+    beginCancellableDrag(() => seen.push("outer"));
+    beginCancellableDrag(() => seen.push("inner"));
+    cancelActiveDrags();
+    cancelActiveDrags();
+    expect(seen).toEqual(["inner", "outer"]);
+  });
   it("reverts on Esc and reports cancelled", () => {
     const revert = vi.fn();
     const drag = beginCancellableDrag(revert);
