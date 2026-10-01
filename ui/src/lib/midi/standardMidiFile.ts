@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import type { MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
 import { isMidiClipFile, parseMidiClipFile, writeMidiClipFile } from "@/lib/midi/midiClipFile";
 import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";

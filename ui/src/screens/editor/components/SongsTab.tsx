@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Song-list and song-settings UI used by the Editor's Songs tab.
 // The parent owns tab visibility and selection; SongEditor keeps its draft
 // values local until the user applies them through the existing builder API.

@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Timeline event dispatch and plug-in lookahead preparation.
 // This code is called from the existing transport/audio paths; only its
 // translation-unit ownership changes here. Preserve the bounded, allocation-free

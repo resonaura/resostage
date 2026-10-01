@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Audio and MIDI recording lifecycle plus live recording/key previews.
 // Exact method bodies moved from AudioEngineTransport.cpp so capture state and
 // its UI-facing snapshots have a focused implementation home.

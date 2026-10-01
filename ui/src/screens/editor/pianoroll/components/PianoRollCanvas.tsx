@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
 import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";

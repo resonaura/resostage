@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Web Builder song mutations, owned by the JUCE message thread.
 // Project edits and undo history remain on this thread; this is an exact
 // organizational split from MainComponentBuilder.cpp.

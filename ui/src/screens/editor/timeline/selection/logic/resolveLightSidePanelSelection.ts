@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import type { LightSidePanelSelection } from "@/screens/light/components/LightSidePanel";
 import type { CueSelKey } from "@/screens/editor/timeline/lighting/logic/types";
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";

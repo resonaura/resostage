@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Measuring what the signal did, at a resolution the display can use.
 //
 // The problem being solved is one of SAMPLING, not of ballistics. A meter

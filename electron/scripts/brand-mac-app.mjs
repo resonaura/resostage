@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Produces a fully renamed + re-iconed copy of the installed node_modules/
 // electron Electron.app at the given destination path, so macOS shows
 // "ResoStage" everywhere -- Dock, ⌘-Tab, Force Quit, AND Activity Monitor's

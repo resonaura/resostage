@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Mirrors WebServer::buildStateJson() in app/web/WebServer.cpp exactly --
 // keep these two in sync by hand (there's no shared schema generator yet).
 //

@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 /**
  * Return the list order that a drag would produce, without mutating the live
  * list. `dropSlot` is measured before removal, so forward moves subtract one

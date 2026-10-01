@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Routing snapshot + live mix controls for AudioEngine (message thread).
 // Bus/track gain/pan/mute/solo/sends, click strip, scratch buffers.
 // Kept in its own translation unit so AudioEngine.cpp doesn't balloon.

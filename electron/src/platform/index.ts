@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Factory for the platform adapter. main.mts calls this once and never touches
 // process.platform again -- platform differences are behind PlatformAdapter.
 

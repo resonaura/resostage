@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Builder structural-edit parity for the web UI. Each method here mirrors
 // the matching BuilderPanel.cpp method (addItem/removeItem/moveItem/
 // apply*Settings) as closely as possible -- same Project mutations, same

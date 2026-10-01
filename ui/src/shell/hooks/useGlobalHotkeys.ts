@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Renderer-side global and fixed keyboard dispatch owner.
 // Components register local gestures with HotkeyManager; app-wide project,
 // transport, typing-focus, and native-shell shortcuts converge here.

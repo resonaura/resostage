@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import { useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { TIER_FPS } from "@/performance/logic/performance";

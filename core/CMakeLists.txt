@@ -1,3 +1,7 @@
+# ResoStage — Deterministic Real-Time Live Performance Workstation
+# Copyright © 2026 Andrii Vynohradov. All rights reserved.
+# Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 cmake_minimum_required(VERSION 3.28)
 
 project(ResoStage VERSION 0.1.0 LANGUAGES C CXX)

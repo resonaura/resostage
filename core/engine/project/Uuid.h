@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Minimal UUIDv7 (RFC 9562) generator -- time-ordered so newly-created
 // regions/lightCues sort naturally and stay stable across renumbering,
 // unlike the old "reg_song_1_trk_4"-style hand-built ids. No external

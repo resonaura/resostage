@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Thin wrapper around fontaudio (MIT, see assets/fontaudio/LICENSE) glyphs so
 // they drop in next to lucide-react icons with the same tag-like usage --
 // <FontIcon name="metronome" /> -- instead of each call site hand-writing an

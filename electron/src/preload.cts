@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // contextBridge API exposed to the SPA as window.resostageElectron.
 //
 // Must stay CommonJS (.cts → .cjs): the renderer runs sandboxed, and

@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Peak overview build/cache for AudioEngine (timeline waveforms).
 // Background PeakBuildThreadPool work + session/on-disk PeakCache.
 // Kept in its own translation unit so AudioEngine.cpp doesn't balloon.

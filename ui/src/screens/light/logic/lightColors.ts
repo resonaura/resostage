@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import { paletteColor, paletteSize } from "@/lib/theme";
 
 // Distinct palette from the audio tracks so light reads as a different layer.

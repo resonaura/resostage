@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import { Button } from "@/components/ui";
 import { Music, Plus } from "lucide-react";
 import { emptyProjectActions, EmptyProjectState } from "@/screens/editor/project/components/EmptyProjectState";

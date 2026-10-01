@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# ResoStage — Deterministic Real-Time Live Performance Workstation
+# Copyright © 2026 Andrii Vynohradov. All rights reserved.
+# Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 """Minimal raw WebSocket client: measures ResoStage's real telemetry frames.
 
 Connects, optionally scopes the view, then reports frame sizes, rate, and how

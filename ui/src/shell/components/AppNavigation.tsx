@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import { Gauge, Lightbulb, Music4, Settings2, Sliders } from "lucide-react";
 import type { Dispatch, SetStateAction } from "react";
 import { Tabs } from "@/components/ui";

@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // The flat "route id" string, and the only two functions that translate it.
 //
 // A SourceOutput is a tagged union (type + optional target). The SPA, the

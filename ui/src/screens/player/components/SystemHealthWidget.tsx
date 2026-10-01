@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import { memo, useEffect, useLayoutEffect, useRef } from "react";
 import { addRafTask } from "@/lib/state/rafLoop";
 import type { WebUiState } from "@/lib/state/types";

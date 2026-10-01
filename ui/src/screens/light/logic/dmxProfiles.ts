@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 /**
  * Cosmetic/informational fixture metadata, shared by both fixture kinds:
  * `shape` (which 3D layout the stage draws -- a mesh silhouette for

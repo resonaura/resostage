@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import { useEffect, useRef, useState } from "react";
 import { isRenderActive, setTransportPlaying } from "@/lib/state/appActivity";
 import { wsUrl, onBackendChange, apiFetch } from "@/lib/state/backend";

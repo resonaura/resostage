@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { mixer, pluginChains } from "@/lib/state/api";
 import { getTrackLiveLevel } from "@/lib/audio/liveLevels";

@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 // Meter snapshot reads, interval-peak aggregation, and explicit silence reset.
 // The audio callback publishes samples; these message-thread readers and
 // control paths consume/reset shared meter state without changing callback timing.

@@ -1,3 +1,7 @@
+// ResoStage — Deterministic Real-Time Live Performance Workstation
+// Copyright © 2026 Andrii Vynohradov. All rights reserved.
+// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+
 /**
  * Audio console fader law and logarithmic parameter scaling matching ResoStage Core MidiTransform.h
  * and standard DAW unity positioning (0 dB at 0.80).
