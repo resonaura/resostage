@@ -311,6 +311,10 @@ The design removes unbounded latency from the deadline path:
 - **No disk or network I/O in the callback.** Workers decode ahead into
   `AudioRingBuffer`, a cache-line-separated, fixed-capacity SPSC planar ring.
   A short read becomes silence; it never blocks for refill.
+  Cold-song head fills use a one-item latest-wins mailbox consumed by owned
+  I/O worker 0, not detached threads. `StreamingEngine::stop()` invalidates
+  pending stages and joins workers before releasing loader/buffer state.
+  Caller-owned handoff mute flags must remain alive until that join finishes.
 - **No routine heap growth in the callback.** `MixRenderer`, per-track scratch,
   output lanes, sinc tables, meter state, and rings are prepared outside it.
   Capacity mismatch fails safely rather than resizing in place.

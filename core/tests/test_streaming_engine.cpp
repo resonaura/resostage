@@ -381,6 +381,90 @@ TEST_CASE("StreamingEngine::stageSong(asyncFill=true) defers head-fill off the c
     engine.stop();
 }
 
+TEST_CASE("StreamingEngine owned head-fill mailbox discards superseded cold hops") {
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(makeTwoSongArchive(), error));
+    SongDef first;
+    first.id = "first";
+    Region region;
+    region.id = "region";
+    region.trackId = "track_a";
+    region.source.file = "Audio/a.wav";
+    first.regions = {region};
+    SongDef latest = first;
+    latest.id = "latest";
+    latest.regions[0].source.file = "Audio/b.wav";
+
+    // Hold both owned refill workers until two requests have been published.
+    // The RAII release also prevents failed assertions from blocking teardown.
+    std::atomic<bool> allowWork{false};
+    std::atomic<bool> staleMute{false};
+    std::atomic<bool> latestMute{false};
+    StreamingEngine engine;
+    engine.start(&loader, [&] {
+        while (!allowWork.load(std::memory_order_acquire))
+            std::this_thread::yield();
+    });
+    struct ReleaseWorkers {
+        std::atomic<bool>& flag;
+        ~ReleaseWorkers() { flag.store(true, std::memory_order_release); }
+    } release{allowWork};
+
+    REQUIRE(engine.stageSong(0, first, 8192, 48000, error, 0, 0, &staleMute, true));
+    REQUIRE(engine.stageSong(1, latest, 8192, 48000, error, 0, 0, &latestMute, true));
+    CHECK(staleMute.load());
+    CHECK(latestMute.load());
+    allowWork.store(true, std::memory_order_release);
+    for (int i = 0; i < 500 && latestMute.load(std::memory_order_acquire); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    CHECK_FALSE(latestMute.load());
+    CHECK(staleMute.load()); // The replaced request never clears somebody else's handoff.
+    engine.stop();
+}
+
+TEST_CASE("StreamingEngine stop invalidates and joins queued head fills before a restart") {
+    ProjectLoader loader;
+    std::string error;
+    REQUIRE(loader.open(makeTwoSongArchive(), error));
+    SongDef song;
+    song.id = "song";
+    Region region;
+    region.id = "region";
+    region.trackId = "track_a";
+    region.source.file = "Audio/a.wav";
+    song.regions = {region};
+    std::atomic<bool> allowWork{false};
+    std::atomic<bool> mute{false};
+    StreamingEngine engine;
+    engine.start(&loader, [&] {
+        while (!allowWork.load(std::memory_order_acquire))
+            std::this_thread::yield();
+    });
+    struct ReleaseWorkers {
+        std::atomic<bool>& flag;
+        ~ReleaseWorkers() { flag.store(true, std::memory_order_release); }
+    } release{allowWork};
+    REQUIRE(engine.stageSong(0, song, 8192, 48000, error, 0, 0, &mute, true));
+    const auto epoch = engine.stageEpoch();
+    std::thread shutdown([&] { engine.stop(); });
+    for (int i = 0; i < 500 && engine.stageEpoch() == epoch; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    const bool invalidatedBeforeRelease = engine.stageEpoch() != epoch;
+    allowWork.store(true, std::memory_order_release);
+    shutdown.join();
+    CHECK(invalidatedBeforeRelease);
+    CHECK(mute.load()); // No abandoned fill can touch this flag after stop.
+    CHECK_FALSE(engine.acquireActiveSong());
+
+    engine.start(&loader);
+    REQUIRE(engine.stageSong(0, song, 8192, 48000, error, 0, 0, &mute, true));
+    for (int i = 0; i < 500 && mute.load(std::memory_order_acquire); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    CHECK_FALSE(mute.load());
+    engine.stop();
+}
+
 // The synchronous (asyncFill=false, the default) path must keep behaving
 // exactly as before: fillHeadOnce runs inline, so mute is already cleared-
 // by-the-caller-convention (i.e. never auto-cleared by stageSong itself) and

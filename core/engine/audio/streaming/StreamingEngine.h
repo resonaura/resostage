@@ -140,7 +140,7 @@ public:
     // `asyncFill`: when the song wasn't already warm, the flip still happens
     // synchronously/instantly, but the head-buffer decode (fillHeadOnce --
     // real disk I/O + decode, previously done right here) is dispatched to a
-    // background thread instead of blocking the caller. This is what makes a
+    // owned I/O worker instead of blocking the caller. This is what makes a
     // "hard hop" (song whose stems were never opened, e.g. jumping around a
     // 12-song setlist faster than the ±2-neighbour warm cache can keep up)
     // return instantly instead of freezing the whole message thread -- and
@@ -153,6 +153,9 @@ public:
     // `*muteBeforeSwap` has been handed off to that background thread --
     // callers must skip their own usual post-stage mute-clear in that case
     // (see AudioEngine::selectSongInternal).
+    // The caller owns `muteBeforeSwap` until stop() has joined all workers.
+    // A latest-wins one-item mailbox bounds rapid-hop work; no detached jobs
+    // may retain this engine or its loader across a project replacement.
     bool stageSong(size_t songIndex, const SongDef& song, int64_t ringCapacityFrames, double deviceSampleRate,
                    std::string& error, double primeSeconds = 0.0, double primeMaxWait = 0.0,
                    std::atomic<bool>* muteBeforeSwap = nullptr, bool asyncFill = false,
@@ -248,6 +251,7 @@ private:
     void resetSongToStart(StagedSong& staged);
     // One non-blocking refill pass per unique buffer (fills head after rewind).
     void fillHeadOnce(StagedSong& staged);
+    void servicePendingHeadFill();
 
     // Bind song regions to pooled file buffers (open only missing paths).
     std::shared_ptr<StagedSong> bindSongToPool(size_t songIndex, const SongDef& song,
@@ -276,6 +280,14 @@ private:
     std::thread ioThread2;
     std::thread residentThread;
     std::atomic<bool> running{false};
+    struct HeadFillRequest {
+        std::shared_ptr<StagedSong> song;
+        std::atomic<bool>* muteBeforeSwap = nullptr;
+        uint64_t epoch = 0;
+    };
+    // Message-thread producer / owned I/O worker 0 consumer. Never on audio.
+    std::mutex headFillMutex;
+    HeadFillRequest pendingHeadFill;
     std::function<void()> residentThreadStartHook;
     /**
      * Called on the resident thread when it starts and stops yielding the

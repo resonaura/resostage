@@ -125,12 +125,17 @@ void StreamingEngine::start(const ProjectLoader* loader, std::function<void()> o
 
 void StreamingEngine::stop() {
     running.store(false, std::memory_order_release);
+    stageEpoch_.fetch_add(1, std::memory_order_acq_rel);
     if (ioThread.joinable())
         ioThread.join();
     if (ioThread2.joinable())
         ioThread2.join();
     if (residentThread.joinable())
         residentThread.join();
+    {
+        std::lock_guard<std::mutex> lock(headFillMutex);
+        pendingHeadFill = {};
+    }
     {
         std::lock_guard<std::mutex> lock(precacheMutex);
         warmByIndex.clear();
@@ -604,6 +609,26 @@ void StreamingEngine::refillActiveSlice(StagedSong& s, int workerIndex, int work
     }
 }
 
+void StreamingEngine::servicePendingHeadFill() {
+    HeadFillRequest request;
+    {
+        std::lock_guard<std::mutex> lock(headFillMutex);
+        request = std::move(pendingHeadFill);
+        pendingHeadFill = {};
+    }
+    if (!request.song || !running.load(std::memory_order_acquire)
+        || request.epoch != stageEpoch_.load(std::memory_order_acquire))
+        return;
+
+    fillHeadOnce(*request.song);
+    // Serialize against the next handoff's mute publication. An old worker
+    // cannot clear a new hop's flag between an epoch check and its store.
+    std::lock_guard<std::mutex> lock(headFillMutex);
+    if (request.muteBeforeSwap && running.load(std::memory_order_acquire)
+        && request.epoch == stageEpoch_.load(std::memory_order_acquire))
+        request.muteBeforeSwap->store(false, std::memory_order_release);
+}
+
 void StreamingEngine::ioWorkerLoop(int workerIndex) {
     // Every worker, not just the first.
     //
@@ -619,6 +644,8 @@ void StreamingEngine::ioWorkerLoop(int workerIndex) {
         ioThreadStartHook();
 
     while (running.load(std::memory_order_acquire)) {
+        if (workerIndex == 0)
+            servicePendingHeadFill();
         bool urgent = false;
         bool hungry = false;
 
@@ -963,8 +990,10 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
         needFill = true;
     }
 
-    if (muteBeforeSwap != nullptr)
+    if (muteBeforeSwap != nullptr) {
+        std::lock_guard<std::mutex> lock(headFillMutex);
         muteBeforeSwap->store(true, std::memory_order_release);
+    }
 
     std::shared_ptr<StagedSong> prev =
         std::atomic_load_explicit(&active, std::memory_order_acquire);
@@ -987,16 +1016,13 @@ bool StreamingEngine::stageSong(size_t songIndex, const SongDef& song, int64_t r
             // the IO workers already rely on for refilling `active`/warm
             // songs. Epoch-gated: if another stageSong has since started
             // (rapid re-hop), this stale fill still completes harmlessly but
-            // must NOT clear a mute flag that the newer hop now owns.
+            // must NOT clear a mute flag that the newer hop now owns. The
+            // owned worker is joined before loader/pool destruction; a
+            // detached thread here could outlive a reopened project.
             if (outDeferredMuteClear != nullptr)
                 *outDeferredMuteClear = (muteBeforeSwap != nullptr);
-            std::shared_ptr<StagedSong> filling = next;
-            std::thread([this, filling, muteBeforeSwap, myEpoch] {
-                fillHeadOnce(*filling);
-                if (muteBeforeSwap != nullptr
-                    && stageEpoch_.load(std::memory_order_acquire) == myEpoch)
-                    muteBeforeSwap->store(false, std::memory_order_release);
-            }).detach();
+            std::lock_guard<std::mutex> lock(headFillMutex);
+            pendingHeadFill = {next, muteBeforeSwap, myEpoch};
         } else {
             fillHeadOnce(*next);
         }
