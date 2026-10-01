@@ -1170,7 +1170,7 @@ release code:
 
 - macOS Apple Silicon: `build/mac/arm64/ResoStage.app`
 - Windows x64: `build/win/x64/resostage.exe`, Electron resources, and a
-  `helpers/` directory containing `core.exe` and its sibling workers/DLLs
+  `core/` directory containing `core.exe` and its sibling workers/DLLs
 
 The raw Core carries a scanner beside its executable. Windows helper
 names are `pluginscan.exe` and `pluginhost.exe`; the app entry points are
@@ -1188,10 +1188,10 @@ either plug-in helper from a platform adapter.
 Scanner, host, media, and Kaishaku use the shared `icons/helper` artwork;
 Core keeps its separate icon. `scripts/helpers/bundle.mjs` owns macOS helper
 metadata/icon policy, retaining existing generated GUI-app capabilities.
-Windows Electron discovers `helpers/core.exe` and `helpers/kaishaku.exe`
+Windows Electron discovers `core/core.exe` and `core/kaishaku.exe`
 before legacy locations and never resolves its own shell as a Core fallback.
 Core resolves other workers beside itself; its Windows static asset root is
-the parent package's `resources/web`, not `helpers/resources/web`.
+the parent package's `resources/web`, not `core/resources/web`.
 Missing scanner means the catalog API reports a visible scan failure; missing
 live host makes affected plugin slots visibly fail closed rather than loading
 vendor code in Core.

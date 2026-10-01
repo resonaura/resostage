@@ -26,10 +26,12 @@ export function windowsHelperCandidates(names: readonly string[], location: Wind
     path.join(workingDirectory, "build", "win", arch),
   ]);
   const directories = [
+    ...roots.map((root) => path.join(root, "core")),
+    // Keep discovery compatible with the previous grouped helper package.
     ...roots.map((root) => path.join(root, "helpers")),
     ...roots,
     resourcesDirectory,
-    ...devRoots.flatMap((root) => [path.join(root, "helpers"), root]),
+    ...devRoots.flatMap((root) => [path.join(root, "core"), path.join(root, "helpers"), root]),
     ...["RelWithDebInfo", "Debug"].map((config) =>
       path.join(workingDirectory, "core", "build", "app", "ResoStage_artefacts", config)),
     path.join(workingDirectory, "core", "build", "app"),

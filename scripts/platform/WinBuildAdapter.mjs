@@ -253,29 +253,29 @@ export class WinBuildAdapter extends BuildAdapter {
 
     // Core and all of its sibling workers/DLLs stay together. This preserves
     // native sibling lookup and Windows DLL search without cluttering the root.
-    const helpersDir = join(shellDir, "helpers");
-    mkdirSync(helpersDir, { recursive: true });
+    const coreDir = join(shellDir, "core");
+    mkdirSync(coreDir, { recursive: true });
     const workerIcon = helperIcon(ROOT, "ico");
-    const coreDst = join(helpersDir, `${CORE_APP_NAME}.exe`);
+    const coreDst = join(coreDir, `${CORE_APP_NAME}.exe`);
     if (existsSync(coreDst)) rmSync(coreDst, { force: true });
     if (rawCore && existsSync(rawCore)) {
       cpSync(rawCore, coreDst);
       const coreIco = join(ROOT, "icons", "core.ico");
       this.patchWindowsExeMetadata(coreDst, existsSync(coreIco) ? coreIco : null, "core.exe", "ResoStage Core Audio and Control Engine");
     }
-    const mediaExecutable = join(helpersDir, "media.exe");
+    const mediaExecutable = join(coreDir, "media.exe");
     installFFmpegRuntime(
       ffmpegRuntime,
       mediaExecutable,
-      join(helpersDir, "FFmpeg"),
+      join(coreDir, "FFmpeg"),
     );
     if (!this.patchWindowsExeMetadata(
       mediaExecutable, workerIcon, "media.exe", "ResoStage Media Conversion Worker (FFmpeg)",
       "FFmpeg and its contributors; see the accompanying FFmpeg notices",
     )) throw new Error(`Could not brand media worker: ${mediaExecutable}`);
-    verifyFFmpegRuntime(helpersDir, process.platform, process.arch, "media.exe");
+    verifyFFmpegRuntime(coreDir, process.platform, process.arch, "media.exe");
 
-    const scannerDst = join(helpersDir, "pluginscan.exe");
+    const scannerDst = join(coreDir, "pluginscan.exe");
     const scannerRaw = findFileRecursively(BUILD_DIR, "pluginscan.exe");
     if (scannerRaw && existsSync(scannerRaw)) {
       rmSync(scannerDst, { force: true });
@@ -284,7 +284,7 @@ export class WinBuildAdapter extends BuildAdapter {
     if (!this.patchWindowsExeMetadata(scannerDst, workerIcon, "pluginscan.exe",
       "ResoStage Isolated Plug-in Scanner")) throw new Error(`Could not brand scanner: ${scannerDst}`);
 
-    const pluginHostDst = join(helpersDir, "pluginhost.exe");
+    const pluginHostDst = join(coreDir, "pluginhost.exe");
     const pluginHostRaw = join(
       BUILD_DIR, "app", "resostage_plugin_host_artefacts", BUILD_TYPE,
       "pluginhost.exe",
@@ -303,7 +303,7 @@ export class WinBuildAdapter extends BuildAdapter {
       throw new Error(`Could not brand live plug-in host: ${pluginHostDst}`);
     }
 
-    const kaishakuDst = join(helpersDir, "kaishaku.exe");
+    const kaishakuDst = join(coreDir, "kaishaku.exe");
     const kaishakuRaw = findFileRecursively(BUILD_DIR, "kaishaku.exe");
     if (kaishakuRaw && existsSync(kaishakuRaw)) {
       if (existsSync(kaishakuDst)) rmSync(kaishakuDst, { force: true });

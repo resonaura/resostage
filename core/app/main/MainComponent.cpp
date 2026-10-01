@@ -269,9 +269,10 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
                              .getFullPathName()
                              .toStdString());
     auto exeDir = juce::File::getSpecialLocation(juce::File::currentApplicationFile).getParentDirectory();
-    // Packaged Windows workers live under helpers/; web assets remain with
+    // Packaged Windows workers live under core/; web assets remain with
     // Electron's resources at the package root. Raw/legacy layouts still work.
-    if (exeDir.getFileName().equalsIgnoreCase("helpers"))
+    if (exeDir.getFileName().equalsIgnoreCase("core")
+        || exeDir.getFileName().equalsIgnoreCase("helpers"))
         webServer.addWebRoot(exeDir.getParentDirectory().getChildFile("resources/web")
                                 .getFullPathName().toStdString());
     for (int i = 0; i < 6; ++i) {

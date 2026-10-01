@@ -34,7 +34,7 @@ an HTTP upload acknowledgement as a successful import.
 | --- | --- | --- |
 | macOS Apple Silicon | Core `Contents/Helpers/ResoStage Media.app/Contents/MacOS/ResoStage Media` | Build-time Homebrew GPL executable and recursively relocated non-system dylibs |
 | macOS Intel | Same branded app/executable | Pinned Evermeet GPL Intel executable |
-| Windows x64 / ARM64 | `helpers/media.exe` beside `helpers/core.exe` | Pinned BtbN GPL shared build, complete sibling DLL set |
+| Windows x64 / ARM64 | `core/media.exe` beside `core/core.exe` | Pinned BtbN GPL shared build, complete sibling DLL set |
 | Linux x64 / ARM64 | `resostage-media` beside Core | Pinned BtbN GPL static build |
 
 macOS helper libraries use bundle-relative install names. Architecture and

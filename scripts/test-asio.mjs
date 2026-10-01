@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const candidates = [
+  join(root, "build", "win", "x64", "core", "core.exe"),
   join(root, "build", "win", "x64", "helpers", "core.exe"),
   join(root, "build", "win", "x64", "core.exe"),
   join(root, "core", "build", "app", "RelWithDebInfo", "ResoStage.exe"),

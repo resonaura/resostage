@@ -6,7 +6,7 @@ Use the supplied `icons/helper.{icns,ico,png}` for scanner, plug-in host,
 media conversion, and Kaishaku. Keep Core's own artwork. All macOS helpers
 must have branded bundles, executable names, versions, descriptions, and icons.
 
-Package Windows Core and its sibling helpers/DLLs under `helpers/`; keep
+Package Windows Core and its sibling helpers/DLLs under `core/`; keep
 `resostage.exe` at the package root. Update Electron discovery and development
 fallbacks together. Core's existing sibling resolvers must remain valid. Keep
 FFmpeg notices beside the media worker. Avoid duplicating helper applications.
