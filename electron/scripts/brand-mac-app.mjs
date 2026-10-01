@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
-// ResoStage — Deterministic Real-Time Live Performance Workstation
-// Copyright © 2026 Andrii Vynohradov. All rights reserved.
-// Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
 
 // Produces a fully renamed + re-iconed copy of the installed node_modules/
 // electron Electron.app at the given destination path, so macOS shows
@@ -31,6 +33,8 @@ import { existsSync, readdirSync, rmSync, readFileSync, writeFileSync } from "no
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
+import { brandMacHelper, helperIcon } from "../../scripts/helpers/bundle.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ELECTRON_DIR = join(__dirname, "..");
@@ -56,6 +60,12 @@ function renameHelper(frameworksDir, entryName, suffix) {
   execFileSync("plutil", ["-replace", "CFBundleExecutable", "-string", newExe, plistPath]);
   const newDir = join(frameworksDir, `${newExe}.app`);
   execFileSync("mv", [oldDir, newDir]);
+  brandMacHelper(newDir, REPO_ROOT, {
+    name: newExe,
+    bundleId: `${BUNDLE_ID}.helper.${suffix.match(/GPU|Plugin|Renderer/)?.[0].toLowerCase() ?? "app"}`,
+    description: `ResoStage Chromium ${suffix ? suffix.slice(2, -1) : "utility"} process`,
+    copyright: "Electron and Chromium contributors; ResoStage packaging © 2026 Andrii Vynohradov",
+  });
 }
 
 function renameAllHelpers(destApp) {
@@ -87,6 +97,10 @@ function main() {
     return;
   }
   const electronVersion = JSON.parse(readFileSync(electronPkgJson, "utf8")).version;
+  // Artwork and branding policy can change independently of Electron. A
+  // cached shell must not silently retain an old helper icon/identity.
+  const artworkHash = createHash("sha256").update(readFileSync(helperIcon(REPO_ROOT, "icns"))).digest("hex");
+  const brandingStamp = `${electronVersion}\nhelper-branding-v1\n${artworkHash}`;
 
   const srcApp = join(electronPkgDir, "dist", "Electron.app");
   if (!existsSync(srcApp)) {
@@ -97,7 +111,7 @@ function main() {
   const stampFile = join(dirname(destApp), ".electron-version");
   if (existsSync(destApp) && existsSync(stampFile)) {
     const stamped = readFileSync(stampFile, "utf8").trim();
-    if (stamped === electronVersion) {
+    if (stamped === brandingStamp) {
       log(`${APP_NAME}.app shell already branded for Electron ${electronVersion} -- skipping`);
       return;
     }
@@ -219,7 +233,7 @@ function main() {
     }
   } catch {}
 
-  writeFileSync(stampFile, electronVersion);
+  writeFileSync(stampFile, brandingStamp);
   log(`Shell branded at ${destApp}`);
 }
 

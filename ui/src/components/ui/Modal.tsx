@@ -10,14 +10,15 @@ import { createContext, use, type ComponentProps } from "react";
 /**
  * App modal material.
  *
- * Every backdrop is blurred and every dialog uses the theme's `surface`
- * token. Keeping those defaults in this compound wrapper prevents feature
+ * Every backdrop is blurred and every dialog uses Card's darker, theme-aware
+ * material. Keeping those defaults in this compound wrapper prevents feature
  * dialogs from gradually inventing their own overlay colors.
  */
 type HeroModalProps = ComponentProps<typeof HeroModal>;
 type HeroBackdropProps = ComponentProps<typeof HeroModal.Backdrop>;
 type HeroContainerProps = ComponentProps<typeof HeroModal.Container>;
 type HeroDialogProps = ComponentProps<typeof HeroModal.Dialog>;
+type HeroCloseTriggerProps = ComponentProps<typeof HeroModal.CloseTrigger>;
 
 export type ModalProps = HeroModalProps;
 export interface ModalBackdropProps extends Omit<
@@ -108,13 +109,25 @@ function ModalDialog({ className, ...props }: ModalDialogProps) {
   );
 }
 
+/** Place directly inside Dialog. The shared CSS reserves header space for it. */
+// eslint-disable-next-line react/only-export-components
+function ModalCloseTrigger({ className, ...props }: HeroCloseTriggerProps) {
+  return (
+    <HeroModal.CloseTrigger
+      aria-label="Close"
+      className={classes("rs-modal-close-trigger", className)}
+      {...props}
+    />
+  );
+}
+
 export const Modal = Object.assign(ModalRoot, {
   Root: ModalRoot,
   Trigger: HeroModal.Trigger,
   Backdrop: ModalBackdrop,
   Container: ModalContainer,
   Dialog: ModalDialog,
-  CloseTrigger: HeroModal.CloseTrigger,
+  CloseTrigger: ModalCloseTrigger,
   Header: HeroModal.Header,
   Icon: HeroModal.Icon,
   Heading: HeroModal.Heading,

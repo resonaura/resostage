@@ -4,8 +4,8 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { Button } from "@/components/ui";
-import { RefreshCw, X } from "lucide-react";
+import { Button, Modal } from "@/components/ui";
+import { RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { fetchMixGraph } from "@/lib/state/api";
 import { SignalFlowGraph } from "@/screens/settings/audio/components/SignalFlowGraph";
@@ -53,31 +53,18 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
     };
   }, [live]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <div
-      className="rs-modal-backdrop fixed inset-0 z-9999 flex items-center justify-center p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Signal flow"
-      onClick={onClose}
-    >
-      <div
-        className="rs-modal-surface flex h-full w-full max-w-350 flex-col overflow-hidden rounded-xl border border-default/40 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-center gap-3 border-b border-default/25 px-4 py-2.5">
+    <Modal isOpen onOpenChange={(open) => !open && onClose()}>
+      <Modal.Backdrop>
+        <Modal.Container size="cover" placement="center">
+          <Modal.Dialog aria-label="Signal flow"
+            className="h-[calc(100dvh-3rem)] w-full max-w-350 overflow-hidden p-0">
+            <Modal.CloseTrigger />
+        <Modal.Header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-default/25 px-4 py-2.5">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-foreground">
+            <Modal.Heading className="text-sm font-semibold text-foreground">
               Signal flow
-            </h2>
+            </Modal.Heading>
             <p className="truncate text-[11px] text-foreground/45">
               Exactly what the audio engine is rendering — sources on the left,
               physical outputs on the right.
@@ -111,19 +98,10 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
               />
               {live ? "Live" : "Frozen"}
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onPress={onClose}
-              className="h-7! min-h-0! px-2! text-[11px]"
-              aria-label="Close"
-            >
-              <X size={13} />
-            </Button>
           </div>
-        </div>
+        </Modal.Header>
 
-        <div className="min-h-0 flex-1">
+        <Modal.Body className="min-h-0 flex-1 p-0">
           {error ? (
             <div className="flex h-full items-center justify-center px-6 text-center text-sm text-warning">
               Couldn't read the routing graph from the engine. Is the ResoStage
@@ -136,7 +114,7 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
           ) : (
             <SignalFlowGraph graph={graph} />
           )}
-        </div>
+        </Modal.Body>
 
         {graph && graph.strips.length > 0 && (
           <div className="flex shrink-0 items-center gap-4 border-t border-default/25 px-4 py-1.5 text-[10px] text-foreground/40">
@@ -147,7 +125,9 @@ export function SignalFlowDialog({ onClose }: { onClose: () => void }) {
             </span>
           </div>
         )}
-      </div>
-    </div>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }

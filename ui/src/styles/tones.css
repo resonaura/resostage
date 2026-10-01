@@ -215,8 +215,23 @@
 
 .modal__dialog.rs-modal-surface,
 .rs-modal-surface {
-  background-color: var(--surface);
-  color: var(--surface-foreground);
+  background-color: var(--color-background-secondary);
+  color: var(--foreground);
+  border: 1px solid var(--color-background-tertiary);
+  border-radius: 1rem;
+}
+
+/* A close control belongs to Dialog, not to the header's flex layout. Keep
+   its hit target fixed, including narrow dialogs with long/multiline titles. */
+.rs-modal-surface > .rs-modal-close-trigger {
+  position: absolute;
+  inset-inline-end: 1rem;
+  top: 1rem;
+  z-index: 2;
+}
+
+.rs-modal-surface:has(> .rs-modal-close-trigger) > .modal__header {
+  padding-inline-end: 4rem;
 }
 
 /* ── 2b. Toggle density: the DAW step below HeroUI's smallest ──────────────

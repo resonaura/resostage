@@ -105,6 +105,7 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
       <Modal.Backdrop>
         <Modal.Container size="md">
           <Modal.Dialog>
+            <Modal.CloseTrigger />
             <Modal.Header><Modal.Heading>Export MIDI</Modal.Heading></Modal.Header>
             <Modal.Body className="space-y-4">
               <p className="text-xs text-foreground/60">Choose one song or several. Selected songs are concatenated in project order; the MIDI tempo and meter track follows every song and its changes.</p>

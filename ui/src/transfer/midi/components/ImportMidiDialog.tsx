@@ -195,6 +195,7 @@ export function ImportMidiDialog({
       <Modal.Backdrop>
         <Modal.Container size="md">
           <Modal.Dialog>
+            <Modal.CloseTrigger isDisabled={busy} />
             <Modal.Header><Modal.Heading>Import MIDI</Modal.Heading></Modal.Header>
             <Modal.Body className="space-y-4">
               <p className="text-xs text-foreground/65">

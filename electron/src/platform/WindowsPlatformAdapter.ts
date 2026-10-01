@@ -21,6 +21,7 @@ import {
   type PlatformMenuSections,
 } from "@/platform/PlatformAdapter.js";
 import { createSystemTray, type SystemTray } from "@/platform/tray.js";
+import { windowsHelperCandidates } from "@/platform/windowsHelpers.js";
 
 const CORE_EXE = "core.exe";
 const OLD_CORE_EXE = "ResoStage Core.exe";
@@ -34,6 +35,16 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
   constructor(context: PlatformContext) {
     super(context);
     this.tray = createSystemTray(context);
+  }
+
+  private helperCandidates(names: readonly string[]): string[] {
+    return windowsHelperCandidates(names, {
+      shellExecutable: process.execPath,
+      resourcesDirectory: process.resourcesPath,
+      sourceDirectory: import.meta.dirname,
+      workingDirectory: process.cwd(),
+      architecture: process.arch,
+    });
   }
 
   override cleanupBeforeBackendSpawn(): void {
@@ -70,45 +81,7 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
   }
 
   override forceKillSelfTree(backendPid?: number): void {
-    const exe = process.execPath;
-    const candidates = [
-      path.join(path.dirname(exe), "kaishaku.exe"),
-      path.join(process.resourcesPath, "..", "kaishaku.exe"),
-      path.join(process.resourcesPath, "kaishaku.exe"),
-      path.join(
-        import.meta.dirname,
-        "..",
-        "..",
-        "..",
-        "build",
-        "win",
-        process.arch,
-        "kaishaku.exe",
-      ),
-      path.join(process.cwd(), "build", "win", process.arch, "kaishaku.exe"),
-      path.join(
-        import.meta.dirname,
-        "..",
-        "..",
-        "..",
-        "build",
-        "win",
-        "arm64",
-        "kaishaku.exe",
-      ),
-      path.join(
-        import.meta.dirname,
-        "..",
-        "..",
-        "..",
-        "build",
-        "win",
-        "x64",
-        "kaishaku.exe",
-      ),
-      path.join(process.cwd(), "build", "win", "arm64", "kaishaku.exe"),
-      path.join(process.cwd(), "build", "win", "x64", "kaishaku.exe"),
-    ];
+    const candidates = this.helperCandidates(["kaishaku.exe"]);
     let kaishakuPath: string | null = null;
     for (const cand of candidates) {
       if (existsSync(cand)) {
@@ -153,38 +126,7 @@ export class WindowsPlatformAdapter extends PlatformAdapter {
 
   override findNestedCoreBinary(): string | null {
     const candidateNames = [CORE_EXE, OLD_CORE_EXE, "ResoStage.exe"];
-    for (const name of candidateNames) {
-      const p = path.join(process.resourcesPath, "..", name);
-      if (existsSync(p)) return p;
-    }
-
-    const devCandidateDirs = [
-      path.join(import.meta.dirname, "..", "..", "..", "build", "win", "x64"),
-      path.join(process.cwd(), "build", "win", "x64"),
-      path.join(
-        process.cwd(),
-        "core",
-        "build",
-        "app",
-        "ResoStage_artefacts",
-        "RelWithDebInfo",
-      ),
-      path.join(
-        process.cwd(),
-        "core",
-        "build",
-        "app",
-        "ResoStage_artefacts",
-        "Debug",
-      ),
-    ];
-    for (const dir of devCandidateDirs) {
-      for (const name of candidateNames) {
-        const cand = path.join(dir, name);
-        if (existsSync(cand)) return cand;
-      }
-    }
-    return null;
+    return this.helperCandidates(candidateNames).find(existsSync) ?? null;
   }
 
   override applyMenu(menu: Menu): void {

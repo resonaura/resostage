@@ -9,13 +9,17 @@ import {
   ChevronDown,
   ChevronRight,
   FolderOutput,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AudioRenderOptions } from "@/lib/state/api";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal, Select, Switch } from "@/components/ui";
 import { useAudioRenderJob } from "@/transfer/render/hooks/useAudioRenderJob";
+import { RenderFormatFields } from "@/transfer/render/components/RenderFormatFields";
+import {
+  estimatedRenderBytes, renderFormatProfile, resolveRenderEncoding,
+  type RenderFormat,
+} from "@/transfer/render/logic/renderFormats";
 import {
   formatBytes,
   formatDuration,
@@ -64,9 +68,9 @@ export function RenderAudioDialog({
     () => new Set(["master"]),
   );
   const [sampleRate, setSampleRate] = useState(
-    String(Math.round(state.sampleRate || 48000)),
+    resolveRenderEncoding("wav", String(Math.round(state.sampleRate || 48000)), "24").sampleRate,
   );
-  const [outputFormat, setOutputFormat] = useState<AudioRenderOptions["outputFormat"]>("wav");
+  const [outputFormat, setOutputFormat] = useState<RenderFormat>("wav");
   const [bitDepth, setBitDepth] = useState<"16" | "24" | "32">("24");
   const [tailPolicy, setTailPolicy] = useState<TailPolicy>("leave");
   const [tailThresholdDb, setTailThresholdDb] = useState("-96");
@@ -187,15 +191,9 @@ export function RenderAudioDialog({
       ? state.songs.reduce((sum, song) => sum + songDuration(song), 0)
       : Math.max(0, range.end - range.start);
   const upperTail = tailPolicy === "leave" ? Number(maxTailSeconds) || 0 : 0;
-  const estimatedBytes =
-    outputFormat === "wav" || outputFormat === "aiff"
-      ? selectedOutputs.length * (upperDuration + upperTail) * Number(sampleRate) * 2 * (Number(bitDepth) / 8)
-      : selectedOutputs.length * (upperDuration + upperTail) * (
-          outputFormat === "mp3" ? 16000
-            : outputFormat === "opus" ? 20000
-              : outputFormat === "flac" || outputFormat === "alac" ? Number(sampleRate) * 2 * 2.5
-                : 28000
-        );
+  const formatProfile = renderFormatProfile(outputFormat);
+  const estimatedBytes = estimatedRenderBytes(outputFormat, upperDuration + upperTail,
+    selectedOutputs.length, Number(sampleRate), bitDepth);
 
   const toggleOutput = (key: string, enabled: boolean) => {
     setSelected((current) => {
@@ -211,7 +209,7 @@ export function RenderAudioDialog({
       setSelected(new Set(["master"]));
       setScope(cycleAvailable ? "cycle" : "song");
       setTailPolicy("wrap");
-      setBitDepth("32");
+      setBitDepth(resolveRenderEncoding(outputFormat, sampleRate, "32").bitDepth);
       setDither("none");
       setNormalization("off");
       return;
@@ -278,25 +276,23 @@ export function RenderAudioDialog({
             aria-label="Render and export audio"
             className="max-h-[88vh] rounded-xl border border-default/40 p-0 shadow-2xl"
           >
+            {!rendering && <Modal.CloseTrigger />}
             <Modal.Header className="flex items-center justify-between border-b border-default/20 px-5 py-4">
-              <div className="flex items-center gap-2 text-lg font-bold text-accent">
+              <Modal.Heading className="flex items-center gap-2 text-lg font-bold text-accent">
                 <AudioLines size={20} /> Render / Export
-              </div>
-              {!rendering && (
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="ghost"
-                  aria-label="Close"
-                  onPress={onClose}
-                >
-                  <X size={16} />
-                </Button>
-              )}
+              </Modal.Heading>
             </Modal.Header>
 
             <Modal.Body className="grid min-h-0 gap-0 overflow-y-auto p-0 md:grid-cols-[minmax(0,1fr)_17rem]">
               <div className="space-y-5 p-5">
+                <RenderFormatFields format={outputFormat} sampleRate={sampleRate} bitDepth={bitDepth}
+                  onChange={(format, rate, depth) => {
+                    setOutputFormat(format);
+                    setSampleRate(rate);
+                    setBitDepth(depth);
+                    if (!renderFormatProfile(format).bitDepths.length || depth === "32") setDither("none");
+                    else if (depth !== bitDepth) setDither(depth === "16" ? "tpdf" : "none");
+                  }} />
                 <Section title="Preset">
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -411,56 +407,6 @@ export function RenderAudioDialog({
                   </p>
                 </Section>
 
-                <Section title="Format">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Sample rate">
-                      <Select
-                        size="sm"
-                        value={sampleRate}
-                        onChange={setSampleRate}
-                        options={[44100, 48000, 88200, 96000, 192000].map(
-                          (n) => ({ id: String(n), label: `${n / 1000} kHz` }),
-                        )}
-                      />
-                    </Field>
-                    <Field label="File format">
-                      <Select
-                        size="sm"
-                        value={outputFormat}
-                        onChange={(value) => setOutputFormat(value as AudioRenderOptions["outputFormat"])}
-                        options={[
-                          { id: "wav", label: "WAV (PCM / float)" },
-                          { id: "aiff", label: "AIFF (PCM)" },
-                          { id: "flac", label: "FLAC" },
-                          { id: "alac", label: "ALAC (M4A)" },
-                          { id: "mp3", label: "MP3" },
-                          { id: "m4a", label: "AAC (M4A)" },
-                          { id: "opus", label: "Opus" },
-                          { id: "ogg", label: "Ogg Vorbis" },
-                          { id: "wma", label: "WMA" },
-                        ]}
-                      />
-                    </Field>
-                    <Field label={outputFormat === "aiff" ? "AIFF encoding" : "WAV encoding"}>
-                      <Select
-                        size="sm"
-                        value={bitDepth}
-                        isDisabled={!(["wav", "aiff"].includes(outputFormat))}
-                        onChange={(value) => {
-                          const next = value as "16" | "24" | "32";
-                          setBitDepth(next);
-                          setDither(next === "16" ? "tpdf" : "none");
-                        }}
-                        options={[
-                          { id: "16", label: "16-bit PCM" },
-                          { id: "24", label: "24-bit PCM" },
-                          { id: "32", label: outputFormat === "aiff" ? "32-bit PCM" : "32-bit float" },
-                        ]}
-                      />
-                    </Field>
-                  </div>
-                </Section>
-
                 <Section title="Tail">
                   <div className="grid grid-cols-3 gap-2">
                     <Choice
@@ -534,7 +480,7 @@ export function RenderAudioDialog({
                       <Select
                         size="sm"
                         value={dither}
-                        isDisabled={bitDepth === "32"}
+                        isDisabled={bitDepth === "32" || !formatProfile.bitDepths.length}
                         onChange={(value) =>
                           setDither(value as "none" | "tpdf")
                         }
@@ -611,12 +557,13 @@ export function RenderAudioDialog({
                   label="Files"
                   value={String(selectedOutputs.length)}
                 />
+                <SummaryRow label="Format" value={formatProfile.label} />
                 <SummaryRow
                   label="Range"
                   value={formatDuration(upperDuration)}
                 />
                 <SummaryRow
-                  label="Maximum size"
+                  label="Estimated size"
                   value={formatBytes(estimatedBytes)}
                 />
                 <SummaryRow label="Destination" value="Core Exports folder" />
@@ -657,7 +604,7 @@ export function RenderAudioDialog({
               >
                 {rendering
                   ? `Rendering ${Math.round((renderStatus?.progress ?? 0) * 100)}%`
-                  : `Render ${selectedOutputs.length || ""} WAV${selectedOutputs.length === 1 ? "" : "s"}`}
+                  : `Export ${selectedOutputs.length || ""} ${formatProfile.label} ${selectedOutputs.length === 1 ? "file" : "files"}`}
               </Button>
             </Modal.Footer>
           </Modal.Dialog>

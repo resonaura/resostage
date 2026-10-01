@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { existsSync, rmSync, cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, cpSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { BuildAdapter } from "./BuildAdapter.mjs";
@@ -29,6 +29,7 @@ import {
 import { publishMac, adhocSignBundle, ENTITLEMENTS } from "../publish.mjs";
 import { prepareFFmpegRuntime } from "../ffmpeg-runtime.mjs";
 import { installMacMediaHelper } from "../media/bundle.mjs";
+import { brandMacHelper, installMacNativeHelper } from "../helpers/bundle.mjs";
 
 export class MacBuildAdapter extends BuildAdapter {
   get key() {
@@ -230,23 +231,24 @@ export class MacBuildAdapter extends BuildAdapter {
     if (!existsSync(hostRaw)) {
       throw new Error("Live plug-in host executable is missing from the native build");
     }
-    const hostBundle = join(coreDst, "Contents", "Helpers", "ResoStage Plug-in Host.app");
-    const hostContents = join(hostBundle, "Contents");
-    const hostMacOS = join(hostContents, "MacOS");
-    const hostResources = join(hostContents, "Resources");
-    mkdirSync(hostMacOS, { recursive: true });
-    mkdirSync(hostResources, { recursive: true });
-    // Keep the helper's asset separate from Core's. A dedicated host icon can
-    // be added later without changing the bundle layout or executable path.
-    const dedicatedHostIcon = join(ROOT, "icons", "plugin-host.icns");
-    const hostIcon = existsSync(dedicatedHostIcon) ? dedicatedHostIcon : coreIcns;
-    if (!existsSync(hostIcon)) {
-      throw new Error(`Live plug-in host icon is missing: ${hostIcon}`);
-    }
-    cpSync(hostRaw, join(hostMacOS, "ResoStage Plug-in Host"));
+    installMacNativeHelper(hostRaw, coreDst, ROOT, {
+      name: "ResoStage Plug-in Host", bundleId: "com.resonaura.resostage.pluginhost",
+      description: "ResoStage isolated live AU/VST3 plug-in host",
+    });
+    const scannerRaw = join(
+      BUILD_DIR, "app", "resostage_plugin_scanner_artefacts", BUILD_TYPE,
+      "ResoStage Plugin Scanner",
+    );
+    installMacNativeHelper(scannerRaw, coreDst, ROOT, {
+      name: "ResoStage Plugin Scanner", bundleId: "com.resonaura.resostage.pluginscan",
+      description: "ResoStage isolated AU/VST3 plug-in discovery worker",
+    });
     // Raw CMake copies a sibling helper beside Core's executable. The
     // shipping bundle launches the branded nested app instead.
     rmSync(join(coreDst, "Contents", "MacOS", "ResoStage Plug-in Host"), {
+      force: true,
+    });
+    rmSync(join(coreDst, "Contents", "MacOS", "ResoStage Plugin Scanner"), {
       force: true,
     });
     // CMake does not delete artifacts left by an older OUTPUT_NAME, so a
@@ -256,30 +258,6 @@ export class MacBuildAdapter extends BuildAdapter {
     });
     rmSync(join(coreDst, "Contents", "MacOS", "resostage-plugin-scanner"), {
       force: true,
-    });
-    cpSync(hostIcon, join(hostResources, "AppIcon.icns"));
-    const { version } = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    if (!/^\d+(?:\.\d+){0,3}$/.test(version)) {
-      throw new Error(`Invalid ResoStage bundle version: ${version}`);
-    }
-    writeFileSync(join(hostContents, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleIdentifier</key><string>com.resonaura.resostage.pluginhost</string>
-  <key>CFBundleName</key><string>ResoStage Plug-in Host</string>
-  <key>CFBundleDisplayName</key><string>ResoStage Plug-in Host</string>
-  <key>CFBundleExecutable</key><string>ResoStage Plug-in Host</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleIconFile</key><string>AppIcon.icns</string>
-  <key>CFBundleShortVersionString</key><string>${version}</string>
-  <key>CFBundleVersion</key><string>${version}</string>
-  <key>CFBundleGetInfoString</key><string>ResoStage isolated live plug-in host</string>
-  <key>NSHumanReadableCopyright</key><string>Copyright Resonaura</string>
-  <key>LSUIElement</key><true/>
-</dict></plist>
-`);
-    execFileSync("/usr/bin/plutil", ["-lint", join(hostContents, "Info.plist")], {
-      stdio: "ignore",
     });
 
     const kaishakuRawApp =
@@ -310,13 +288,10 @@ export class MacBuildAdapter extends BuildAdapter {
         if (existsSync(legacy2))
           rmSync(legacy2, { recursive: true, force: true });
 
-        // Copy icon into ResoStage Kaishaku.app if present
-        const kaishakuIcns = join(ROOT, "icons", "kaishaku.icns");
-        if (existsSync(kaishakuIcns)) {
-          const appResources = join(kaishakuDst, "Contents", "Resources");
-          mkdirSync(appResources, { recursive: true });
-          cpSync(kaishakuIcns, join(appResources, "AppIcon.icns"), { force: true });
-        }
+        brandMacHelper(kaishakuDst, ROOT, {
+          name: "ResoStage Kaishaku", bundleId: "com.resonaura.resostage.kaishaku",
+          description: "ResoStage emergency process shutdown helper",
+        });
 
         try {
           execFileSync("codesign", [

@@ -79,6 +79,7 @@ export function ImportAudioBatchDialog({
       <Modal.Backdrop>
         <Modal.Container size="md">
           <Modal.Dialog>
+            <Modal.CloseTrigger isDisabled={busy} />
             <Modal.Header><Modal.Heading>Import media files</Modal.Heading></Modal.Header>
             <Modal.Body className="space-y-3">
               <p className="text-xs text-foreground/65">

@@ -18,6 +18,10 @@ a background operation, separate from live audio and the plug-in DSP helpers.
   Opus, Ogg/Vorbis, or WMA. Conversion never substitutes for plug-in rendering.
   Integer output applies final TPDF dither rather than dithering an intermediate
   float render twice. Output files are published without replacing existing files.
+  The export dialog starts with the format picker, defaults to WAV, labels the
+  selected encoder in the summary/action, and limits rates/bit depths to the
+  selected codec. Lossy formats show their quality profile instead of a misleading
+  disabled WAV-encoding field. FLAC/ALAC offer 16/24-bit; WAV/AIFF also offer float.
 
 Imports retain source offsets, extend explicit song boundaries when required,
 use unique resources for repeated filenames, and enter shared history only on
@@ -30,13 +34,13 @@ an HTTP upload acknowledgement as a successful import.
 | --- | --- | --- |
 | macOS Apple Silicon | Core `Contents/Helpers/ResoStage Media.app/Contents/MacOS/ResoStage Media` | Build-time Homebrew GPL executable and recursively relocated non-system dylibs |
 | macOS Intel | Same branded app/executable | Pinned Evermeet GPL Intel executable |
-| Windows x64 / ARM64 | `media.exe` beside `core.exe` | Pinned BtbN GPL shared build, complete sibling DLL set |
+| Windows x64 / ARM64 | `helpers/media.exe` beside `helpers/core.exe` | Pinned BtbN GPL shared build, complete sibling DLL set |
 | Linux x64 / ARM64 | `resostage-media` beside Core | Pinned BtbN GPL static build |
 
 macOS helper libraries use bundle-relative install names. Architecture and
-dependency closure are verified before bottom-up signing. The helper inherits
-the Core icon until a dedicated `icons/media.icns` is supplied. Windows uses
-`icons/media.ico` when available and otherwise the Core icon. Its PE metadata
+dependency closure are verified before bottom-up signing. Media, scanner, host,
+and Kaishaku use the supplied shared `icons/helper.icns` / `icons/helper.ico`
+artwork, independent of Core's icon. The media worker's PE metadata
 identifies ResoStage's media worker while retaining FFmpeg attribution.
 
 `scripts/ffmpeg-runtime.mjs` defines versioned package URLs/hashes and runtime
@@ -93,7 +97,6 @@ hardware execution there and a physical Intel macOS pass remain release checks.
 Integration is implemented. Full outer-app assembly/signature and actual
 HTTP import/export acceptance after concurrent changes remain separate checks;
 standalone codec smoke cannot prove project/history commit or vendor rendering.
-The earlier full native run had one AU-editor timing failure during compilation,
-which passed alone afterward; rerun idle before presenting a clean full result.
+The idle full native run on 2026-10-01 passed all 517 cases and 214,921 assertions.
 Do not infer ARM Windows/Linux or physical Intel Mac coverage from pinned
 packages or Rosetta. The current plan is [ai/tasks/media.md](ai/tasks/media.md).

@@ -217,6 +217,37 @@ private:
 };
 } // namespace
 
+TEST_CASE("OfflineRenderer respects disabled click generation without changing routing") {
+    Project project;
+    project.sampleRate = 48000.0;
+    project.click.enabled = false;
+    project.click.mute = false;
+    project.click.output.type = OutputType::Main;
+    SongDef song;
+    song.name = "Silent metronome";
+    song.endSeconds = 0.05;
+    project.songs.push_back(song);
+    const auto mainPath = temporaryWAVPath("-disabled-main");
+    const auto clickPath = temporaryWAVPath("-disabled-click");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.sampleRate = 48000;
+    request.bitDepth = 24;
+    request.targets = {
+        {RenderTargetKind::Master, {}, mainPath.string()},
+        {RenderTargetKind::Click, {}, clickPath.string()},
+    };
+    OfflineRenderer renderer;
+    const auto result = renderer.render(project, "", request);
+    REQUIRE(result.ok);
+    CHECK(maxPcm24Amplitude(mainPath) == doctest::Approx(0.0));
+    CHECK(maxPcm24Amplitude(clickPath) == doctest::Approx(0.0));
+    CHECK_FALSE(project.click.mute);
+    std::error_code ignored;
+    std::filesystem::remove(mainPath, ignored);
+    std::filesystem::remove(clickPath, ignored);
+}
+
 TEST_CASE("OfflineRenderer writes a bounded click stem with a valid WAV header") {
     Project project;
     project.name = "Render test";

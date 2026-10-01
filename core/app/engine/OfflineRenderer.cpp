@@ -558,7 +558,9 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
             }
 
             const uint32_t clickStrip = graph.find("audio::click");
-            if (clickStrip != MixGraph::kNoStrip && contentCount > 0) {
+            // Match live playback: disabled metronome means no generated
+            // signal, not a muted strip. Offline rendering has no count-in.
+            if (project.click.enabled && clickStrip != MixGraph::kNoStrip && contentCount > 0) {
                 click.render(clickMono.data(), contentCount, sourceFrameBase);
                 float* l = mixer.sourceChannel(clickStrip, 0);
                 float* r = mixer.sourceChannel(clickStrip, 1);

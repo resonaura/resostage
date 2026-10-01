@@ -102,12 +102,13 @@ juce::File PluginCatalogService::findHelperExecutable() {
 #if JUCE_WINDOWS
     return app.getSiblingFile("pluginscan.exe");
 #elif JUCE_MAC
-    // JUCE returns the outer .app bundle here, while Windows/Linux return the
-    // executable itself. The helper is embedded beside the bundle executable.
-    if (app.isDirectory())
-        return app.getChildFile("Contents").getChildFile("MacOS")
-                  .getChildFile("ResoStage Plugin Scanner");
-    return app.getSiblingFile("ResoStage Plugin Scanner");
+    // JUCE can return either the bundle or executable. Packaged builds use
+    // the branded helper app; raw CMake builds retain the sibling executable.
+    const auto coreBundle = app.isDirectory() ? app : app.getParentDirectory().getParentDirectory().getParentDirectory();
+    const auto bundled = coreBundle.getChildFile("Contents/Helpers/ResoStage Plugin Scanner.app/Contents/MacOS/ResoStage Plugin Scanner");
+    if (bundled.existsAsFile()) return bundled;
+    return app.isDirectory() ? app.getChildFile("Contents/MacOS/ResoStage Plugin Scanner")
+                             : app.getSiblingFile("ResoStage Plugin Scanner");
 #else
     return app.getSiblingFile("resostage-plugin-scanner");
 #endif

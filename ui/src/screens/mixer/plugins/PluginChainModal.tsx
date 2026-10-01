@@ -13,7 +13,6 @@ import {
   Power,
   Search,
   Trash2,
-  X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -115,6 +114,7 @@ export function PluginChainModal({
             aria-label={`${chainTitle} for ${stripName}`}
             className="max-h-[86vh] rounded-xl border border-default/40 p-0 shadow-2xl"
           >
+            <Modal.CloseTrigger aria-label={`Close ${chainTitle}`} />
             <Modal.Header className="flex items-center justify-between border-b border-default/20 px-5 py-4">
               <div className="min-w-0">
                 <Modal.Heading className="truncate text-base font-bold">
@@ -124,15 +124,6 @@ export function PluginChainModal({
                   Post-input, pre-fader. Order is top to bottom.
                 </p>
               </div>
-              <Button
-                isIconOnly
-                size="sm"
-                variant="ghost"
-                aria-label={`Close ${chainTitle}`}
-                onPress={onClose}
-              >
-                <X size={16} />
-              </Button>
             </Modal.Header>
 
             <Modal.Body className="grid min-h-0 gap-0 overflow-hidden p-0 md:grid-cols-[minmax(0,1fr)_minmax(16rem,0.8fr)]">

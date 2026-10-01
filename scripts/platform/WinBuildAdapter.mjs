@@ -27,6 +27,7 @@ import {
 
 import { publishWindows } from "../publish.mjs";
 import { installFFmpegRuntime, prepareFFmpegRuntime, verifyFFmpegRuntime } from "../ffmpeg-runtime.mjs";
+import { helperIcon } from "../helpers/bundle.mjs";
 
 export class WinBuildAdapter extends BuildAdapter {
   get key() {
@@ -100,7 +101,7 @@ export class WinBuildAdapter extends BuildAdapter {
     icoPath,
     exeName = "resostage.exe",
     description = "ResoStage Live Performance Engine",
-    copyright = "Copyright Resonaura",
+    copyright = "Copyright © 2026 Andrii Vynohradov. All rights reserved.",
   ) {
     if (!existsSync(exePath)) return false;
     try {
@@ -111,6 +112,9 @@ export class WinBuildAdapter extends BuildAdapter {
       if (icoPath && existsSync(icoPath)) {
         const icoBuf = readFileSync(icoPath);
         const ico = Data.IconFile.from(icoBuf);
+        // Lowest resource group wins in Explorer. Remove vendor/legacy groups
+        // instead of leaving Electron/JUCE artwork ahead of our replacement.
+        res.entries = res.entries.filter((entry) => entry.type !== 3 && entry.type !== 14);
         Resource.IconGroupEntry.replaceIconsForResource(
           res.entries,
           1,
@@ -247,35 +251,40 @@ export class WinBuildAdapter extends BuildAdapter {
       cpSync(webSrc, webDst, { recursive: true });
     }
 
-    const coreDst = join(shellDir, `${CORE_APP_NAME}.exe`);
+    // Core and all of its sibling workers/DLLs stay together. This preserves
+    // native sibling lookup and Windows DLL search without cluttering the root.
+    const helpersDir = join(shellDir, "helpers");
+    mkdirSync(helpersDir, { recursive: true });
+    const workerIcon = helperIcon(ROOT, "ico");
+    const coreDst = join(helpersDir, `${CORE_APP_NAME}.exe`);
     if (existsSync(coreDst)) rmSync(coreDst, { force: true });
     if (rawCore && existsSync(rawCore)) {
       cpSync(rawCore, coreDst);
       const coreIco = join(ROOT, "icons", "core.ico");
-      this.patchWindowsExeMetadata(coreDst, existsSync(coreIco) ? coreIco : null, "core.exe");
+      this.patchWindowsExeMetadata(coreDst, existsSync(coreIco) ? coreIco : null, "core.exe", "ResoStage Core Audio and Control Engine");
     }
-    const mediaExecutable = join(shellDir, "media.exe");
+    const mediaExecutable = join(helpersDir, "media.exe");
     installFFmpegRuntime(
       ffmpegRuntime,
       mediaExecutable,
-      join(shellDir, "FFmpeg"),
+      join(helpersDir, "FFmpeg"),
     );
-    const dedicatedMediaIcon = join(ROOT, "icons", "media.ico");
-    const mediaIcon = existsSync(dedicatedMediaIcon) ? dedicatedMediaIcon : join(ROOT, "icons", "core.ico");
-    if (!existsSync(mediaIcon) || !this.patchWindowsExeMetadata(
-      mediaExecutable, mediaIcon, "media.exe", "ResoStage Media Conversion Worker (FFmpeg)",
+    if (!this.patchWindowsExeMetadata(
+      mediaExecutable, workerIcon, "media.exe", "ResoStage Media Conversion Worker (FFmpeg)",
       "FFmpeg and its contributors; see the accompanying FFmpeg notices",
     )) throw new Error(`Could not brand media worker: ${mediaExecutable}`);
-    verifyFFmpegRuntime(shellDir, process.platform, process.arch, "media.exe");
+    verifyFFmpegRuntime(helpersDir, process.platform, process.arch, "media.exe");
 
-    const scannerDst = join(shellDir, "pluginscan.exe");
+    const scannerDst = join(helpersDir, "pluginscan.exe");
     const scannerRaw = findFileRecursively(BUILD_DIR, "pluginscan.exe");
     if (scannerRaw && existsSync(scannerRaw)) {
       rmSync(scannerDst, { force: true });
       cpSync(scannerRaw, scannerDst);
     }
+    if (!this.patchWindowsExeMetadata(scannerDst, workerIcon, "pluginscan.exe",
+      "ResoStage Isolated Plug-in Scanner")) throw new Error(`Could not brand scanner: ${scannerDst}`);
 
-    const pluginHostDst = join(shellDir, "pluginhost.exe");
+    const pluginHostDst = join(helpersDir, "pluginhost.exe");
     const pluginHostRaw = join(
       BUILD_DIR, "app", "resostage_plugin_host_artefacts", BUILD_TYPE,
       "pluginhost.exe",
@@ -285,27 +294,23 @@ export class WinBuildAdapter extends BuildAdapter {
     }
     rmSync(pluginHostDst, { force: true });
     cpSync(pluginHostRaw, pluginHostDst);
-    // Use Core's artwork until a dedicated plugin-host.ico is supplied.
-    const dedicatedHostIco = join(ROOT, "icons", "plugin-host.ico");
-    const coreIco = join(ROOT, "icons", "core.ico");
-    const hostIco = existsSync(dedicatedHostIco) ? dedicatedHostIco : coreIco;
-    if (!existsSync(hostIco) || !this.patchWindowsExeMetadata(
+    if (!this.patchWindowsExeMetadata(
       pluginHostDst,
-      hostIco,
+      workerIcon,
       "pluginhost.exe",
       "ResoStage Isolated Live Plug-in Host",
     )) {
       throw new Error(`Could not brand live plug-in host: ${pluginHostDst}`);
     }
 
-    const kaishakuDst = join(shellDir, "kaishaku.exe");
+    const kaishakuDst = join(helpersDir, "kaishaku.exe");
     const kaishakuRaw = findFileRecursively(BUILD_DIR, "kaishaku.exe");
     if (kaishakuRaw && existsSync(kaishakuRaw)) {
       if (existsSync(kaishakuDst)) rmSync(kaishakuDst, { force: true });
       cpSync(kaishakuRaw, kaishakuDst);
-      const kaishakuIco = join(ROOT, "icons", "kaishaku.ico");
-      this.patchWindowsExeMetadata(kaishakuDst, existsSync(kaishakuIco) ? kaishakuIco : null, "kaishaku.exe");
     }
+    if (!this.patchWindowsExeMetadata(kaishakuDst, workerIcon, "kaishaku.exe",
+      "ResoStage Emergency Process Shutdown Helper")) throw new Error(`Could not brand Kaishaku: ${kaishakuDst}`);
 
     ok(`Assembled ${shellBundle}`);
   }

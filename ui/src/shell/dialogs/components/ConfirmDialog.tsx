@@ -5,7 +5,7 @@
  */
 
 import { useEffect } from "react";
-import { Button } from "@/components/ui";
+import { Button, Modal } from "@/components/ui";
 
 /** In-app confirm dialog (replaces native window.confirm / AlertWindow for web). */
 export function ConfirmDialog({
@@ -34,56 +34,34 @@ export function ConfirmDialog({
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      } else if (e.key === "Enter") {
+      // React Aria owns Escape and focused-button activation. Keep the
+      // historical default Enter action without firing a button twice.
+      if (e.key === "Enter" && !(e.target instanceof Element &&
+        e.target.closest("button, input, textarea, [contenteditable='true']"))) {
         e.preventDefault();
         onConfirm();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onCancel, onConfirm]);
+  }, [open, onConfirm]);
 
   if (!open) return null;
 
-  const handleConfirm = (e?: any) => {
-    if (e && typeof e.stopPropagation === "function") e.stopPropagation();
-    onConfirm();
-  };
-
-  const handleCancel = (e?: any) => {
-    if (e && typeof e.stopPropagation === "function") e.stopPropagation();
-    onCancel();
-  };
-
-  const handleThird = (e?: any) => {
-    if (e && typeof e.stopPropagation === "function") e.stopPropagation();
-    if (onThird) onThird();
-  };
-
   return (
-    <div
-      className="rs-modal-backdrop fixed inset-0 z-9999 flex items-center justify-center p-4 select-none"
-      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      role="dialog"
-      aria-modal="true"
-      onClick={handleCancel}
-    >
-      <div
-        className="rs-modal-surface w-full max-w-md rounded-xl border border-default/40 p-5 shadow-2xl"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-base font-semibold text-foreground">{title}</h2>
-        <p className="mt-2 text-sm text-foreground/75">{message}</p>
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
+    <Modal isOpen onOpenChange={(next) => !next && onCancel()}>
+      <Modal.Backdrop>
+        <Modal.Container size="md" placement="center">
+          <Modal.Dialog aria-label={title}
+            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+            <Modal.CloseTrigger />
+            <Modal.Header><Modal.Heading className="text-base font-semibold">{title}</Modal.Heading></Modal.Header>
+            <Modal.Body><p className="text-sm text-foreground/75">{message}</p></Modal.Body>
+        <Modal.Footer className="flex flex-wrap justify-end gap-2">
           <Button
             size="sm"
             variant="outline"
-            onPress={handleCancel}
-            onClick={handleCancel}
+            onPress={onCancel}
           >
             {cancelLabel}
           </Button>
@@ -91,8 +69,7 @@ export function ConfirmDialog({
             <Button
               size="sm"
               variant="outline"
-              onPress={handleThird}
-              onClick={handleThird}
+              onPress={onThird}
             >
               {thirdLabel}
             </Button>
@@ -100,13 +77,16 @@ export function ConfirmDialog({
           <Button
             size="sm"
             className={danger ? "bg-danger text-white" : undefined}
-            onPress={handleConfirm}
-            onClick={handleConfirm}
+            onPress={onConfirm}
+            autoFocus
+            tabIndex={0}
           >
             {confirmLabel}
           </Button>
-        </div>
-      </div>
-    </div>
+        </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }

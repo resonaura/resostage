@@ -7,9 +7,8 @@
 import { Checkbox } from "@heroui/react";
 import { Scissors, MoveHorizontal } from "lucide-react";
 import { useState } from "react";
-import { createPortal } from "react-dom";
 import type { LongImportChoice } from "@/transfer/audio/logic/importPrefs";
-import { Button } from "@/components/ui";
+import { Button, Modal } from "@/components/ui";
 import type { LongImportPrompt as LongImportPromptData } from "@/screens/editor/timeline/overrun/hooks/useLongImportGuard";
 
 /** mm:ss.s — short enough to read in a dialog, precise enough to compare. */
@@ -40,20 +39,16 @@ export function LongImportPrompt({
   const [remember, setRemember] = useState(false);
   const overrun = data.regionEndSeconds - data.songEndSeconds;
 
-  return createPortal(
-    <>
-      <div
-        className="rs-modal-backdrop fixed inset-0 z-9998"
-        onClick={onDismiss}
-      />
-      <div
-        role="dialog"
-        aria-label="Imported audio is longer than the song"
-        className="rs-modal-surface fixed left-1/2 top-1/2 z-9999 w-104 -translate-x-1/2 -translate-y-1/2 rounded-xl border border-default/40 p-4 shadow-2xl"
-      >
-        <div className="text-sm font-semibold">
+  return (
+    <Modal isOpen onOpenChange={(open) => !open && onDismiss()}>
+      <Modal.Backdrop>
+        <Modal.Container size="md" placement="center">
+          <Modal.Dialog aria-label="Imported audio is longer than the song">
+            <Modal.CloseTrigger />
+            <Modal.Header><Modal.Heading className="text-sm font-semibold">
           This audio runs past the end of the song
-        </div>
+            </Modal.Heading></Modal.Header>
+            <Modal.Body>
         <p className="mt-1 text-xs leading-relaxed text-foreground/60">
           It ends at {fmt(data.regionEndSeconds)}, and the song ends at{" "}
           {fmt(data.songEndSeconds)} — {fmt(overrun)} longer.
@@ -89,8 +84,8 @@ export function LongImportPrompt({
             </span>
           </Button>
         </div>
-
-        <div className="mt-3 flex items-center justify-between gap-2">
+            </Modal.Body>
+        <Modal.Footer className="flex items-center justify-between gap-2">
           <Checkbox
             isSelected={remember}
             onChange={setRemember}
@@ -106,9 +101,10 @@ export function LongImportPrompt({
           <Button size="sm" variant="default-soft" onPress={onDismiss}>
             Leave it
           </Button>
-        </div>
-      </div>
-    </>,
-    document.body,
+        </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal>
   );
 }

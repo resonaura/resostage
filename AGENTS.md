@@ -982,8 +982,11 @@ features live in their named `ui/src/` feature folders. The root
 holding area for screen-only algorithms or components.
 Shared visual or behavioural policy belongs in the HeroUI wrappers. In
 particular, all modals use the shared
-modal implementation so backdrop blur and the theme surface background are
-consistent. Do not import a raw HeroUI modal at a feature call site to bypass
+modal implementation so backdrop blur and Card's darker theme-aware
+`--color-background-secondary` material are consistent. A close trigger is a
+direct child of Dialog, never a flex item inside Header; the wrapper reserves
+header space for its absolute-positioned hit target. Non-dismissible/busy
+workflows keep their dismissal restrictions. Do not import a raw HeroUI modal at a feature call site to bypass
 the policy. Reuse tokens and variants; avoid one-off near-duplicate components.
 
 ## 13. Rules for safe changes
@@ -1162,14 +1165,14 @@ a browser/Vite session. The distributable layout is the same shape used by
 release code:
 
 - macOS Apple Silicon: `build/mac/arm64/ResoStage.app`
-- Windows x64: `build/win/x64/resostage.exe` with its sibling `core.exe` and
-  Electron resources
+- Windows x64: `build/win/x64/resostage.exe`, Electron resources, and a
+  `helpers/` directory containing `core.exe` and its sibling workers/DLLs
 
-The assembled Core carries a scanner beside its executable. Windows helper
+The raw Core carries a scanner beside its executable. Windows helper
 names are `pluginscan.exe` and `pluginhost.exe`; the app entry points are
 `resostage.exe` and `core.exe`. Linux retains `resostage-plugin-scanner` and
 `resostage-plugin-host`. On macOS the scanner executable is `ResoStage Plugin
-Scanner`; the live host is a separately identified
+Scanner` inside `Contents/Helpers/ResoStage Plugin Scanner.app`; the live host is a separately identified
 `Contents/Helpers/ResoStage Plug-in Host.app` inside the Core bundle, with a
 matching `ResoStage Plug-in Host` executable. Raw CMake Core builds may still
 launch the sibling unbundled host. Keep the nested app's
@@ -1178,6 +1181,13 @@ bottom-up code signing. The packaged Kaishaku execution helper is stored once
 under `ResoStage Core.app/Contents/Resources` (branded app bundle preferred,
 raw binary fallback); Electron and Core resolve the same copy. Do not omit
 either plug-in helper from a platform adapter.
+Scanner, host, media, and Kaishaku use the shared `icons/helper` artwork;
+Core keeps its separate icon. `scripts/helpers/bundle.mjs` owns macOS helper
+metadata/icon policy, retaining existing generated GUI-app capabilities.
+Windows Electron discovers `helpers/core.exe` and `helpers/kaishaku.exe`
+before legacy locations and never resolves its own shell as a Core fallback.
+Core resolves other workers beside itself; its Windows static asset root is
+the parent package's `resources/web`, not `helpers/resources/web`.
 Missing scanner means the catalog API reports a visible scan failure; missing
 live host makes affected plugin slots visibly fail closed rather than loading
 vendor code in Core.
