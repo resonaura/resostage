@@ -2,17 +2,17 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Mic, Music } from "lucide-react";
 import { mixer } from "@/lib/state/api";
 import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
-import { useLiveValue } from "@/lib/state/optimistic";
 import type { TrackRow } from "@/lib/state/types";
 import {
   LevelMeterBar,
-  MeterFader,
   TrackPanControl,
 } from "@/components/daw";
 import { TOGGLE_BLINK_ACCENT, ToggleButton } from "@/components/ui";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { trackSelectionGesture, type TrackSelectionGesture } from "@/screens/editor/timeline/tracks/logic/trackSelection";
 import { useTrackPanControl } from "@/screens/editor/timeline/tracks/hooks/useTrackPanControl";
+import { useTrackGainControl } from "@/screens/editor/timeline/tracks/hooks/useTrackGainControl";
+import { TrackGainControl } from "@/screens/editor/timeline/tracks/components/TrackGainControl";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with
 // waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ the combined
@@ -40,9 +40,7 @@ export const TrackHeaderControl = memo(
     isFocused?: boolean;
     onSelect?: (gesture?: TrackSelectionGesture) => void;
   }) {
-    const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
-      mixer.setTrackGain(index, v),
-    );
+    const gain = useTrackGainControl(track, index);
     const pan = useTrackPanControl(track, index);
 
     const isDimmed = anySolo && !track.solo && !track.soloSafe;
@@ -347,62 +345,16 @@ export const TrackHeaderControl = memo(
               {canMonitorInput && monBtn}
               {panControl}
               <div className="flex min-w-0 flex-1 items-center gap-1">
-                <MeterFader
-                  value={gain}
-                  min={-60}
-                  max={12}
-                  step={0.5}
-                  onChange={(v) => setGain(v)}
-                  dbL={track.peakDbL ?? track.peakDb ?? -100}
-                  dbR={track.peakDbR ?? track.peakDb ?? -100}
-                  getLiveDbL={() =>
-                    getTrackLiveLevel(track.id)?.peakDbL ?? -144
-                  }
-                  getLiveDbR={() =>
-                    getTrackLiveLevel(track.id)?.peakDbR ?? -144
-                  }
-                  accent={color}
-                  height={faderH}
-                  aria-label={`${track.name || track.id} volume`}
+                <TrackGainControl
+                  track={track}
+                  gain={gain.gain}
+                  color={color}
+                  nameSize={nameSize}
+                  faderHeight={faderH}
+                  onGainChange={gain.setGain}
+                  onReadoutPointerDown={gain.onReadoutPointerDown}
+                  onReadoutDoubleClick={gain.onReadoutDoubleClick}
                 />
-                <span
-                  className="w-7 shrink-0 text-right font-mono font-medium tabular-nums text-foreground/60 hover:text-foreground cursor-ns-resize select-none transition-colors"
-                  style={{ fontSize: Math.max(8, nameSize - 2) }}
-                  title="Track volume (Drag up/down to adjust, double-click for 0 dB)"
-                  onPointerDown={(e) => {
-                    if (e.button !== 0) return;
-                    e.preventDefault();
-                    const startY = e.clientY;
-                    const startVal = Number.isFinite(gain) ? gain : -60;
-
-                    const onPointerMove = (ev: PointerEvent) => {
-                      const dy = startY - ev.clientY;
-                      const step = ev.shiftKey ? 0.1 : 0.5;
-                      const next = Math.max(
-                        -60,
-                        Math.min(
-                          12,
-                          Math.round((startVal + dy * 0.15) / step) * step,
-                        ),
-                      );
-                      setGain(next);
-                    };
-
-                    const onPointerUp = () => {
-                      window.removeEventListener("pointermove", onPointerMove);
-                      window.removeEventListener("pointerup", onPointerUp);
-                    };
-
-                    window.addEventListener("pointermove", onPointerMove);
-                    window.addEventListener("pointerup", onPointerUp);
-                  }}
-                  onDoubleClick={(e) => {
-                    e.preventDefault();
-                    setGain(0.0);
-                  }}
-                >
-                  {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
-                </span>
               </div>
             </div>
           </>
