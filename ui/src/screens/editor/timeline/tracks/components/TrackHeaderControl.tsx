@@ -1,5 +1,4 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Mic, Music } from "lucide-react";
 import { mixer } from "@/lib/state/api";
 import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
 import type { TrackRow } from "@/lib/state/types";
@@ -13,6 +12,7 @@ import { trackSelectionGesture, type TrackSelectionGesture } from "@/screens/edi
 import { useTrackPanControl } from "@/screens/editor/timeline/tracks/hooks/useTrackPanControl";
 import { useTrackGainControl } from "@/screens/editor/timeline/tracks/hooks/useTrackGainControl";
 import { TrackGainControl } from "@/screens/editor/timeline/tracks/components/TrackGainControl";
+import { TrackIdentityLabel } from "@/screens/editor/timeline/tracks/components/TrackIdentityLabel";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with
 // waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ the combined
@@ -309,29 +309,13 @@ export const TrackHeaderControl = memo(
           <>
             {/* Top row: swatch, icon, full track name, M/S on the right */}
             <div className="flex min-h-0 min-w-0 flex-1 items-center gap-1.5">
-              <span
-                className="shrink-0 rounded-sm"
-                style={{
-                  height: swatchH,
-                  width: swatchW,
-                  background: color,
-                  opacity: track.mute ? 0.35 : 1,
-                }}
+              <TrackIdentityLabel
+                track={track}
+                color={color}
+                nameSize={nameSize}
+                swatchHeight={swatchH}
+                swatchWidth={swatchW}
               />
-              {track.kind === "instrument" ? (
-                <Music size={11} className="shrink-0 text-purple-400" />
-              ) : (
-                <Mic size={11} className="shrink-0 text-foreground/40" />
-              )}
-              <span
-                className={`min-w-0 flex-1 truncate font-semibold text-foreground/90 ${
-                  track.mute ? "line-through opacity-40" : ""
-                }`}
-                style={{ fontSize: nameSize }}
-                title={track.name || track.id}
-              >
-                {track.name || track.id}
-              </span>
               <div className="ml-auto flex shrink-0 items-center gap-1">
                 {muteBtn}
                 {soloBtn}
@@ -361,29 +345,13 @@ export const TrackHeaderControl = memo(
         ) : (
           /* Compact single-row layout for zoomed out views */
           <div className="flex min-h-0 min-w-0 flex-1 items-center gap-1.5">
-            <span
-              className="shrink-0 rounded-sm"
-              style={{
-                height: swatchH,
-                width: swatchW,
-                background: color,
-                opacity: track.mute ? 0.35 : 1,
-              }}
+            <TrackIdentityLabel
+              track={track}
+              color={color}
+              nameSize={nameSize}
+              swatchHeight={swatchH}
+              swatchWidth={swatchW}
             />
-            {track.kind === "instrument" ? (
-              <Music size={11} className="shrink-0 text-purple-400" />
-            ) : (
-              <Mic size={11} className="shrink-0 text-foreground/40" />
-            )}
-            <span
-              className={`min-w-0 flex-1 truncate font-semibold text-foreground/90 ${
-                track.mute ? "line-through opacity-40" : ""
-              }`}
-              style={{ fontSize: nameSize }}
-              title={track.name || track.id}
-            >
-              {track.name || track.id}
-            </span>
             {showMeter && (
               <div className="w-3 shrink-0" style={{ height: meterH }}>
                 <LevelMeterBar
