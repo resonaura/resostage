@@ -1,14 +1,14 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Mic, Music } from "lucide-react";
 import { mixer } from "@/lib/state/api";
-import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "@/components/common/ContextMenu";
 import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
 import { useLiveValue } from "@/lib/state/optimistic";
 import type { TrackRow } from "@/lib/state/types";
-import { Knob, LevelMeterBar, MeterFader } from "@/components/daw";
+import { LevelMeterBar, MeterFader } from "@/components/daw";
 import { TOGGLE_BLINK_ACCENT, ToggleButton } from "@/components/ui";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { trackSelectionGesture, type TrackSelectionGesture } from "@/screens/editor/timeline/tracks/logic/trackSelection";
+import { TrackPanControl } from "@/screens/editor/timeline/tracks/components/TrackPanControl";
 
 // Density follows verticalZoom so the left rail stays pixel-aligned with
 // waveform lanes: compact (name + M/S), normal (+ pan), roomy (+ the combined
@@ -39,23 +39,6 @@ export const TrackHeaderControl = memo(
     const [gain, setGain] = useLiveValue(track.gainDb ?? 0, (v) =>
       mixer.setTrackGain(index, v),
     );
-    const [pan, setPan] = useLiveValue(track.pan ?? 0, (v) =>
-      mixer.setTrackPan(index, v),
-    );
-    const [panLawMenu, setPanLawMenu] = useState<{ x: number; y: number } | null>(null);
-    const panLaws = [
-      { id: 0, value: "0dB", label: "0 dB · Legacy balance" },
-      { id: 1, value: "-3dB", label: "−3 dB · Constant power" },
-      { id: 2, value: "-4.5dB", label: "−4.5 dB · Broadcast" },
-      { id: 3, value: "-6dB", label: "−6 dB · Constant voltage" },
-    ] as const;
-    const activePanLaw = track.panLaw ?? "0dB";
-
-    const formatPan = (p: number) => {
-      if (Math.abs(p) < 0.05) return "C";
-      if (p < 0) return `L${Math.round(-p * 100)}`;
-      return `R${Math.round(p * 100)}`;
-    };
 
     const isDimmed = anySolo && !track.solo && !track.soloSafe;
     const isMidiInputTrack =
@@ -277,59 +260,13 @@ export const TrackHeaderControl = memo(
     );
 
     const panControl = showPan && (
-      <div
-        className="flex shrink-0 items-center gap-0.5"
-        title={`Pan: ${formatPan(pan)} · ${activePanLaw} pan law (right-click to change)`}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setPanLawMenu({ x: event.clientX, y: event.clientY });
-        }}
-      >
-        <Knob
-          value={pan}
-          min={-1}
-          max={1}
-          defaultValue={0}
-          size={knobSize}
-          accent={color}
-          onCommit={(v) => setPan(v)}
-        />
-        {h >= 52 && (
-          <span className="w-4 text-center font-mono font-medium text-foreground/50 text-[8px]">
-            {formatPan(pan)}
-          </span>
-        )}
-        {panLawMenu && (
-          <ContextMenu
-            x={panLawMenu.x}
-            y={panLawMenu.y}
-            width={232}
-            onClose={() => setPanLawMenu(null)}
-          >
-            <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-foreground/45">
-              Pan law · {track.name || track.id}
-            </div>
-            {panLaws.map((law) => (
-              <ContextMenuItem
-                key={law.value}
-                checked={activePanLaw === law.value}
-                radio
-                onClick={() => {
-                  void mixer.setTrackPanLaw(index, law.id);
-                  setPanLawMenu(null);
-                }}
-              >
-                {law.label}
-              </ContextMenuItem>
-            ))}
-            <ContextMenuDivider />
-            <div className="px-2.5 py-1.5 text-[10px] leading-snug text-foreground/45">
-              Right-click the pan knob to choose how its center level is compensated.
-            </div>
-          </ContextMenu>
-        )}
-      </div>
+      <TrackPanControl
+        track={track}
+        index={index}
+        color={color}
+        knobSize={knobSize}
+        laneHeight={h}
+      />
     );
 
     return (
