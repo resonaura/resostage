@@ -276,7 +276,7 @@ public:
 private:
     void workerLoop();
     void writeSessionChunk(TrackAudioRecordSession& session, int64_t maxFrames);
-    static bool writeWavHeader(FILE* file, uint32_t sampleRate, uint16_t channels, uint16_t bitDepth, uint64_t dataBytes);
+    static bool writeWAVHeader(FILE* file, uint32_t sampleRate, uint16_t channels, uint16_t bitDepth, uint64_t dataBytes);
 
     std::atomic<bool> running{false};
     std::thread workerThread;

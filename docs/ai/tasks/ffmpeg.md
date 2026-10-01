@@ -16,7 +16,7 @@ its audio now and retains the original video in the project for future support.
   installed applications must be independent of them.
 - `scripts/platform/{Mac,Win,Linux}BuildAdapter.mjs`: shipping-shape installation
   before signing/packaging. Follow existing Core/scanner/host conventions.
-- `core/app/media/FfmpegProcess.{h,cpp}`: bounded diagnostic capture, argv-based
+- `core/app/media/FFmpegProcess.{h,cpp}`: bounded diagnostic capture, argv-based
   process invocation, cancellation, and packaged-helper resolution.
 - `core/app/engine/AudioEngineImport.cpp`: decode on the import worker into
   project-local float WAV, build peaks incrementally, preserve video originals,
@@ -61,12 +61,40 @@ not project-sized vectors. Preserve original resource path validation.
 
 ## Status at handoff
 
-In progress. Initial implementation exists in the working tree but has not yet
-passed the complete verification matrix. macOS ARM dependency relocation has
-been smoke-tested; Intel architecture handling and manifest accuracy still need
-completion. Do not treat this initial status as a completed integration.
+Main integration is implemented in snapshot `b38f3ca`; follow-up verification
+and hardening are in progress. The worker is fully bundled/branded on macOS,
+Windows, and Linux, and real codec smoke tests passed on ARM macOS, Intel macOS
+under Rosetta, x64 Linux, and x64 Windows. Uploads use correlated tickets and
+completion status; binary files bypass the string-only Electron proxy.
+
+Follow-up changes after that snapshot: explicit HTTP command queue rejection,
+third-party copyright attribution in Windows media metadata, cache layout v3
+(signed Intel cache image), architecture/schema documentation, and streamed
+legacy stem-batch import. Do not claim ARM Windows/Linux hardware or physical
+Intel Mac coverage; those machines are unavailable in this session.
 
 ## Verification log
 
-Update with exact commands, results, platforms, codec probes, and remaining
-limitations as work progresses.
+- `node scripts/media/smoke.mjs core/build/dependencies/ffmpeg/mac-arm64`:
+  passed real eight-format encode/decode, video extraction, invalid input, and
+  relocated dependency closure with minimal environment in an unrelated path.
+- Same smoke with `mac-x64 ffmpeg x64`: passed under Rosetta after ad-hoc signing
+  the cached Intel image. The unsigned image had a startup assessment delay;
+  preparation now signs it before verification, then assembly signs the bundle.
+- Copied runtime/scripts only to Linux/Windows isolated temporary directories;
+  same smoke passed on actual x64 hosts. Windows probe used branded `media.exe`
+  and its shared DLLs, not a system FFmpeg installation.
+- `installMacMediaHelper`: ARM and Intel nested helper plist/dependency/name
+  validation passed. Full outer-app signing remains a final assembly check.
+- Optimized native Core build passed; focused media/project/peaks/RF64 suite:
+  20 tests / 21,718 assertions passed.
+- Prior full native suite: 487/488 passed while compiling; sole AU editor case
+  passed alone afterward (11 assertions). Rerun full suite idle before reporting
+  it clean; don't hide the earlier timing failure.
+- Focused UI backend/import-status tests: 16 passed; TypeScript build passed.
+- Electron: 29 tests + two Node ESM alias-resolution tests passed.
+
+Remaining verification: final whole-application assembly/signature, full suites
+after concurrent feature edits, endpoint acceptance tests, and unavailable ARM
+Windows/Linux / physical Intel hardware. GPL source distribution remains a
+release obligation beyond collected notices. Details: `docs/FFMPEG.md`.

@@ -83,6 +83,7 @@ target_sources(ResoStage PRIVATE
   engine/AudioEngineEventDispatch.cpp
   engine/AudioEngineImport.cpp
   media/FFmpegProcess.cpp
+  media/WAVBatchImport.cpp
   engine/AudioEngineBatchImport.cpp
   engine/AudioEnginePeaks.cpp
   engine/AudioEnginePlugins.cpp

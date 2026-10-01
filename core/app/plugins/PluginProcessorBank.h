@@ -178,7 +178,12 @@ public:
     bool stripHasInstrument(size_t stripIndex) const noexcept;
     void addStripMidiEvent(size_t stripIndex, const juce::MidiMessage& message,
                            int samplePosition) noexcept;
+    /** Raw bounded ingress for the host adapter; never constructs an owning MIDI message. */
+    void addStripMidiEvent(size_t stripIndex, const uint8_t* data, int numBytes,
+                           int samplePosition) noexcept;
     void clearStripMidi(size_t stripIndex) noexcept;
+    /** Non-realtime diagnostics for malformed/oversized/capacity-rejected MIDI events. */
+    uint64_t rejectedMidiEvents() const noexcept;
 
     void requestAllNotesOff() noexcept {
         allNotesOffPending.store(true, std::memory_order_release);

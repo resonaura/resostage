@@ -100,6 +100,7 @@ export class WinBuildAdapter extends BuildAdapter {
     icoPath,
     exeName = "resostage.exe",
     description = "ResoStage Live Performance Engine",
+    copyright = "Copyright Resonaura",
   ) {
     if (!existsSync(exePath)) return false;
     try {
@@ -141,7 +142,7 @@ export class WinBuildAdapter extends BuildAdapter {
             FileDescription: description,
             ProductName: "ResoStage",
             CompanyName: "Resonaura",
-            LegalCopyright: "Copyright Resonaura",
+            LegalCopyright: copyright,
           },
         );
         info.outputToResourceEntries(res.entries);
@@ -263,6 +264,7 @@ export class WinBuildAdapter extends BuildAdapter {
     const mediaIcon = existsSync(dedicatedMediaIcon) ? dedicatedMediaIcon : join(ROOT, "icons", "core.ico");
     if (!existsSync(mediaIcon) || !this.patchWindowsExeMetadata(
       mediaExecutable, mediaIcon, "media.exe", "ResoStage Media Conversion Worker (FFmpeg)",
+      "FFmpeg and its contributors; see the accompanying FFmpeg notices",
     )) throw new Error(`Could not brand media worker: ${mediaExecutable}`);
     verifyFFmpegRuntime(shellDir, process.platform, process.arch, "media.exe");
 

@@ -297,7 +297,7 @@ struct WClickTelemetry {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
-    bool soloSafe = false;
+    bool soloSafe = true;
     // The metronome shares the tracks' solo group -- soloing a track during a
     // show means "against the click", not "kill the click".
     std::string soloGroup = "sources";

@@ -190,7 +190,7 @@ struct WClick {
     double pan = 0.0;
     bool mute = false;
     bool solo = false;
-    bool soloSafe = false;
+    bool soloSafe = true;
     WSourceOutput output;
     std::vector<WPluginSlot> plugins;
 };
@@ -1190,6 +1190,7 @@ Project fromWire(const WProject& w) {
     p.click.pan = std::clamp(w.click.pan, -1.0, 1.0);
     p.click.mute = w.click.mute;
     p.click.solo = w.click.solo;
+    p.click.soloSafe = (w.format.version < 10 && !w.click.soloSafe) ? true : w.click.soloSafe;
     p.click.output = fromWireSourceOutput(w.click.output);
     p.click.plugins = fromWirePluginSlots(w.click.plugins);
 

@@ -195,6 +195,7 @@ export async function splitRegionsAtPlayhead(
         songIndex,
         regionId: r.id,
         durationBeats: splitBeats,
+        loopLengthBeats: r.loop ? r.loopLengthBeats : splitBeats,
         gestureId,
       });
       await builder.midiRegionAdd({
@@ -205,7 +206,7 @@ export async function splitRegionsAtPlayhead(
         durationBeats: r.durationBeats - splitBeats,
         clipOffsetBeats: r.clipOffsetBeats + splitBeats,
         loop: r.loop,
-        loopLengthBeats: r.loopLengthBeats,
+        loopLengthBeats: r.loop ? r.loopLengthBeats : r.durationBeats - splitBeats,
         loopStartBeats: r.loopStartBeats,
         muted: Boolean(r.muted),
         color: r.color,

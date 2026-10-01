@@ -5,7 +5,7 @@
  */
 
 import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
-import { resolveCssVar } from "@/lib/theme/cssColor";
+import { resolveCssVar, withHexAlpha } from "@/lib/theme/cssColor";
 import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
 import {
   midiRegionContainsLoopSourceBeat,
@@ -306,7 +306,7 @@ export function drawPianoRollCanvas({
         pitchToY(Math.min(startPitch, currentPitch), height) +
         viewport.pixelsPerPitch;
 
-      ctx.fillStyle = theme.backgroundTertiary;
+      ctx.fillStyle = withHexAlpha(theme.accent, "26");
       ctx.strokeStyle = theme.accent;
       ctx.lineWidth = 1;
       ctx.fillRect(x1, y1, x2 - x1, y2 - y1);

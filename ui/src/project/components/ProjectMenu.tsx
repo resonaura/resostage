@@ -11,6 +11,7 @@ import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "@/components/c
 import { Button } from "@/components/ui";
 import { project } from "@/lib/state/api";
 import { IS_EMBEDDED } from "@/lib/platform/embedded";
+import { flashMenuAction } from "@/lib/platform/electronBridge";
 import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
 import type { WebUiState } from "@/lib/state/types";
 import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
@@ -79,10 +80,12 @@ export function ProjectMenu({
   };
 
   const handleSave = () => {
+    flashMenuAction("save_project");
     if (IS_EMBEDDED) void project.save();
     else void project.exportAndDownload();
   };
   const handleSaveAs = () => {
+    flashMenuAction("save_project_as");
     if (IS_EMBEDDED) void project.saveAs();
     else void project.exportAndDownload();
   };

@@ -112,6 +112,9 @@ export function usePianoRollPointerDownHandler({
 }: PianoRollPointerDownHandlerOptions) {
   // ── Pointer Down Interaction ───────────────────────────────────────────
   const handlePointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    // Native context menus and trackpad/middle-button navigation must never
+    // create notes or begin an edit capture.
+    if (e.button !== 0) return;
     e.stopPropagation();
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -347,6 +350,7 @@ export function usePianoRollPointerDownHandler({
         startPointerX: x,
         startPointerY: y,
         startBeat: snappedBeat,
+        lastBeat: snappedBeat,
         startPitch: snappedPitch,
         initialNotesSnapshot: new Map(notesToRender.map((n) => [n.id, n])),
       };
@@ -420,11 +424,12 @@ export function usePianoRollPointerDownHandler({
         startPointerY: y,
         startBeat: timelineBeat,
         startPitch: pitch,
+        additiveSelection: e.shiftKey ? new Set(selectedNoteIds) : undefined,
         initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
         marqueeBox: {
-          startBeat: beat,
+          startBeat: timelineBeat,
           startPitch: pitch,
-          currentBeat: beat,
+          currentBeat: timelineBeat,
           currentPitch: pitch,
         },
       };

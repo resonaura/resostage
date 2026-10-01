@@ -24,7 +24,7 @@ const FFMPEG_VERSION = "9.0.2";
 const FFMPEG_SOURCE = `https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz`;
 const FFMPEG_SHA256 = "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e";
 const FFMPEG_SIGNING_KEY = "FCF986EA15E6E293A5644F10B4322F04D67658D8";
-const RUNTIME_LAYOUT_VERSION = 2;
+const RUNTIME_LAYOUT_VERSION = 3;
 // A month-end release is retained upstream for two years. Do not combine
 // pinned hashes with floating "latest" URLs: tomorrow's build would fail.
 const BTBN_RELEASE = "autobuild-2026-09-30-13-08";
@@ -143,7 +143,7 @@ function capture(executable, args, options = {}) {
   return execFileSync(executable, args, { encoding: "utf8", timeout: 30000, ...options }).trim();
 }
 
-function validateConfiguration(versionInfo) {
+export function validateFFmpegConfiguration(versionInfo) {
   const config = versionInfo.split("\n").find((line) => line.startsWith("configuration:")) ?? "";
   if (!config.includes("--enable-gpl") || config.includes("--enable-nonfree"))
     throw new Error("Bundled FFmpeg must enable GPL codecs and must not enable nonfree components");
@@ -173,7 +173,7 @@ function ensureHomebrewFFmpeg(arch) {
   if (!existsSync(executable)) throw new Error(`Homebrew FFmpeg executable missing: ${executable}`);
   validateMacArchitecture(executable, arch);
   const versionInfo = capture(executable, ["-version"]);
-  validateConfiguration(versionInfo);
+  validateFFmpegConfiguration(versionInfo);
   const version = versionInfo.match(/^ffmpeg version (\S+)/)?.[1];
   if (!version || !/^\d+\.\d+(?:\.\d+)?$/.test(version))
     throw new Error(`Cannot identify the installed Homebrew FFmpeg release: ${versionInfo.split("\n")[0]}`);
@@ -324,7 +324,7 @@ export function verifyFFmpegRuntime(directory, platform = process.platform, arch
   const options = { env: { PATH: platform === "win32" ? process.env.SystemRoot + "\\System32" : "/usr/bin:/bin",
     ...(platform === "win32" ? { SystemRoot: process.env.SystemRoot } : {}), LANG: "C" } };
   const versionInfo = capture(executable, ["-version"], options);
-  validateConfiguration(versionInfo);
+  validateFFmpegConfiguration(versionInfo);
   const encoders = capture(executable, ["-hide_banner", "-encoders"], options);
   for (const encoder of ["aac", "alac", "flac", "libmp3lame", "libopus", "libvorbis", "wmav2"])
     if (!new RegExp(`\\s${encoder}\\s`).test(encoders))

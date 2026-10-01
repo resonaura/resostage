@@ -20,6 +20,7 @@ import { usePianoRollPointerEndHandlers } from "@/screens/editor/pianoroll/hooks
 import { usePianoRollPointerDownHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerDownHandler";
 import { usePianoRollPointerMoveHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerMoveHandler";
 import { usePianoRollViewportGestures } from "@/screens/editor/pianoroll/hooks/usePianoRollViewportGestures";
+import { usePianoRollGestureLifecycle } from "@/screens/editor/pianoroll/hooks/usePianoRollGestureLifecycle";
 import { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import type {
   DraggingState,
@@ -128,25 +129,12 @@ export function PianoRollCanvas({
   const controllerGestureRef = useRef<PianoRollControllerGesture | null>(null);
   const velocityPaintRef = useRef<PianoRollVelocityPaintState | null>(null);
 
-  // Keep the optimistic canvas image until Core's authoritative region catches
-  // up. Clearing it on pointer-up used to flash the old note positions while
-  // the asynchronous HTTP command was still in flight.
+  // When authoritative region.notes updates from parent (e.g. edit commit, undo, delete),
+  // always clear local working draft so the canvas renders the authoritative notes.
   useEffect(() => {
-    const pending = pendingCommitRef.current;
-    if (!pending || pending.length !== region.notes.length) return;
-    const committed = new Map(region.notes.map((note) => [note.id, note]));
-    const matches = pending.every((note) => {
-      const actual = committed.get(note.id);
-      return actual && actual.pitch === note.pitch &&
-        actual.startBeats === note.startBeats &&
-        actual.durationBeats === note.durationBeats &&
-        actual.velocity === note.velocity;
-    });
-    if (matches) {
-      pendingCommitRef.current = null;
-      setLocalNotes(null);
-    }
-  }, [region.notes]);
+    setLocalNotes(null);
+    pendingCommitRef.current = null;
+  }, [region.notes, region.id]);
 
   useEffect(() => {
     const pending = pendingAutomationCommitRef.current;
@@ -162,12 +150,6 @@ export function PianoRollCanvas({
       setControllerPreview(null);
     }
   }, [region.automationLanes, setControllerPreview]);
-
-  useEffect(() => {
-    pendingAutomationCommitRef.current = null;
-    controllerGestureRef.current = null;
-    setControllerPreview(null);
-  }, [region.id, setControllerPreview]);
 
   const lastDragDetentRef = useRef<string | null>(null);
 
@@ -213,6 +195,23 @@ export function PianoRollCanvas({
       sourceBeatAt,
       onViewportChange,
       setLocalNotes,
+    });
+
+  const { beginGesture, endGesture, cancelGesture, lostPointerCapture } =
+    usePianoRollGestureLifecycle({
+      regionId: region.id,
+      canvasRef,
+      draggingRef,
+      pendingCommitRef,
+      pendingAutomationCommitRef,
+      controllerGestureRef,
+      velocityPaintRef,
+      lastDragDetentRef,
+      stopAutoScroll,
+      setLocalNotes,
+      setControllerPreview,
+      setHoveredPitch,
+      onSelectionChange,
     });
 
   usePianoRollPlayheadFollow({
@@ -308,6 +307,7 @@ export function PianoRollCanvas({
     lastDragDetentRef,
     spatialIndex,
     viewport,
+    region,
     bottomLane,
     notesToRender,
     tool,
@@ -329,7 +329,6 @@ export function PianoRollCanvas({
 
   const {
     handlePointerUp,
-    handlePointerCancel,
     handleDoubleClick,
   } = usePianoRollPointerEndHandlers({
     canvasRef,
@@ -381,10 +380,27 @@ export function PianoRollCanvas({
       />
       <canvas
         ref={canvasRef}
-        onPointerDown={handlePointerDown}
+        onPointerDown={(event) => {
+          const snapshot = {
+            notes: localNotes,
+            pendingNotes: pendingCommitRef.current,
+            lanes: localAutomationLanesRef.current,
+            selection: new Set(selectedNoteIds),
+          };
+          handlePointerDown(event);
+          if (event.button === 0 && draggingRef.current)
+            beginGesture(event.pointerId, snapshot);
+        }}
         onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
+        onPointerUp={(event) => {
+          endGesture();
+          handlePointerUp(event);
+        }}
+        onPointerCancel={(event) => {
+          event.stopPropagation();
+          cancelGesture();
+        }}
+        onLostPointerCapture={(event) => lostPointerCapture(event.pointerId)}
         onDoubleClick={handleDoubleClick}
         className="block h-full w-full touch-none"
       />

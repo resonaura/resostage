@@ -88,14 +88,18 @@ export function usePianoRollPointerEndHandlers({
 
     const dragging = draggingRef.current;
     if (dragging) {
+      const isNoteGesture =
+        dragging.type === "move" ||
+        dragging.type === "resize" ||
+        dragging.type === "draw" ||
+        dragging.type === "velocity" ||
+        dragging.type === "brush";
+
       const finalNotes = dragging.type === "velocity"
-        ? velocityPaintRef.current?.notes ?? null
-        : localNotes ?? pendingCommitRef.current;
-      if (
-        (dragging.type === "move" || dragging.type === "resize" || dragging.type === "draw" || dragging.type === "velocity" || dragging.type === "brush") &&
-        finalNotes
-      ) {
-        pendingCommitRef.current = finalNotes;
+        ? velocityPaintRef.current?.notes ?? localNotes
+        : localNotes;
+
+      if (isNoteGesture && finalNotes) {
         onNotesChange(finalNotes);
         triggerHaptic("generic");
       } else if (dragging.type === "cc" && controllerGestureRef.current?.changed &&
@@ -110,12 +114,9 @@ export function usePianoRollPointerEndHandlers({
           onRegionChange({ ...region, automationLanes: lanes });
           triggerHaptic("generic");
         }
-        pendingCommitRef.current = null;
-        setLocalNotes(null);
-      } else {
-        pendingCommitRef.current = null;
-        setLocalNotes(null);
       }
+      pendingCommitRef.current = null;
+      setLocalNotes(null);
     }
     draggingRef.current = null;
     controllerGestureRef.current = null;

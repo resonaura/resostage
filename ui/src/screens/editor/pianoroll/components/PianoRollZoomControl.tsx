@@ -6,6 +6,7 @@
 
 import { MoveHorizontalIcon, MoveVerticalIcon } from "lucide-react";
 import { Slider } from "@/components/ui";
+import { useEscRevert } from "@/hooks/useEscRevert";
 
 interface PianoRollZoomControlProps {
   pixelsPerBeat: number;
@@ -20,12 +21,17 @@ export function PianoRollZoomControl({
   pixelsPerPitch,
   onPixelsPerPitchChange,
 }: PianoRollZoomControlProps) {
+  // Zoom streams live updates, just like the arrangement sliders. Escape
+  // restores the value from pointer-down instead of keeping a half gesture.
+  const horizontalRevert = useEscRevert(() => pixelsPerBeat, onPixelsPerBeatChange);
+  const verticalRevert = useEscRevert(() => pixelsPerPitch, onPixelsPerPitchChange);
+
   return (
-    <div className="flex w-52 shrink-0 items-center gap-1.5 border-l border-default/30 pl-2">
+    <div className="flex w-52 shrink-0 items-center gap-1.5">
       <MoveHorizontalIcon
-        style={{ opacity: 0.4, width: "14px", height: "14px" }}
+        style={{ opacity: 0.2, width: "16px", height: "16px" }}
       />
-      <div className="flex-1 min-w-0 flex items-center">
+      <div className="flex-1 min-w-0 flex items-center" {...horizontalRevert}>
         <Slider
           aria-label="Horizontal zoom"
           minValue={0}
@@ -49,9 +55,9 @@ export function PianoRollZoomControl({
         </Slider>
       </div>
       <MoveVerticalIcon
-        style={{ opacity: 0.4, width: "14px", height: "14px" }}
+        style={{ opacity: 0.2, width: "16px", height: "16px" }}
       />
-      <div className="flex-1 min-w-0 flex items-center">
+      <div className="flex-1 min-w-0 flex items-center" {...verticalRevert}>
         <Slider
           aria-label="Vertical zoom"
           minValue={10}

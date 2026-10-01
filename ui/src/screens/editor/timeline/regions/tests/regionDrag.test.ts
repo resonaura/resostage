@@ -368,13 +368,37 @@ describe("Unified MIDI Region Dragging", () => {
     expect(g.sourceOffset).toBeCloseTo(1.5, 4); // advance source by 2 beats
   });
 
-  it("trims MIDI end with beat quantization", () => {
+  it("trims MIDI end with beat quantization and resets loop", () => {
     const s = midiSession();
+    s.origLoop = true;
+    s.origLoopLength = 4;
     s.mode = "trimEnd";
     // Dragging right by 10px (1s @ 10px/s) -> +2 beats duration -> 10 beats = 5s
     const g = computeRegionDragGeom(s, ctx, 110, 50);
     expect(g.start).toBe(2);
     expect(g.duration).toBeCloseTo(5, 4);
+    expect(g.loop).toBe(false);
+    expect(g.loopLengthSeconds).toBe(0);
+  });
+
+  it("loops trimmed MIDI region immediately from its trimmed duration without expanding", () => {
+    const s = midiSession();
+    // A region trimmed to 4 beats (2s) that is not currently looping
+    s.origStartBeats = 0;
+    s.origDurationBeats = 4;
+    s.origStart = 0;
+    s.origDuration = 2; // 4 beats @ 120bpm = 2s
+    s.origLoop = false;
+    s.origLoopLength = 2; // 4 beats (origDuration)
+    s.mode = "loopTrim";
+
+    // Drag right by 10px (1s @ 10px/s) -> +2 beats -> 6 beats (3s)
+    const g = computeRegionDragGeom(s, ctx, 110, 50);
+    expect(g.start).toBe(0);
+    expect(g.duration).toBeCloseTo(3, 4); // 6 beats
+    expect(g.loop).toBe(true);
+    // It loops with cycle length = 4 beats (2s), NOT expanding to any arbitrary initial length!
+    expect(g.loopLengthSeconds).toBeCloseTo(2, 4);
   });
 
   it("accounts for scroll offsets during drag", () => {

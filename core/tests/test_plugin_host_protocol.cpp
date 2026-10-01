@@ -9,6 +9,7 @@
 #if defined(RESOSTAGE_TEST_PLUGIN_HOST)
 #include "plugins/PluginHostProcess.h"
 #include "plugins/PluginHostSharedMemory.h"
+#include "plugins/PluginMIDIBuffer.h"
 #include "plugins/PluginPaths.h"
 #endif
 #include "plugins/PluginHostProtocol.h"
@@ -187,6 +188,106 @@ TEST_CASE("plug-in host control overflow is bounded and counted") {
     CHECK_FALSE(tryEnqueueControl(area, ParameterEvent{0, 0, 1, 0.25f}));
     CHECK(area.missedControlEvents.load(std::memory_order_relaxed) == 1);
 }
+
+#if defined(RESOSTAGE_TEST_PLUGIN_HOST)
+TEST_CASE("plug-in host MIDI ingress fits every maximum-sized packet without storage growth") {
+    PluginMIDIBuffer midi;
+    const auto* preparedStorage = midi.buffer().data.begin();
+    std::array<uint8_t, kMaximumMidiEventBytes> message{};
+    message[0] = 0xf0;
+    message.back() = 0xf7;
+    for (uint32_t index = 0; index < kMaximumMidiEventsPerBlock; ++index)
+        REQUIRE(midi.add(message.data(), static_cast<int>(message.size()),
+                         static_cast<int>(index)));
+
+    CHECK(midi.size() == kMaximumMidiEventsPerBlock);
+    CHECK(static_cast<size_t>(midi.buffer().data.size()) == PluginMIDIBuffer::capacityBytes);
+    CHECK(midi.buffer().data.begin() == preparedStorage);
+    CHECK_FALSE(midi.add(message.data(), static_cast<int>(message.size()), 0));
+    CHECK(midi.rejectedEvents() == 1);
+    CHECK(midi.buffer().data.begin() == preparedStorage);
+
+    midi.clear();
+    std::array<uint8_t, kMaximumMidiEventBytes + 1> oversized{};
+    oversized.front() = 0xf0;
+    oversized.back() = 0xf7;
+    CHECK_FALSE(midi.add(oversized.data(), static_cast<int>(oversized.size()), 0));
+    CHECK_FALSE(midi.add(nullptr, 3, 0));
+    CHECK_FALSE(midi.add(message.data(), 0, 0));
+    CHECK_FALSE(midi.add(message.data(), static_cast<int>(message.size()), -1));
+    CHECK(midi.size() == 0);
+    CHECK(midi.rejectedEvents() == 5);
+    CHECK(midi.buffer().data.begin() == preparedStorage);
+
+    // The next callback reuses exactly the same fully prepared reservation.
+    for (uint32_t index = 0; index < kMaximumMidiEventsPerBlock; ++index)
+        REQUIRE(midi.add(message.data(), static_cast<int>(message.size()), 0));
+    CHECK(midi.buffer().data.begin() == preparedStorage);
+}
+
+TEST_CASE("plug-in host MIDI packet copy rejects oversized views and leaves unused storage untouched") {
+    juce::MidiBuffer source;
+    std::array<uint8_t, 1024> longSysEx{};
+    longSysEx.front() = 0xf0;
+    longSysEx.back() = 0xf7;
+    REQUIRE(source.addEvent(longSysEx.data(), static_cast<int>(longSysEx.size()), 1));
+    REQUIRE(source.addEvent(juce::MidiMessage::noteOn(1, 64, static_cast<uint8_t>(100)), 17));
+    REQUIRE(source.addEvent(juce::MidiMessage::noteOff(1, 64), 512));
+    std::array<MidiEvent, 2> output{};
+    output[0].data[15] = 0x55;
+    output[1].sampleOffset = 0xabcdef;
+    output[1].size = 15;
+    output[1].data[0] = 0x66;
+    const auto result = copyPluginMIDIEventsToHost(
+        source, output.data(), static_cast<uint32_t>(output.size()), 512);
+    CHECK(result.copied == 1);
+    CHECK(result.rejected == 2);
+    CHECK(output[0].sampleOffset == 17);
+    CHECK(output[0].size == 3);
+    CHECK(output[0].data[0] == 0x90);
+    CHECK(output[0].data[1] == 64);
+    CHECK(output[0].data[2] == 100);
+    CHECK(output[0].data[15] == 0x55);
+    CHECK(output[1].sampleOffset == 0xabcdef);
+    CHECK(output[1].size == 15);
+    CHECK(output[1].data[0] == 0x66);
+
+    REQUIRE(source.addEvent(juce::MidiMessage::controllerEvent(1, 64, 0), 18));
+    const auto full = copyPluginMIDIEventsToHost(source, output.data(), 1, 512);
+    CHECK(full.copied == 1);
+    CHECK(full.rejected == 3);
+}
+
+TEST_CASE("plug-in host panic MIDI burst cannot be dropped by a full music buffer") {
+    PluginMIDIBuffer midi;
+    const auto* preparedStorage = midi.buffer().data.begin();
+    for (uint32_t index = 0; index < kMaximumMidiEventsPerBlock; ++index)
+        REQUIRE(midi.add(juce::MidiMessage::noteOn(1, 60, static_cast<uint8_t>(100)), 0));
+    midi.makeRoomForPanic(16 * 3);
+    CHECK(midi.size() == 0);
+    CHECK(midi.rejectedEvents() == kMaximumMidiEventsPerBlock);
+    for (int channel = 1; channel <= 16; ++channel) {
+        REQUIRE(midi.add(juce::MidiMessage::allSoundOff(channel), 0));
+        REQUIRE(midi.add(juce::MidiMessage::controllerEvent(channel, 121, 0), 0));
+        REQUIRE(midi.add(juce::MidiMessage::pitchWheel(channel, 8192), 0));
+    }
+    CHECK(midi.size() == 48);
+    CHECK(midi.buffer().data.begin() == preparedStorage);
+    midi.makeRoomForPanic(32);
+    CHECK(midi.size() == 48);
+    CHECK(midi.rejectedEvents() == kMaximumMidiEventsPerBlock);
+}
+
+TEST_CASE("offline plug-in MIDI retains full SysEx support beyond the live packet cap") {
+    PluginMIDIBuffer offlineMidi(true);
+    std::array<uint8_t, 1024> sysEx{};
+    sysEx.front() = 0xf0;
+    sysEx.back() = 0xf7;
+    REQUIRE(offlineMidi.add(sysEx.data(), static_cast<int>(sysEx.size()), 0));
+    CHECK((*offlineMidi.buffer().begin()).numBytes == static_cast<int>(sysEx.size()));
+    CHECK(offlineMidi.rejectedEvents() == 0);
+}
+#endif
 
 TEST_CASE("plug-in host shared memory opens a second process view and signals it") {
     uint64_t processId = 0;

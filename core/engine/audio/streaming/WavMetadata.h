@@ -23,6 +23,9 @@ namespace resostage {
 // tempo label was found -- callers should fall back to another source (e.g.
 // parsing a "120BPM"-style token from the containing folder/file name).
 bool extractTempoFromWavFile(const std::string& filesystemPath, double& outBpm);
+inline bool extractTempoFromWAVFile(const std::string& filesystemPath, double& outBpm) {
+    return extractTempoFromWavFile(filesystemPath, outBpm);
+}
 
 // Parses a "120BPM" / "120 bpm" / "_120_BPM_" style token out of an
 // arbitrary name (folder name, file name). Case-insensitive, requires the

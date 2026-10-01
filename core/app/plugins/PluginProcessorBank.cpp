@@ -6,6 +6,7 @@
 
 #include "PluginProcessorBank.h"
 #include "PluginHostProcess.h"
+#include "PluginMIDIBuffer.h"
 #include "PluginPaths.h"
 #include "project/ProjectSchema.h"
 #include "plugins/PluginHostProtocol.h"
@@ -279,10 +280,8 @@ struct PluginProcessorBank::Node {
 };
 
 struct PluginProcessorBank::StripChain {
-    explicit StripChain(int maxBlockSize)
-        : audio(2, std::max(1, maxBlockSize)) {
-        midi.ensureSize(4096);
-    }
+    StripChain(int maxBlockSize, bool nonRealtime)
+        : audio(2, std::max(1, maxBlockSize)), midi(nonRealtime) {}
 
     std::vector<std::shared_ptr<Node>> nodes;
     struct HostedProcess {
@@ -301,10 +300,15 @@ struct PluginProcessorBank::StripChain {
     PluginTransportState transport{};
     std::atomic<uint32_t>* activePluginIndexTelemetry = nullptr;
     bool hostFailed = false;
+    bool hasInstrument = false;
     uint64_t lastRemoteStateChangeCounter = 0;
     uint64_t lastRemoteLatencyChangeCounter = 0;
     juce::AudioBuffer<float> audio;
-    juce::MidiBuffer midi;
+    PluginMIDIBuffer midi;
+    // Prepared once, then written only for actual events. Empty instrument
+    // blocks must not clear a 12-KiB packet array on every device callback.
+    std::array<plugin_host::MidiEvent,
+               plugin_host::kMaximumMidiEventsPerBlock> hostedMidiEvents{};
     int processorLatencySamples = 0;
     int pipelineLatencySamples = 0;
     int latencySamples = 0;
@@ -671,20 +675,31 @@ std::vector<std::string> PluginProcessorBank::failedHostStripIds() const {
 }
 
 bool PluginProcessorBank::stripHasInstrument(size_t stripIndex) const noexcept {
-    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
-        return false;
-    for (const auto& node : chains[stripIndex]->nodes) {
-        if (node != nullptr && node->instrument)
-            return true;
-    }
-    return false;
+    return stripIndex < chains.size() && chains[stripIndex] != nullptr
+        && chains[stripIndex]->hasInstrument;
 }
 
 void PluginProcessorBank::addStripMidiEvent(size_t stripIndex, const juce::MidiMessage& message,
                                             int samplePosition) noexcept {
     if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
         return;
-    chains[stripIndex]->midi.addEvent(message, samplePosition);
+    chains[stripIndex]->midi.add(message, samplePosition);
+}
+
+void PluginProcessorBank::addStripMidiEvent(size_t stripIndex,
+                                            const uint8_t* data, int numBytes,
+                                            int samplePosition) noexcept {
+    if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
+        return;
+    chains[stripIndex]->midi.add(data, numBytes, samplePosition);
+}
+
+uint64_t PluginProcessorBank::rejectedMidiEvents() const noexcept {
+    uint64_t rejected = 0;
+    for (const auto& chain : chains)
+        if (chain != nullptr)
+            rejected += chain->midi.rejectedEvents();
+    return rejected;
 }
 
 void PluginProcessorBank::clearStripMidi(size_t stripIndex) noexcept {
@@ -696,13 +711,14 @@ void PluginProcessorBank::clearStripMidi(size_t stripIndex) noexcept {
 void PluginProcessorBank::injectAllNotesOff() noexcept {
     for (auto& chain : chains) {
         if (chain != nullptr) {
+            chain->midi.makeRoomForPanic(16 * 2);
             for (int ch = 1; ch <= 16; ++ch) {
-                chain->midi.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
+                chain->midi.add(juce::MidiMessage::allNotesOff(ch), 0);
                 // Release sustained voices, but do not send All Sound Off
                 // (CC 120): that kills envelopes immediately and can click
                 // on Stop/seek instead of letting the synth's release/tail
                 // run through the normal mixer path.
-                chain->midi.addEvent(juce::MidiMessage::controllerEvent(ch, 64, 0), 0);
+                chain->midi.add(juce::MidiMessage::controllerEvent(ch, 64, 0), 0);
             }
         }
     }
@@ -712,10 +728,11 @@ void PluginProcessorBank::injectAllSoundOff() noexcept {
     for (auto& chain : chains) {
         if (chain == nullptr)
             continue;
+        chain->midi.makeRoomForPanic(16 * 3);
         for (int ch = 1; ch <= 16; ++ch) {
-            chain->midi.addEvent(juce::MidiMessage::allSoundOff(ch), 0);
-            chain->midi.addEvent(juce::MidiMessage::controllerEvent(ch, 121, 0), 0);
-            chain->midi.addEvent(juce::MidiMessage::pitchWheel(ch, 8192), 0);
+            chain->midi.add(juce::MidiMessage::allSoundOff(ch), 0);
+            chain->midi.add(juce::MidiMessage::controllerEvent(ch, 121, 0), 0);
+            chain->midi.add(juce::MidiMessage::pitchWheel(ch, 8192), 0);
         }
     }
 }
@@ -725,24 +742,10 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
     auto& chain = *static_cast<StripChain*>(context);
     if (chain.hostedProcess != nullptr
         && chain.hostedProcess->process != nullptr) {
-        std::array<plugin_host::MidiEvent,
-                   plugin_host::kMaximumMidiEventsPerBlock> midiEvents{};
-        uint32_t midiEventCount = 0;
-        juce::MidiBuffer::Iterator iterator(chain.midi);
-        juce::MidiMessage message;
-        int samplePosition = 0;
-        while (midiEventCount < midiEvents.size()
-               && iterator.getNextEvent(message, samplePosition)) {
-            const int byteCount = message.getRawDataSize();
-            if (byteCount <= 0
-                || byteCount > static_cast<int>(plugin_host::kMaximumMidiEventBytes)
-                || samplePosition < 0 || samplePosition >= numSamples)
-                continue;
-            auto& event = midiEvents[midiEventCount++];
-            event.sampleOffset = static_cast<uint32_t>(samplePosition);
-            event.size = static_cast<uint8_t>(byteCount);
-            std::copy_n(message.getRawData(), byteCount, event.data);
-        }
+        const auto midiCopy = copyPluginMIDIEventsToHost(
+            chain.midi.buffer(), chain.hostedMidiEvents.data(),
+            static_cast<uint32_t>(chain.hostedMidiEvents.size()), numSamples);
+        chain.midi.recordRejected(midiCopy.rejected);
 
         plugin_host::TransportSnapshot transport;
         transport.sample = chain.transport.sample;
@@ -757,14 +760,9 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
         transport.recording = chain.transport.recording ? 1 : 0;
         transport.looping = chain.transport.looping ? 1 : 0;
 
-        const bool instrumentChain = std::any_of(
-            chain.nodes.begin(), chain.nodes.end(),
-            [](const std::shared_ptr<Node>& node) {
-                return node != nullptr && node->instrument;
-            });
         (void)chain.hostedProcess->process->processBlock(
-            left, right, static_cast<uint32_t>(numSamples), midiEvents.data(),
-            midiEventCount, nullptr, 0, transport, instrumentChain);
+            left, right, static_cast<uint32_t>(numSamples), chain.hostedMidiEvents.data(),
+            midiCopy.copied, nullptr, 0, transport, chain.hasInstrument);
         chain.midi.clear();
         if (chain.activePluginIndexTelemetry != nullptr)
             chain.activePluginIndexTelemetry->store(
@@ -774,7 +772,7 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
 
     float* stereoChannels[] = {left, right};
 
-    const bool hasMidi = !chain.midi.isEmpty();
+    const bool hasMidi = !chain.midi.buffer().isEmpty();
 
     uint32_t nodeIndex = 0;
     for (auto& node : chain.nodes) {
@@ -792,10 +790,15 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
             continue;
 
         bool hasAudioInput = false;
-        for (int i = 0; i < numSamples; ++i) {
-            if (std::abs(left[i]) > 1.0e-5f || std::abs(right[i]) > 1.0e-5f) {
-                hasAudioInput = true;
-                break;
+        // Instrument activity comes from MIDI; scanning its incoming silent
+        // audio cannot change the wake decision. Effects still inspect their
+        // actual post-previous-insert input so tail/suspension semantics agree.
+        if (!node->instrument && !hasMidi) {
+            for (int i = 0; i < numSamples; ++i) {
+                if (std::abs(left[i]) > 1.0e-5f || std::abs(right[i]) > 1.0e-5f) {
+                    hasAudioInput = true;
+                    break;
+                }
             }
         }
 
@@ -846,18 +849,18 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
                                                    node->requiredChannels, samplesToProcess);
 
                 if (node->bypassed.load(std::memory_order_relaxed))
-                    node->instance->processBlockBypassed(activeBuf, chain.midi);
+                    node->instance->processBlockBypassed(activeBuf, chain.midi.buffer());
                 else
-                    node->instance->processBlock(activeBuf, chain.midi);
+                    node->instance->processBlock(activeBuf, chain.midi.buffer());
 
                 std::memcpy(left, node->buffer.getReadPointer(0), bytesToCopy);
                 std::memcpy(right, node->buffer.getReadPointer(1), bytesToCopy);
             } else {
                 chain.audio.setDataToReferTo(stereoChannels, 2, numSamples);
                 if (node->bypassed.load(std::memory_order_relaxed))
-                    node->instance->processBlockBypassed(chain.audio, chain.midi);
+                    node->instance->processBlockBypassed(chain.audio, chain.midi.buffer());
                 else
-                    node->instance->processBlock(chain.audio, chain.midi);
+                    node->instance->processBlock(chain.audio, chain.midi.buffer());
 
                 if (outChannels == 1) {
                     std::memcpy(right, left, sizeof(float) * static_cast<size_t>(numSamples));
@@ -917,7 +920,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     for (size_t stripIndex = 0; stripIndex < graph.strips.size(); ++stripIndex) {
         const auto* slots = slotsForStrip(project, graph.strips[stripIndex]);
         if (slots == nullptr || slots->empty()) continue;
-        auto chain = std::make_unique<StripChain>(maximumBlockSize);
+        auto chain = std::make_unique<StripChain>(maximumBlockSize, nonRealtime);
         chain->stripId = graph.strips[stripIndex].id;
         chain->sampleRate = sampleRate;
         chain->sharedBlockCapacity = maximumBlockSize;
@@ -1120,6 +1123,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             }
             if (!chain->nodes.empty())
                 bank->hasAnyPlugins = true;
+            chain->hasInstrument = std::any_of(
+                chain->nodes.begin(), chain->nodes.end(),
+                [](const auto& node) { return node != nullptr && node->instrument; });
             bank->maximumLatencySamples = std::max(
                 bank->maximumLatencySamples, chain->latencySamples);
             bank->processorEntries[stripIndex] = {chain.get(), processChain};
@@ -1280,6 +1286,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         }
         if (!chain->nodes.empty())
             bank->hasAnyPlugins = true;
+        chain->hasInstrument = std::any_of(
+            chain->nodes.begin(), chain->nodes.end(),
+            [](const auto& node) { return node != nullptr && node->instrument; });
         bank->maximumLatencySamples = std::max(bank->maximumLatencySamples,
                                                chain->latencySamples);
         bank->processorEntries[stripIndex] = {chain.get(), processChain};

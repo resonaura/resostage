@@ -181,14 +181,18 @@ export function AudioTrackLanes({
         onChange={handleFileChange}
       />
       {rows.map((row, rowIndex) => {
-        const track = state.tracks.find(
-          (t: TrackRow) => (t.name || t.id) === row.name || t.id === row.name,
-        );
+        const track =
+          row.headerIndex !== null && state.tracks[row.headerIndex]
+            ? state.tracks[row.headerIndex]
+            : state.tracks.find(
+                (t: TrackRow) =>
+                  (t.name || t.id) === row.name || t.id === row.name,
+              );
         const trackIndex = track
           ? state.tracks.findIndex((t) => t.id === track.id)
           : -1;
         // Orphan rows (no staged track) never count as soloed.
-        const soloDimmed = anySolo && !(track?.solo ?? false);
+        const soloDimmed = anySolo && !track?.solo && !track?.soloSafe;
         const trackMuted = track?.mute ?? false;
         const invertPolarity = Boolean(
           track?.phaseInvert || (track?.polarity && track.polarity !== "none"),
@@ -196,7 +200,7 @@ export function AudioTrackLanes({
 
         return (
           <div
-            key={row.name}
+            key={track?.id ?? `${row.name}-${rowIndex}`}
             className="relative border-b border-default/15 bg-default/5"
             style={{
               width: contentWidth,

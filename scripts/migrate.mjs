@@ -317,6 +317,7 @@ function migrateClick(old, busIds) {
     pan: num(src.pan, 0),
     mute: Boolean(src.mute),
     solo: Boolean(src.solo),
+    soloSafe: src.soloSafe ?? true,
     output: migrateSourceOutput(src, busIds),
   };
 }

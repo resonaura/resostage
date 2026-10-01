@@ -191,7 +191,7 @@ void AudioRecordWorker::writeSessionChunk(TrackAudioRecordSession& session, int6
     session.liveCapturedFrames.store(session.recordedFrames, std::memory_order_release);
 }
 
-bool AudioRecordWorker::writeWavHeader(FILE* file, uint32_t sampleRate, uint16_t channels, uint16_t bitDepth, uint64_t dataBytes) {
+bool AudioRecordWorker::writeWAVHeader(FILE* file, uint32_t sampleRate, uint16_t channels, uint16_t bitDepth, uint64_t dataBytes) {
     if (file == nullptr)
         return false;
 
@@ -293,7 +293,7 @@ std::vector<RecordedAudioTrackResult> AudioRecordWorker::stopAndFinalize() {
         }
 
         if (session->file != nullptr) {
-            writeWavHeader(session->file,
+            writeWAVHeader(session->file,
                            static_cast<uint32_t>(session->sampleRate),
                            static_cast<uint16_t>(session->channels),
                            static_cast<uint16_t>(session->bitDepth),

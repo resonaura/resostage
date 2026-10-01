@@ -10,8 +10,11 @@ import { isCompactLane } from "@/screens/editor/timeline/layout/logic/laneDimens
 import { RegionLoopBoundaries } from "@/screens/editor/timeline/regions/components/RegionLoopBoundaries";
 import { TimelineRegionFrame } from "@/screens/editor/timeline/regions/components/TimelineRegionFrame";
 import type { TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
-import type { RegionDragMode } from "@/screens/editor/timeline/regions/logic/regionDrag";
-import type { RegionGeomDraft } from "@/screens/editor/timeline/regions/logic/regionDrag";
+import {
+  regionEdgeMode,
+  type RegionDragMode,
+  type RegionGeomDraft,
+} from "@/screens/editor/timeline/regions/logic/regionDrag";
 import {
   midiRegionContainsLoopSourceBeat,
   midiRegionLoopOccurrence,
@@ -87,6 +90,7 @@ export function MidiRegionBlock({
     clipOffsetBeats: effectiveClipOffsetBeats,
     loopLengthBeats: effectiveLoopLengthBeats,
     loopStartBeats: effectiveLoopStartBeats,
+    loop: effectiveLoop,
   };
 
   const startSeconds = (effectiveStartBeats * 60) / bpm;
@@ -295,11 +299,17 @@ export function MidiRegionBlock({
     return intervals.filter((interval) => interval.end > interval.start);
   })();
 
-  const handlePointerDown = (e: React.PointerEvent, mode: RegionDragMode) => {
+  const onRegionPointerDown = (e: React.PointerEvent) => {
     if (readOnly) return;
     if (e.button !== 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
     onSelect?.(e);
-    onBeginDrag?.(e, mode);
+    const mode = regionEdgeMode(localX, localY, widthPx, rect.height);
+    const effectiveMode: RegionDragMode =
+      mode === "fadeIn" ? "trimStart" : mode === "fadeOut" ? "loopTrim" : mode;
+    onBeginDrag?.(e, effectiveMode);
   };
 
   return (
@@ -310,21 +320,46 @@ export function MidiRegionBlock({
       muted={midiRegion.muted}
       dimmed={dimmed || Boolean(midiRegion.muted)}
       data-region-block=""
-      className={`absolute select-none overflow-hidden border transition-shadow ${
+      className={`absolute select-none overflow-hidden border ${
         compactLane
           ? "top-0.5 bottom-0.5 flex items-center rounded-sm"
           : "top-1 bottom-1 rounded-md"
       } ${
         isSelected
           ? "shadow-md z-20"
-          : "hover:brightness-115"
-      } ${isDragging ? "opacity-90 shadow-lg z-30 cursor-grabbing" : "cursor-pointer"}`}
+          : ""
+      } ${isDragging ? "opacity-90 shadow-lg z-30 cursor-grabbing" : ""}`}
       style={{
         left: leftPx,
         width: widthPx,
+        cursor: readOnly
+          ? "default"
+          : tool !== "pointer" && tool !== "pencil"
+            ? "default"
+            : isDragging
+              ? "grabbing"
+              : "grab",
+        zIndex: isSelected ? 2 : 1,
       }}
       title={`${midiRegion.name || "MIDI Region"} · Drag to move · Edges to trim · Double-click to edit in Piano Roll`}
-      onPointerDown={(e) => handlePointerDown(e, "move")}
+      onPointerDown={onRegionPointerDown}
+      onPointerMove={(e) => {
+        if (isDragging || readOnly) return;
+        if (tool !== "pointer" && tool !== "pencil") return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const localX = e.clientX - rect.left;
+        const localY = e.clientY - rect.top;
+        const mode = regionEdgeMode(localX, localY, widthPx, rect.height);
+        const c =
+          mode === "trimStart" || mode === "trimEnd" || mode === "fadeIn"
+            ? "col-resize"
+            : mode === "loopTrim" || mode === "fadeOut"
+              ? "alias"
+              : "grab";
+        if ((e.currentTarget as HTMLElement).style.cursor !== c) {
+          (e.currentTarget as HTMLElement).style.cursor = c;
+        }
+      }}
       onDoubleClick={(e) => {
         e.stopPropagation();
         onOpenPianoRoll?.(midiRegion.trackId, midiRegion.id);
@@ -449,50 +484,6 @@ export function MidiRegionBlock({
         loopLengthPx={(effectiveLoopLengthBeats * 60 / bpm) * pxPerSec}
         color={rowColor}
       />
-
-      {/* Left Trim Handle */}
-      {!readOnly && (tool === "pointer" || tool === "pencil") && (
-        <div
-          className="absolute left-0 top-0 bottom-0 w-2.5 cursor-col-resize z-20 transition-opacity"
-          title="Trim Start"
-          style={{ backgroundColor: rowColor, opacity: 0 }}
-          onPointerEnter={(e) => { e.currentTarget.style.opacity = "0.3"; }}
-          onPointerLeave={(e) => { e.currentTarget.style.opacity = "0"; }}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            handlePointerDown(e, "trimStart");
-          }}
-        />
-      )}
-
-      {/* Logic-style right edge: upper part extends/creates a loop, lower
-          part trims the authored region end. */}
-      {!readOnly && (tool === "pointer" || tool === "pencil") && (
-        <>
-          <div
-            className="absolute right-0 top-0 h-[65%] w-2.5 cursor-alias z-20 transition-opacity"
-            title="Loop Region"
-            style={{ backgroundColor: rowColor, opacity: 0 }}
-            onPointerEnter={(e) => { e.currentTarget.style.opacity = "0.3"; }}
-            onPointerLeave={(e) => { e.currentTarget.style.opacity = "0"; }}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              handlePointerDown(e, "loopTrim");
-            }}
-          />
-          <div
-            className="absolute right-0 bottom-0 h-[35%] w-2.5 cursor-col-resize z-20 transition-opacity"
-            title="Trim End"
-            style={{ backgroundColor: rowColor, opacity: 0 }}
-            onPointerEnter={(e) => { e.currentTarget.style.opacity = "0.3"; }}
-            onPointerLeave={(e) => { e.currentTarget.style.opacity = "0"; }}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              handlePointerDown(e, "trimEnd");
-            }}
-          />
-        </>
-      )}
     </TimelineRegionFrame>
   );
 }

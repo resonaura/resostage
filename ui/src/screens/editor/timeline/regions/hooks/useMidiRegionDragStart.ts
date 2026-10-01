@@ -95,10 +95,14 @@ export function useMidiRegionDragStart({
         (region.durationBeats * 60) / bpm,
       );
       const clipOffsetSeconds = (region.clipOffsetBeats * 60) / bpm;
-      const loopLengthSeconds =
-        region.loopLengthBeats > 0
-          ? (region.loopLengthBeats * 60) / bpm
-          : durationSeconds;
+      const origLoopLen =
+        mode === "loopTrim"
+          ? region.loop && region.loopLengthBeats > 0
+            ? (region.loopLengthBeats * 60) / bpm
+            : durationSeconds
+          : region.loop && region.loopLengthBeats > 0
+            ? (region.loopLengthBeats * 60) / bpm
+            : 0;
       const loopStartSeconds = ((region.loopStartBeats ?? 0) * 60) / bpm;
       const geom = {
         start: startSeconds,
@@ -110,7 +114,7 @@ export function useMidiRegionDragStart({
         fadeInCurve: 0,
         fadeOutCurve: 0,
         loop: region.loop,
-        loopLengthSeconds,
+        loopLengthSeconds: origLoopLen,
         loopStartSeconds,
         trackId: region.trackId,
       };
@@ -132,7 +136,7 @@ export function useMidiRegionDragStart({
         origFadeInCurve: 0,
         origFadeOutCurve: 0,
         origLoop: region.loop,
-        origLoopLength: loopLengthSeconds,
+        origLoopLength: origLoopLen,
         origLoopStart: loopStartSeconds,
         origSpeed: 1,
         maxEnd: songLengths[songIndex] ?? 600,

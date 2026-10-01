@@ -38,19 +38,8 @@ void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, c
         webServer.finishTrackImport(requestId, false, "No target track");
         return;
     }
-    if (engine.projectPath().empty()) {
-        std::string err;
-        const auto docDir = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getChildFile("Documents").getChildFile("ResoSet_Projects");
-        docDir.createDirectory();
-        const std::string defaultPath = docDir.getChildFile("UntitledProject.rsnraset").getFullPathName().toStdString();
-        if (!engine.saveProject(defaultPath, err)) {
-            std::remove(tempWavPath.c_str());
-            setStatus("Import failed: could not auto-create project archive (" + juce::String(err) + ")");
-            webServer.finishTrackImport(requestId, false, "Could not auto-create project archive: " + err);
-            return;
-        }
-    }
-
+    // AudioEngine validates the target before auto-creating a package. Do not
+    // save an empty document merely because an invalid upload was received.
     const auto sIdx = static_cast<size_t>(songIndex);
     const auto tIdx = static_cast<size_t>(trackIndex);
     const juce::Component::SafePointer<MainComponent> safeThis(this);

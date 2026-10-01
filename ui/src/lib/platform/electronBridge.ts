@@ -49,6 +49,7 @@ type BridgeWindow = typeof window & {
     isElectron?: boolean;
     sendMenuState: (state: ElectronMenuState) => void;
     sendAction: (action: string) => void;
+    flashAction?: (action: string) => void;
     setTypingFocus?: (focused: boolean) => void;
     setKeyCaptureActive?: (active: boolean) => void;
   };
@@ -115,4 +116,10 @@ export function sendTypingFocus(focused: boolean): void {
 export function sendKeyCaptureActive(active: boolean): void {
   if (!IS_ELECTRON) return;
   bridge()?.setKeyCaptureActive?.(active);
+}
+
+/** Immediately flash the native menu item matching an action without waiting for telemetry roundtrip. */
+export function flashMenuAction(action: string): void {
+  if (!IS_ELECTRON || !action) return;
+  bridge()?.flashAction?.(action);
 }

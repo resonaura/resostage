@@ -418,7 +418,7 @@ export function useRegionDrag({
                   ((finalGeom.loopLengthSeconds * bpm) / 60) * 1000,
                 ) / 1000,
               )
-            : rd.origDurationBeats,
+            : Math.round(finalDurationBeats * 1000) / 1000,
         ...(finalGeom.loopStartSeconds !== undefined
           ? {
               loopStartBeats: Math.max(

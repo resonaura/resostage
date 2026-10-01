@@ -38,6 +38,7 @@ struct HttpTriggerCommand {
     std::string body;
     uint64_t targetHostTimeNanos = 0;
 };
+using HTTPTriggerCommand = HttpTriggerCommand;
 
 struct DmxTriggerCommand {
     int universe = 0;
@@ -45,6 +46,7 @@ struct DmxTriggerCommand {
     /** See HttpTriggerCommand::targetHostTimeNanos. */
     uint64_t targetHostTimeNanos = 0;
 };
+using DMXTriggerCommand = DmxTriggerCommand;
 
 // Fires HTTP and DMX (Art-Net UDP) trigger commands off the audio thread, on
 // a dedicated background worker thread, so a slow or unreachable target
@@ -74,6 +76,8 @@ public:
     // false if the queue is momentarily full (command dropped).
     bool enqueueHttp(const HttpTriggerCommand& cmd);
     bool enqueueDmx(const DmxTriggerCommand& cmd);
+    bool enqueueHTTP(const HTTPTriggerCommand& cmd) { return enqueueHttp(cmd); }
+    bool enqueueDMX(const DMXTriggerCommand& cmd) { return enqueueDmx(cmd); }
 
     // Where ArtDMX UDP packets are sent; defaults to the local broadcast
     // address so any Art-Net node on the subnet picks them up.
@@ -83,6 +87,8 @@ private:
     void workerThreadLoop();
     void sendHttp(const HttpTriggerCommand& cmd);
     void sendDmx(const DmxTriggerCommand& cmd);
+    void sendHTTP(const HTTPTriggerCommand& cmd) { sendHttp(cmd); }
+    void sendDMX(const DMXTriggerCommand& cmd) { sendDmx(cmd); }
 
     moodycamel::ReaderWriterQueue<HttpTriggerCommand> httpQueue{256};
     // 1024 slots: LightEngine sends ~44 packets/s × N universes continuously.

@@ -384,8 +384,8 @@ private:
                 != static_cast<uint32_t>(resostage::plugin_host::HostState::Ready))
                 break;
             (void)sharedMemory.waitForWake();
-            if (!parentAlive(parentProcessId))
-                break;
+            // The independent parent watchdog also covers idle/blocked DSP.
+            // Do not repeat process-handle/syscall work on every audio wake.
 
             while (area.hostState.load(std::memory_order_acquire)
                        == static_cast<uint32_t>(resostage::plugin_host::HostState::Ready)) {

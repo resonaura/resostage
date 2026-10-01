@@ -9,11 +9,19 @@ as part of the same change.
 Any AI agent may update this file at any time, but only for a material change:
 a real change to architecture, ownership, thread or process boundaries,
 real-time invariants, protocols, persisted schema, build/deployment topology,
-or the verification workflow required to keep those guarantees. Do not churn
-`AGENTS.md` for routine implementation details, local refactors, renamed
-private helpers, formatting, or speculative future designs. Every edit must
-describe behaviour that is already implemented in the same change and is
-important for the next agent to work safely.
+Every source file across the repository (TypeScript, JavaScript, C++,
+Objective-C/C++, etc.) must begin with the standard ResoStage copyright
+and license header:
+
+```text
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
+```
+
+Never omit or strip this license header when creating or editing files.
 
 ## 1. Product and deployment model
 
@@ -174,6 +182,19 @@ binding in DOM menus and sends a platform accelerator to Electron menus.
 Electron-native labels must escape literal ampersands because Electron treats
 single `&` characters as mnemonic markers on Windows/Linux.
 
+macOS Touch Bar and application menu flash affordances:
+- Touch Bar screen-switching tabs update in-place via `TouchBarButton.backgroundColor`
+  rather than recreating and assigning a new `NSTouchBar` on each tab change.
+  Re-instantiating the TouchBar tears down AppKit's view hierarchy and produces
+  visible blinking between old and new state. Tab touch clicks update the button
+  backgrounds synchronously, dispatch `dispatch-hotkey` (`mode_${id}`) to the
+  renderer for 0ms screen transitions, and forward the command to Core.
+- Native Menu Bar Flash: UI-originated actions (hotkeys, context menu items, and
+  direct controls) signal `flashAction` over IPC to the Electron main process
+  so the AppKit menu item and top-level title flash immediately without waiting
+  for Core's 30–60ms telemetry roundtrip. Telemetry echoes are debounced to
+  prevent duplicate flashes.
+
 Core `TrackDef::recordArmed` and `TrackDef::inputMonitoring` are the authoritative
 R/I states shown by every surface. Selecting a track updates the focused track;
 an assigned focused audio input is monitored ephemerally, and focused MIDI
@@ -310,6 +331,12 @@ Preserve these rules:
   buses. Fan-out happens after the source block is in scratch memory.
 - Track/click solo is one group; send-bus solo is a separate group. Do not
   infer or duplicate this logic in UI code.
+- Metronome solo-safe invariant: `ClickChannel::soloSafe` is `true` by default
+  across new projects, schema Wire types, and deserialization (projects < v10
+  are upgraded automatically). Soloing normal tracks during performance or
+  rehearsal isolates those tracks against the mix while keeping the metronome
+  audible ("hear against the click", not "kill the click"); click is silenced on
+  track solo only if `click.soloSafe` is explicitly disengaged by the operator.
 - `SendTap` routing (`PreFader`, `PostFader`, `PostPan`) and main/bus/ext-out
   routing semantics are defined by `ProjectSchema.h` and graph construction:
   - `PreFader`: Taps signal post-insert FX and polarity conditioning, bypassing fader, mute, and pan.
@@ -382,6 +409,12 @@ Preserve these rules:
   the audio worker. Shutdown signals both workers before joining. Parent death
   is handled by an independent watchdog, so idle helpers consume negligible
   wake-loop CPU without sacrificing request latency.
+  Core/live-host MIDI ingress reserves 11,264 JUCE bytes for 512 events with
+  16-byte packets and six-byte framing. Oversized/newest overflow packets are
+  rejected before allocation and counted by the bank. Complete channel-wide
+  32/48-event panic bursts take priority over pending musical packets. Offline
+  non-realtime banks retain full SysEx/growing buffers; never use that mode in
+  a live callback. The IPC ABI remains unchanged.
   If a result misses its deadline, effects retain their dry input and instrument
   strips emit silence for that block. MIDI packets and host controls use bounded
   queues; rejected control events increment a health counter without marking a
@@ -659,7 +692,7 @@ parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `8`. A `.rsnraset` is normally a directory package containing
+format version is `9`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -693,7 +726,10 @@ plug-in chains, v4 gains default MIDI channels/empty retained-event vectors,
 and v5 gains empty UMP-event vectors while MIDI 1.0 notes remain unchanged.
 The external migration script also upgrades later formats: v6 adds the
 per-track pan law, v7 adds a MIDI loop source-window start defaulting to zero,
-and v8 persists that trimmed MIDI loop window. MIDI regions keep source note
+and v8 persists that trimmed MIDI loop window. v9 adds optional
+`RegionSource::videoFile`, retaining a project-local original video alongside
+the playable audio resource; v8 remains a readable additive exception.
+MIDI regions keep source note
 coordinates; `clipOffsetBeats` identifies the current source phase, while
 `loopStartBeats` and `loopLengthBeats` bound the loop source window. Trimming
 the left edge advances the phase and shrinks that window so the newly exposed
@@ -709,6 +745,26 @@ Peak/waveform caches and other derived artifacts must be disposable. The audio
 thread reads the peak-duration map through an immutable `shared_ptr` snapshot
 so it never takes the peak-cache mutex; keep expensive peak building in the
 bounded background pool.
+
+Audio/video import runs on a cancellable background worker against a private
+project snapshot. Supported PCM WAV resources are preserved; other formats
+are decoded by the bundled FFmpeg helper into 48 kHz stereo float PCM WAV/RF64.
+Video originals are copied under `Video/` for portable future video support,
+not played as video yet. Resources, peak overviews, and package copies use
+bounded streamed I/O; source and prepared audio files are capped at 20 GiB.
+Only a successful package commit creates history and publishes the region.
+Original video paths and streamed extra resources retain package traversal /
+symlink validation. Explicit song boundaries grow to include imported media.
+
+Media uploads carry a per-request ticket from import-begin through upload and
+completion-status. The HTTP thread owns bounded ticket/result maps, not project
+state. Upload acknowledgements mean queued, not imported: clients poll the
+result until the message-thread completion confirms the commit. Bodies stream
+to unique temporary files, retain the source extension, and are capped at
+20 GiB. Failed upload/queue admission removes temporary data and returns an
+explicit error. Binary Blob uploads bypass Electron's string-only JSON proxy.
+While a project operation is busy, MainComponent defers structural commands
+in an ordered bounded queue; Stop/cancel remain serviceable.
 
 ## 11. Offline rendering
 
@@ -1003,6 +1059,10 @@ regression in live software.
 - Remove dead code, stale compatibility branches, and duplicated obsolete
   paths only after all callers, persisted data, remote peers, and platform
   packaging requirements are proven gone.
+- Every new source file across the repository (C++, C, TypeScript, JavaScript,
+  CMake, shell/node scripts) must begin with the standard ResoStage copyright
+  and license header (`Licensed under the GNU General Public License v3.0 or later; see LICENSE.`).
+  Never omit the canonical license header on created or generated source files.
 
 Comments and API documentation are part of correctness in concurrent code:
 
@@ -1064,6 +1124,18 @@ either plug-in helper from a platform adapter.
 Missing scanner means the catalog API reports a visible scan failure; missing
 live host makes affected plugin slots visibly fail closed rather than loading
 vendor code in Core.
+
+FFmpeg is installed during assembly, before signing, never discovered on PATH
+at runtime. macOS Core embeds `Contents/Helpers/ResoStage Media.app` with the
+`ResoStage Media` executable, metadata/icon, and all non-system dylibs relocated
+beside it. Windows ships `media.exe` and its complete shared DLL set beside
+`core.exe`; Linux ships `resostage-media`. The build acquires GPL codec profiles,
+rejects `--enable-nonfree`, verifies pinned package hashes where downloaded,
+checks architecture/configuration, and includes supplier/license notices.
+Apple Silicon builds copy and relocate a build-time Homebrew dependency
+closure; the installed app never needs Homebrew. Intel macOS and Windows/Linux
+use architecture-specific upstream packages. Keep actual version/provenance
+accurate; platform codec profiles need not be identical. See `docs/FFMPEG.md`.
 
 On Windows the executable is not standalone; keep the complete assembled
 directory together. On macOS the outer Electron application contains

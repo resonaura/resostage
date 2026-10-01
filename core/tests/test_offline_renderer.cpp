@@ -19,14 +19,14 @@
 using namespace resostage;
 
 namespace {
-std::filesystem::path temporaryWavPath() {
+std::filesystem::path temporaryWAVPath() {
     return std::filesystem::temp_directory_path()
         / ("resostage-offline-render-" + std::to_string(
               std::chrono::steady_clock::now().time_since_epoch().count()) + ".wav");
 }
 
-std::filesystem::path temporaryWavPath(const char* suffix) {
-    auto path = temporaryWavPath();
+std::filesystem::path temporaryWAVPath(const char* suffix) {
+    auto path = temporaryWAVPath();
     return path.parent_path() / (path.stem().string() + suffix + ".wav");
 }
 
@@ -223,7 +223,7 @@ TEST_CASE("OfflineRenderer writes a bounded click stem with a valid WAV header")
     project.click.enabled = true;
     project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.1});
 
-    const auto path = temporaryWavPath();
+    const auto path = temporaryWAVPath();
     OfflineRenderRequest request;
     request.songIndex = 0;
     request.targetKind = RenderTargetKind::Click;
@@ -258,7 +258,7 @@ TEST_CASE("OfflineRenderer rejects an unknown track without leaving a partial fi
     Project project;
     project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.01});
 
-    const auto path = temporaryWavPath();
+    const auto path = temporaryWAVPath();
     OfflineRenderRequest request;
     request.songIndex = 0;
     request.targetKind = RenderTargetKind::Track;
@@ -280,8 +280,8 @@ TEST_CASE("OfflineRenderer captures several taps in one bounded render job") {
     project.click.output.type = OutputType::Main;
     project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.05});
 
-    const auto mainPath = temporaryWavPath("-main");
-    const auto clickPath = temporaryWavPath("-click");
+    const auto mainPath = temporaryWAVPath("-main");
+    const auto clickPath = temporaryWAVPath("-click");
     OfflineRenderRequest request;
     request.songIndex = 0;
     request.sampleRate = 48000;
@@ -311,8 +311,8 @@ TEST_CASE("OfflineRenderer aligns selected stems to one compensated origin") {
     project.songs.push_back(
         SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.05});
 
-    const auto mainPath = temporaryWavPath("-aligned-main");
-    const auto clickPath = temporaryWavPath("-aligned-click");
+    const auto mainPath = temporaryWAVPath("-aligned-main");
+    const auto clickPath = temporaryWAVPath("-aligned-click");
     OfflineRenderRequest request;
     request.songIndex = 0;
     request.sampleRate = 48000;
@@ -348,7 +348,7 @@ TEST_CASE("OfflineRenderer Leave tail is quiet-detected and hard bounded") {
     project.click.enabled = true;
     project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.01});
 
-    const auto path = temporaryWavPath("-tail");
+    const auto path = temporaryWAVPath("-tail");
     OfflineRenderRequest request;
     request.songIndex = 0;
     request.targetKind = RenderTargetKind::Click;
@@ -374,7 +374,7 @@ TEST_CASE("OfflineRenderer Leave honors declared sparse processor tails") {
     project.songs.push_back(
         SongDef{.id = "meta::song:1", .name = "Sparse tail", .endSeconds = 0.01});
 
-    const auto path = temporaryWavPath("-sparse-tail");
+    const auto path = temporaryWAVPath("-sparse-tail");
     OfflineRenderRequest request;
     request.songIndex = 0;
     request.targetKind = RenderTargetKind::Click;
@@ -405,7 +405,7 @@ TEST_CASE("OfflineRenderer Wrap primes once and writes one exact range") {
     project.click.enabled = true;
     project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Loop", .endSeconds = 0.025});
 
-    const auto path = temporaryWavPath("-wrap");
+    const auto path = temporaryWAVPath("-wrap");
     OfflineRenderRequest request;
     request.songIndex = 0;
     request.targetKind = RenderTargetKind::Click;
@@ -435,7 +435,7 @@ TEST_CASE("OfflineRenderer creates private processor sessions and runs their str
     project.songs.push_back(
         SongDef{.id = "meta::song:2", .name = "Two", .endSeconds = 0.01});
 
-    const auto path = temporaryWavPath("-processors");
+    const auto path = temporaryWAVPath("-processors");
     OfflineRenderRequest request;
     request.songIndex = -1;
     request.targetKind = RenderTargetKind::Click;
@@ -501,7 +501,7 @@ TEST_CASE("OfflineRenderer sends song-tempo MIDI to the private instrument proce
     song.midiRegions.push_back(region);
     project.songs.push_back(song);
 
-    const auto path = temporaryWavPath("-midi-instrument");
+    const auto path = temporaryWAVPath("-midi-instrument");
     OfflineRenderRequest request;
     request.songIndex = 0;
     request.targetKind = RenderTargetKind::Track;
@@ -545,7 +545,7 @@ TEST_CASE("OfflineRenderer never overwrites an existing destination") {
     project.click.enabled = true;
     project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.01});
 
-    const auto path = temporaryWavPath("-existing");
+    const auto path = temporaryWAVPath("-existing");
     {
         std::ofstream existing(path, std::ios::binary);
         existing << "keep-me";

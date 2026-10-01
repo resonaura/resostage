@@ -11,12 +11,18 @@ import { triggerHaptic } from "@/lib/interaction/haptics";
 import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
 import {
   editControllerPoint,
-  paintBrushNote,
   resolveDrawNoteDuration,
 } from "@/screens/editor/pianoroll/logic/pianoRollModel";
 import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import { controllerValueFromY } from "@/screens/editor/pianoroll/logic/canvasUtils";
+import {
+  boundedNoteMove,
+  boundedNoteResize,
+  findNotesInMarquee,
+  marqueeSelection,
+  sweepBrushNotes,
+} from "@/screens/editor/pianoroll/logic/gestures";
 import type {
   DraggingState,
   GridSnapValue,
@@ -38,6 +44,7 @@ interface PianoRollPointerMoveHandlerOptions {
   lastDragDetentRef: MutableRefObject<string | null>;
   spatialIndex: MutableRefObject<SpatialNoteIndex>;
   viewport: PianoRollViewport;
+  region: MidiRegionRow;
   bottomLane: PianoRollBottomLane;
   notesToRender: MidiNoteRow[];
   tool: PianoRollTool;
@@ -68,6 +75,7 @@ export function usePianoRollPointerMoveHandler({
   lastDragDetentRef,
   spatialIndex,
   viewport,
+  region,
   bottomLane,
   notesToRender,
   tool,
@@ -202,11 +210,13 @@ export function usePianoRollPointerMoveHandler({
         curPitch = snapPitchToScale(curPitch, rootNote, scaleMode);
       }
       const dur = snap > 0 ? snap : 0.25;
-      const painted = paintBrushNote(notesToRender, curBeat, curPitch, dur);
-      if (painted) {
-        setLocalNotes(painted.updatedNotes);
-        pendingCommitRef.current = painted.updatedNotes;
-        onSelectionChange(new Set([painted.newNote.id]));
+      const prevBeat = dragging.lastBeat ?? dragging.startBeat;
+      const swept = sweepBrushNotes(notesToRender, prevBeat, curBeat, curPitch, dur);
+      dragging.lastBeat = curBeat;
+      if (swept) {
+        setLocalNotes(swept.updatedNotes);
+        pendingCommitRef.current = swept.updatedNotes;
+        onSelectionChange(new Set(swept.addedNotes.map((n) => n.id)));
       }
       return;
     }
@@ -221,6 +231,11 @@ export function usePianoRollPointerMoveHandler({
 
       const snappedDeltaBeats =
         snap > 0 ? Math.round(deltaBeats / snap) * snap : deltaBeats;
+      const boundedDelta = boundedNoteMove(
+        dragging.initialNotesSnapshot.values(),
+        snappedDeltaBeats,
+        deltaPitch,
+      );
       const anchorNote = dragging.initialNotesSnapshot
         .values()
         .next().value as MidiNoteRow | undefined;
@@ -237,8 +252,8 @@ export function usePianoRollPointerMoveHandler({
         if (!dragging.targetNoteIds?.has(note.id)) return note;
         const initial = dragging.initialNotesSnapshot.get(note.id);
         if (!initial) return note;
-        const newBeat = Math.max(0, initial.startBeats + snappedDeltaBeats);
-        const newPitch = Math.max(0, Math.min(127, initial.pitch + deltaPitch));
+        const newBeat = initial.startBeats + boundedDelta.deltaBeats;
+        const newPitch = initial.pitch + boundedDelta.deltaPitch;
         return { ...note, startBeats: newBeat, pitch: newPitch };
       });
 
@@ -268,14 +283,19 @@ export function usePianoRollPointerMoveHandler({
     } else if (dragging.type === "resize") {
       canvas.style.cursor = "ew-resize";
       const deltaBeats = xToBeat(x) - dragging.startBeat;
+      const boundedDelta = boundedNoteResize(
+        dragging.initialNotesSnapshot.values(),
+        deltaBeats,
+        snap,
+      );
       const anchorNote = dragging.initialNotesSnapshot
         .values()
         .next().value as MidiNoteRow | undefined;
       if (anchorNote) {
-        const duration = anchorNote.durationBeats + deltaBeats;
+        const duration = anchorNote.durationBeats + boundedDelta;
         const detent = snap > 0
-          ? Math.round(Math.max(snap, duration) / snap)
-          : Math.round(Math.max(0.125, duration) * 100);
+          ? Math.round(duration / snap)
+          : Math.round(duration * 100);
         const key = `resize:${detent}`;
         if (key !== lastDragDetentRef.current) {
           if (lastDragDetentRef.current !== null) triggerHaptic("alignment");
@@ -287,18 +307,13 @@ export function usePianoRollPointerMoveHandler({
         if (!dragging.targetNoteIds?.has(note.id)) return note;
         const initial = dragging.initialNotesSnapshot.get(note.id);
         if (!initial) return note;
-        const rawDuration = initial.durationBeats + deltaBeats;
-        const snappedDuration =
-          snap > 0
-            ? Math.max(snap, Math.round(rawDuration / snap) * snap)
-            : Math.max(0.125, rawDuration);
-        return { ...note, durationBeats: snappedDuration };
+        return { ...note, durationBeats: initial.durationBeats + boundedDelta };
       });
 
       setLocalNotes(updated);
       render();
     } else if (dragging.type === "marquee" && dragging.marqueeBox) {
-      const currentBeat = sourceBeatAt(xToBeat(x));
+      const currentBeat = xToBeat(x);
       const currentPitch = yToPitch(y, height);
       dragging.marqueeBox.currentBeat = currentBeat;
       dragging.marqueeBox.currentPitch = currentPitch;
@@ -308,13 +323,18 @@ export function usePianoRollPointerMoveHandler({
       const minP = Math.min(dragging.marqueeBox.startPitch, currentPitch);
       const maxP = Math.max(dragging.marqueeBox.startPitch, currentPitch);
 
-      const enclosedNotes = spatialIndex.current.queryRange(
+      const enclosedNotes = findNotesInMarquee(
+        notesToRender,
+        region,
         minB,
         maxB,
         minP,
         maxP,
       );
-      onSelectionChange(new Set(enclosedNotes.map((n) => n.id)));
+      onSelectionChange(marqueeSelection(
+        enclosedNotes,
+        dragging.additiveSelection,
+      ));
       render();
     }
   };

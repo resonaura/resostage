@@ -10,6 +10,7 @@ declare global {
       isElectron?: boolean;
       sendMenuState?: (state: unknown) => void;
       sendAction?: (action: string) => void;
+      flashAction?: (action: string) => void;
       setTypingFocus?: (focused: boolean) => void;
       getDiscoveredDevices?: () => Promise<any[]>;
       getDiscoveryEnabled?: () => Promise<boolean>;

@@ -51,4 +51,7 @@ private:
     std::vector<float> planarR;
 };
 
+// Canonical acronym spelling alias
+using WAVWriter = WavWriter;
+
 } // namespace resostage::offline_detail

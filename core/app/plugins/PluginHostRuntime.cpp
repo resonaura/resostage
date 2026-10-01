@@ -295,8 +295,7 @@ bool PluginHostRuntime::process(plugin_host::AudioSlot& block) noexcept {
         if (event.size == 0 || event.size > plugin_host::kMaximumMidiEventBytes
             || event.sampleOffset >= block.numSamples)
             continue;
-        const juce::MidiMessage message(event.data, static_cast<int>(event.size));
-        processorBank.addStripMidiEvent(0, message,
+        processorBank.addStripMidiEvent(0, event.data, static_cast<int>(event.size),
                                         static_cast<int>(event.sampleOffset));
     }
     const auto& track = projectLoader.project().tracks.front();

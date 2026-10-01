@@ -11,6 +11,10 @@
 #include "audio/graph/MixGraph.h"
 #include "audio/graph/MixRenderer.h"
 
+#if defined(RESOSTAGE_TEST_PLUGIN_HOST)
+#include "plugins/PluginMIDIBuffer.h"
+#endif
+
 #include <chrono>
 #include <iostream>
 #include <vector>
@@ -30,6 +34,72 @@ void benchInsertProcessor(void* /*context*/, float* left, float* right, int numS
 } // namespace
 
 TEST_SUITE("PluginPerformance") {
+
+#if defined(RESOSTAGE_TEST_PLUGIN_HOST)
+TEST_CASE("plug-in MIDI packet preparation measures empty sparse and dense blocks") {
+    using namespace resostage::plugin_host;
+    // Retain the previous preparation algorithm only in this comparison. It
+    // models the 512-entry clear and owning JUCE iterator from processChain;
+    // the production path now reuses storage and traverses raw event views.
+    const auto previousCopy = [](const juce::MidiBuffer& source,
+                                 std::array<MidiEvent, kMaximumMidiEventsPerBlock>& output) {
+        output.fill(MidiEvent{});
+        uint32_t count = 0;
+        juce::MidiBuffer::Iterator iterator(source);
+        juce::MidiMessage message;
+        int samplePosition = 0;
+        while (count < output.size() && iterator.getNextEvent(message, samplePosition)) {
+            const int bytes = message.getRawDataSize();
+            if (bytes <= 0 || bytes > static_cast<int>(kMaximumMidiEventBytes)
+                || samplePosition < 0 || samplePosition >= 512)
+                continue;
+            auto& event = output[count++];
+            event.sampleOffset = static_cast<uint32_t>(samplePosition);
+            event.size = static_cast<uint8_t>(bytes);
+            std::copy_n(message.getRawData(), bytes, event.data);
+        }
+        return count;
+    };
+    std::array<MidiEvent, kMaximumMidiEventsPerBlock> previousOutput{};
+    std::array<MidiEvent, kMaximumMidiEventsPerBlock> preparedOutput{};
+    for (const uint32_t eventCount : {0u, 4u, 512u}) {
+        PluginMIDIBuffer source;
+        for (uint32_t index = 0; index < eventCount; ++index)
+            REQUIRE(source.add(juce::MidiMessage::noteOn(1, 60,
+                               static_cast<uint8_t>(100)), static_cast<int>(index)));
+        constexpr unsigned trials = 20000;
+        uint64_t previousCount = 0;
+        uint64_t preparedCount = 0;
+        const auto previousStart = std::chrono::steady_clock::now();
+        for (unsigned trial = 0; trial < trials; ++trial) {
+            previousCount += previousCopy(source.buffer(), previousOutput);
+            // Escape prepared packets so a compiler cannot remove the old
+            // full-array initialization when the test fixture is empty.
+#if defined(__GNUC__) || defined(__clang__)
+            asm volatile("" : : "g"(previousOutput.data()) : "memory");
+#endif
+        }
+        const auto previousEnd = std::chrono::steady_clock::now();
+        for (unsigned trial = 0; trial < trials; ++trial) {
+            preparedCount += copyPluginMIDIEventsToHost(
+                source.buffer(), preparedOutput.data(),
+                static_cast<uint32_t>(preparedOutput.size()), 512).copied;
+#if defined(__GNUC__) || defined(__clang__)
+            asm volatile("" : : "g"(preparedOutput.data()) : "memory");
+#endif
+        }
+        const auto preparedEnd = std::chrono::steady_clock::now();
+        CHECK(previousCount == preparedCount);
+        CHECK(preparedCount == static_cast<uint64_t>(trials) * eventCount);
+        const double previousMicros = std::chrono::duration<double, std::micro>(
+            previousEnd - previousStart).count() / trials;
+        const double preparedMicros = std::chrono::duration<double, std::micro>(
+            preparedEnd - previousEnd).count() / trials;
+        MESSAGE(eventCount << " MIDI events: previous preparation " << previousMicros
+                << " us/block, prepared raw views " << preparedMicros << " us/block");
+    }
+}
+#endif
 
 TEST_CASE("AutomationEnvelope evaluateBlock throughput benchmark") {
     AutomationEnvelope env;

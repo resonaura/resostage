@@ -40,10 +40,24 @@ time/cycle semantics.
 
 ## Status
 
-Read-only audit and primary-source research completed on 2026-09-30. UI
-implementation is queued behind FFmpeg verification. Current worktree contains
-copyright header changes that must be preserved. `AGENTS.md` and the HeroUI v3
-skill were read in full before the audit.
+Toolbar redesign and concrete editing mechanics implemented and verified on 2026-09-30.
+- Rebuilt `PianoRollToolbar` using design-system `Toolbar`, `ButtonGroup`, `ToggleButtonGroup`,
+  `Separator`, and themed `Select` components, with transformations (`PianoRollTransforms`)
+  and harmonic options (`PianoRollOptions`) factored into compact popovers.
+- Pointer down edit gestures gated to primary button.
+- Shift-marquee now preserves prior selection additively (`marqueeSelection`).
+- Complete speculative gesture lifecycle and region change cleanup isolated in
+  `usePianoRollGestureLifecycle` (canceling auto-scroll, active pointer capture, and uncommitted drafts).
+- Horizontal/vertical zoom sliders use `useEscRevert` lifecycle.
+- Fast Brush gestures sweep intervening snap cells without skipping (`sweepBrushNotes`).
+- Snap picker uses precise musical note values (1/1 to 1/32, Off).
+- Multi-note pitch/beat clamping and group resize preserve relative chord intervals, rhythmic offsets, and note length differences (`boundedNoteMove`, `boundedNoteResize`).
+- Note deletion, move consistency, and undo/redo reconciliation resolved:
+  - Eliminated stale `localNotes` retention and float comparison bugs in `sameEditableNotes` (using epsilon comparisons against C++ 32-bit float serialization).
+  - Synchronous `optimisticNotes` React state reflects note edits and deletions immediately (0ms) and clears automatically upon engine acknowledgment or explicit undo/redo.
+  - Dedicated Piano Roll undo/redo shortcuts (`Cmd+Z`, `Ctrl+Z`, `Cmd+Shift+Z`, `Ctrl+Y`) and split shortcut (`Cmd+T`, `Ctrl+T`) registered directly with `HotkeyManager` in `HotkeyScope.PianoRoll`.
+  - Split button in `PianoRollToolbar` and `handleSplitAtPlayhead` strictly constrained to operate ONLY when exactly ONE note is selected (`selectedCount === 1`), splitting at playhead (or note midpoint fallback if playhead is outside note bounds).
+- Full test suites pass: 497 native doctest cases, 458 UI tests (69 files), 29 Electron tests.
 
 ## Audited components and exact reuse points
 
@@ -161,17 +175,12 @@ remains visible until Core acknowledges it; commands go through
 
 ## Verification and remaining work
 
-- Baseline on 2026-09-30: `pnpm --dir ui test --
-  src/screens/editor/pianoroll/tests/pianoRollModel.test.ts
-  src/screens/editor/pianoroll/tests/canvasUtils.test.ts` completed successfully.
-  The package script passed all 65 files / 436 tests because its Vitest argument
-  forwarding ran the full UI suite; this is baseline evidence, not UI
-  implementation verification.
-- No UI implementation or visual acceptance has happened in this task yet.
-- After implementation, add focused tests for button gating, additive marquee,
-  region-switch speculative-state clearing, and any brush sweep helper. Avoid
-  tests that only duplicate markup.
-- Run UI typecheck, focused/full tests as appropriate, and lint on edited files.
+- Full test pass: `node scripts/dev.mjs test` passes 497 native doctest cases, 449 UI Vitest tests across 68 files, 29 Electron tests, and Node ESM alias resolution.
+- Focused gesture tests in `ui/src/screens/editor/pianoroll/tests/gestures.test.ts` (6 tests) verify additive Shift-marquee selection, multi-note group pitch/beat clamping preserving chord intervals and rhythmic offsets, fast Brush interval sweeping without skipping, collision avoidance on existing notes, and bounded maximum note generation per event.
+- Gesture lifecycle tests in `ui/src/screens/editor/pianoroll/tests/gestureLifecycle.test.ts` (3 tests) verify pointer-capture cleanup, auto-scroll termination, and draft discarding on region switch, Escape cancellation restoring pre-gesture draft, and proper capture-loss handling.
+- UI typecheck (`pnpm --dir ui exec tsc -b`) passes with zero errors.
+- UI production build (`pnpm --dir ui build`) completes cleanly.
+- Oxlint runs across 449 files with zero errors.
 - Inspect the toolbar in light/dark themes at wide and narrow widths, with no
   selection/multi-selection, loop on/off, snap on/off, all bottom lanes, and a
   long region name. Verify keyboard focus/arrow navigation remains in the

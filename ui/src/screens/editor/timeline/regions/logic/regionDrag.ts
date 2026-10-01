@@ -416,6 +416,27 @@ export function computeRegionDragGeom(
       return {
         ...baseRegionGeom(rd),
         duration: Math.max(0.05, (nextDurBeats * 60) / bpm),
+        loop: false,
+        loopLengthSeconds: 0,
+      };
+    }
+
+    if (rd.mode === "loopTrim") {
+      const rawDurBeats = Math.max(
+        0.25,
+        (rd.origDurationBeats ?? 1) + dBeats,
+      );
+      const nextDurBeats = Math.max(0.25, snapBeats(rawDurBeats));
+      const origLoopLenBeats =
+        rd.origLoop && rd.origLoopLength > 0
+          ? (rd.origLoopLength * bpm) / 60
+          : (rd.origDurationBeats ?? 1);
+      const isLooped = nextDurBeats > origLoopLenBeats + 0.01;
+      return {
+        ...baseRegionGeom(rd),
+        duration: Math.max(0.05, (nextDurBeats * 60) / bpm),
+        loop: isLooped,
+        loopLengthSeconds: isLooped ? (origLoopLenBeats * 60) / bpm : 0,
       };
     }
   }

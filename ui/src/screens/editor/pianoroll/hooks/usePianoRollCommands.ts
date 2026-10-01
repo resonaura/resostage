@@ -20,6 +20,9 @@ interface UsePianoRollCommandsOptions {
   handlePasteNotes: () => void;
   handleTranspose: (semitones: number) => void;
   handleNudge: (direction: -1 | 1) => void;
+  handleUndo: () => void;
+  handleRedo: () => void;
+  handleSplitAtPlayhead: () => void;
 }
 
 /** Registers Piano Roll's fixed editor gestures in the shared hotkey manager. */
@@ -34,6 +37,9 @@ export function usePianoRollCommands({
   handlePasteNotes,
   handleTranspose,
   handleNudge,
+  handleUndo,
+  handleRedo,
+  handleSplitAtPlayhead,
 }: UsePianoRollCommandsOptions): void {
   useEffect(() => {
     const primary = /Mac|iPhone|iPad|iPod/i.test(navigator.platform)
@@ -50,6 +56,10 @@ export function usePianoRollCommands({
     const unregister = [
       bind("delete", "delete", handleDeleteSelected),
       bind("backspace", "backspace", handleDeleteSelected),
+      bind("undo", `${primary} + z`, handleUndo),
+      bind("redo", `${primary} + shift + z`, handleRedo),
+      ...(primary === "ctrl" ? [bind("redo-y", "ctrl + y", handleRedo)] : []),
+      bind("split-at-playhead", `${primary} + t`, handleSplitAtPlayhead),
       bind("tool-select", "v", () => setTool("select")),
       bind("tool-draw", "b", () => setTool("draw")),
       bind("tool-brush", "p", () => setTool("brush")),
@@ -88,6 +98,9 @@ export function usePianoRollCommands({
     handleQuantize,
     handleTranspose,
     handleNudge,
+    handleUndo,
+    handleRedo,
+    handleSplitAtPlayhead,
     getEditableNotes,
     setSelectedNoteIds,
     setTool,

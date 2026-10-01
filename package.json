@@ -29,6 +29,7 @@
     "release": "node scripts/release.mjs",
     "test": "node scripts/dev.mjs test",
     "test:remote": "node scripts/test-remote.mjs",
+    "test:media": "node --test scripts/media/tests/runtime.test.mjs",
     "lint": "node scripts/dev.mjs lint",
     "lint:tailwind": "node scripts/lint-tailwind.mjs",
     "lint:tailwind:fix": "node scripts/lint-tailwind.mjs --fix",

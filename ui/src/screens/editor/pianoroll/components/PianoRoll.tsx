@@ -35,18 +35,20 @@ const DEFAULT_VIEWPORT: PianoRollViewport = {
   velocityLaneHeight: 90,
 };
 
-function sameEditableNotes(left: MidiNoteRow[], right: MidiNoteRow[]): boolean {
+export function sameEditableNotes(left: MidiNoteRow[], right: MidiNoteRow[]): boolean {
   if (left.length !== right.length) return false;
   const rightById = new Map(right.map((note) => [note.id, note]));
   return left.every((note) => {
     const actual = rightById.get(note.id);
     return actual !== undefined
       && actual.pitch === note.pitch
-      && actual.startBeats === note.startBeats
-      && actual.durationBeats === note.durationBeats
-      && actual.velocity === note.velocity
-      && actual.releaseVelocity === note.releaseVelocity
-      && actual.probability === note.probability;
+      && Math.abs(actual.startBeats - note.startBeats) < 1e-4
+      && Math.abs(actual.durationBeats - note.durationBeats) < 1e-4
+      && Math.abs(actual.velocity - note.velocity) < 1e-3
+      && (actual.releaseVelocity === undefined || note.releaseVelocity === undefined
+          || Math.abs(actual.releaseVelocity - note.releaseVelocity) < 1e-3)
+      && (actual.probability === undefined || note.probability === undefined
+          || Math.abs(actual.probability - note.probability) < 1e-3);
   });
 }
 
@@ -99,7 +101,7 @@ export function PianoRoll({
     regionId: region.id,
     ids: new Set(region.notes.map((note) => note.id)),
   });
-  const optimisticNotesRef = useRef<{
+  const [optimisticNotes, setOptimisticNotes] = useState<{
     regionId: string;
     notes: MidiNoteRow[];
   } | null>(null);
@@ -131,23 +133,25 @@ export function PianoRoll({
     }
   }, [region.id, region.notes]);
 
+  const editableNotes = useMemo(() => {
+    return optimisticNotes?.regionId === region.id ? optimisticNotes.notes : region.notes;
+  }, [optimisticNotes, region.id, region.notes]);
+
   const getEditableNotes = useCallback(() => {
-    const optimistic = optimisticNotesRef.current;
-    return optimistic?.regionId === region.id ? optimistic.notes : region.notes;
-  }, [region.id, region.notes]);
+    return editableNotes;
+  }, [editableNotes]);
 
   const commitNotes = useCallback((notes: MidiNoteRow[]) => {
-    optimisticNotesRef.current = { regionId: region.id, notes };
+    setOptimisticNotes({ regionId: region.id, notes });
     onNotesChange(notes);
   }, [region.id, onNotesChange]);
 
   useEffect(() => {
-    const optimistic = optimisticNotesRef.current;
-    if (!optimistic) return;
-    if (optimistic.regionId !== region.id
-        || sameEditableNotes(optimistic.notes, region.notes))
-      optimisticNotesRef.current = null;
-  }, [region.id, region.notes]);
+    if (!optimisticNotes) return;
+    if (optimisticNotes.regionId !== region.id || sameEditableNotes(optimisticNotes.notes, region.notes)) {
+      setOptimisticNotes(null);
+    }
+  }, [region.id, region.notes, optimisticNotes]);
 
   const [viewport, setViewport] = useState<PianoRollViewport>(() => {
     try {
@@ -213,9 +217,11 @@ export function PianoRoll({
   const previewLoopLength = parsedLoopLength !== null && Number.isFinite(parsedLoopLength) && parsedLoopLength > 0
     ? parsedLoopLength
     : region.loopLengthBeats;
-  const canvasRegion = loopLengthDraft === null
-    ? region
-    : { ...region, loopLengthBeats: previewLoopLength };
+  const canvasRegion = useMemo(() => ({
+    ...region,
+    notes: editableNotes,
+    ...(loopLengthDraft !== null ? { loopLengthBeats: previewLoopLength } : {}),
+  }), [region, editableNotes, loopLengthDraft, previewLoopLength]);
 
   const noteActions = usePianoRollNoteActions({
     selectedNoteIds,
@@ -223,7 +229,8 @@ export function PianoRoll({
     getEditableNotes,
     commitNotes,
     playheadBeats,
-    snap,
+    region,
+    snap: snap > 0 ? snap : lastSnap,
     snapToScale,
     rootNote,
     scaleMode,
@@ -242,6 +249,18 @@ export function PianoRoll({
     handleOverlapTrim,
   } = noteActions;
 
+  const handleUndo = useCallback(() => {
+    setOptimisticNotes(null);
+    if (onUndo) onUndo();
+    else void timelineHistory.undo();
+  }, [onUndo]);
+
+  const handleRedo = useCallback(() => {
+    setOptimisticNotes(null);
+    if (onRedo) onRedo();
+    else void timelineHistory.redo();
+  }, [onRedo]);
+
   usePianoRollCommands({
     setTool,
     handleDeleteSelected,
@@ -253,6 +272,9 @@ export function PianoRoll({
     handlePasteNotes,
     handleTranspose,
     handleNudge,
+    handleUndo,
+    handleRedo,
+    handleSplitAtPlayhead,
   });
 
   return (
@@ -331,8 +353,9 @@ export function PianoRoll({
         canRedo={canRedo}
         undoLabel={undoLabel}
         redoLabel={redoLabel}
-        onUndo={onUndo ?? (() => void timelineHistory.undo())}
-        onRedo={onRedo ?? (() => void timelineHistory.redo())}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onCopySelected={handleCopySelected}
         onCutSelected={handleCutSelected}
         onSplitAtPlayhead={handleSplitAtPlayhead}
         bottomLane={bottomLane}

@@ -22,5 +22,16 @@ Folder names remain short lowercase words per the user's convention.
 
 ## Status
 
-Queued. New integration names should use canonical spelling immediately; a
-repository-wide migration has not been started.
+Completed initial canonical acronym normalization pass on 2026-09-30.
+- `PluginMIDIBuffer.h`: canonicalized from `PluginMidiBuffer.h` (`PluginMIDIBuffer`, `PluginMIDICopyResult`, `copyPluginMIDIEventsToHost`).
+- `UUID.h`: canonical RFC 9562 `generateUUIDv7()` introduced in `core/engine/project/` with backward-compatible `generateUuidV7()` alias and `UUID.h` header wrapper.
+- `WAVStreamDecoder.h` & `WAVMetadata.h`: canonical `WAVStreamDecoder` type alias, `extractTempoFromWAVFile()` helper, and forwarding headers.
+- `OfflineWAVWriter.h`: canonical `WAVWriter` type alias and header wrapper.
+- `AudioRecordWorker`: canonicalized internal header writer `writeWAVHeader()`.
+- `UDPDiscovery.h`: canonical `UDPDiscovery` alias and header wrapper.
+- `EventDispatcher.h`: canonical `HTTPTriggerCommand`, `DMXTriggerCommand`, `enqueueHTTP()`, `sendHTTP()`, `enqueueDMX()`, `sendDMX()`.
+- `WebServerHTTP.h`: canonical `writeHTTPResponse()` alias and header wrapper.
+- Invariants preserved:
+  - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
+  - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
+  - Dual headers ensure case-insensitive file system safety across macOS, Windows, and Linux.

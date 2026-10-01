@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld("resostageElectron", {
   isElectron: true,
   sendMenuState: (state: unknown) => ipcRenderer.send("menu-state", state),
   sendAction: (action: string) => ipcRenderer.send("action", action),
+  flashAction: (action: string) => ipcRenderer.send("flash-action", action),
   /** Text field focused / blurred -- suppresses bare-key hotkeys in the shell. */
   setTypingFocus: (focused: boolean) =>
     ipcRenderer.send("typing-focus", focused),

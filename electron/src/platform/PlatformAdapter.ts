@@ -106,6 +106,11 @@ export abstract class PlatformAdapter {
     return undefined;
   }
 
+  /** Update active tab and accent color on an existing Touch Bar in-place. Returns true if updated. */
+  updateTouchBarTab(_uiTab: string, _accentColor: string): boolean {
+    return false;
+  }
+
   /** Apply a fully-built menu to the platform's menu surface. */
   abstract applyMenu(menu: Menu): void;
 

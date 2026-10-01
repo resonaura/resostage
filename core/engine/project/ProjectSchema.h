@@ -182,7 +182,7 @@ struct ClickChannel {
     double pan = 0.0; // -1..+1
     bool mute = false;
     bool solo = false;   // joins the same solo group as TrackDef::solo
-    bool soloSafe = false;
+    bool soloSafe = true; // SoloSafe by default so track solo keeps click audible
     SourceOutput output; // any of the three types -- the click is routed exactly like a track
     std::vector<PluginSlot> plugins;
 };

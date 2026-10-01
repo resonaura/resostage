@@ -156,7 +156,7 @@ export function AudioRegionBlock({
         selected={isRegionSelected}
         muted={regionUi.muted}
         dimmed={dimmed}
-        className={`absolute overflow-hidden transition-opacity duration-300 ease-out ${
+        className={`absolute overflow-hidden ${
           compactLane
             ? // flex + items-center: real vertical centering (top% + translate
               // fought line-height/padding and still looked top-heavy).
@@ -207,7 +207,9 @@ export function AudioRegionBlock({
                       regionWidth,
                       rect.height,
                     );
-          (e.currentTarget as HTMLElement).style.cursor = c;
+          if ((e.currentTarget as HTMLElement).style.cursor !== c) {
+            (e.currentTarget as HTMLElement).style.cursor = c;
+          }
         }}
         onContextMenu={onContextMenu}
       >

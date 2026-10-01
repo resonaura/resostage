@@ -373,8 +373,21 @@ export class MacPlatformAdapter extends PlatformAdapter {
     Menu.setApplicationMenu(menu);
   }
 
+  private touchBarButtons = new Map<string, InstanceType<typeof TouchBar.TouchBarButton>>();
+  private currentTouchBarAccent = "";
+
   override supportsTouchBar(): boolean {
     return Boolean(TouchBar && TouchBar.TouchBarButton);
+  }
+
+  override updateTouchBarTab(uiTab: string, accentColor: string): boolean {
+    if (!this.touchBarButtons.size) return false;
+    this.currentTouchBarAccent = accentColor;
+    const activeColor = accentColor || "#3b6cff";
+    for (const [id, btn] of this.touchBarButtons.entries()) {
+      btn.backgroundColor = id === uiTab ? activeColor : "";
+    }
+    return true;
   }
 
   override buildTouchBar(
@@ -385,18 +398,31 @@ export class MacPlatformAdapter extends PlatformAdapter {
     if (!this.supportsTouchBar()) return undefined;
     const TouchBarButton = TouchBar.TouchBarButton;
     if (!tabs.length) return undefined;
-    const buttons = tabs.map(
-      (t) =>
-        new TouchBarButton({
-          label: t.label,
-          // Full accent rather than the soft tone the page uses: TouchBarButton
-          // only exposes backgroundColor, so the label stays the system white,
-          // and white on a 15% wash is not the same button at all.
-          backgroundColor:
-            t.id === uiTab ? accentColor || "#3b6cff" : undefined,
-          click: () => void this.context.postAction(`mode_${t.id}`),
-        }),
-    );
+
+    this.touchBarButtons.clear();
+    this.currentTouchBarAccent = accentColor;
+    const activeColor = accentColor || "#3b6cff";
+
+    const buttons = tabs.map((t) => {
+      const btn = new TouchBarButton({
+        label: t.label,
+        backgroundColor: t.id === uiTab ? activeColor : undefined,
+        click: () => {
+          // Immediately update Touch Bar in-place for 0ms tactile feedback
+          this.updateTouchBarTab(t.id, this.currentTouchBarAccent);
+          // Dispatch immediately to renderer so screen switches with zero latency
+          const win = this.context.getMainWindow();
+          if (win && !win.isDestroyed()) {
+            win.webContents.send("dispatch-hotkey", { action: `mode_${t.id}` });
+          }
+          // Notify backend
+          void this.context.postAction(`mode_${t.id}`);
+        },
+      });
+      this.touchBarButtons.set(t.id, btn);
+      return btn;
+    });
+
     return new TouchBar({ items: buttons });
   }
 

@@ -419,8 +419,8 @@ export function TrackWaveformLane({
           ref={canvasRef}
           className={
             embedded
-              ? "pointer-events-none absolute transition-opacity duration-300 ease-out"
-              : "pointer-events-none absolute top-1 transition-opacity duration-300 ease-out"
+              ? "pointer-events-none absolute"
+              : "pointer-events-none absolute top-1"
           }
           style={
             embedded

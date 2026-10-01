@@ -406,7 +406,10 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     if (!ok)
         return false;
 
-    enqueueCommand(cmd);
+    if (!enqueueCommand(std::move(cmd))) {
+        writeJsonError(wsi, 503, "Core command queue is full; retry the command");
+        return true;
+    }
     writeJsonOk(wsi);
     return true;
 }

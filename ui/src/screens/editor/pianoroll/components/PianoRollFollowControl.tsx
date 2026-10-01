@@ -39,7 +39,7 @@ export function PianoRollFollowControl({
     <>
       {/* Playhead Autofollow Button */}
       {followMode && onCycleFollowMode && (
-        <div className="flex items-center border-l border-default/30 pl-2">
+        <div className="flex shrink-0 items-center">
           <ToggleButton
             size="sm"
             isIconOnly
@@ -56,7 +56,6 @@ export function PianoRollFollowControl({
               e.preventDefault();
               setFollowMenu({ x: e.clientX, y: e.clientY });
             }}
-            className="h-7 w-7"
           >
             {followMode === "off" ? (
               <LocateOff size={13} />

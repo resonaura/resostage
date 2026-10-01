@@ -61,8 +61,12 @@ export interface DraggingState {
   startPointerX: number;
   startPointerY: number;
   startBeat: number;
+  /** Most recent sampled beat during an interval sweep gesture (e.g. Brush). */
+  lastBeat?: number;
   startPitch: number;
   targetNoteIds?: Set<number>;
+  /** Pointer-down selection used by an additive Shift-marquee. */
+  additiveSelection?: ReadonlySet<number>;
   initialNotesSnapshot: Map<number, MidiNoteRow>;
   marqueeBox?: {
     startBeat: number;

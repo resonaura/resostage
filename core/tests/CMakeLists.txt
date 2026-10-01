@@ -28,6 +28,8 @@ add_executable(resostage_engine_tests
   test_artnet_packet.cpp
   test_seqlock.cpp
   test_audio_folder_import.cpp
+  test_wav_batch_import.cpp
+  ../app/media/WAVBatchImport.cpp
   test_bar_seek.cpp
   test_song_length.cpp
   test_timeline_maps.cpp

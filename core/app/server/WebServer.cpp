@@ -520,12 +520,16 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                     options.requestId = pss->importRequestId;
                     std::string optionsJson;
                     (void)glz::write_json(options, optionsJson);
-                    server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWavUpload, pss->importSongIndex,
+                    if (!server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWavUpload, pss->importSongIndex,
                                                       static_cast<double>(pss->importTrackIndex), finalPath,
-                                                      std::move(optionsJson)});
+                                                      std::move(optionsJson)})) {
+                        std::remove(finalPath.c_str());
+                        return failUpload(503, "Core command queue is full; retry the media import");
+                    }
                 } else {
-                    server->enqueueCommand(
-                        WebCommand{WebCommandKind::LoadProjectFromPath, 0, 0.0, std::string(pss->uploadPath)});
+                    if (!server->enqueueCommand(
+                        WebCommand{WebCommandKind::LoadProjectFromPath, 0, 0.0, std::string(pss->uploadPath)}))
+                        return failUpload(503, "Core command queue is full; retry the project upload");
                 }
                 return writeJsonOk(wsi);
             }
@@ -974,12 +978,14 @@ bool WebServer::pollCommand(WebCommand& out) {
     return commands.try_dequeue(out);
 }
 
-void WebServer::enqueueCommand(WebCommand cmd) {
-    commands.try_enqueue(std::move(cmd));
+bool WebServer::enqueueCommand(WebCommand cmd) {
+    if (!commands.try_enqueue(std::move(cmd)))
+        return false;
     // Wake the message thread immediately so all incoming web commands
     // (transport, mixer faders, mutes, solos, actions, cues, settings) apply instantly.
     if (urgentCommandHook)
         urgentCommandHook();
+    return true;
 }
 
 void WebServer::noteClientView(const std::string& view) {

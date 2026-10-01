@@ -22,7 +22,7 @@ namespace resostage {
 // Thread-safe (each thread gets its own engine), monotonic-enough for a
 // project-editing UI: collisions would require the same thread generating
 // two ids within the same millisecond AND rolling identical 74 random bits.
-inline std::string generateUuidV7() {
+inline std::string generateUUIDv7() {
     thread_local std::mt19937_64 rng{std::random_device{}()};
 
     const uint64_t unixTsMs = static_cast<uint64_t>(
@@ -49,6 +49,11 @@ inline std::string generateUuidV7() {
                   static_cast<unsigned>((lo >> 32) & 0xFFFFull),
                   static_cast<unsigned>(lo & 0xFFFFFFFFull));
     return std::string(buf);
+}
+
+// Backward-compatible alias
+inline std::string generateUuidV7() {
+    return generateUUIDv7();
 }
 
 } // namespace resostage

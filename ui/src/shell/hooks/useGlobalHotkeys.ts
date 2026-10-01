@@ -14,7 +14,7 @@ import { transport } from "@/lib/state/api";
 import { apiFetch } from "@/lib/state/backend";
 import { IS_ELECTRON } from "@/lib/platform/electron";
 import { IS_EMBEDDED } from "@/lib/platform/embedded";
-import { sendTypingFocus } from "@/lib/platform/electronBridge";
+import { flashMenuAction, sendTypingFocus } from "@/lib/platform/electronBridge";
 import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
 import type { WebUiState } from "@/lib/state/types";
 
@@ -86,6 +86,8 @@ export function useGlobalHotkeys(
         lastSpaActionRef.current = action;
         lastSpaActionAtRef.current = now;
 
+        flashMenuAction(action);
+
         void apiFetch("/api/v1/action", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -126,6 +128,7 @@ export function useGlobalHotkeys(
         "0",
         { scope: HotkeyScope.Global, priority: 0 },
         () => {
+          flashMenuAction("stop_to_start");
           void apiFetch("/api/v1/action", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

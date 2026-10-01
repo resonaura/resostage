@@ -356,7 +356,7 @@ struct WebUiState {
     // Metronome solo -- joins the same solo group as track solo (see
     // AudioEngine::setClickSolo()).
     bool clickSolo = false;
-    bool clickSoloSafe = false;
+    bool clickSoloSafe = true;
     // The metronome is in the tracks' solo group -- see BusRow's soloGroup.
     std::string clickSoloGroup = "sources";
     bool clickSoloActiveInGroup = false;
@@ -1274,7 +1274,9 @@ private:
     // from another write. See publishState().
     uint64_t frameGeneration() const;
 
-    void enqueueCommand(WebCommand cmd);
+    // Non-blocking queue admission. HTTP callers must report rejection rather
+    // than acknowledge a command that will never reach the message thread.
+    bool enqueueCommand(WebCommand cmd);
     bool handleHttpApi(struct lws* wsi, const char* path, const char* method, const char* body, size_t bodyLen);
     int serveStatic(struct lws* wsi, const char* path);
     int serveExportStatus(struct lws* wsi);

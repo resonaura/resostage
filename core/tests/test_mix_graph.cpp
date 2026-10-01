@@ -265,7 +265,7 @@ TEST_CASE("buildMixGraph: a send row pointing at a deleted bus is dropped, not g
 
 // ── Solo groups ─────────────────────────────────────────────────────────────
 
-TEST_CASE("solo groups: soloing a track silences other tracks but not the click's group peers") {
+TEST_CASE("solo groups: soloing a track silences other tracks but keeps click audible by default") {
     Project p = makeProject();
     p.tracks[0].solo = true;
 
@@ -273,7 +273,18 @@ TEST_CASE("solo groups: soloing a track silences other tracks but not the click'
     CHECK(g.anySoloIn(SoloGroup::Sources));
     CHECK(stripFor(g, "audio::track:1").audible);
     CHECK_FALSE(stripFor(g, "audio::track:2").audible);
-    // The click shares the Sources group, so it is silenced too.
+    // The click is soloSafe by default so soloing tracks keeps click audible.
+    CHECK(stripFor(g, "audio::click").audible);
+}
+
+TEST_CASE("solo groups: soloing a track silences click when click soloSafe is disabled") {
+    Project p = makeProject();
+    p.tracks[0].solo = true;
+    p.click.soloSafe = false;
+
+    const MixGraph g = buildMixGraph(p, outputs16());
+    CHECK(stripFor(g, "audio::track:1").audible);
+    CHECK_FALSE(stripFor(g, "audio::track:2").audible);
     CHECK_FALSE(stripFor(g, "audio::click").audible);
 }
 

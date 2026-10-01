@@ -6,7 +6,8 @@
 
 import { useCallback, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import type { MidiNoteRow } from "@/lib/state/types";
+import type { MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import { midiRegionSourceBeat } from "@/lib/midi/midiRegionTiming";
 import {
   applyLegato,
   applyOverlapTrim,
@@ -22,6 +23,7 @@ interface UsePianoRollNoteActionsOptions {
   getEditableNotes: () => MidiNoteRow[];
   commitNotes: (notes: MidiNoteRow[]) => void;
   playheadBeats?: number;
+  region?: MidiRegionRow;
   snap: number;
   snapToScale: boolean;
   rootNote: number;
@@ -35,6 +37,7 @@ export function usePianoRollNoteActions({
   getEditableNotes,
   commitNotes,
   playheadBeats,
+  region,
   snap,
   snapToScale,
   rootNote,
@@ -81,31 +84,49 @@ export function usePianoRollNoteActions({
   }, [noteClipboard, playheadBeats, getEditableNotes, commitNotes, setSelectedNoteIds]);
 
   const handleSplitAtPlayhead = useCallback(() => {
+    // Split must work ONLY when exactly ONE note is selected
+    if (selectedNoteIds.size !== 1) return;
+    if (playheadBeats === undefined || !Number.isFinite(playheadBeats)) return;
+
+    const selectedId = selectedNoteIds.values().next().value;
     const notes = getEditableNotes();
-    const beat = Math.max(0, playheadBeats ?? 0);
-    const targets = selectedNoteIds.size > 0
-      ? notes.filter((note) => selectedNoteIds.has(note.id))
-      : notes.filter((note) => beat > note.startBeats && beat < note.startBeats + note.durationBeats);
-    if (targets.length === 0) return;
-    const targetIds = new Set(targets.map((note) => note.id));
-    const updated: MidiNoteRow[] = [];
-    const newIds = new Set<number>();
-    for (const note of notes) {
-      if (!targetIds.has(note.id)) { updated.push(note); continue; }
-      const split = sliceNote(note, beat);
-      if (!split) { updated.push(note); continue; }
-      updated.push(...split);
-      newIds.add(split[0].id);
-      newIds.add(split[1].id);
+    const note = notes.find((n) => n.id === selectedId);
+    if (!note) return;
+
+    const sourceBeat = region ? midiRegionSourceBeat(region, playheadBeats) : playheadBeats;
+    const noteEnd = note.startBeats + note.durationBeats;
+
+    let cutBeat: number;
+    if (sourceBeat > note.startBeats + 0.03125 && sourceBeat < noteEnd - 0.03125) {
+      if (snap > 0) {
+        const snapped = Math.round(sourceBeat / snap) * snap;
+        cutBeat = (snapped > note.startBeats + 0.03125 && snapped < noteEnd - 0.03125) ? snapped : sourceBeat;
+      } else {
+        cutBeat = sourceBeat;
+      }
+    } else {
+      // Fallback if playhead is outside note body: split note at midpoint (snapped to grid if active)
+      const mid = note.startBeats + note.durationBeats / 2;
+      if (snap > 0) {
+        const snapped = Math.round(mid / snap) * snap;
+        cutBeat = (snapped > note.startBeats + 0.03125 && snapped < noteEnd - 0.03125) ? snapped : mid;
+      } else {
+        cutBeat = mid;
+      }
     }
-    if (updated.length === notes.length) return;
+
+    const split = sliceNote(note, cutBeat);
+    if (!split) return;
+
+    const [noteA, noteB] = split;
+    const updated = notes.map((n) => (n.id === note.id ? noteA : n)).concat(noteB);
     commitNotes(updated);
-    setSelectedNoteIds(newIds);
-  }, [playheadBeats, selectedNoteIds, getEditableNotes, commitNotes, setSelectedNoteIds]);
+    setSelectedNoteIds(new Set([noteB.id]));
+  }, [selectedNoteIds, playheadBeats, region, snap, getEditableNotes, commitNotes, setSelectedNoteIds]);
 
   // Quantize selected notes (or all if none selected)
   const handleQuantize = useCallback(() => {
-    if (snap <= 0) return;
+    const effectiveSnap = snap > 0 ? snap : 0.25;
     const notes = getEditableNotes();
     const targetIds = selectedNoteIds.size > 0
       ? selectedNoteIds
@@ -113,8 +134,10 @@ export function usePianoRollNoteActions({
 
     const quantized = notes.map((note) => {
       if (!targetIds.has(note.id)) return note;
-      const snappedStart = Math.max(0, Math.round(note.startBeats / snap) * snap);
-      const snappedDuration = Math.max(snap, Math.round(note.durationBeats / snap) * snap);
+      const rawStart = Math.max(0, Math.round(note.startBeats / effectiveSnap) * effectiveSnap);
+      const rawDuration = Math.max(effectiveSnap, Math.round(note.durationBeats / effectiveSnap) * effectiveSnap);
+      const snappedStart = Math.round(rawStart * 10000) / 10000;
+      const snappedDuration = Math.round(rawDuration * 10000) / 10000;
       return { ...note, startBeats: snappedStart, durationBeats: snappedDuration };
     });
 
@@ -134,8 +157,8 @@ export function usePianoRollNoteActions({
       const deltaBeat = (Math.random() - 0.5) * 0.04;
       // Velocity jitter: +/- 0.08
       const deltaVel = (Math.random() - 0.5) * 0.16;
-      const newStart = Math.max(0, note.startBeats + deltaBeat);
-      const newVel = Math.max(0.1, Math.min(1.0, note.velocity + deltaVel));
+      const newStart = Math.max(0, Math.round((note.startBeats + deltaBeat) * 10000) / 10000);
+      const newVel = Math.max(0.1, Math.min(1.0, Math.round((note.velocity + deltaVel) * 1000) / 1000));
       return { ...note, startBeats: newStart, velocity: newVel };
     });
 
@@ -168,7 +191,7 @@ export function usePianoRollNoteActions({
       : new Set(notes.map((note) => note.id));
     const amount = snap > 0 ? snap : 0.25;
     commitNotes(notes.map((note) => targetIds.has(note.id)
-      ? { ...note, startBeats: Math.max(0, note.startBeats + direction * amount) }
+      ? { ...note, startBeats: Math.max(0, Math.round((note.startBeats + direction * amount) * 10000) / 10000) }
       : note));
   }, [selectedNoteIds, getEditableNotes, snap, commitNotes]);
 

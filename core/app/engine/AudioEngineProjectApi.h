@@ -84,7 +84,10 @@
                                 std::function<void(bool success, std::string error)> onComplete,
                                 double startSeconds = 0.0);
 
-    // Imports multiple stem WAV files at once in a single background pass into the container package.
+    // Imports 1–256 WAV/RF64 stems (<=20 GiB each) in one background pass.
+    // Each item targets a distinct existing track in the song. Assets get
+    // collision-safe UUID names and are streamed rather than held in RAM;
+    // metadata/history change only after the complete batch commits.
     struct BatchItem {
         size_t trackIndex;
         std::string filesystemPath;

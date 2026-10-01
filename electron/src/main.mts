@@ -1040,7 +1040,7 @@ let lastFlashAt = 0;
 let pendingShellActionEcho: { action: string; at: number } | null = null;
 let pendingFlashTitle: string | null = null;
 let pendingFlashItem: string | null = null;
-let pendingFlashTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingFlashTimer: ReturnType<typeof setTimeout> | ReturnType<typeof setImmediate> | null = null;
 
 /** Top-level section title + leaf item title for a performAction id. */
 function menuLocationForAction(
@@ -1083,9 +1083,12 @@ function resolveLiveMenuTitle(modelTitle: string): string {
 function scheduleMenuFlash(sectionTitle: string, itemTitle: string): void {
   pendingFlashTitle = sectionTitle;
   pendingFlashItem = itemTitle;
-  if (pendingFlashTimer) clearTimeout(pendingFlashTimer);
-  // Next macrotask: after any setApplicationMenu from this turn has settled.
-  pendingFlashTimer = setTimeout(() => {
+  if (pendingFlashTimer) {
+    clearTimeout(pendingFlashTimer as any);
+    clearImmediate(pendingFlashTimer as any);
+  }
+  // Next macrotask: after any synchronous setApplicationMenu from this turn has settled.
+  pendingFlashTimer = setImmediate(() => {
     pendingFlashTimer = null;
     const section = pendingFlashTitle;
     const item = pendingFlashItem;
@@ -1094,7 +1097,7 @@ function scheduleMenuFlash(sectionTitle: string, itemTitle: string): void {
     if (!section) return;
     const live = resolveLiveMenuTitle(section);
     platform.flashMenuItem(live, item ?? "");
-  }, 16);
+  });
 }
 
 function flashMenuAction(action: string): void {
@@ -2114,6 +2117,15 @@ function refreshTouchBar(): void {
   const key = `${menuState.uiTab}|${menuState.accentColor}`;
   if (key === lastTouchBarTab) return;
   lastTouchBarTab = key;
+
+  const uiTab = menuState.uiTab || "";
+  const accent = menuState.accentColor || "";
+
+  // Attempt in-place update first to avoid rebuilding TouchBar and causing flicker
+  if (platform.updateTouchBarTab(uiTab, accent)) {
+    return;
+  }
+
   const bar = buildTouchBar();
   if (bar) mainWindow.setTouchBar(bar);
 }
@@ -2364,6 +2376,13 @@ ipcMain.on("action", (_event, action: unknown) => {
     return;
   }
   if (typeof action === "string" && action) postAction(action);
+});
+
+ipcMain.on("flash-action", (_event, action: unknown) => {
+  if (typeof action === "string" && action) {
+    flashMenuAction(action);
+    pendingShellActionEcho = { action, at: Date.now() };
+  }
 });
 
 // SPA → trackpad haptic tick (clip/cue drag snap, etc). Fire-and-forget --

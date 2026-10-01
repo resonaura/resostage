@@ -61,4 +61,7 @@ private:
     std::vector<uint8_t> rawScratch; // reused decode scratch buffer (grows on demand)
 };
 
+// Canonical acronym spelling alias
+using WAVStreamDecoder = WavStreamDecoder;
+
 } // namespace resostage
