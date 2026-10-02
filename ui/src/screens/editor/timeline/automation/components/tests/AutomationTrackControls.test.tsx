@@ -105,6 +105,24 @@ describe("AutomationTrackControls", () => {
     expect(container.textContent).toContain("Read");
   });
 
+  it("renders compact layout when compact is true", () => {
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [mockLane],
+          activeLaneId: "lane-1",
+          onSelectLane: vi.fn(),
+          compact: true,
+        }),
+      );
+    });
+
+    const rootDiv = container.firstElementChild as HTMLElement;
+    expect(rootDiv.className).toContain("h-full px-1");
+  });
+
   it("displays write mode selector and allows selecting touch, latch, and write modes", async () => {
     act(() => {
       root.render(

@@ -99,6 +99,31 @@ describe("AutomationLaneOverlay", () => {
     expect(circles?.length).toBeGreaterThanOrEqual(3);
   });
 
+  it("omits curve handles and scales breakpoint nodes in compact lanes (<= 32px)", () => {
+    act(() => {
+      root.render(
+        createElement(AutomationLaneOverlay, {
+          songIndex: 0,
+          lane: mockLane,
+          bpm: 120,
+          pxPerSec: 100,
+          widthPx: 800,
+          heightPx: 28,
+          color: "#3b82f6",
+          scrollLeft: 0,
+          viewportWidth: 800,
+        }),
+      );
+    });
+
+    const circles = container.querySelectorAll("circle");
+    // Only the 3 breakpoint nodes, zero curve handles
+    expect(circles.length).toBe(3);
+    circles.forEach((circle) => {
+      expect(Number(circle.getAttribute("r"))).toBeLessThanOrEqual(4);
+    });
+  });
+
   it("renders translucent dashed baseline and zero circle handles when lane is empty", () => {
     act(() => {
       root.render(

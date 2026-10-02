@@ -259,8 +259,9 @@ export function hitTestAutomation(
     };
   }
 
-  // 2. Check curve handles between adjacent points
-  for (let i = 0; i < sorted.length - 1; i++) {
+  // 2. Check curve handles between adjacent points (only in lanes with sufficient height)
+  if (height > 32) {
+    for (let i = 0; i < sorted.length - 1; i++) {
     const p1 = sorted[i];
     const p2 = sorted[i + 1];
     const handle = getCurveHandlePosition(
@@ -284,6 +285,7 @@ export function hitTestAutomation(
       };
     }
   }
+}
 
   // 3. Check segments
   for (let i = 0; i < sorted.length - 1; i++) {

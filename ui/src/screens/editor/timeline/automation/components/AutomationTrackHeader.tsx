@@ -19,7 +19,7 @@ export function AutomationTrackHeader({ height, visible, children, ...controls }
         transition={{ duration: reducedMotion ? 0 : 0.15 }}>
         {visible ? <div className="flex h-full flex-col justify-center bg-background-secondary">
           {height >= 44 && <div className="truncate px-2 text-xs font-semibold text-foreground" title={controls.track.name}>{controls.track.name}</div>}
-          <AutomationTrackControls {...controls} />
+          <AutomationTrackControls {...controls} compact={height <= 32} />
         </div> : children}
       </motion.div>
     </AnimatePresence>

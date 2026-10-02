@@ -17,7 +17,7 @@ import { getTrackAutomationTargets, matchesAutomationTarget } from "@/screens/ed
  */
 export const AutomationTrackControls = memo(function AutomationTrackControls({
   songIndex, track, lanes, activeLaneId, onSelectLane, onRemoveLane, buses,
-  parameters = {}, readOnly = false,
+  parameters = {}, readOnly = false, compact = false,
 }: {
   songIndex: number;
   track: TrackRow;
@@ -28,6 +28,7 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
   buses?: BusRow[];
   parameters?: Readonly<Record<string, PluginParameterList>>;
   readOnly?: boolean;
+  compact?: boolean;
 }) {
   const groups = useMemo(() => getTrackAutomationTargets(track, buses, lanes, parameters), [track, buses, lanes, parameters]);
   const targets = groups.flatMap((group) => group.targets);
@@ -68,15 +69,15 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
     ? (nextUnautomatedTarget ? `Add lane for ${nextUnautomatedTarget.label}` : "All track parameters are already automated")
     : (target?.disabledReason ?? `Add automation for ${target?.label ?? "selected parameter"}`);
   return (
-    <div className="flex h-7 min-w-0 items-center gap-1 px-1.5 text-xs"
+    <div className={`flex min-w-0 items-center gap-1 text-xs ${compact ? "h-full px-1" : "h-7 px-1.5"}`}
       onPointerDown={(event) => event.stopPropagation()}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.stopPropagation()}>
       <Tooltip content={activeLane?.muted ? "Enable automation" : "Mute automation"}><Button isIconOnly size="sm" variant={activeLane?.enabled && !activeLane.muted ? "accent-soft" : "ghost"}
-        className="h-5.5 min-w-5.5 w-5.5 shrink-0" aria-label="Enable automation"
+        className={`${compact ? "h-4.5 min-w-4.5 w-4.5" : "h-5.5 min-w-5.5 w-5.5"} shrink-0`} aria-label="Enable automation"
         isDisabled={disabled || !activeLane}
         onPress={() => activeLane && void run(() => builder.automationLaneUpdate({ songIndex,
-          laneId: activeLane.id, enabled: true, muted: !activeLane.muted }))}><Power size={12} /></Button></Tooltip>
+          laneId: activeLane.id, enabled: true, muted: !activeLane.muted }))}><Power size={compact ? 10 : 12} /></Button></Tooltip>
       <Select size="xs" variant="secondary" className="min-w-0 flex-1" aria-label="Automation parameter"
         title={error ?? target?.disabledReason ?? "Automation parameter"}
         value={target?.id} isDisabled={disabled}
@@ -96,7 +97,7 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
           const existing = selected && lanes.find((lane) => matchesAutomationTarget(selected, lane.target));
           onSelectLane(existing?.id ?? id);
         }} />
-      <Select size="xs" tone={activeLane?.writeMode === "touch" ? "warning-soft" : activeLane?.writeMode === "latch" ? "accent-soft" : activeLane?.writeMode === "write" ? "danger-soft" : undefined} className="w-16 shrink-0" aria-label="Automation write mode"
+      <Select size="xs" tone={activeLane?.writeMode === "touch" ? "warning-soft" : activeLane?.writeMode === "latch" ? "accent-soft" : activeLane?.writeMode === "write" ? "danger-soft" : undefined} className={`${compact ? "w-14" : "w-16"} shrink-0`} aria-label="Automation write mode"
         value={activeLane?.writeMode ?? "read"} isDisabled={disabled || !activeLane}
         options={["read", "touch", "latch", "write"].map((id) => ({
           id,
@@ -114,13 +115,13 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
         }
         onChange={(writeMode) => activeLane && void run(() => builder.automationLaneUpdate({ songIndex,
           laneId: activeLane.id, writeMode: writeMode as AutomationLaneRow["writeMode"] }))} />
-      <Tooltip content={addTooltip}><Button isIconOnly size="sm" variant="ghost" className="h-5.5 min-w-5.5 w-5.5 shrink-0"
+      <Tooltip content={addTooltip}><Button isIconOnly size="sm" variant="ghost" className={`${compact ? "h-4.5 min-w-4.5 w-4.5" : "h-5.5 min-w-5.5 w-5.5"} shrink-0`}
         aria-label="Add automation"
-        isDisabled={!canAdd} onPress={add}><Plus size={12} /></Button></Tooltip>
-      {activeLane && <Tooltip content="Remove automation lane"><Button isIconOnly size="sm" variant="ghost" className="h-5.5 min-w-5.5 w-5.5 shrink-0"
+        isDisabled={!canAdd} onPress={add}><Plus size={compact ? 10 : 12} /></Button></Tooltip>
+      {activeLane && <Tooltip content="Remove automation lane"><Button isIconOnly size="sm" variant="ghost" className={`${compact ? "h-4.5 min-w-4.5 w-4.5" : "h-5.5 min-w-5.5 w-5.5"} shrink-0`}
         aria-label="Remove automation" isDisabled={disabled}
         onPress={() => onRemoveLane ? onRemoveLane(activeLane.id)
-          : void run(() => builder.automationLaneRemove(songIndex, activeLane.id))}><Trash2 size={11} /></Button></Tooltip>}
+          : void run(() => builder.automationLaneRemove(songIndex, activeLane.id))}><Trash2 size={compact ? 10 : 11} /></Button></Tooltip>}
       {error && <span role="alert" className="text-danger shrink-0" title={error}>!</span>}
     </div>
   );

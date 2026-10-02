@@ -137,8 +137,10 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     );
   }, [visiblePoints, bpm, pxPerSec, heightPx, widthPx, minValue, maxValue]);
 
-  // Intermediate curve handles between points
+  const isCompact = heightPx <= 32;
+  // Intermediate curve handles between points (omitted in compact lanes <= 32px)
   const curveHandles = useMemo(() => {
+    if (heightPx <= 32) return [];
     const handles: Array<{
       beforeIdx: number;
       afterIdx: number;
@@ -247,7 +249,7 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
             cx={handle.x}
             cy={handle.y}
             r={3.5}
-            className={`cursor-ns-resize transition-all ${
+            className={`cursor-ns-resize transition-all motion-reduce:transition-none ${
               Math.abs(handle.curve) > 0.05
                 ? "fill-accent stroke-surface"
                 : "fill-foreground/40 hover:fill-accent stroke-surface/80"
@@ -274,20 +276,20 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
               <circle
                 cx={px}
                 cy={py}
-                r={isSelected ? 5.5 : 4}
+                r={isSelected ? (isCompact ? 4 : 5.5) : (isCompact ? 2.5 : 4)}
                 className={
                   isSelected
-                    ? "fill-foreground stroke-accent transition-transform"
-                    : "fill-surface stroke-current hover:scale-125 transition-transform"
+                    ? "fill-foreground stroke-accent transition-transform motion-reduce:transition-none"
+                    : "fill-surface stroke-current hover:scale-125 transition-transform motion-reduce:transition-none"
                 }
-                strokeWidth={2}
+                strokeWidth={isCompact ? 1.5 : 2}
               />
             </g>
           );
         })}
       </svg>
 
-      {targetOption?.disabledReason && <div className="pointer-events-none absolute bottom-1 left-2 text-[9px] text-muted max-w-full truncate"
+      {targetOption?.disabledReason && !isCompact && <div className="pointer-events-none absolute bottom-1 left-2 text-[9px] text-muted max-w-full truncate"
         title={targetOption.disabledReason}>{targetOption.disabledReason}</div>}
       {(error || isPending) && <div className={`pointer-events-none absolute top-1 left-2 text-[10px] ${error ? "text-danger" : "text-muted"}`}
         role={error ? "alert" : "status"}>{error ?? "Saving automation…"}</div>}

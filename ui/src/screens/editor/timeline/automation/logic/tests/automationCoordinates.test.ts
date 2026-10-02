@@ -186,6 +186,12 @@ describe("automationCoordinates", () => {
       expect(hit.type).toBe("curveHandle");
     });
 
+    it("skips curve handle in compact lanes (<= 32px)", () => {
+      // In a 24px compact lane, curve handle should not be hit
+      const hit = hitTestAutomation(points, 120, 100, 24, 100, 12, 10);
+      expect(hit.type).not.toBe("curveHandle");
+    });
+
     it("detects segment hit when clicking near line", () => {
       // At x=50 (beat 1, value 0.25 => y=75)
       const hit = hitTestAutomation(points, 120, 100, 100, 50, 74, 5, 8);
