@@ -5,7 +5,27 @@
  */
 
 import { shareStructure } from "@/lib/state/structuralShare";
-import type { WebUiState } from "@/lib/state/types";
+import type { BusRow, TrackRow, WebUiState } from "@/lib/state/types";
+
+const MIXER_FLAGS = ["mute", "solo", "soloSafe", "soloActiveInGroup"] as const;
+
+/**
+ * HTTP deliberately omits UDP-owned flags while live telemetry is fresh.
+ * Preserve only those omitted fields, matched by stable ID, not row index.
+ * Structural fields (including explicit empty sends) remain authoritative.
+ */
+function mergeMixerRows<T extends TrackRow | BusRow>(previous: T[], incoming: T[]): T[] {
+  const byId = new Map(previous.map((row) => [row.id, row]));
+  return incoming.map((row) => {
+    const old = byId.get(row.id);
+    if (!old || MIXER_FLAGS.every((key) => row[key] !== undefined)) return row;
+    return {
+      ...row,
+      ...Object.fromEntries(MIXER_FLAGS.filter((key) => row[key] === undefined)
+        .map((key) => [key, old[key]])),
+    };
+  });
+}
 
 /**
  * Merge a partial WS snapshot into the previous state. The server only
@@ -34,8 +54,8 @@ function buildMergedState(
     songs: next.songs ?? prev.songs,
     meters: next.meters ?? prev.meters,
     // An explicit empty sends array is authoritative (including after Undo).
-    tracks: next.tracks ?? prev.tracks,
-    busses: next.busses ?? prev.busses,
+    tracks: next.tracks ? mergeMixerRows(prev.tracks, next.tracks) : prev.tracks,
+    busses: next.busses ? mergeMixerRows(prev.busses, next.busses) : prev.busses,
     health: next.health
       ? {
           // Keep underrun/client counters live; freeze cpu/ram until 1 Hz tick.
