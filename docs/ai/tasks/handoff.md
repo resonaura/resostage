@@ -92,6 +92,7 @@ Additional critical issues:
 - `75c3eb0`: Canonicalized ArtDMX (`buildArtDMXPacket`, `parseArtDMXPacket`), WebCommandKind values (`BuilderTrackImportWAV*`, `BuilderMIDIRegion*`, `SetMIDI*`, `MIDILearn*`), builder/settings methods (`builderMIDIRegion*`, `builderTrackImportWAV*`, `settingsSetMIDI*`, `settingsMIDI*`), and `importWAVForTrackAsync` across Core with backward-compatible aliases.
 - `e214318`: Exposed canonical acronym types and method aliases in UI (`MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow`, `trackImportWAV`, `setMIDI*`) and Electron (`UDPTelemetryStats`, `UDPTelemetryTracker`).
 - `c595b4b`: Implemented Copy, Cut, Paste, and Duplicate workflows for arrangement automation points (`automationClipboard.ts`, `automationEditing.ts`, `useAutomationDrag.ts`, `useAutomationKeyboard.ts` with `Mod+C`/`Mod+X`/`Mod+V`/`Mod+D` shortcuts, and `AutomationLaneOverlay.tsx` context menu with relative beat offset normalization, grid alignment, and click-based paste positioning). 10 unit tests in `automationClipboard.test.ts` and 5 keyboard tests in `useAutomationKeyboard.test.tsx` pass.
+- `345c4c1`: Canonicalized MIDI symbol aliases across `AudioEngine` (`ActiveMIDINoteInfo`, `enqueueIncomingMIDI()`, `getActiveMIDINotes()`, `syncMIDITransportToCurrentSong()`), `OfflineMidiEvents` (`OfflineMIDIEvent`, `buildOfflineMIDIEvents()`), `MainComponent` (`handleMIDILearnMessage()`), `MidiTransform` (`MIDITakeoverMode`, `MIDIRelativeEncoding`), and `CoreMidiDispatcher`/`CoreMidiInputListener` (`MIDIClientRef`, `MIDIPortRef`, `MIDIEndpointRef` cross-platform). Added tests in `test_midi_takeover.cpp` and `test_offline_renderer.cpp`.
 
 ## Work in progress: inspect before continuing
 
@@ -107,7 +108,7 @@ and verified end-to-end against live Core HTTP commands and transport continuity
 - Explicit 413 rejection for oversized command bodies
 - Persistence across project save and clean reopen
 - Test evidence: 103 UI Vitest test files / 706 tests pass, 5 Electron shell tests / 39 tests pass,
-  563 native engine tests / 333,233 assertions pass, zero tsc errors, zero oxlint errors.
+  565 native engine tests / 333,249 assertions pass, zero tsc errors, zero oxlint errors.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,

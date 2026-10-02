@@ -74,6 +74,11 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
 - `electron/src/udpTelemetry.ts`: exports canonical `UDPTelemetryStats` and `UDPTelemetryTracker` aliases.
 - `ui/src/lib/state/types.ts`: exports canonical `MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow` aliases.
 - `ui/src/lib/state/api.ts`: canonical `trackImportWAV()`, `trackImportWAVDialog()`, `setMIDIOutput()`, `setMIDIInput()`, `setMIDIVirtualPort()` with backward-compatible wrappers.
+- `AudioEngine.h`, `AudioEngineTransportApi.h`, `AudioEngineRoutingApi.h`: canonical `ActiveMIDINoteInfo`, `enqueueIncomingMIDI()`, `getActiveMIDINotes()`, and `syncMIDITransportToCurrentSong()` aliases and wrappers.
+- `OfflineMidiEvents.h`: canonical `OfflineMIDIEvent` and `buildOfflineMIDIEvents()` with test coverage in `test_offline_renderer.cpp`.
+- `MainComponent.h`: canonical `handleMIDILearnMessage()` wrapper.
+- `MidiTransform.h`: canonical `MIDITakeoverMode` and `MIDIRelativeEncoding` with test coverage in `test_midi_takeover.cpp`.
+- `CoreMidiDispatcher.h` and `CoreMidiInputListener.h`: cross-platform canonical `MIDIClientRef`, `MIDIPortRef`, and `MIDIEndpointRef` aliases.
 - Invariants preserved:
   - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
   - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
@@ -82,10 +87,10 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
     reference-aware updates, not ambiguous duplicate paths.
 
 The WAV/UDP/HTTP/DMX/BPM/DSP/IO/MIDI cleanup and references were built and verified on 2026-10-02:
-- Native engine tests: 563 passed / 333,233 assertions (`core/build/tests/resostage_engine_tests`).
+- Native engine tests: 565 passed / 333,249 assertions (`core/build/tests/resostage_engine_tests`).
 - Native application target: built and verified with embedded scanner and host helpers.
 - Verification harness: `scripts/verification/editor-state.mjs` PASS.
-- UI Vitest: 102 test files / 695 tests passed.
+- UI Vitest: 103 test files / 706 tests passed.
 - Electron Vitest: 5 test files / 37 unit tests + 2 alias tests passed.
 - TypeScript: `pnpm typecheck` passed (0 errors).
 - Linter: `pnpm --filter ui lint` passed (0 errors).
