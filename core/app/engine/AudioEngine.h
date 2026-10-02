@@ -37,6 +37,7 @@
 #include "audio/streaming/RegionSourceMap.h"
 #include "audio/graph/RoutingEngine.h"
 #include "audio/graph/SongActivityIndex.h"
+#include "audio/graph/ProjectPlaybackSnapshot.h"
 #include "audio/dsp/SincInterpolator.h"
 #include "audio/streaming/StreamingEngine.h"
 #include "events/EventDispatcher.h"
@@ -138,7 +139,9 @@ public:
 
     bool isProjectLoaded() const { return projectLoaded; }
 
-    size_t currentSongIndex() const { return currentSong; }
+    size_t currentSongIndex() const {
+        return currentSong.load(std::memory_order_acquire);
+    }
 
     // Called by MainComponent after any in-place edit of Project data so the
     // LightEngine thread picks up the change on the next DMX frame. Also

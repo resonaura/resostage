@@ -192,6 +192,18 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                             ? SystemMonotonicClock::ticksToNanos(*context.hostTimeNs)
                                             : SystemMonotonicClock{}.nowNanos();
     const uint64_t hostTimeNanos = baseHostTimeNanos + gExactCycleHostOffsetNanos;
+    // Pin callback state before any realtime helper (including MIDI panic
+    // cleanup) can inspect track/song data. The matching graph stays alive for
+    // the entire callback and retires only on the message thread.
+    const auto snap = routing.acquireForRender();
+    const MixGraph* renderGraph = snap.get();
+    const size_t callbackSongIndex = currentSong.load(std::memory_order_acquire);
+    const int64_t callbackSongLengthFrames = currentSongLengthFrames.load(std::memory_order_relaxed);
+    const ProjectPlaybackSnapshot* playback = renderGraph != nullptr
+            && renderGraph->playbackState != nullptr
+            && renderGraph->playbackState->projectEpoch == renderGraph->projectEpoch
+            && renderGraph->playbackState->contentRevision == renderGraph->contentRevision
+        ? renderGraph->playbackState.get() : nullptr;
 
     // Stop/seek clears are requested by the control thread, but the active
     // note counters and project track layout are owned by the audio callback.
@@ -200,7 +212,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     if (activeMidiNotesClearRequested.load(std::memory_order_acquire)) {
         std::unique_lock<std::recursive_mutex> clearLock(
             routingMutex, std::try_to_lock);
-        if (clearLock.owns_lock()
+        if (clearLock.owns_lock() && playback != nullptr
             && activeMidiNotesClearRequested.exchange(
                 false, std::memory_order_acq_rel)) {
             const int64_t effectiveLatency =
@@ -209,7 +221,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             const double outputLatencySec = resostage::outputLatencySeconds(
                 effectiveLatency, currentSampleRate);
             clearActiveMidiNotes(heardHostNanos(hostTimeNanos, 0.0,
-                                                outputLatencySec));
+                                                outputLatencySec), playback);
         }
     }
 
@@ -531,12 +543,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             pluginTransport.sampleRate = currentSampleRate;
             pluginTransport.playing = false;
             pluginTransport.hostTimeNanos = hostTimeNanos;
-            const Project& proj = loader.project();
-            if (currentSong < proj.songs.size()) {
-                const auto& transportSong = proj.songs[currentSong];
-                pluginTransport.bpm = transportSong.bpm;
-                pluginTransport.numerator = transportSong.timeSignature.numerator;
-                pluginTransport.denominator = transportSong.timeSignature.denominator;
+            const size_t audioSongIndex = currentSong.load(std::memory_order_acquire);
+            const PlaybackSongState* transportSong = playback != nullptr
+                ? playback->songAt(audioSongIndex) : nullptr;
+            if (transportSong != nullptr) {
+                pluginTransport.bpm = transportSong->bpm;
+                pluginTransport.numerator = transportSong->timeSignature.numerator;
+                pluginTransport.denominator = transportSong->timeSignature.denominator;
             }
             stoppedPluginBank->bank->publishTransport(pluginTransport);
         }
@@ -568,12 +581,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     // real-time safe RCU handle for as long as the callback needs it. Memory
     // reclamation of retired graphs is deferred exclusively to the non-RT thread,
     // guaranteeing ZERO deallocations on the audio thread.
-    const auto snap = routing.acquireForRender();
     if (snap == nullptr) {
         bailSilently();
         return;
     }
     const MixGraph& graph = *snap;
+    if (playback == nullptr) {
+        bailSilently();
+        return;
+    }
 
     // One bank snapshot for this whole block. Compatibility is a pair of
     // scalar checks prepared off-thread: no string lookup, map walk, lock, or
@@ -630,7 +646,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         return;
     }
     if (projectTransitioning.load(std::memory_order_acquire)
-        || graph.projectEpoch != projectEpoch.load(std::memory_order_acquire)) {
+        || graph.projectEpoch != projectEpoch.load(std::memory_order_acquire)
+        || graph.trackLayoutRevision
+            != publishedTrackLayoutRevision.load(std::memory_order_acquire)) {
         bailSilently();
         return;
     }
@@ -639,9 +657,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     if (isPlaying) {
         activeSong = streaming.acquireActiveSong();
     }
-    const Project& proj = loader.project();
+    const PlaybackSongState* renderSong = playback->songAt(callbackSongIndex);
 
-    if (isPlaying && !activeSong && currentSong < proj.songs.size()) {
+    if (isPlaying && (!activeSong || renderSong == nullptr)) {
         bailSilently();
         return;
     }
@@ -700,9 +718,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 + pluginLatencyForBlock,
             currentSampleRate);
         for (size_t strip = 0;
-             strip < kMaxActiveMidiTracks && strip < trackIdByIndex.size();
+             strip < kMaxActiveMidiTracks && strip < playback->tracks.size();
              ++strip) {
-            const TrackDef* track = trackDefAt(strip);
+            const PlaybackTrackState* track = playback->trackAt(strip);
             const bool external = track != nullptr
                 && (track->kind == TrackKind::ExternalMIDI
                     || track->kind == TrackKind::MIDI);
@@ -733,8 +751,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 }
             }
         }
-        if (currentSong < proj.songs.size()) {
-            const auto& events = proj.songs[currentSong].events;
+        if (renderSong != nullptr) {
+            const auto& events = renderSong->events;
             const double cycleLeft = cycleLeftSec.load(std::memory_order_relaxed);
             const size_t count = std::min(events.size(), eventFiredFlags.size());
             for (size_t i = 0; i < count; ++i) {
@@ -751,11 +769,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         pluginTransport.sampleRate = currentSampleRate;
         pluginTransport.playing = isPlaying;
         pluginTransport.hostTimeNanos = hostTimeNanos;
-        if (currentSong < proj.songs.size()) {
-            const auto& transportSong = proj.songs[currentSong];
-            pluginTransport.bpm = transportSong.bpm;
-            pluginTransport.numerator = transportSong.timeSignature.numerator;
-            pluginTransport.denominator = transportSong.timeSignature.denominator;
+        if (renderSong != nullptr) {
+            pluginTransport.bpm = renderSong->bpm;
+            pluginTransport.numerator = renderSong->timeSignature.numerator;
+            pluginTransport.denominator = renderSong->timeSignature.denominator;
         }
         pluginTransport.looping =
             cycleActive.load(std::memory_order_relaxed)
@@ -798,16 +815,16 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             const int msgChannel = msg.getChannel();
 
             int liveMidiFocus = focusedTrackIndex.load(std::memory_order_relaxed);
-            if (liveMidiFocus < 0 || liveMidiFocus >= static_cast<int>(trackIdByIndex.size())) {
+            if (liveMidiFocus < 0 || liveMidiFocus >= static_cast<int>(playback->tracks.size())) {
                 liveMidiFocus = -1;
             } else {
-                const TrackDef* focused = trackDefAt(static_cast<size_t>(liveMidiFocus));
+                const PlaybackTrackState* focused = playback->trackAt(static_cast<size_t>(liveMidiFocus));
                 if (focused == nullptr || !isMidiInputTrack(focused->kind))
                     liveMidiFocus = -1;
             }
             if (liveMidiFocus < 0) {
-                for (size_t candidate = 0; candidate < trackIdByIndex.size(); ++candidate) {
-                    const TrackDef* candidateDef = trackDefAt(candidate);
+                for (size_t candidate = 0; candidate < playback->tracks.size(); ++candidate) {
+                    const PlaybackTrackState* candidateDef = playback->trackAt(candidate);
                     if (candidateDef != nullptr && isMidiInputTrack(candidateDef->kind)) {
                         liveMidiFocus = static_cast<int>(candidate);
                         break;
@@ -816,8 +833,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             }
 
             bool forwardedToExternalMidi = false;
-            for (size_t t = 0; t < trackIdByIndex.size() && t < trackScratch.size(); ++t) {
-                const TrackDef* tDef = trackDefAt(t);
+            for (size_t t = 0; t < playback->tracks.size() && t < trackScratch.size(); ++t) {
+                const PlaybackTrackState* tDef = playback->trackAt(t);
                 if (tDef == nullptr) continue;
                 const bool isArmed = tDef->recordArmed;
                 const bool acceptsMidiInput = isMidiInputTrack(tDef->kind);
@@ -933,7 +950,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                         completed.velocity = note.velocity;
                                         const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
                                         const double durSec = static_cast<double>(midiCaptureSample - note.startSample) / currentSampleRate;
-                                        const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
+                                        const double bpm = renderSong != nullptr ? renderSong->bpm : 120.0;
                                         completed.startBeats = (noteStartSec * bpm) / 60.0;
                                         completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
                                         session.recordedNotes[session.recordedNoteCount++] = completed;
@@ -960,7 +977,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                                         completed.releaseVelocity = static_cast<float>(msg.getVelocity()) / 127.0f;
                                         const double noteStartSec = static_cast<double>(note.startSample) / currentSampleRate;
                                         const double durSec = static_cast<double>(midiCaptureSample - note.startSample) / currentSampleRate;
-                                        const double bpm = (currentSong < proj.songs.size()) ? proj.songs[currentSong].bpm : 120.0;
+                                        const double bpm = renderSong != nullptr ? renderSong->bpm : 120.0;
                                         completed.startBeats = (noteStartSec * bpm) / 60.0;
                                         completed.durationBeats = std::max(0.05, (durSec * bpm) / 60.0);
                                         session.recordedNotes[session.recordedNoteCount++] = completed;
@@ -977,32 +994,32 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     }
 
     if (midiCaptureActive && !activeMidiRecordSessions.empty()) {
-        const double previewBpm = currentSong < proj.songs.size()
-            ? proj.songs[currentSong].bpm
+        const double previewBpm = renderSong != nullptr
+            ? renderSong->bpm
             : 120.0;
         publishLiveMidiPreview(previewBpm, playheadSample + numSamples);
     }
 
-    if (isPlaying && currentSong < proj.songs.size()) {
-        const SongDef& song = proj.songs[currentSong];
+    if (isPlaying && renderSong != nullptr) {
+        const PlaybackSongState& song = *renderSong;
 
         const double blockStartSeconds = static_cast<double>(playheadSample) / currentSampleRate;
         const double blockEndSeconds = static_cast<double>(playheadSample + numSamples) / currentSampleRate;
         fireDueEvents(
-            song, blockStartSeconds, blockEndSeconds, hostTimeNanos,
+            song, *playback, blockStartSeconds, blockEndSeconds, hostTimeNanos,
             currentOutputLatencySamples.load(std::memory_order_relaxed)
                 + pluginLatencyForBlock,
             compatiblePluginBank,
             numSamples);
 
-        const auto tempoMap = std::atomic_load_explicit(&activeTempoMap, std::memory_order_acquire);
+        const auto& tempoMap = song.tempoMap;
         const double outputLatencySec =
             resostage::outputLatencySeconds(
                 currentOutputLatencySamples.load(std::memory_order_relaxed) + pluginLatencyForBlock,
                 currentSampleRate);
 
         dispatchMidiRegionsForBlock(
-            song, playheadSample, numSamples, currentSampleRate,
+            song, *playback, playheadSample, numSamples, currentSampleRate,
             &graph,
             compatiblePluginBank,
             tempoMap.get(),
@@ -1010,15 +1027,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             outputLatencySec);
 
         dispatchAutomationForBlock(
-            song, playheadSample, numSamples, currentSampleRate,
-            &graph,
+            song, *playback, playheadSample, numSamples, currentSampleRate,
             compatiblePluginBank,
             tempoMap.get(),
             hostTimeNanos,
             outputLatencySec);
 
         prewarmPluginsLookahead(
-            song, playheadSample, currentSampleRate,
+            song, callbackSongIndex, playheadSample, currentSampleRate,
             &graph,
             compatiblePluginBank,
             tempoMap.get());
@@ -1097,20 +1113,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             cycleActive.load(std::memory_order_relaxed)
             && !cycleSkip.load(std::memory_order_relaxed)
             && (cycleHi - cycleLo) >= 0.05;
-        const int64_t fadeArmSample = currentSongLengthFrames - kSongEndFadeSamples;
+        const int64_t fadeArmSample = callbackSongLengthFrames - kSongEndFadeSamples;
         const bool isRecActive = isRecordingState.load(std::memory_order_relaxed);
         if (!isRecActive && !cycleLoopBlocksSongEnd
-            && currentSongLengthFrames > 0 && playheadSample + numSamples >= fadeArmSample) {
+            && callbackSongLengthFrames > 0 && playheadSample + numSamples >= fadeArmSample) {
             if (pendingSongEndAction == SongEndAction::None) {
                 if (underrunFadeOutRemaining <= 0) {
                     underrunFadeOutLength = kSongEndFadeSamples;
                     underrunFadeOutRemaining = kSongEndFadeSamples;
                 }
                 pendingSongEndAction = (song.onEnded == SongEnd::Next
-                                         && currentSong + 1 < proj.songs.size())
+                                         && callbackSongIndex + 1 < playback->content->songs.size())
                                             ? SongEndAction::GaplessAdvance
                                             : SongEndAction::StopTransport;
-                pendingSongEndTargetSong = currentSong + 1;
+                pendingSongEndTargetSong = callbackSongIndex + 1;
             }
         }
         // Deliberately do NOT clear pendingSongEndAction when playhead is
@@ -1133,7 +1149,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     // (Mute/solo for bus routing lives in Pass 2 via snap->routes; strip
     // meters below always show post-fader/pan regardless of mute/solo.)
     const int focusedAudioInputTrack = focusedTrackIndex.load(std::memory_order_relaxed);
-    for (size_t t = 0; t < trackIdByIndex.size(); ++t) {
+    for (size_t t = 0; t < playback->tracks.size(); ++t) {
         if (t >= trackScratch.size())
             break;
         juce::AudioBuffer<float>& scratch = trackScratch[t];
@@ -1141,7 +1157,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             continue;
         scratch.clear();
 
-        const TrackDef* tDef = trackDefAt(t);
+        const PlaybackTrackState* tDef = playback->trackAt(t);
         const bool isArmed = tDef != nullptr && tDef->recordArmed;
         const bool isAudio = tDef != nullptr && tDef->kind == TrackKind::Audio;
         const bool hasConfiguredInput = tDef != nullptr
@@ -1231,7 +1247,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         if (!isPlaying)
             continue;
 
-        const std::string& trackId = trackIdByIndex[t];
+        const std::string& trackId = playback->tracks[t].id;
         // EVERY region sounding in this block, not just the first.
         //
         // A track can have two regions overlapping, and when it does both
@@ -1247,8 +1263,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         const Region* sounding[kMaxRegionsPerBlock];
         int soundingCount = 0;
         const Region* fallback = nullptr;
-        if (currentSong < proj.songs.size()) {
-            const SongDef& song = proj.songs[currentSong];
+        if (renderSong != nullptr) {
+            const PlaybackSongState& song = *renderSong;
             const double blockT0 = static_cast<double>(playheadSample) / currentSampleRate;
             const double blockT1 = static_cast<double>(playheadSample + numSamples) / currentSampleRate;
             for (const Region& r : song.regions) {
@@ -1681,13 +1697,13 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     }
 
     mixRenderer.beginBlock(graph, numSamples);
-    if (isPlaying && graph.stripAutomation != nullptr && currentSong < proj.songs.size()) {
-        const auto tempoMap = std::atomic_load_explicit(&activeTempoMap, std::memory_order_acquire);
+    if (isPlaying && graph.stripAutomation != nullptr && renderSong != nullptr) {
+        const auto& tempoMap = renderSong->tempoMap;
         const double segmentBeat = tempoMap != nullptr
             ? tempoMap->samplesToBeats(playheadSample, currentSampleRate)
             : (static_cast<double>(playheadSample) / currentSampleRate)
-                * proj.songs[currentSong].bpm / 60.0;
-        graph.stripAutomation->apply(currentSong, segmentBeat, mixRenderer);
+                * renderSong->bpm / 60.0;
+        graph.stripAutomation->apply(callbackSongIndex, segmentBeat, mixRenderer);
     }
 
     // Hand each track's decoded block to its strip. Strip index == track
@@ -1736,7 +1752,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                 : 0;
             const int generatedSamples = !isPlaying
                 ? 0
-                : proj.click.enabled ? clickSamples : countInSamples;
+                : playback->clickEnabled ? clickSamples : countInSamples;
             if (generatedSamples > 0) {
                 clickGenerator.render(clickScratch.data(), generatedSamples,
                                      playheadSample);
@@ -1978,7 +1994,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     // a song shorter than the fade window can't trigger the transition before
     // its own real audio has finished playing.
     if (isPlaying && !isRecordingState.load(std::memory_order_relaxed) && pendingSongEndAction != SongEndAction::None && underrunFadeOutRemaining == 0
-        && playheadSample >= currentSongLengthFrames) {
+        && playheadSample >= callbackSongLengthFrames) {
         if (pendingSongEndAction == SongEndAction::GaplessAdvance) {
             const size_t nextIdx = pendingSongEndTargetSong;
             pendingSongEndAction = SongEndAction::None;

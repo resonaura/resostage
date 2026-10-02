@@ -19,7 +19,8 @@
 
 namespace resostage {
 
-void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
+void AudioEngine::dispatchMidiRegionsForBlock(const PlaybackSongState& song,
+                                              const ProjectPlaybackSnapshot& playback,
                                               int64_t blockStartSample,
                                               int numSamples,
                                               double sampleRate,
@@ -57,8 +58,6 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
     const double blockStartBeat = samplesToBeats(blockStartSample);
     const double blockEndBeat = samplesToBeats(blockEndSample);
 
-    const auto& projectTracks = project().tracks;
-
     for (const auto& region : song.midiRegions) {
         if (region.muted || (region.notes.empty() && region.events.empty() && region.umpEvents.empty())
             || region.durationBeats <= 0.0)
@@ -81,14 +80,9 @@ void AudioEngine::dispatchMidiRegionsForBlock(const SongDef& song,
         uint32_t targetStripIndex = MixGraph::kNoStrip;
         TrackKind trackKind = TrackKind::Instrument;
 
-        for (const auto& tr : projectTracks) {
-            if (tr.id == region.trackId) {
-                trackKind = tr.kind;
-                if (graph != nullptr) {
-                    targetStripIndex = graph->find(tr.effectiveStripId());
-                }
-                break;
-            }
+        if (const auto* track = playback.findTrack(region.trackId)) {
+            trackKind = track->kind;
+            targetStripIndex = track->stripIndex;
         }
         if (targetStripIndex == MixGraph::kNoStrip && graph != nullptr) {
             targetStripIndex = graph->find(region.trackId);

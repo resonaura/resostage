@@ -21,11 +21,11 @@
 
 namespace resostage {
 
-void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
+void AudioEngine::dispatchAutomationForBlock(const PlaybackSongState& song,
+                                             const ProjectPlaybackSnapshot& playback,
                                              int64_t blockStartSample,
                                              int numSamples,
                                              double sampleRate,
-                                             const MixGraph* graph,
                                              PluginProcessorBank* pluginBank,
                                              const TempoMap* tempoMap,
                                              uint64_t hostTimeNanos,
@@ -71,13 +71,11 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
         uint32_t stripIndex = MixGraph::kNoStrip;
         bool externalMidi = false;
         if (!trackId.empty()) {
-            for (const auto& track : project().tracks) {
-                if (track.id != trackId)
-                    continue;
-                externalMidi = track.kind == TrackKind::MIDI || track.kind == TrackKind::ExternalMIDI;
-                if (graph != nullptr)
-                    stripIndex = graph->find(track.effectiveStripId());
-                break;
+            const auto* track = playback.findTrack(trackId);
+            if (track != nullptr) {
+                externalMidi = track->kind == TrackKind::MIDI
+                    || track->kind == TrackKind::ExternalMIDI;
+                stripIndex = track->stripIndex;
             }
         }
         if (pluginBank != nullptr && stripIndex != MixGraph::kNoStrip

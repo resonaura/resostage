@@ -247,7 +247,7 @@ bool AudioEngine::loadProject(const std::string& path, std::string& error) {
     loader = std::move(incoming);
 
     projectHistory.clear(); // a freshly loaded document has no history of its own
-    currentSong = static_cast<size_t>(-1);
+    setCurrentSongIndex(static_cast<size_t>(-1));
     trackIdByIndex.clear();
     trackScratch.clear();
     // Drop every gain/pan glide: the strip layout is about to change, so
@@ -344,7 +344,7 @@ void AudioEngine::newProject(const std::string& name) {
     }
 
     projectLoaded = true;
-    currentSong = static_cast<size_t>(-1);
+    setCurrentSongIndex(static_cast<size_t>(-1));
     trackIdByIndex.clear();
     trackScratch.clear();
     mixRenderer.resetSmoothing();
@@ -549,7 +549,7 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     applyPluginStateReferences(loader.project(), pluginStateReferences);
     if (replacement == nullptr)
         replacement = std::make_unique<ProjectReplacementScope>(*this, false);
-    currentSong = static_cast<size_t>(-1);
+    setCurrentSongIndex(static_cast<size_t>(-1));
     trackIdByIndex.clear();
     trackScratch.clear();
     // Drop every gain/pan glide: the strip layout is about to change, so
@@ -766,7 +766,7 @@ void AudioEngine::saveProjectAsync(const std::string& path,
 
             projectLoaded = true;
             applyPluginStateReferences(loader.project(), savedPluginStateReferences);
-            currentSong = static_cast<size_t>(-1);
+            setCurrentSongIndex(static_cast<size_t>(-1));
             trackIdByIndex.clear();
             trackScratch.clear();
             mixRenderer.resetSmoothing();

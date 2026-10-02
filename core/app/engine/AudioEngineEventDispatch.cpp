@@ -89,7 +89,9 @@ void AudioEngine::fireOnLoadEvents(const SongDef& song) {
             dispatchEvent(ev, now);
 }
 
-void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
+void AudioEngine::fireDueEvents(const PlaybackSongState& song,
+                                const ProjectPlaybackSnapshot& playback,
+                                double blockStartSeconds,
                                 double blockEndSeconds,
                                 uint64_t hostTimeNanosAtBlockStart,
                                 int64_t effectiveOutputLatencySamples,
@@ -148,8 +150,7 @@ void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
             if (msg.getRawDataSize() > 0) {
                 const int sampleOffset = std::clamp(
                     static_cast<int>(offsetSeconds * currentSampleRate), 0, numSamples - 1);
-                const auto& projectTracks = project().tracks;
-                for (size_t s = 0; s < projectTracks.size(); ++s) {
+                for (size_t s = 0; s < playback.tracks.size(); ++s) {
                     if (pluginBank->stripHasInstrument(s)) {
                         pluginBank->addStripMidiEvent(s, msg, sampleOffset);
                         if (ev.type == EventType::MidiNoteOn || ev.type == EventType::MidiNoteOff)
@@ -166,7 +167,8 @@ void AudioEngine::fireDueEvents(const SongDef& song, double blockStartSeconds,
     }
 }
 
-void AudioEngine::prewarmPluginsLookahead(const SongDef& song,
+void AudioEngine::prewarmPluginsLookahead(const PlaybackSongState& song,
+                                         size_t songIndex,
                                          int64_t playheadSample,
                                          double sampleRate,
                                          const MixGraph* graph,
@@ -177,7 +179,7 @@ void AudioEngine::prewarmPluginsLookahead(const SongDef& song,
 
     const double safeRate = sampleRate > 0.0 ? sampleRate : 48000.0;
     const auto publication = std::atomic_load_explicit(&projectActivityIndex, std::memory_order_acquire);
-    const auto* activity = publication ? publication->songAt(currentSong, song, *graph,
+    const auto* activity = publication ? publication->songAt(songIndex, song.id, *graph,
         projectEpoch.load(std::memory_order_acquire), safeRate) : nullptr;
     if (activity == nullptr) {
         // Missing/budget-exhausted preparation must not turn into a full

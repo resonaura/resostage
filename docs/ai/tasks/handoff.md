@@ -123,10 +123,13 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   audit independently passed UI 706 and Electron 39; its initial native run
   passed 563/566. An isolated AU rerun passed 67 assertions. Do not erase the
   integrated failure by quoting an older green run; see [audit.md](audit.md).
-- After the audit fixes/rebuild, the final suites passed UI 724 tests/105 files,
-  Electron 39 tests and native 572 cases/424,285 assertions. UI/Electron
-  typechecks passed; lint has zero errors and 12 existing warnings. Remaining
-  ownership/epoch/legacy-validation issues are not covered by those green totals.
+- Previous UI/Electron evidence: UI 724 tests/105 files, Electron 39 tests;
+  UI/Electron typechecks passed and lint had zero errors/12 existing warnings.
+  The current Core-only playback-snapshot block built optimized Core and native
+  tests, passed focused SongActivity (8 cases/2,192 assertions), the full native
+  suite (578 cases/424,387 assertions), and the real-Core HTTP editor-state
+  harness. UI/Electron were not rerun for this block; this is not acoustic,
+  loaded-vendor, sanitizer, or callback-deadline proof.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,
@@ -135,9 +138,13 @@ folders. Commit each finished block; do not push.
 
 ## Immediate next actions
 
-1. Close the P1 publication/state/identity/validation defects in `audit.md`.
-   Keep transport advancing; do not stop or restart healthy helpers to conceal
-   an unsafe live editor update. Separate applied acknowledgements from admission.
+1. Continue the P1 snapshot publication work in `audit.md`. Callback-visible
+   project reads now use bounded immutable snapshots attached to `MixGraph`,
+   with stale activity and track-layout fences. The remaining immediate gap is
+   request-specific applied/rejected feedback when a new snapshot cannot be
+   published, followed by sanitizer/concurrency, callback-deadline/allocation,
+   and loaded AU/VST3 continuity evidence. Do not conceal failures by stopping
+   transport or restarting healthy helpers.
 2. Finish actual Touch/Latch/Write manual ownership, supported surface bindings,
    tempo/cycle/epoch handling and bounded recording/rejection recovery. Recorded
    point collections and endpoint tests alone do not establish this lifecycle.

@@ -275,7 +275,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             pluginPub->bank->requestAllNotesOff();
         }
 
-        currentSong = songIndex;
+        setCurrentSongIndex(songIndex);
         // Keep LightEngine in sync with the active song index and BPM so
         // tempo-synced effects use the correct rate immediately.
         clock.setSongIndex(static_cast<int>(songIndex));
@@ -376,7 +376,7 @@ void AudioEngine::warmNeighbourSongs() {
         return;
     const int64_t ringCap = static_cast<int64_t>(currentSampleRate * kRingBufferSeconds);
     const double sr = currentSampleRate;
-    const size_t cur = currentSong;
+    const size_t cur = currentSong.load(std::memory_order_acquire);
 
     // Open neighbours on a background thread — never on the message thread
     // (precacheSong does fopen/parseHeader and used to stall song hops).

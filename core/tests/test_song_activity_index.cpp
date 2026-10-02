@@ -5,6 +5,7 @@
  */
 
 #include "doctest.h"
+#include "audio/graph/ProjectPlaybackSnapshot.h"
 #include "audio/graph/SongActivityIndex.h"
 
 #include <chrono>
@@ -33,6 +34,114 @@ TEST_CASE("Activity preparation reuses coefficient, processor and locator public
     next = previous;
     next.routingLayoutKey++;
     CHECK(needsActivityPreparation(false, &previous, next));
+}
+
+TEST_CASE("ProjectPlaybackSnapshot is immutable, revisioned, and bounded") {
+    Project project;
+    TrackDef track;
+    track.id = "track-1";
+    track.kind = TrackKind::Instrument;
+    track.recordArmed = true;
+    track.inputMonitoring = true;
+    project.tracks.push_back(track);
+
+    SongDef song;
+    song.id = "song-1";
+    song.bpm = 123.0;
+    song.timeSignature = {7, 8};
+    Region region;
+    region.id = "region-1";
+    region.trackId = track.id;
+    region.startSeconds = 2.0;
+    region.durationSeconds = 3.0;
+    song.regions.push_back(region);
+    MidiRegion midiRegion;
+    midiRegion.id = "midi-region-1";
+    midiRegion.trackId = track.id;
+    midiRegion.notes.push_back(MidiNote{});
+    song.midiRegions.push_back(midiRegion);
+    AutomationLane lane;
+    lane.id = "lane-1";
+    lane.target.entityId = track.id;
+    lane.target.parameterId = "pan";
+    lane.points.push_back({0.0, 0.25f, 0.0f});
+    song.automationLanes.push_back(lane);
+    TimelineEvent event;
+    event.id = "event-1";
+    event.timeSeconds = 1.0;
+    song.events.push_back(event);
+    project.songs.push_back(song);
+    project.click.enabled = true;
+
+    const auto graph = buildMixGraph(project, OutputLaneConfig{});
+    constexpr uint64_t epoch = 11;
+    constexpr uint64_t revision = 4;
+    auto first = buildProjectPlaybackSnapshot(project, graph, epoch, revision, nullptr, true);
+    REQUIRE(first.snapshot != nullptr);
+    REQUIRE(first.snapshot->content != nullptr);
+    REQUIRE(first.snapshot->tracks.size() == 1);
+    REQUIRE(first.snapshot->content->songs.size() == 1);
+    CHECK(first.snapshot->tracks[0].recordArmed);
+    CHECK(first.snapshot->tracks[0].inputMonitoring);
+    CHECK(first.snapshot->tracks[0].stripIndex == graph.find(track.id));
+    CHECK(first.snapshot->clickEnabled);
+    CHECK(first.snapshot->content->songs[0].bpm == doctest::Approx(123.0));
+    CHECK(first.snapshot->content->songs[0].timeSignature.numerator == 7);
+    REQUIRE(first.snapshot->content->songs[0].regions.size() == 1);
+    REQUIRE(first.snapshot->content->songs[0].midiRegions.size() == 1);
+    CHECK(first.snapshot->content->songs[0].automationLanes[0].points[0].value == doctest::Approx(0.25f));
+
+    project.tracks[0].recordArmed = false;
+    project.tracks[0].inputMonitoring = false;
+    project.click.enabled = false;
+    project.songs[0].regions[0].gainDb = -12.0;
+    project.songs[0].midiRegions[0].notes[0].pitch = 48;
+    project.songs[0].events[0].timeSeconds = 9.0;
+
+    CHECK(first.snapshot->tracks[0].recordArmed);
+    CHECK(first.snapshot->tracks[0].inputMonitoring);
+    CHECK(first.snapshot->clickEnabled);
+    CHECK(first.snapshot->content->songs[0].regions[0].gainDb == doctest::Approx(0.0));
+    CHECK(first.snapshot->content->songs[0].midiRegions[0].notes[0].pitch == 60);
+    CHECK(first.snapshot->content->songs[0].events[0].timeSeconds == doctest::Approx(1.0));
+
+    auto coefficientOnly = buildProjectPlaybackSnapshot(
+        project, graph, epoch, revision, first.snapshot, false);
+    REQUIRE(coefficientOnly.snapshot != nullptr);
+    CHECK(coefficientOnly.snapshot->content == first.snapshot->content);
+    CHECK_FALSE(coefficientOnly.snapshot->tracks[0].recordArmed);
+    CHECK_FALSE(coefficientOnly.snapshot->clickEnabled);
+    CHECK(coefficientOnly.snapshot->content->songs[0].regions[0].gainDb == doctest::Approx(0.0));
+
+    auto contentEdit = buildProjectPlaybackSnapshot(
+        project, graph, epoch, revision + 1, coefficientOnly.snapshot, true);
+    REQUIRE(contentEdit.snapshot != nullptr);
+    CHECK(contentEdit.snapshot->content != coefficientOnly.snapshot->content);
+    CHECK(contentEdit.snapshot->content->songs[0].regions[0].gainDb == doctest::Approx(-12.0));
+    CHECK(contentEdit.snapshot->content->songs[0].midiRegions[0].notes[0].pitch == 48);
+    CHECK(contentEdit.snapshot->content->songs[0].events[0].timeSeconds == doctest::Approx(9.0));
+
+    Project oversized;
+    oversized.tracks.resize(ProjectPlaybackSnapshot::kMaximumTracks + 1);
+    const auto rejected = buildProjectPlaybackSnapshot(
+        oversized, graph, epoch, revision, nullptr, true);
+    CHECK(rejected.snapshot == nullptr);
+    CHECK_FALSE(rejected.error.empty());
+}
+
+TEST_CASE("ProjectActivityIndex rejects a stale content revision") {
+    Project project;
+    SongDef song;
+    song.id = "song-1";
+    project.songs.push_back(song);
+    MixGraph graph;
+    graph.projectEpoch = 5;
+    graph.contentRevision = 7;
+    auto activity = buildProjectActivityIndex(project, graph, 5, 48000.0);
+    REQUIRE(activity != nullptr);
+    CHECK(activity->songAt(0, project.songs[0], graph, 5, 48000.0) != nullptr);
+    graph.contentRevision++;
+    CHECK(activity->songAt(0, project.songs[0], graph, 5, 48000.0) == nullptr);
 }
 
 TEST_CASE("SongActivityIndex: indexed lookahead pre-warming benchmark and correctness") {

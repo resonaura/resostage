@@ -216,7 +216,8 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
     }
 
     const bool wasPlaying = playing.load(std::memory_order_acquire);
-    const size_t targetSong = (songIndex == static_cast<size_t>(-1)) ? currentSong : songIndex;
+    const size_t targetSong = (songIndex == static_cast<size_t>(-1))
+        ? currentSong.load(std::memory_order_acquire) : songIndex;
     if (targetSong >= loader.project().songs.size()) {
         error = "Song index out of range";
         return false;
@@ -283,12 +284,15 @@ bool AudioEngine::seekToSeconds(double seconds, std::string& error, size_t songI
         auto pluginPub = std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
         if (pluginPub != nullptr && pluginPub->bank != nullptr) {
             pluginPub->bank->requestAllNotesOff();
-            if (targetSong < proj.songs.size()) {
-                const SongDef& song = proj.songs[targetSong];
-                const auto tempoMap = std::atomic_load_explicit(&activeTempoMap, std::memory_order_acquire);
-                prewarmPluginsLookahead(song, sample, currentSampleRate,
-                                        publishedGraph.get(), pluginPub->bank.get(),
-                                        tempoMap.get());
+            const auto graph = publishedGraph;
+            const auto* playbackSong = graph != nullptr && graph->playbackState != nullptr
+                ? graph->playbackState->songAt(targetSong) : nullptr;
+            if (playbackSong != nullptr) {
+                prewarmPluginsLookahead(*playbackSong, targetSong, sample, currentSampleRate,
+                                        graph.get(), pluginPub->bank.get(),
+                                        playbackSong->tempoMap.get());
+            } else {
+                pluginPub->bank->prewarmAllStrips();
             }
         }
         activeMidiNotesClearRequested.store(true, std::memory_order_release);

@@ -16,6 +16,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -33,6 +34,7 @@ inline bool needsActivityPreparation(bool contentChanged, const MixGraph* previo
                                      const MixGraph& next) noexcept {
     return contentChanged || previous == nullptr
         || previous->projectEpoch != next.projectEpoch
+        || previous->contentRevision != next.contentRevision
         || previous->routingLayoutKey != next.routingLayoutKey;
 }
 
@@ -84,8 +86,15 @@ struct SongActivityIndex {
                                    const MixGraph& graph,
                                    uint64_t currentProjectEpoch,
                                    double currentSampleRate) const noexcept {
+        return isCompatible(song.id, graph, currentProjectEpoch, currentSampleRate);
+    }
+
+    [[nodiscard]] bool isCompatible(std::string_view requestedSongId,
+                                   const MixGraph& graph,
+                                   uint64_t currentProjectEpoch,
+                                   double currentSampleRate) const noexcept {
         return projectEpoch == currentProjectEpoch
-            && songId == song.id
+            && songId == requestedSongId
             && routingLayoutKey == graph.routingLayoutKey
             && std::abs(sampleRate - currentSampleRate) < 1e-6;
     }
@@ -190,6 +199,7 @@ struct ProjectActivityIndex {
     static constexpr size_t kMaximumRegions = 1'048'576;
     static constexpr size_t kMaximumPlans = 65'536;
     static constexpr size_t kMaximumTempoPoints = 65'536;
+    uint64_t contentRevision{0};
     std::vector<std::shared_ptr<const SongActivityIndex>> songs;
 
     /** Nested maps may outlive the audio's publication reference. Reclaim
@@ -203,7 +213,18 @@ struct ProjectActivityIndex {
     [[nodiscard]] const SongActivityIndex* songAt(size_t songIndex, const SongDef& song,
                                                 const MixGraph& graph, uint64_t epoch,
                                                 double rate) const noexcept {
-        if (songIndex >= songs.size() || !songs[songIndex]->isCompatible(song, graph, epoch, rate))
+        if (contentRevision != graph.contentRevision || songIndex >= songs.size()
+            || !songs[songIndex]->isCompatible(song, graph, epoch, rate))
+            return nullptr;
+        return songs[songIndex].get();
+    }
+
+    [[nodiscard]] const SongActivityIndex* songAt(size_t songIndex,
+                                                std::string_view songId,
+                                                const MixGraph& graph, uint64_t epoch,
+                                                double rate) const noexcept {
+        if (contentRevision != graph.contentRevision || songIndex >= songs.size()
+            || !songs[songIndex]->isCompatible(songId, graph, epoch, rate))
             return nullptr;
         return songs[songIndex].get();
     }
@@ -225,6 +246,7 @@ inline std::shared_ptr<const ProjectActivityIndex> buildProjectActivityIndex(
         tempoPoints += song.tempoPoints.size();
     }
     auto index = std::make_shared<ProjectActivityIndex>();
+    index->contentRevision = graph.contentRevision;
     index->songs.reserve(project.songs.size());
     size_t plans = 0;
     for (const auto& song : project.songs) {

@@ -140,7 +140,7 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex, const Mix
         return false;
     }
 
-    currentSong = nextSongIndex;
+    setCurrentSongIndex(nextSongIndex);
     std::atomic_store_explicit(&activeTempoMap, prepared->tempoMap, std::memory_order_release);
     currentSongLengthFrames = newLen;
     eventFiredFlags.assign(song.events.size(), 0);

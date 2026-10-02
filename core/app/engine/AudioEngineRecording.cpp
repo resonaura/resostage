@@ -501,14 +501,17 @@ void AudioEngine::updateActiveMidiNote(size_t strip, int pitch, bool noteOn) {
     activeMidiNotesFrame.write(activeMidiNotesWorkingFrame);
 }
 
-void AudioEngine::clearActiveMidiNotes(uint64_t targetHostTimeNanos) {
+void AudioEngine::clearActiveMidiNotes(uint64_t targetHostTimeNanos,
+                                      const ProjectPlaybackSnapshot* playback) {
     for (auto& track : activeMidiNoteCounts) track.fill(0);
     for (auto& track : liveMidiNoteCounts)
         for (auto& channel : track) channel.fill(0);
     uint16_t activeExternalChannels = activeExternalMidiChannelMask;
-    const size_t trackCount = std::min(trackIdByIndex.size(), kMaxActiveMidiTracks);
+    const size_t trackCount = playback != nullptr
+        ? std::min(playback->tracks.size(), kMaxActiveMidiTracks) : 0;
     for (size_t strip = 0; strip < sequencedMidiNoteCounts.size(); ++strip) {
-        const TrackDef* track = strip < trackCount ? trackDefAt(strip) : nullptr;
+        const PlaybackTrackState* track = strip < trackCount
+            ? playback->trackAt(strip) : nullptr;
         const bool external = track != nullptr
             && (track->kind == TrackKind::ExternalMIDI
                 || track->kind == TrackKind::MIDI);

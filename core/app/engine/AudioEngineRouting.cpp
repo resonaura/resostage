@@ -19,10 +19,12 @@
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
 #include "automation/StripAutomationPlan.h"
+#include "audio/graph/ProjectPlaybackSnapshot.h"
 #include "project/ProjectJson.h"
 #include "project/RouteId.h"
 
 #include <algorithm>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -228,9 +230,10 @@ void AudioEngine::publishRoutingSnapshot() {
     // (through builderCycleUpdate -> notifyProjectStructureChanged) while
     // dragging loop locators.
     //
-    // None of this touches state the audio thread reads. buildMixGraph only
-    // READS the project, and the audio thread only reads it too, so the two
-    // are not in conflict.
+    // The Project is message-thread-owned. The callback reads only the
+    // immutable playback subset published on MixGraph, never these mutable
+    // vectors. buildMixGraph and playback-snapshot preparation both run on
+    // this same owner thread, and their result is published as one RCU graph.
     //
     // The whole routing decision -- solo groups, audibility, ext-out lane
     // placement, send levels, shadow lanes -- lives in buildMixGraph(). This
@@ -260,9 +263,34 @@ void AudioEngine::publishRoutingSnapshot() {
     newTrackIds.reserve(projTracks.size());
     for (const auto& t : projTracks)
         newTrackIds.push_back(t.id);
+    const bool tracksChanged = trackIdByIndex != newTrackIds;
 
     auto mutableGraph = std::make_shared<MixGraph>(buildMixGraph(loader.project(), outputs));
     mutableGraph->projectEpoch = projectEpoch.load(std::memory_order_acquire);
+    mutableGraph->trackLayoutRevision = trackLayoutRevision
+        + (tracksChanged ? 1u : 0u);
+    const auto previousPlayback = publishedGraph != nullptr
+        ? publishedGraph->playbackState : nullptr;
+    const bool playbackContentChanged = songActivityDirty
+        || publishedGraph == nullptr
+        || publishedGraph->projectEpoch != mutableGraph->projectEpoch
+        || previousPlayback == nullptr;
+    if (playbackContentChanged
+        && projectContentRevision == std::numeric_limits<uint64_t>::max()) {
+        juce::Logger::writeToLog("Project playback content revision exhausted; refusing graph publication");
+        return;
+    }
+    mutableGraph->contentRevision = projectContentRevision
+        + (playbackContentChanged ? 1u : 0u);
+    const auto playback = buildProjectPlaybackSnapshot(
+        loader.project(), *mutableGraph, mutableGraph->projectEpoch,
+        mutableGraph->contentRevision, previousPlayback, playbackContentChanged);
+    if (playback.snapshot == nullptr) {
+        juce::Logger::writeToLog(juce::String("Project playback snapshot unavailable: ")
+            + juce::String(playback.error));
+        return;
+    }
+    mutableGraph->playbackState = playback.snapshot;
     const bool prepareAutomation = needsActivityPreparation(
         songActivityDirty, publishedGraph.get(), *mutableGraph);
     if (!prepareAutomation && publishedGraph != nullptr) {
@@ -290,7 +318,6 @@ void AudioEngine::publishRoutingSnapshot() {
     bool latencyLayoutChanged = false;
     bool projectChanged = false;
 
-    const bool tracksChanged = (trackIdByIndex != newTrackIds);
     const int samples = std::max({currentBlockSize, mixRenderer.maxBlockSize(), 1});
     bool scratchNeedsResize = tracksChanged || (trackScratch.size() != newTrackIds.size());
     if (!scratchNeedsResize) {
@@ -343,6 +370,14 @@ void AudioEngine::publishRoutingSnapshot() {
                 std::max(needed, mixRenderer.capacity()),
                 std::max(neededEdges, mixRenderer.edgeCapacityValue()));
         }
+        trackLayoutRevision = graph->trackLayoutRevision;
+        publishedTrackLayoutRevision.store(trackLayoutRevision,
+                                           std::memory_order_release);
+    } else {
+        // Publish the fence before swapping the graph. A callback holding the
+        // old graph then fails closed during the tiny graph/layout handoff.
+        publishedTrackLayoutRevision.store(graph->trackLayoutRevision,
+                                           std::memory_order_release);
     }
 
     processorLayoutChanged = publishedGraph == nullptr
@@ -355,6 +390,7 @@ void AudioEngine::publishRoutingSnapshot() {
         || publishedGraph->projectEpoch != graph->projectEpoch;
     const bool activityChanged = needsActivityPreparation(songActivityDirty, publishedGraph.get(), *graph);
     publishedGraph = graph;
+    projectContentRevision = graph->contentRevision;
 
     // Atomic shared_ptr swap -- its own synchronisation, no lock needed, and
     // deliberately outside so the callback picks the new graph up even if it

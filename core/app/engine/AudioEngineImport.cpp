@@ -379,7 +379,7 @@ void AudioEngine::finishAsyncImport(bool writeSucceeded, std::string writeError,
     // Folder imports open this history gesture before their worker; media
     // imports record a before/after pair in their completion callback.
     (void)projectHistory.commitOpenEdit(kFolderImportGestureId, loader.project());
-    currentSong = static_cast<size_t>(-1);
+    setCurrentSongIndex(static_cast<size_t>(-1));
     trackIdByIndex.clear();
     trackScratch.clear();
     // Drop every gain/pan glide: the strip layout is about to change, so

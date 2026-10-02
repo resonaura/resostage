@@ -86,37 +86,49 @@ Entry points: `core/app/engine/AudioEngineAutomation.cpp`,
 `core/engine/automation/StripAutomationPlan.*`, and the existing graph/snapshot
 publication and retirement paths.
 
-Confirmed audit concern: callback-side MIDI/automation dispatch reads
-`project().tracks`; plugin/region dispatch also traverses the supplied song.
-The message thread owns mutable project content. Trace the lifetime and all
-callers: a routing `try_lock` is not proof that every project mutation holds
-the same lock. Do not leave a callback reading a vector that editor/history
-commands can replace beside it.
+Confirmed race: callback-side MIDI/automation dispatch used `project().tracks`
+while plug-in/region dispatch traversed mutable song vectors. The message thread
+owns those vectors, and builder replacements do not take a common reader lock;
+the callback's routing `try_lock` therefore did not protect project lifetime.
 
-The Core audit traced `AudioEngine.cpp` capturing `loader.project()` and
-passing the mutable song into automation dispatch; `AudioEngineAutomation.cpp`
-walks song/region lane vectors and performs track/graph lookups. Normal builder
-point/MIDI replacements in `core/app/main/builder/MainComponentBuilderAutomation.cpp`
-and `MainComponentBuilderTracks.cpp` do not establish a shared reader gate.
+Implemented in the current source block (not a hardware/acoustic proof):
 
-Required implementation:
+- `MixGraph` owns a `shared_ptr<const ProjectPlaybackSnapshot>` prepared on the
+  message thread. It contains playback track routing/channel/input/R-I values
+  and immutable per-song region, MIDI, event, automation and `TempoMap` data.
+  Unchanged song content is shared when its content revision is unchanged.
+- Preparation validates bounded counts and an estimated 128 MiB copied-data
+  budget before publication. Failure retains the last valid graph, reports the
+  failure, and never falls back to mutable project vectors.
+- Callback readers pin the graph snapshot and verify project/content revisions.
+  `SongActivityIndex` refuses stale revisions; a track-layout generation fence
+  prevents an old graph from being combined with newly resized callback scratch.
+- Current song index and song-length frames are atomic across message and audio
+  owners; each callback pins the song/index pair once instead of racing a
+  gapless-transition write or mixing multiple songs' state in one block.
+- The audited callback translation units no longer directly call
+  `loader.project()`, `project()`, or `trackDefAt()`. Sequenced events use the
+  pinned snapshot; live held-note panic remains independently routed.
+- Native coverage includes snapshot copy/reuse/revision/budget behavior and
+  stale activity-index rejection. The full native suite and the real-Core
+  HTTP editor-state harness pass (exact current totals below).
 
-- Prepare complete immutable, epoch/layout-compatible note/automation target
-  publications off audio, including track routing/channel and resolved vendor
-  parameter indices. Reuse proven lifetime/retirement ownership.
-- Publish atomically at a block boundary without stopping/seeking transport,
-  resetting the sample clock, or restarting unchanged healthy helper chains.
-- Bound preparation, memory and per-block work. Over-budget/unbound preparation
-  must have an explicit observable policy; never fall back to a mutable project
-  scan, vendor lookup or unbounded allocation on the callback.
-- Define already-sounding note ownership when deleting, moving, quantizing or
-  undoing an event. Live held input must not be released by a sequence edit.
+Still open: snapshot-build rejection preserves callback safety but is not yet a
+transactional rejection of the user edit. The UI can temporarily show an
+admitted edit while audio stays on the last valid publication; request-specific
+applied/rejected feedback and recovery must be completed with command
+epoch/acknowledgement work below. Add sanitizer/concurrent stress coverage,
+measure callback deadlines/allocations, and prove audible/sample continuity
+while editing with loaded AU/VST3 chains. Resolved vendor parameter indices are
+not yet fully prebound in this playback snapshot; automation parameter metadata
+caching remains a separate pending item.
 
-Acceptance: concurrent edit/Undo/Redo under an active cycle, same-ID project
-replacement, stale publications, empty/large songs and channel changes. Assert
-actual note/control dispatch and audible/sample continuity, not just `playing`
-and a growing UI playhead. Run the relevant concurrency tests and sanitizer
-coverage where available. Record callback deadlines and allocation coverage.
+Acceptance exercised: concurrent note/automation edits and Undo/Redo through
+the HTTP harness while transport advances; snapshot revision/budget and stale
+index cases in native tests; same-session save/reopen. This does not prove
+acoustic continuity, heavy-project callback deadlines, vendor plug-in behavior,
+or sanitizer cleanliness. Continue the explicit acceptance below rather than
+marking the full P1 lifecycle complete.
 
 ## P1 — command epoch, applied acknowledgements and bounded retained payloads
 
@@ -341,12 +353,12 @@ clock.
 
 ## Execution order for remaining work
 
-1. Publish immutable, bounded project playback data for audio-callback readers.
-   Inventory all callback reads and write/publish sites first. Keep the transport
-   and sample clock running; do not hide races by locking editor commands or
-   restarting healthy plug-in helpers. A missing/over-budget publication must
-   have an explicit health/status path and must never fall back to mutable
-   `Project` vectors.
+1. Complete acceptance and failure UX for immutable, bounded project playback
+   snapshots. Core callback readers are now snapshot-backed and fail closed;
+   next add request-specific publication acknowledgement/rejection, sanitizer
+   and concurrency coverage, callback allocation/deadline measurement, and
+   actual AU/VST3 audio-continuity proof. Keep transport running and do not hide
+   races by locking editor commands or restarting healthy helpers.
 2. Complete Core-owned live manual-value arbitration for Touch/Latch/Write, then
    wire each supported control surface and handle TempoMap, cycle wrap, Stop,
    seek, project epoch, rejection recovery and one coherent history action.
@@ -452,3 +464,12 @@ subsequent phase sample, and corrects misleading acoustic/device test names.
 The expanded synthetic coverage passed in the final integrated native run.
 Native record-gesture validation is committed in `73e1b8b`; a global status
 string is not a request-specific applied/rejected acknowledgement.
+
+Current uncommitted playback-snapshot block verification (2026-10-02):
+optimized Core and native test targets built with `cmake --build core/build
+--target ResoStage resostage_engine_tests -j2`; focused SongActivity passed 8
+cases/2,192 assertions; the complete native suite passed 578 cases/424,387
+assertions. `scripts/verification/editor-state.mjs` passed against that freshly
+built Core, including live-edit/Undo/Redo/rejection/save-reopen checks. UI and
+Electron suites were not rerun for this Core-only block. No acoustic/device,
+loaded-vendor, sanitizer, or callback-deadline claim is made.

@@ -98,6 +98,7 @@
     std::shared_ptr<const MixGraph> publishedGraph;
     std::shared_ptr<const TempoMap> activeTempoMap;
     std::shared_ptr<const ProjectActivityIndex> projectActivityIndex;
+    uint64_t projectContentRevision = 0; // Message-thread publication generation.
     bool songActivityDirty = true; // Message-thread only; never checked by audio.
     // Message-thread retirement queue for ProjectActivityIndex so audio-thread
     // local references never drop the refcount to zero during rendering.
@@ -112,6 +113,8 @@
     // Rebuilt per selectSong(); index matches the track's strip index in the
     // MixGraph, which lays project tracks out first and in project order.
     std::vector<std::string> trackIdByIndex;
+    uint64_t trackLayoutRevision = 0; // Message-thread generation for callback scratch layout.
+    std::atomic<uint64_t> publishedTrackLayoutRevision{0};
     std::vector<std::unique_ptr<SeqLock<MeterFrame>>> busMeters;
     /**
      * Sub-block envelope per bus: the ballistics run on the audio thread at
@@ -243,8 +246,12 @@
     // construction, shared across every call for this engine's lifetime.
     PeakBuildThreadPool peakBuildPool{std::clamp(std::thread::hardware_concurrency(), 2u, 8u)};
 
-    size_t currentSong = 0;
-    int64_t currentSongLengthFrames = 0; // 0 = unknown/no tracks
+    std::atomic<size_t> currentSong{0};
+    std::atomic<int64_t> currentSongLengthFrames{0}; // 0 = unknown/no tracks
+
+    void setCurrentSongIndex(size_t index) noexcept {
+        currentSong.store(index, std::memory_order_release);
+    }
 
     /**
      * How long the staged song runs, in device frames.
@@ -599,13 +606,16 @@
     void fireOnLoadEvents(const SongDef& song);
     /** Re-arms the fired-flag vector against the current song's event list. */
     void syncEventFiredFlags();
-    void fireDueEvents(const SongDef& song, double blockStartSeconds,
+    void fireDueEvents(const PlaybackSongState& song,
+                       const ProjectPlaybackSnapshot& playback,
+                       double blockStartSeconds,
                        double blockEndSeconds,
                        uint64_t hostTimeNanosAtBlockStart,
                        int64_t effectiveOutputLatencySamples,
                        PluginProcessorBank* pluginBank = nullptr,
                        int numSamples = 0);
-    void dispatchMidiRegionsForBlock(const SongDef& song,
+    void dispatchMidiRegionsForBlock(const PlaybackSongState& song,
+                                     const ProjectPlaybackSnapshot& playback,
                                      int64_t blockStartSample,
                                      int numSamples,
                                      double sampleRate,
@@ -614,16 +624,17 @@
                                      const TempoMap* tempoMap,
                                      uint64_t hostTimeNanos = 0,
                                      double outputLatencySec = 0.0);
-    void dispatchAutomationForBlock(const SongDef& song,
+    void dispatchAutomationForBlock(const PlaybackSongState& song,
+                                    const ProjectPlaybackSnapshot& playback,
                                     int64_t blockStartSample,
                                     int numSamples,
                                     double sampleRate,
-                                    const MixGraph* graph,
                                     PluginProcessorBank* pluginBank,
                                     const TempoMap* tempoMap,
                                     uint64_t hostTimeNanos = 0,
                                     double outputLatencySec = 0.0);
-    void prewarmPluginsLookahead(const SongDef& song,
+    void prewarmPluginsLookahead(const PlaybackSongState& song,
+                                 size_t songIndex,
                                  int64_t playheadSample,
                                  double sampleRate,
                                  const MixGraph* graph,
@@ -751,7 +762,8 @@
     // making the message thread race the MIDI dispatch queue.
     std::atomic<bool> hardAllSoundOffRequested{false};
     void updateActiveMidiNote(size_t strip, int pitch, bool noteOn);
-    void clearActiveMidiNotes(uint64_t targetHostTimeNanos);
+    void clearActiveMidiNotes(uint64_t targetHostTimeNanos,
+                              const ProjectPlaybackSnapshot* playback);
 
     // Lock-free incoming MIDI queue for real-time instrument playback & MIDI recording
     struct QueuedMidiPacket {

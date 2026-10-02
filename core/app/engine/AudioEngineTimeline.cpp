@@ -16,9 +16,10 @@
 namespace resostage {
 
 double AudioEngine::currentSongLengthSeconds() const {
-    if (currentSampleRate <= 0.0 || currentSongLengthFrames <= 0)
+    const int64_t lengthFrames = currentSongLengthFrames.load(std::memory_order_relaxed);
+    if (currentSampleRate <= 0.0 || lengthFrames <= 0)
         return 0.0;
-    return static_cast<double>(currentSongLengthFrames) / currentSampleRate;
+    return static_cast<double>(lengthFrames) / currentSampleRate;
 }
 
 void AudioEngine::updateRegionWindow(const Region& r) {
@@ -57,7 +58,7 @@ void AudioEngine::applyHistoryProject(Project restored) {
     // This is the same document: healthy unchanged plug-in helpers keep their
     // epoch, state, and tails instead of being restarted for every Undo.
     ProjectReplacementScope replacement(*this, false);
-    const auto previousSong = currentSong;
+    const size_t previousSong = currentSong.load(std::memory_order_acquire);
     const auto& previous = loader.project();
     const std::string songId = previousSong < previous.songs.size()
         ? previous.songs[previousSong].id : std::string{};
@@ -75,7 +76,8 @@ void AudioEngine::applyHistoryProject(Project restored) {
     const auto& project = loader.project();
     const int64_t capacity = static_cast<int64_t>(currentSampleRate * audio_engine_detail::kRingBufferSeconds);
     streaming.invalidateIncompatibleWarmSongs(project.songs, capacity, currentSampleRate);
-    currentSong = resolveHistorySongIndex(project, songId, previousSong).value_or(static_cast<size_t>(-1));
+    setCurrentSongIndex(resolveHistorySongIndex(project, songId, previousSong)
+        .value_or(static_cast<size_t>(-1)));
 
     int nextFocus = -1;
     for (size_t i = 0; i < project.tracks.size(); ++i) {
@@ -103,8 +105,9 @@ void AudioEngine::applyHistoryProject(Project restored) {
             contentSeconds = std::max(contentSeconds, cue.startSeconds + cue.durationSeconds);
         currentSongLengthFrames = songLengthFramesFor(song.endSeconds,
             static_cast<int64_t>(std::llround(contentSeconds * currentSampleRate)), currentSampleRate);
-        if (currentSongLengthFrames > 0)
-            cursor = std::min(cursor, currentSongLengthFrames);
+        const int64_t lengthFrames = currentSongLengthFrames.load(std::memory_order_relaxed);
+        if (lengthFrames > 0)
+            cursor = std::min(cursor, lengthFrames);
         if (!streaming.activeSongMatches(currentSong, song, capacity, currentSampleRate)) {
             std::string error;
             sourcesReady = streaming.rebindActiveSongAt(currentSong, song, capacity,

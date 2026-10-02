@@ -49,6 +49,7 @@
 namespace resostage {
 
 class StripAutomationPlan;
+struct ProjectPlaybackSnapshot;
 
 // Which strips silence each other when one of them is soloed. Solo is always
 // scoped to a group: soloing a track must not mute the aux sends carrying it
@@ -162,6 +163,12 @@ struct MixGraph {
     // Prepared strip-index bindings and owned envelope data share this
     // publication's retirement lifetime, never mutable project vectors.
     std::shared_ptr<const StripAutomationPlan> stripAutomation;
+
+    // Immutable callback inputs are published with the render graph and share
+    // its retirement lifetime. A callback must never traverse ProjectLoader.
+    std::shared_ptr<const ProjectPlaybackSnapshot> playbackState;
+    uint64_t contentRevision = 0;
+    uint64_t trackLayoutRevision = 0;
 
     // Stable across gain/pan/mute/routing-only republishes, but changes when
     // processable strip indices or an insert chain changes. The audio callback

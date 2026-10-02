@@ -271,7 +271,10 @@ path. At a high level, each block does this:
 4. Publish cheap transport/health atomics.
 5. If stopped, emit the prepared declick tail, publish meter silence, and
    return.
-6. Acquire exactly one `MixGraph` snapshot for the entire block.
+6. Acquire exactly one `MixGraph` snapshot for the entire block. The graph
+   owns an immutable `ProjectPlaybackSnapshot` for callback-visible project
+   data; callback dispatch must not read mutable `Project`/`ProjectLoader`
+   state as a fallback.
 7. Attempt the routing guard without waiting. Failure emits a silent block and
    increments health telemetry.
 8. Acquire the active staged song and fire events whose time falls in the
@@ -339,9 +342,18 @@ The design removes unbounded latency from the deadline path:
 - **No routine heap growth in the callback.** `MixRenderer`, per-track scratch,
   output lanes, sinc tables, meter state, and rings are prepared outside it.
   Capacity mismatch fails safely rather than resizing in place.
-- **Immutable routing snapshots.** The message thread builds a complete flat
-  `MixGraph` and atomically publishes it. One callback sees one graph, never a
-  half-applied fader or route edit.
+- **Immutable routing and playback snapshots.** The message thread builds a
+  complete flat `MixGraph` and atomically publishes it with its immutable
+  `ProjectPlaybackSnapshot`. The playback snapshot contains copied track
+  routing/input/R-I state and song regions, MIDI, events, automation, and
+  `TempoMap`; unchanged song content is shared by revision. Activity-index
+  revisions and a track-layout generation fence stale lookups/scratch layouts.
+  Snapshot preparation is bounded and happens off audio. If it fails or
+  exceeds its budget, retain the last valid graph, report the failure, and do
+  not fall back to mutable project reads. This preserves callback safety but
+  does not yet make an already-admitted project edit transactional: the UI may
+  temporarily show newer state while audio continues on the last valid
+  publication until an explicit applied/rejected acknowledgement is added.
 - **Sparse, cache-friendly mixing.** Only real edges are walked. A single
   canonical renderer applies fader, pan, mute, solo, sends, buses, click, and
   physical egress rather than duplicating signal logic.
@@ -353,7 +365,9 @@ The design removes unbounded latency from the deadline path:
   The callback's `try_lock` then sees a complete state or emits a bounded
   silent block; never mutate these vectors beside it.
 - **Atomics for scalar telemetry and intent.** Playhead, running state, drift,
-  pending actions, and health counters do not require a cross-thread lock.
+  current song index/length, pending actions, and health counters do not require
+  a cross-thread lock. The callback pins song index and length once per block;
+  gapless advancement publishes the next index atomically.
 - **Bounded producer queues.** Audio and lighting enqueue network/event work;
   a slow endpoint cannot propagate back into the callback.
 - **Latest-wins live telemetry.** UDP avoids TCP head-of-line blocking. Old,
