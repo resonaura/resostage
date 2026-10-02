@@ -116,4 +116,81 @@ describe("MIDI region timeline editing", () => {
     deleteSelectedRegions([regionSelKey(0, "midi-1")], [midiSong]);
     expect(remove).toHaveBeenCalledWith(0, "midi-1", expect.any(String));
   });
+
+  it("splits automation lanes with exact boundary points on both halves", async () => {
+    const songWithAuto: SongRow = {
+      ...midiSong,
+      midiRegions: [
+        {
+          ...midiSong.midiRegions![0],
+          automationLanes: [
+            {
+              id: "auto-1",
+              target: {
+                domain: "midiCC",
+                entityId: "track-1",
+                parameterId: "cc:1",
+                valueType: "integer",
+                defaultValue: 0,
+                minValue: 0,
+                maxValue: 127,
+              },
+              scope: "region",
+              writeMode: "read",
+              enabled: true,
+              muted: false,
+              points: [
+                { timeBeats: 0, value: 0, curve: 0 },
+                { timeBeats: 8, value: 100, curve: 0 },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    const update = vi
+      .spyOn(builder, "midiRegionUpdate")
+      .mockResolvedValue({} as never);
+    const add = vi
+      .spyOn(builder, "midiRegionAdd")
+      .mockResolvedValue({} as never);
+
+    // Split at playhead = 4s (8 beats at 120 bpm; region starts at 4 beats, so splitBeats = 4)
+    await splitRegionsAtPlayhead(
+      [regionSelKey(0, "midi-1")],
+      [songWithAuto],
+      [0],
+      [30],
+      4,
+    );
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        regionId: "midi-1",
+        automationLanes: expect.arrayContaining([
+          expect.objectContaining({
+            id: "auto-1",
+            points: expect.arrayContaining([
+              { timeBeats: 0, value: 0, curve: 0 },
+              { timeBeats: 4, value: 50, curve: 0 },
+            ]),
+          }),
+        ]),
+      }),
+    );
+
+    expect(add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automationLanes: expect.arrayContaining([
+          expect.objectContaining({
+            points: expect.arrayContaining([
+              { timeBeats: 0, value: 50, curve: 0 },
+              { timeBeats: 4, value: 100, curve: 0 },
+            ]),
+          }),
+        ]),
+      }),
+    );
+  });
 });

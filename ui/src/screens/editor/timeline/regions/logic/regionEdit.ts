@@ -12,6 +12,7 @@ import {
   type RegionClipboardEntry,
   type RegionSelKey,
 } from "@/screens/editor/timeline/regions/logic/regionUtils";
+import { splitAutomationLanes } from "@/screens/editor/timeline/automation/logic/automationBoundary";
 
 export function resolveSelectedRegions(
   selectedRegionKeys: RegionSelKey[],
@@ -191,11 +192,17 @@ export async function splitRegionsAtPlayhead(
       if (splitBeats <= 0.03125 || splitBeats >= r.durationBeats - 0.03125)
         continue;
 
+      const { leftLanes, rightLanes } = splitAutomationLanes(
+        r.automationLanes ?? [],
+        splitBeats,
+      );
+
       await builder.midiRegionUpdate({
         songIndex,
         regionId: r.id,
         durationBeats: splitBeats,
         loopLengthBeats: r.loop ? r.loopLengthBeats : splitBeats,
+        automationLanes: leftLanes,
         gestureId,
       });
       await builder.midiRegionAdd({
@@ -215,7 +222,7 @@ export async function splitRegionsAtPlayhead(
         notes: r.notes.map((note: MidiNoteRow) => ({ ...note })),
         events: (r.events ?? []).map((event) => ({ ...event, data: [...event.data] })),
         umpEvents: (r.umpEvents ?? []).map((event) => ({ ...event, words: [...event.words] })),
-        automationLanes: r.automationLanes,
+        automationLanes: rightLanes,
         gestureId,
       });
       splitCount += 1;
