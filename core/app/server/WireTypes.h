@@ -25,6 +25,13 @@ struct WHistoryAccepted {
     std::string stateSessionId;
 };
 
+struct WHistoryResult {
+    uint64_t requestId = 0;
+    bool applied = false;
+    uint64_t projectRevision = 0;
+    std::string error;
+};
+
 // ── App Settings ─────────────────────────────────────────────────────────────
 
 struct WMidiMapping {
@@ -921,6 +928,7 @@ struct WEngineTelemetryPayload {
     std::string stateSessionId;
     uint64_t stateRevision = 0;
     uint64_t lastHistoryRequestId = 0;
+    std::vector<WHistoryResult> historyResults;
     std::string lastAction;
     uint64_t lastActionNonce = 0;
     int telemetryHz = 0;

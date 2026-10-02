@@ -65,6 +65,17 @@ export async function verifyEditorState(coreExecutable, inspect) {
     }
     throw new Error(`No authoritative confirmation: ${description}\n${diagnostic}`);
   };
+  const confirmHistory = async (direction, applied) => {
+    const accepted = await request(`/api/v1/timeline/${direction}`, {});
+    assert.ok(Number.isSafeInteger(accepted.historyRequestId), `${direction} must return a request ID`);
+    const state = await waitFor((snapshot) => snapshot.historyResults?.some(
+      (result) => result.requestId === accepted.historyRequestId && result.applied === applied,
+    ), `${direction} exact applied=${applied} acknowledgement`);
+    const result = state.historyResults.find((entry) => entry.requestId === accepted.historyRequestId);
+    assert.ok(Number.isSafeInteger(result.projectRevision), `${direction} must return a project revision`);
+    assert.ok(result.projectRevision <= state.stateRevision, `${direction} result cannot exceed snapshot revision`);
+    return state;
+  };
   const stopCore = async () => {
     if (!child || exited) return;
     child.kill("SIGTERM");
@@ -86,6 +97,9 @@ export async function verifyEditorState(coreExecutable, inspect) {
   const getRegion = (state) => state.songs?.[0]?.midiRegions?.find((region) => region.id === regionId);
   try {
     await startCore();
+    const noOpUndo = await confirmHistory("undo", false);
+    assert.equal(noOpUndo.historyResults.at(-1)?.error, "Nothing to undo");
+
     const notes = Array.from({ length: 512 }, (_, index) => ({ id: index + 1, pitch: 48 + index % 24,
       startBeats: index * 0.125 + 0.03, durationBeats: 0.22, velocity: 0.8, releaseVelocity: 0.5, probability: 1 }));
     const patch = { songIndex: 0, regionId, notes };
@@ -104,19 +118,23 @@ export async function verifyEditorState(coreExecutable, inspect) {
 
     // Exercise actual history dispatch while playing too. This checks
     // authoritative notes and transport intent, not acoustic continuity.
-    await request("/api/v1/timeline/undo", {});
-    const liveUndo = await waitFor((state) => getRegion(state)?.notes.every((note) => Math.abs(note.durationBeats - 0.22) < 1e-6), "Undo while playing");
+    const liveUndo = await confirmHistory("undo", true);
+    assert.ok(getRegion(liveUndo)?.notes.every((note) => Math.abs(note.durationBeats - 0.22) < 1e-6),
+      "Undo while playing must restore the prior note durations");
     assert.equal(liveUndo.playing, true, "Undo must not stop transport");
-    await request("/api/v1/timeline/redo", {});
-    const liveRedo = await waitFor((state) => getRegion(state)?.notes.every((note) => note.durationBeats === 0.5), "Redo while playing");
+    const liveRedo = await confirmHistory("redo", true);
+    assert.ok(getRegion(liveRedo)?.notes.every((note) => note.durationBeats === 0.5),
+      "Redo while playing must restore the quantized durations");
     assert.equal(liveRedo.playing, true, "Redo must not stop transport");
     await request("/api/v1/transport/stop", {});
     await waitFor((state) => !state.playing, "Stop");
 
-    await request("/api/v1/timeline/undo", {});
-    await waitFor((state) => getRegion(state)?.notes.every((note) => Math.abs(note.durationBeats - 0.22) < 1e-6), "Undo note edit");
-    await request("/api/v1/timeline/redo", {});
-    await waitFor((state) => getRegion(state)?.notes.every((note) => note.durationBeats === 0.5), "Redo note edit");
+    const noteUndo = await confirmHistory("undo", true);
+    assert.ok(getRegion(noteUndo)?.notes.every((note) => Math.abs(note.durationBeats - 0.22) < 1e-6),
+      "Undo note edit must restore the prior note durations");
+    const noteRedo = await confirmHistory("redo", true);
+    assert.ok(getRegion(noteRedo)?.notes.every((note) => note.durationBeats === 0.5),
+      "Redo note edit must restore the quantized durations");
 
     await request("/api/v1/builder/automation-lane/add", { songIndex: 0, domain: "midiCC", entityId: "audio::track:1",
       parameterId: "cc:1", valueType: "integer", defaultValue: 0, minValue: 0, maxValue: 127, points: [] });

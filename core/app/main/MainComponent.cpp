@@ -581,9 +581,10 @@ void MainComponent::notifyRoutingChanged() {
     // SPA picks up routing from the next telemetry frame.
 }
 
-void MainComponent::performTimelineUndo() {
+bool MainComponent::performTimelineUndo(bool publishState) {
     std::string label;
-    if (engine.undoTimelineEdit(label)) {
+    const bool applied = engine.undoTimelineEdit(label);
+    if (applied) {
         // AudioEngine has already rebuilt routing. A second rebuild only
         // adds UI latency and can schedule redundant plug-in bank work.
         ensureSongSelected();
@@ -592,19 +593,24 @@ void MainComponent::performTimelineUndo() {
     } else {
         setStatus("Nothing to undo");
     }
-    publishWebState();
+    if (publishState)
+        publishWebState();
+    return applied;
 }
 
-void MainComponent::performTimelineRedo() {
+bool MainComponent::performTimelineRedo(bool publishState) {
     std::string label;
-    if (engine.redoTimelineEdit(label)) {
+    const bool applied = engine.redoTimelineEdit(label);
+    if (applied) {
         ensureSongSelected();
         engine.notifyLightEngineProjectChanged();
         setStatus("Redo: " + juce::String(label));
     } else {
         setStatus("Nothing to redo");
     }
-    publishWebState();
+    if (publishState)
+        publishWebState();
+    return applied;
 }
 
 

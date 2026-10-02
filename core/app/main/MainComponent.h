@@ -210,9 +210,10 @@ private:
     void notifyRoutingChanged();
 
     // Shared by WebCommandKind::TimelineUndo/Redo and performAction("undo"/"redo").
-    void performTimelineUndo();
-    void performTimelineRedo();
+    bool performTimelineUndo(bool publishState = true);
+    bool performTimelineRedo(bool publishState = true);
     uint64_t lastHistoryRequestId_ = 0; // Applied on the message thread, published with its restored project.
+    std::deque<WebUiState::HistoryResult> historyResults_;
 
     // Native folder picker when web sends import without a path (rare).
     void importSongFolderNative();

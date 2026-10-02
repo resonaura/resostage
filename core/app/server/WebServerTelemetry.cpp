@@ -215,6 +215,10 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.stateSessionId = snap.stateSessionId;
     wire.stateRevision = snap.stateRevision;
     wire.lastHistoryRequestId = snap.lastHistoryRequestId;
+    wire.historyResults.reserve(snap.historyResults.size());
+    for (const auto& result : snap.historyResults)
+        wire.historyResults.push_back({result.requestId, result.applied,
+                                       result.projectRevision, result.error});
     wire.lastAction = snap.lastAction;
     wire.lastActionNonce = static_cast<uint64_t>(std::max(0, snap.lastActionNonce));
     wire.telemetryHz = effectiveTelemetryHz();

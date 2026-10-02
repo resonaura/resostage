@@ -455,18 +455,41 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::LightCueAdd: lightingCueAdd(cmd.json); break;
             case WebCommandKind::LightCueRemove: lightingCueRemove(cmd.json); break;
             case WebCommandKind::LightCueUpdate: lightingCueUpdate(cmd.json); break;
-            case WebCommandKind::TimelineUndo:
-                performTimelineUndo();
-                if (cmd.historyRequestId != 0)
-                    lastHistoryRequestId_ = cmd.historyRequestId;
+            case WebCommandKind::TimelineUndo: {
+                // Publish the mutation and its exact acknowledgement together;
+                // an intermediate snapshot could make the UI observe an
+                // applied edit without its request result.
+                const bool applied = performTimelineUndo(false);
+                if (cmd.historyRequestId != 0) {
+                    if (applied)
+                        lastHistoryRequestId_ = cmd.historyRequestId;
+                    historyResults_.push_back({
+                        cmd.historyRequestId, applied,
+                        engine.projectHistoryRevision(),
+                        applied ? std::string{} : std::string("Nothing to undo"),
+                    });
+                    while (historyResults_.size() > 256)
+                        historyResults_.pop_front();
+                }
                 publishWebState();
                 break;
-            case WebCommandKind::TimelineRedo:
-                performTimelineRedo();
-                if (cmd.historyRequestId != 0)
-                    lastHistoryRequestId_ = cmd.historyRequestId;
+            }
+            case WebCommandKind::TimelineRedo: {
+                const bool applied = performTimelineRedo(false);
+                if (cmd.historyRequestId != 0) {
+                    if (applied)
+                        lastHistoryRequestId_ = cmd.historyRequestId;
+                    historyResults_.push_back({
+                        cmd.historyRequestId, applied,
+                        engine.projectHistoryRevision(),
+                        applied ? std::string{} : std::string("Nothing to redo"),
+                    });
+                    while (historyResults_.size() > 256)
+                        historyResults_.pop_front();
+                }
                 publishWebState();
                 break;
+            }
             case WebCommandKind::SetAudioOutputDevice: settingsSetAudioOutputDevice(cmd.json); break;
             case WebCommandKind::SetAudioInputDevice: settingsSetAudioInputDevice(cmd.json); break;
             case WebCommandKind::SetAudioDeviceType: settingsSetAudioDeviceType(cmd.json); break;

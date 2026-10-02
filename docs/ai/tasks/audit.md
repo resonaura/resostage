@@ -158,9 +158,22 @@ Closed in the current continuation block:
   `busId` and optional send semantics are retained, so sends to two buses cannot
   overwrite each other. Individual bodies are capped at 4 KiB and coalesced
   pending strings at 1 MiB.
-- UI validation for this block: complete Vitest passed 733 tests/107 files;
-  `pnpm --dir ui exec tsc -b --pretty false` passed. Focused queue/history tests
-  passed 11/11.
+- Undo/Redo now publish the exact outcome and project revision for each recent
+  request in a bounded 256-entry result ring. `lastHistoryRequestId` advances
+  only when the history mutation succeeded. This closes the false-positive case
+  where a no-op Undo appeared applied because a later request advanced the
+  monotonic high-water mark. The renderer checks the exact result first and
+  uses the high-water behavior only when talking to an older Core (which omits
+  the exact-result field); an expired result is explicitly treated as unknown.
+  Core publishes the mutation and its result atomically in one state frame, so
+  UI cannot race an intermediate post-mutation/pre-ack snapshot.
+- UI validation for this block: complete Vitest passed 736 tests/107 files;
+  `pnpm --dir ui exec tsc -b --pretty false` passed. The initial bounded-queue
+  block passed focused queue/history tests 11/11; the exact history-outcome
+  tests pass 10/10. The full native suite passes 578 cases / 424,387 assertions.
+  The actual-Core HTTP editor-state harness now verifies no-op Undo rejection,
+  exact successful Undo/Redo outcomes, their project revisions, live transport,
+  and save/reopen persistence.
 
 Still open: queued edits remain bound only to the backend origin, not to the
 Core session plus project epoch. Ordinary edits still lack exact request IDs,

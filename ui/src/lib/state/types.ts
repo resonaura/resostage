@@ -1082,6 +1082,13 @@ export interface WebUiState {
   stateRevision?: number;
   /** Reliable Undo/Redo request last applied to this published snapshot. */
   lastHistoryRequestId?: number;
+  /** Exact recent outcomes distinguish applied history actions from no-op rejection. */
+  historyResults?: Array<{
+    requestId: number;
+    applied: boolean;
+    projectRevision: number;
+    error: string;
+  }>;
   /** All views receive loading status, including remote controllers. */
   pluginLoading?: PluginLoadingState;
   songs: SongRow[];

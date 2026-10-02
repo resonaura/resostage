@@ -89,6 +89,16 @@ libwebsockets protocol storage has C++ construction/destruction at HTTP bind/dro
 boundaries. Reliable editor posts expose rejection, and local drafts remain
 distinct from authoritative snapshots until a matching Core echo. An HTTP
 admission response is not an applied-project acknowledgement.
+Undo/Redo additionally publish a bounded ring of the 256 most recent exact
+history-request outcomes (`requestId`, `applied`, project revision, and
+rejection reason) in the same published state snapshot as the corresponding
+history mutation. Do not publish an intermediate Undo/Redo snapshot without
+its exact request outcome. The legacy applied high-water mark advances only for a
+mutation that actually changed history; clients prefer the exact outcome and
+use the high-water mark only when talking to an older Core that omits the exact
+result field. If a result ages out of the ring, the action is unconfirmed, not
+inferred from a later request. A no-op Undo/Redo must never be reported as
+applied merely because a later request succeeded.
 The renderer's reliable command queue mirrors Core's 256-command/32 MiB
 retention bounds and freezes JSON bodies at invocation time, accounting their
 UTF-8 payload bytes until completion. Continuous controls may coalesce only by

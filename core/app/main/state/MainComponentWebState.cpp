@@ -200,6 +200,7 @@ void MainComponent::publishWebState() {
     state.redoLabel = engine.redoTimelineLabel();
     state.stateRevision = engine.projectHistoryRevision();
     state.lastHistoryRequestId = lastHistoryRequestId_;
+    state.historyResults.assign(historyResults_.begin(), historyResults_.end());
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {

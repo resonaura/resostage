@@ -94,6 +94,24 @@ export function createHistoryNavigator(dependencies: HistoryNavigationDependenci
           const snapshot = await bounded(() => stateResponse.json()) as Partial<WebUiState>;
           if (snapshot.stateSessionId !== accepted.stateSessionId)
             throw new Error("Core restarted before this history action could be confirmed.");
+          const historyResult = snapshot.historyResults?.find(
+            (result) => result.requestId === accepted.historyRequestId,
+          );
+          if (Array.isArray(snapshot.historyResults) && historyResult === undefined)
+            throw new Error("Core no longer has the exact result for this history action.");
+          if (historyResult !== undefined) {
+            if (!historyResult.applied)
+              throw new Error(historyResult.error || `Core did not apply ${direction}.`);
+            if (!Number.isSafeInteger(historyResult.projectRevision)
+              || !Number.isSafeInteger(snapshot.stateRevision)
+              || snapshot.stateRevision! < historyResult.projectRevision)
+              throw new Error("Core returned an inconsistent history revision.");
+            dependencies.applySnapshot(snapshot);
+            boundaryListeners.forEach((listener) => listener());
+            return;
+          }
+          // Older Core versions expose only the monotonic applied high-water
+          // mark. New Core snapshots publish an exact bounded result first.
           if ((snapshot.lastHistoryRequestId ?? 0) >= accepted.historyRequestId!) {
             dependencies.applySnapshot(snapshot);
             boundaryListeners.forEach((listener) => listener());

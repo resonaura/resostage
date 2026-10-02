@@ -75,6 +75,54 @@ describe("authoritative history navigation", () => {
     expect(getHistoryNavigationState().error).toContain("503");
   });
 
+  it("does not mistake a later applied action for this rejected no-op", async () => {
+    const test = fixture();
+    test.fetch.mockResolvedValueOnce(response({ historyRequestId: 12, stateSessionId: "Core" }))
+      .mockResolvedValueOnce(response({
+        stateSessionId: "Core",
+        lastHistoryRequestId: 13,
+        historyResults: [
+          { requestId: 12, applied: false, projectRevision: 4, error: "Nothing to undo" },
+          { requestId: 13, applied: true, projectRevision: 5, error: "" },
+        ],
+      }));
+
+    await test.navigate("undo");
+    expect(test.applySnapshot).not.toHaveBeenCalled();
+    expect(getHistoryNavigationState().error).toContain("Nothing to undo");
+  });
+
+  it("accepts an exact applied result even before the legacy high-water mark", async () => {
+    const test = fixture();
+    const snapshot = {
+      stateSessionId: "Core",
+      lastHistoryRequestId: 11,
+      stateRevision: 18,
+      historyResults: [{ requestId: 12, applied: true, projectRevision: 18, error: "" }],
+    };
+    test.fetch.mockResolvedValueOnce(response({ historyRequestId: 12, stateSessionId: "Core" }))
+      .mockResolvedValueOnce(response(snapshot));
+
+    await test.navigate("redo");
+    expect(test.applySnapshot).toHaveBeenCalledExactlyOnceWith(snapshot);
+    expect(getHistoryNavigationState()).toEqual({ pending: false, error: null });
+  });
+
+  it("does not fall back to a later high-water mark when an exact result expired", async () => {
+    const test = fixture();
+    test.fetch.mockResolvedValueOnce(response({ historyRequestId: 12, stateSessionId: "Core" }))
+      .mockResolvedValueOnce(response({
+        stateSessionId: "Core",
+        lastHistoryRequestId: 100,
+        stateRevision: 100,
+        historyResults: [],
+      }));
+
+    await test.navigate("undo");
+    expect(test.applySnapshot).not.toHaveBeenCalled();
+    expect(getHistoryNavigationState().error).toContain("exact result");
+  });
+
   it("rejects a restarted Core instead of accepting its reset request counter", async () => {
     const test = fixture();
     test.fetch.mockResolvedValueOnce(response({ stateSessionId: "old", historyRequestId: 1 }))

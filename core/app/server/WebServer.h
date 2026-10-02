@@ -312,6 +312,13 @@ struct WebCommand {
 // Strings are plain std::string under a mutex -- this path is never on the
 // audio callback.
 struct WebUiState {
+    struct HistoryResult {
+        uint64_t requestId = 0;
+        bool applied = false;
+        uint64_t projectRevision = 0;
+        std::string error;
+    };
+
     // Project automation mirrored into the UI snapshot. Keep this DTO separate
     // from the persisted Project types: WebServer serializes snapshots without
     // reaching into mutable project state from its network thread.
@@ -494,6 +501,7 @@ struct WebUiState {
     std::string stateSessionId;
     uint64_t stateRevision = 0;
     uint64_t lastHistoryRequestId = 0;
+    std::vector<HistoryResult> historyResults;
 
     struct SongRow {
         std::string name;

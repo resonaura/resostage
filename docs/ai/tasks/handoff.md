@@ -127,10 +127,19 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   UI/Electron typechecks passed and lint had zero errors/12 existing warnings.
   Commit `83b14c8` publishes bounded immutable playback snapshots, and its Core
   build, native suite (578 cases/424,387 assertions) and real-Core editor-state
-  HTTP harness passed. The current renderer queue block passes UI 733 tests/107
-  files, focused queue/history 11/11 and UI TypeScript. UI/Electron were not
+  HTTP harness passed. The renderer queue/history blocks now pass UI 736 tests/107
+  files and UI TypeScript. UI/Electron were not
   rerun for the Core snapshot block; this is not acoustic, loaded-vendor,
   sanitizer, or callback-deadline proof.
+- Current history fix: Core now reports exact applied/rejected outcomes and
+  project revisions for the 256 latest Undo/Redo requests and advances the
+  legacy applied-request high-water mark only after a real history change. The
+  UI checks the exact request result before that legacy marker. Focused history
+  tests pass 10/10. Core publishes the history mutation and its result in the
+  same frame; expired outcomes stay unknown instead of falling back to another
+  request's high-water mark. Full UI and native suites pass, as does the real
+  Core HTTP harness including no-op rejection and live Undo/Redo. This does not
+  add Core session/project-epoch binding or exact outcomes for ordinary edits.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,
