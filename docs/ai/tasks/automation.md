@@ -19,7 +19,7 @@ Previous arrangement UI existed, but had significant functional gaps:
 
 ## Implemented foundations (verify latest commits)
 
-`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f` implement:
+`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648` implement:
 - Zero-allocation strip fader and pan automation in `MixRenderer` and `OfflineRenderer`
   via `StripAutomationPlan.h/.cpp` with 558 native tests passing
 - Exclusive/cancellable gestures, full-point atomic replacement/empty creation,

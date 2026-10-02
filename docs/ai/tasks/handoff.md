@@ -61,6 +61,11 @@ Additional critical issues:
   real parameter discovery, and end-to-end verification script
   (`scripts/verification/editor-state.mjs`). All 654 UI tests (98 test files)
   and 37 Electron shell tests passed.
+- `a15c648`: Enabled native strip fader and pan automation in arrangement targets,
+  clarified explicit disabledReason for mute (requiring audibility smoothing) and
+  sends (requiring edge slot bindings), added live strip fader/pan playback and
+  persistence verification in `editor-state.mjs`, and resolved test button element typing
+  for 100% clean `tsc -b` compilation. All 654 UI vitest tests and 558 native tests pass.
 
 ## Work in progress: inspect before continuing
 
@@ -69,6 +74,7 @@ and verified end-to-end against live Core HTTP commands and transport continuity
 `scripts/verification/editor-state.mjs` confirms:
 - >4 KiB note and automation updates over HTTP without socket termination
 - Live note quantize during active playback without stopping or resetting clock
+- Live strip fader and pan automation creation and point replacement during active playback
 - Continuous sample transport advancement through live project edits
 - Undo and Redo roundtrips restoring exact note durations and curves
 - Explicit 413 rejection for oversized command bodies
