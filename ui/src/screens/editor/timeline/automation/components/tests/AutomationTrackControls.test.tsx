@@ -15,6 +15,7 @@ import { AutomationTrackControls } from "../AutomationTrackControls";
 vi.mock("@/lib/state/api", () => ({
   builder: {
     automationLaneAdd: vi.fn().mockResolvedValue({}),
+    automationLaneRemove: vi.fn().mockResolvedValue({}),
     automationLaneUpdate: vi.fn().mockResolvedValue({}),
     automationPointAdd: vi.fn().mockResolvedValue({}),
     automationPointRemove: vi.fn().mockResolvedValue({}),
@@ -186,4 +187,110 @@ describe("AutomationTrackControls", () => {
     expect(container.textContent).toContain("[Missing Plug-in]");
     expect(container.textContent).toContain("slot-mis");
   });
+
+  it("calls builder.automationLaneAdd with empty points array when clicking + on unautomated target", async () => {
+    const onSelectLane = vi.fn();
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [],
+          activeLaneId: "strip:track-1:gain",
+          onSelectLane,
+        }),
+      );
+    });
+
+    const addBtn = container.querySelector("button[aria-label='Add automation']") as HTMLButtonElement;
+    expect(addBtn).not.toBeNull();
+    expect(addBtn.disabled).toBe(false);
+
+    await act(async () => {
+      addBtn.click();
+    });
+
+    expect(builder.automationLaneAdd).toHaveBeenCalledWith({
+      songIndex: 0,
+      domain: "strip",
+      entityId: "track-1",
+      parameterId: "faderGainDb",
+      valueType: "decibels",
+      defaultValue: 0,
+      minValue: -60,
+      maxValue: 12,
+      scope: "track",
+      writeMode: "read",
+      points: [],
+    });
+    expect(onSelectLane).toHaveBeenCalledWith("strip:track-1:gain");
+  });
+
+  it("disables + button when target has disabledReason", () => {
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [],
+          activeLaneId: "strip:track-1:mute",
+          onSelectLane: vi.fn(),
+        }),
+      );
+    });
+
+    const addBtn = container.querySelector("button[aria-label='Add automation']") as HTMLButtonElement;
+    expect(addBtn).not.toBeNull();
+    expect(addBtn.disabled).toBe(true);
+  });
+
+  it("calls builder.automationLaneRemove when clicking remove button", async () => {
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [mockLane],
+          activeLaneId: "lane-1",
+          onSelectLane: vi.fn(),
+        }),
+      );
+    });
+
+    const trashBtn = container.querySelector("button[aria-label='Remove automation']") as HTMLButtonElement;
+    expect(trashBtn).not.toBeNull();
+
+    await act(async () => {
+      trashBtn.click();
+    });
+
+    expect(builder.automationLaneRemove).toHaveBeenCalledWith(0, "lane-1");
+  });
+
+  it("calls onRemoveLane callback when provided", async () => {
+    const onRemoveLane = vi.fn();
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [mockLane],
+          activeLaneId: "lane-1",
+          onSelectLane: vi.fn(),
+          onRemoveLane,
+        }),
+      );
+    });
+
+    const trashBtn = container.querySelector("button[aria-label='Remove automation']") as HTMLButtonElement;
+    expect(trashBtn).not.toBeNull();
+
+    await act(async () => {
+      trashBtn.click();
+    });
+
+    expect(onRemoveLane).toHaveBeenCalledWith("lane-1");
+    expect(builder.automationLaneRemove).not.toHaveBeenCalled();
+  });
 });
+

@@ -218,7 +218,7 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
           x2={Math.min(widthPx, scrollLeft + viewportWidth)}
           y1={valueToPixel(currentValue ?? lane.target.defaultValue, heightPx, minValue, maxValue)}
           y2={valueToPixel(currentValue ?? lane.target.defaultValue, heightPx, minValue, maxValue)}
-          stroke="currentColor" strokeOpacity={0.35} strokeWidth={1.5} />}
+          stroke="currentColor" strokeDasharray="3 3" strokeOpacity={0.35} strokeWidth={1.5} />}
 
         {/* Curve handles */}
         {curveHandles.map((handle) => (
