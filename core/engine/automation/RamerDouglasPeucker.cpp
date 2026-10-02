@@ -14,7 +14,7 @@ namespace resostage {
 std::vector<AutomationPoint> RamerDouglasPeucker::thin(
     const std::vector<AutomationPoint>& points,
     double epsilon) {
-    if (points.size() <= 2 || !std::isfinite(epsilon) || epsilon <= 0.0)
+    if (!std::isfinite(epsilon) || epsilon <= 0.0)
         return points;
 
     // Filter out non-finite points and copy
@@ -71,8 +71,9 @@ std::vector<AutomationPoint> RamerDouglasPeucker::thin(
         }
     }
 
-    rdpRecursive(uniquePoints, 0, uniquePoints.size() - 1, epsilon,
-                 tMin, tRange, vMin, vRange, keepFlags);
+    if (!rdpBounded(uniquePoints, 0, uniquePoints.size() - 1, epsilon,
+                    tMin, tRange, vMin, vRange, keepFlags))
+        return uniquePoints;
 
     std::vector<AutomationPoint> result;
     result.reserve(uniquePoints.size());
@@ -84,7 +85,7 @@ std::vector<AutomationPoint> RamerDouglasPeucker::thin(
     return result;
 }
 
-void RamerDouglasPeucker::rdpRecursive(
+bool RamerDouglasPeucker::rdpBounded(
     const std::vector<AutomationPoint>& points,
     size_t firstIdx,
     size_t lastIdx,
@@ -94,45 +95,56 @@ void RamerDouglasPeucker::rdpRecursive(
     double vMin,
     double vRange,
     std::vector<bool>& keepFlags) {
-    if (lastIdx <= firstIdx + 1)
-        return;
+    struct Range { size_t first; size_t last; };
+    std::vector<Range> pending;
+    pending.reserve(points.size());
+    pending.push_back({firstIdx, lastIdx});
+    size_t comparisons = 0;
+    while (!pending.empty()) {
+        const auto range = pending.back();
+        pending.pop_back();
+        if (range.last <= range.first + 1)
+            continue;
+        const size_t needed = range.last - range.first - 1;
+        if (needed > kMaximumDistanceEvaluations - comparisons)
+            return false;
+        comparisons += needed;
+        const double x1 = (points[range.first].timeBeats - tMin) / tRange;
+        const double y1 = (points[range.first].value - vMin) / vRange;
+        const double x2 = (points[range.last].timeBeats - tMin) / tRange;
+        const double y2 = (points[range.last].value - vMin) / vRange;
 
-    const double x1 = (points[firstIdx].timeBeats - tMin) / tRange;
-    const double y1 = (points[firstIdx].value - vMin) / vRange;
-    const double x2 = (points[lastIdx].timeBeats - tMin) / tRange;
-    const double y2 = (points[lastIdx].value - vMin) / vRange;
-
-    const double dx = x2 - x1;
-    const double dy = y2 - y1;
-    const double segLenSq = dx * dx + dy * dy;
-
-    double maxDist = 0.0;
-    size_t maxIdx = firstIdx;
-
-    for (size_t i = firstIdx + 1; i < lastIdx; ++i) {
-        const double x0 = (points[i].timeBeats - tMin) / tRange;
-        const double y0 = (points[i].value - vMin) / vRange;
-
-        double dist = 0.0;
-        if (segLenSq < 1.0e-12) {
-            const double ddx = x0 - x1;
-            const double ddy = y0 - y1;
-            dist = std::sqrt(ddx * ddx + ddy * ddy);
-        } else {
-            dist = std::abs(dy * x0 - dx * y0 + x2 * y1 - y2 * x1) / std::sqrt(segLenSq);
+        const double dx = x2 - x1;
+        const double dy = y2 - y1;
+        const double segLenSq = dx * dx + dy * dy;
+        const double segmentLength = std::sqrt(segLenSq);
+        double maxDist = 0.0;
+        size_t maxIdx = range.first;
+        for (size_t i = range.first + 1; i < range.last; ++i) {
+            const double x0 = (points[i].timeBeats - tMin) / tRange;
+            const double y0 = (points[i].value - vMin) / vRange;
+            double dist = 0.0;
+            if (segLenSq < 1.0e-12) {
+                const double ddx = x0 - x1;
+                const double ddy = y0 - y1;
+                dist = std::sqrt(ddx * ddx + ddy * ddy);
+            } else {
+                dist = std::abs(dy * x0 - dx * y0 + x2 * y1 - y2 * x1) / segmentLength;
+            }
+            if (dist > maxDist) {
+                maxDist = dist;
+                maxIdx = i;
+            }
         }
-
-        if (dist > maxDist) {
-            maxDist = dist;
-            maxIdx = i;
+        if (maxDist > epsilon) {
+            keepFlags[maxIdx] = true;
+            // Reverse push order retains the former left-before-right traversal
+            // without allowing adversarial controller data to exhaust the stack.
+            pending.push_back({maxIdx, range.last});
+            pending.push_back({range.first, maxIdx});
         }
     }
-
-    if (maxDist > epsilon) {
-        keepFlags[maxIdx] = true;
-        rdpRecursive(points, firstIdx, maxIdx, epsilon, tMin, tRange, vMin, vRange, keepFlags);
-        rdpRecursive(points, maxIdx, lastIdx, epsilon, tMin, tRange, vMin, vRange, keepFlags);
-    }
+    return true;
 }
 
 } // namespace resostage

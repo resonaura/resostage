@@ -74,6 +74,65 @@ TEST_CASE("Automation editing: the point budget fails atomically") {
     CHECK(points.front().timeBeats == 2.0);
 }
 
+TEST_CASE("Automation recording admission validates the entire pass before mutation") {
+    glz::generic document;
+    AutomationTarget target;
+    target.minValue = -60.0f;
+    target.maxValue = 12.0f;
+    builder_json::AutomationRecordGesture gesture;
+    gesture.punchInBeats = 99.0;
+    std::string error;
+    for (const auto* invalid : {
+        R"({"punchInBeats":1,"releaseBeats":0,"releaseValue":0,"points":[]})",
+        R"({"punchInBeats":-1,"releaseBeats":2,"releaseValue":0,"points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":1e300,"points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":0,"underlyingValue":1e300,"points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":0,"returnRampBeats":-1,"points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":1e308,"releaseValue":0,"returnRampBeats":1e308,"points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":0,"rdpTolerance":0,"points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":0,"rdpTolerance":2,"points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":"wrong type","points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"points":[]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":0,"points":[null]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":0,"points":[{"timeBeats":1,"value":1e300}]})",
+        R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":[{"timeBeats":0.5,"value":0}]})",
+        R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":[{"timeBeats":0.9999995,"value":0},{"timeBeats":1,"value":0}]})",
+        R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":[{"timeBeats":3,"value":0}]})",
+        R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":{}})"}) {
+        document = glz::generic::object_t{};
+        REQUIRE(builder_json::parseJson(invalid, document));
+        CHECK_FALSE(builder_json::parseAutomationRecordGesture(document, target, gesture, error));
+        CHECK_FALSE(error.empty());
+        CHECK(gesture.punchInBeats == 99.0);
+    }
+    document = glz::generic::object_t{};
+    REQUIRE(builder_json::parseJson(R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":30,"underlyingValue":-70,"points":[{"timeBeats":1,"value":-10},{"timeBeats":1,"value":-20},{"timeBeats":2,"value":99}]})", document));
+    INFO(error);
+    REQUIRE(builder_json::parseAutomationRecordGesture(document, target, gesture, error));
+    CHECK(gesture.punchInBeats == 1.0);
+    CHECK(gesture.releaseValue == 12.0f);
+    CHECK(gesture.underlyingValue == -60.0f);
+    REQUIRE(gesture.points.size() == 2);
+    CHECK(gesture.points[0].value == -20.0f);
+    CHECK(gesture.points[1].value == 12.0f);
+    document["points"] = glz::generic::array_t(builder_json::kMaximumAutomationEditPoints + 1);
+    CHECK_FALSE(builder_json::parseAutomationRecordGesture(document, target, gesture, error));
+    CHECK(gesture.points.size() == 2);
+}
+
+TEST_CASE("Automation recording admission bounds the complete lane across repeated passes") {
+    std::vector<AutomationPoint> existing;
+    existing.reserve(builder_json::kMaximumAutomationEditPoints);
+    for (size_t index = 0; index < builder_json::kMaximumAutomationEditPoints; ++index)
+        existing.push_back({static_cast<double>(index), 0.5f, 0.0f});
+    CHECK_FALSE(builder_json::canAdmitAutomationPunch(existing, 1, 100000.0, 100001.0));
+    CHECK(builder_json::canAdmitAutomationPunch(existing, 3, 10.0, 12.0));
+    CHECK_FALSE(builder_json::canAdmitAutomationPunch(existing, 4, 10.0, 12.0));
+    CHECK_FALSE(builder_json::canAdmitAutomationPunch({},
+        builder_json::kMaximumAutomationEditPoints + 1, 0.0, 1.0));
+    CHECK(existing.size() == builder_json::kMaximumAutomationEditPoints);
+}
+
 TEST_CASE("AutomationCurve: Curvature interpolation formula") {
     // Linear
     CHECK(AutomationCurve::interpolate(0.0, 0.0, 10.0, 0.0) == doctest::Approx(0.0));
@@ -249,6 +308,21 @@ TEST_CASE("RamerDouglasPeucker: Trajectory reduction and error bounds") {
     // Endpoints preserved
     CHECK(thinnedSine.front().timeBeats == doctest::Approx(sine.front().timeBeats));
     CHECK(thinnedSine.back().timeBeats == doctest::Approx(sine.back().timeBeats));
+}
+
+TEST_CASE("RamerDouglasPeucker: adversarial dense pass uses bounded lossless fallback") {
+    std::vector<AutomationPoint> zigzag;
+    zigzag.reserve(8192);
+    for (size_t index = 0; index < 8192; ++index)
+        zigzag.push_back({static_cast<double>(index), static_cast<float>(index % 2), 0.0f});
+    // Alternating values repeatedly split near an endpoint. Recursive RDP
+    // formerly grew the native stack and performed quadratic unbounded work.
+    const auto result = RamerDouglasPeucker::thin(zigzag, 1.0e-10);
+    REQUIRE(result.size() == zigzag.size());
+    for (size_t index = 0; index < result.size(); ++index) {
+        CHECK(result[index].timeBeats == zigzag[index].timeBeats);
+        CHECK(result[index].value == zigzag[index].value);
+    }
 }
 
 TEST_CASE("AutomationRecorder: Touch, Latch, and punch-out return ramp") {

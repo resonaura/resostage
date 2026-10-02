@@ -397,52 +397,50 @@ void MainComponent::builderAutomationRecordGesture(const std::string& json) {
             if (lanePtr) break;
         }
     }
-    if (!lanePtr) return;
-
-    double punchInBeats = 0.0, releaseBeats = 0.0, releaseVal = 0.0, returnRampBeats = 0.0, underlyingVal = 0.0, rdpTol = 0.002;
-    getDouble(doc, "punchInBeats", punchInBeats);
-    getDouble(doc, "releaseBeats", releaseBeats);
-    getDouble(doc, "releaseValue", releaseVal);
-    getDouble(doc, "returnRampBeats", returnRampBeats);
-    getDouble(doc, "underlyingValue", underlyingVal);
-    getDouble(doc, "rdpTolerance", rdpTol);
-
-    std::vector<AutomationPoint> rawPoints;
-    if (doc.contains("points") && doc["points"].is_array()) {
-        const auto& arr = doc["points"].get_array();
-        rawPoints.reserve(arr.size());
-        for (const auto& ptVal : arr) {
-            if (!ptVal.is_object()) continue;
-            double t = 0.0, v = 0.0;
-            if (getDouble(ptVal, "timeBeats", t) && getDouble(ptVal, "value", v)) {
-                rawPoints.push_back({t, static_cast<float>(v), 0.0f});
-            }
-        }
+    if (!lanePtr) {
+        setStatus("Could not record automation: lane no longer exists");
+        return;
     }
+
+    AutomationRecordGesture gesture;
+    std::string error;
+    if (!parseAutomationRecordGesture(doc, lanePtr->target, gesture, error)) {
+        setStatus("Could not record automation: " + juce::String(error));
+        return;
+    }
+    auto rawPoints = std::move(gesture.points);
 
     if (rawPoints.empty()) {
-        rawPoints.push_back({punchInBeats, static_cast<float>(releaseVal), 0.0f});
+        rawPoints.push_back({gesture.punchInBeats, gesture.releaseValue, 0.0f});
     }
 
-    rawPoints.push_back({releaseBeats, static_cast<float>(releaseVal), 0.0f});
-    double rampEndBeats = releaseBeats;
-    if (returnRampBeats > 0.0) {
-        rampEndBeats = releaseBeats + returnRampBeats;
-        rawPoints.push_back({rampEndBeats, static_cast<float>(underlyingVal), 0.0f});
+    rawPoints.push_back({gesture.releaseBeats, gesture.releaseValue, 0.0f});
+    const double rampEndBeats = gesture.releaseBeats + gesture.returnRampBeats;
+    if (gesture.returnRampBeats > 0.0) {
+        rawPoints.push_back({rampEndBeats, gesture.underlyingValue, 0.0f});
     }
 
-    std::sort(rawPoints.begin(), rawPoints.end(),
+    std::stable_sort(rawPoints.begin(), rawPoints.end(),
               [](const AutomationPoint& a, const AutomationPoint& b) {
                   return a.timeBeats < b.timeBeats;
               });
 
-    const auto thinned = RamerDouglasPeucker::thin(rawPoints, rdpTol > 0.0 ? rdpTol : 0.002);
+    const auto thinned = RamerDouglasPeucker::thin(rawPoints, gesture.rdpTolerance);
+
+    // Independent passes can accumulate outside the replaced window. Apply the
+    // same complete-lane budget as point editing before allocating history or
+    // changing mode, instead of accepting an envelope the editor cannot replace.
+    if (!canAdmitAutomationPunch(lanePtr->points, thinned.size(),
+                                 gesture.punchInBeats, rampEndBeats)) {
+        setStatus("Could not record automation: the complete lane exceeds 65,536 points");
+        return;
+    }
 
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Record automation gesture");
 
-    AutomationRecorder::punchPointsIntoLane(*lanePtr, thinned, punchInBeats, rampEndBeats);
+    AutomationRecorder::punchPointsIntoLane(*lanePtr, thinned, gesture.punchInBeats, rampEndBeats);
 
     // Write mode automatically returns to touch safety to prevent unintentional overwriting
     if (lanePtr->writeMode == AutomationWriteMode::Write) {

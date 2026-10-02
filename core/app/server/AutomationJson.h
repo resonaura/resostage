@@ -8,12 +8,14 @@
 
 #include "server/BuilderJson.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
 namespace resostage::builder_json {
 
 inline constexpr size_t kMaximumAutomationEditPoints = 65'536;
+enum class AutomationPointDuplicates { Reject, KeepLatest };
 
 /**
  * Parses one complete lane replacement off audio. Rejects the entire request
@@ -22,7 +24,8 @@ inline constexpr size_t kMaximumAutomationEditPoints = 65'536;
  */
 inline bool parseAutomationPoints(const glz::generic& doc,
                                   std::vector<AutomationPoint>& output,
-                                  std::string& error) {
+                                  std::string& error,
+                                  AutomationPointDuplicates duplicates = AutomationPointDuplicates::Reject) {
     const auto* input = getArray(doc, "points");
     if (input == nullptr || input->size() > kMaximumAutomationEditPoints) {
         error = "Automation points must be an array of at most 65,536 points";
@@ -48,12 +51,99 @@ inline bool parseAutomationPoints(const glz::generic& doc,
         [](const AutomationPoint& a, const AutomationPoint& b) {
             return a.timeBeats < b.timeBeats;
         });
-    for (size_t i = 1; i < parsed.size(); ++i) {
-        if (parsed[i].timeBeats - parsed[i - 1].timeBeats < 1.0e-6) {
-            error = "Automation point positions must be distinct";
+    size_t admitted = 0;
+    for (const auto& point : parsed) {
+        if (admitted != 0 && point.timeBeats - parsed[admitted - 1].timeBeats < 1.0e-6) {
+            if (duplicates == AutomationPointDuplicates::Reject) {
+                error = "Automation point positions must be distinct";
+                return false;
+            }
+            // Live controls can update several times before telemetry advances
+            // its beat. Stable sorting keeps the newest value for that position.
+            parsed[admitted - 1] = point;
+        } else {
+            parsed[admitted++] = point;
+        }
+    }
+    parsed.resize(admitted);
+    output = std::move(parsed);
+    return true;
+}
+
+struct AutomationRecordGesture {
+    double punchInBeats = 0.0;
+    double releaseBeats = 0.0;
+    float releaseValue = 0.0f;
+    double returnRampBeats = 0.0;
+    float underlyingValue = 0.0f;
+    double rdpTolerance = 0.002;
+    std::vector<AutomationPoint> points;
+};
+
+/** Conservatively admits the complete post-punch lane, not only this request.
+ * Positions removed by the punch do not consume the new-lane point budget.
+ * Duplicate-boundary coalescing may make the resulting lane slightly smaller;
+ * it must never make an over-budget accepted request larger.
+ */
+inline bool canAdmitAutomationPunch(const std::vector<AutomationPoint>& existing,
+                                   size_t incomingCount, double startBeats,
+                                   double endBeats) {
+    const size_t retainedCount = static_cast<size_t>(std::count_if(
+        existing.begin(), existing.end(), [&](const AutomationPoint& point) {
+            return point.timeBeats < startBeats - 1.0e-9
+                || point.timeBeats > endBeats + 1.0e-9;
+        }));
+    return retainedCount <= kMaximumAutomationEditPoints
+        && incomingCount <= kMaximumAutomationEditPoints - retainedCount;
+}
+
+/** Validates a complete recording pass before history or project mutation.
+ * Recording permits repeated sampled positions (newest wins), unlike point
+ * editor replacements. Values are clamped only after finite/float validation;
+ * malformed rows and points outside the declared pass reject the whole edit.
+ */
+inline bool parseAutomationRecordGesture(const glz::generic& doc,
+                                         const AutomationTarget& target,
+                                         AutomationRecordGesture& output,
+                                         std::string& error) {
+    error.clear();
+    AutomationRecordGesture parsed;
+    double releaseValue = 0.0, underlyingValue = 0.0;
+    if (!getDouble(doc, "punchInBeats", parsed.punchInBeats)
+        || !getDouble(doc, "releaseBeats", parsed.releaseBeats)
+        || !getDouble(doc, "releaseValue", releaseValue)
+        || (doc.contains("returnRampBeats") && !getDouble(doc, "returnRampBeats", parsed.returnRampBeats))
+        || (doc.contains("underlyingValue") && !getDouble(doc, "underlyingValue", underlyingValue))
+        || (doc.contains("rdpTolerance") && !getDouble(doc, "rdpTolerance", parsed.rdpTolerance))
+        || !std::isfinite(parsed.punchInBeats) || parsed.punchInBeats < 0.0
+        || !std::isfinite(parsed.releaseBeats) || parsed.releaseBeats < parsed.punchInBeats
+        || !std::isfinite(parsed.returnRampBeats) || parsed.returnRampBeats < 0.0
+        || !std::isfinite(parsed.releaseBeats + parsed.returnRampBeats)
+        || !std::isfinite(releaseValue) || std::abs(releaseValue) > std::numeric_limits<float>::max()
+        || !std::isfinite(underlyingValue) || std::abs(underlyingValue) > std::numeric_limits<float>::max()
+        || !std::isfinite(parsed.rdpTolerance) || parsed.rdpTolerance <= 0.0 || parsed.rdpTolerance > 1.0
+        || !std::isfinite(target.minValue) || !std::isfinite(target.maxValue)
+        || target.minValue > target.maxValue) {
+        error = "Automation recording requires finite ordered pass times, target values and a positive tolerance";
+        return false;
+    }
+    if (!parseAutomationPoints(doc, parsed.points, error, AutomationPointDuplicates::KeepLatest))
+        return false;
+    // Validate the original positions too: timestamp coalescing must not hide
+    // an out-of-pass sample just beside an admitted boundary.
+    for (const auto& row : *getArray(doc, "points")) {
+        double beat = 0.0;
+        (void)getDouble(row, "timeBeats", beat);
+        if (beat < parsed.punchInBeats || beat > parsed.releaseBeats) {
+            error = "Recorded automation points must stay inside the declared pass";
             return false;
         }
     }
+    for (auto& point : parsed.points) {
+        point.value = std::clamp(point.value, target.minValue, target.maxValue);
+    }
+    parsed.releaseValue = std::clamp(static_cast<float>(releaseValue), target.minValue, target.maxValue);
+    parsed.underlyingValue = std::clamp(static_cast<float>(underlyingValue), target.minValue, target.maxValue);
     output = std::move(parsed);
     return true;
 }
