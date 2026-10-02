@@ -574,14 +574,25 @@ void MainComponent::drainWebCommands() {
             const uint64_t revisionAfter = engine.projectHistoryRevision();
             const bool applied = revisionAfter != revisionBefore;
             std::string error;
+            uint64_t playbackRevision = 0;
+            bool playbackApplied = false;
+            if (const auto graph = engine.mixGraph()) {
+                playbackRevision = graph->projectHistoryRevision;
+                playbackApplied = playbackRevision >= revisionAfter;
+            }
             if (!applied) {
                 error = "Project edit did not create a new revision";
                 if (lastStatusMessage != statusBefore && !lastStatusMessage.empty()
                     && lastStatusMessage.size() <= 256)
                     error = lastStatusMessage;
+                setStatus(error);
+            } else if (!playbackApplied) {
+                error = "Project edit was stored, but its audio snapshot could not be published; audio continues from the last valid snapshot";
+                setStatus(error);
             }
             editorCommandResults_.push_back({cmd.editorRequestId, applied, projectEpoch_,
-                                             revisionAfter, std::move(error)});
+                                             revisionAfter, std::move(error),
+                                             playbackApplied, playbackRevision});
             while (editorCommandResults_.size() > 256)
                 editorCommandResults_.pop_front();
             publishWebState();

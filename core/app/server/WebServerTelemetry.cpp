@@ -215,6 +215,7 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.stateSessionId = snap.stateSessionId;
     wire.projectEpoch = snap.projectEpoch;
     wire.stateRevision = snap.stateRevision;
+    wire.playbackProjectRevision = snap.playbackProjectRevision;
     wire.lastHistoryRequestId = snap.lastHistoryRequestId;
     wire.historyResults.reserve(snap.historyResults.size());
     for (const auto& result : snap.historyResults)
@@ -223,7 +224,8 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.editorCommandResults.reserve(snap.editorCommandResults.size());
     for (const auto& result : snap.editorCommandResults)
         wire.editorCommandResults.push_back({result.requestId, result.applied,
-            result.projectEpoch, result.projectRevision, result.error});
+            result.projectEpoch, result.projectRevision, result.error,
+            result.playbackApplied, result.playbackRevision});
     wire.lastAction = snap.lastAction;
     wire.lastActionNonce = static_cast<uint64_t>(std::max(0, snap.lastActionNonce));
     wire.telemetryHz = effectiveTelemetryHz();

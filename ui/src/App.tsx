@@ -22,6 +22,7 @@ import { HistoryStatusBanner } from "@/shell/history/components/HistoryStatusBan
 import { HardwareAlarmToasts } from "@/shell/components/HardwareAlarmToasts";
 import { useCoreExit } from "@/shell/hooks/useCoreExit";
 import { useHardwareAlarmToasts } from "@/shell/hooks/useHardwareAlarmToasts";
+import { useEditorCommandFailure } from "@/shell/hooks/useEditorCommandFailure";
 import { useRemoteBackend } from "@/shell/hooks/useRemoteBackend";
 import { useAppShellSync } from "@/shell/hooks/useAppShellSync";
 import { useLiveState } from "@/lib/state/useLiveState";
@@ -50,6 +51,7 @@ export default function App() {
   const { peaks, allPeaks, pxPerSec, setPxPerSec } = useProjectPeaks(state);
   const coreExit = useCoreExit();
   const hardwareToasts = useHardwareAlarmToasts(state.hardwareAlarm);
+  const editorCommandFailure = useEditorCommandFailure();
   const remote = useRemoteBackend();
 
   useGlobalHotkeys(state, setTab, keyboard.isOpen);
@@ -110,7 +112,7 @@ export default function App() {
         theme={theme}
       />
 
-      <AppFooter state={state} />
+      <AppFooter state={state} commandFailure={editorCommandFailure} />
       <HistoryStatusBanner />
 
       <AppDialogLayer state={state} transferWorkflows={transferWorkflows} connected={status === "live" && !coreExit} />

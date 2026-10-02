@@ -168,6 +168,10 @@ struct MixGraph {
     // its retirement lifetime. A callback must never traverse ProjectLoader.
     std::shared_ptr<const ProjectPlaybackSnapshot> playbackState;
     uint64_t contentRevision = 0;
+    // ProjectHistory generation represented by this successfully published
+    // graph. A transaction ACK must compare against this, not just history:
+    // snapshot preparation can fail while the last-good graph stays active.
+    uint64_t projectHistoryRevision = 0;
     uint64_t trackLayoutRevision = 0;
 
     // Stable across gain/pan/mute/routing-only republishes, but changes when

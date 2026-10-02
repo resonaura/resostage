@@ -6,11 +6,20 @@
 
 import type { WebUiState } from "@/lib/state/types";
 
-export function AppFooter({ state }: { state: WebUiState }) {
+export function AppFooter({ state, commandFailure }: {
+  state: WebUiState;
+  commandFailure?: string;
+}) {
   return (
     <footer className="hidden shrink-0 border-t border-default/60 px-4 py-1.5 text-center text-xs text-foreground/40 sm:block">
       <span className="inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5">
-        <span>{state.statusMessage || "ResoStage remote · mirrors desktop state"}</span>
+        <span
+          aria-live="polite"
+          className={commandFailure ? "text-danger" : undefined}
+          title={commandFailure || undefined}
+        >
+          {commandFailure || state.statusMessage || "ResoStage remote · mirrors desktop state"}
+        </span>
         {(state.streamResidentTracks ?? 0) +
           (state.streamStreamingTracks ?? 0) >
           0 && (

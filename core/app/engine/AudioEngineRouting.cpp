@@ -267,6 +267,7 @@ void AudioEngine::publishRoutingSnapshot() {
 
     auto mutableGraph = std::make_shared<MixGraph>(buildMixGraph(loader.project(), outputs));
     mutableGraph->projectEpoch = projectEpoch.load(std::memory_order_acquire);
+    mutableGraph->projectHistoryRevision = projectHistoryRevision();
     mutableGraph->trackLayoutRevision = trackLayoutRevision
         + (tracksChanged ? 1u : 0u);
     const auto previousPlayback = publishedGraph != nullptr

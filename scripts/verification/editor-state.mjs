@@ -24,6 +24,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
   const project = join(temp, "Fixture.rsnraset");
   const metadataPath = join(project, "project.rsnrasetmeta");
   const settingsPath = join(temp, "settings.json");
+  const audioFixture = join(temp, "fixture.wav");
   const probe = createServer();
   await new Promise((done) => probe.listen(0, "127.0.0.1", done));
   const port = probe.address().port;
@@ -36,9 +37,20 @@ export async function verifyEditorState(coreExecutable, inspect) {
   mkdirSync(project);
   writeFileSync(settingsPath, JSON.stringify({ audioInputDisabled: true, inputDeviceName: "",
     midiInputNames: [], midiOutputNames: [], recentProjects: [] }));
+  const wav = Buffer.alloc(46);
+  wav.write("RIFF", 0); wav.writeUInt32LE(38, 4); wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(48000, 24); wav.writeUInt32LE(96000, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36);
+  wav.writeUInt32LE(2, 40); wav.writeInt16LE(0, 44);
+  writeFileSync(audioFixture, wav);
   writeFileSync(metadataPath, JSON.stringify({ format: { version: 10 }, name: "Editor State Acceptance", sampleRate: 48000,
-    tracks: [{ id: "audio::track:1", name: "Fixture MIDI", kind: "externalMidi", channels: 2,
-      gainDb: 0, pan: 0, mute: false, solo: false, output }],
+    tracks: [
+      { id: "audio::track:1", name: "Fixture MIDI", kind: "externalMidi", channels: 2,
+        gainDb: 0, pan: 0, mute: false, solo: false, output },
+      { id: "audio::track:2", name: "Fixture Audio", kind: "audio", channels: 2,
+        gainDb: 0, pan: 0, mute: false, solo: false, output },
+    ],
     sends: [{ id: "audio::send:1", name: "Reverb", channels: 2, gainDb: 0, pan: 0, mute: false, solo: false,
       output: { type: "ext-out", target: "audio::out:1,audio::out:2" } }],
     main: { enabled: true, name: "Main", channels: 2, gainDb: 0, pan: 0, mute: false,
@@ -91,6 +103,12 @@ export async function verifyEditorState(coreExecutable, inspect) {
     if (applied) {
       assert.equal(result.projectEpoch, expectedEpoch, `${path} must stay in its captured project epoch`);
       assert.equal(state.projectEpoch, expectedEpoch, `${path} snapshot must stay in its captured project epoch`);
+      assert.equal(result.playbackApplied, true,
+        `${path} must publish its project revision for audio: ${JSON.stringify(result)}`);
+      assert.ok(result.playbackRevision >= result.projectRevision,
+        `${path} audio graph revision must include the edit`);
+      assert.ok(state.playbackProjectRevision >= result.projectRevision,
+        `${path} state must expose an audio graph at least as new as the edit`);
     }
     return { state, result, accepted };
   };
@@ -154,6 +172,108 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.ok(Buffer.byteLength(JSON.stringify(patch)) > 4096);
     const initialMidiEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", patch);
     assert.equal(getRegion(initialMidiEdit.state)?.notes.length, notes.length, "large note update");
+
+    const reorderedA = await request("/api/v1/builder/midi-region/update", {
+      songIndex: 0, regionId, name: "Concurrent A",
+    });
+    const reorderedB = await request("/api/v1/builder/midi-region/update", {
+      songIndex: 0, regionId, name: "Concurrent B",
+    });
+    assert.notEqual(reorderedA.requestId, reorderedB.requestId,
+      "concurrent edits must receive distinct request identities");
+    const concurrentState = await waitFor((snapshot) => {
+      const ids = new Set(snapshot.editorCommandResults?.map((result) => result.requestId));
+      return ids.has(reorderedA.requestId) && ids.has(reorderedB.requestId);
+    }, "both concurrent editor transaction acknowledgements");
+    const reorderedResults = [reorderedA, reorderedB].map((accepted) =>
+      concurrentState.editorCommandResults.find((result) => result.requestId === accepted.requestId));
+    assert.ok(reorderedResults.every((result) => result.applied && result.playbackApplied),
+      "each concurrent request must report its own project and playback application");
+    assert.notEqual(reorderedResults[0].projectRevision, reorderedResults[1].projectRevision,
+      "separate edit transactions must retain their individual applied revisions");
+    assert.ok(concurrentState.playbackProjectRevision >= Math.max(...reorderedResults.map((result) => result.projectRevision)),
+      "the published graph must not lag either confirmed concurrent edit");
+
+    const resultRingStartRevision = concurrentState.stateRevision;
+    const ringRequestIds = [];
+    for (let offset = 0; offset < 257; offset += 32) {
+      const batchSize = Math.min(32, 257 - offset);
+      const acceptedBatch = await Promise.all(Array.from({ length: batchSize }, (_, batchIndex) =>
+        request("/api/v1/builder/midi-region/update", {
+          songIndex: 0,
+          regionId,
+          name: `Result ring ${offset + batchIndex}`,
+        })),
+      );
+      ringRequestIds.push(...acceptedBatch.map((accepted) => accepted.requestId));
+      await waitFor((snapshot) =>
+        snapshot.stateRevision >= resultRingStartRevision + ringRequestIds.length,
+      `bounded-result-ring stress batch ${ringRequestIds.length}`);
+    }
+    const ringState = await waitFor((snapshot) =>
+      snapshot.stateRevision >= resultRingStartRevision + ringRequestIds.length,
+    "all bounded-result-ring stress edits");
+    assert.equal(ringState.editorCommandResults.length, 256,
+      "Core must retain only the bounded 256 latest editor outcomes");
+    const retainedResultIds = new Set(ringState.editorCommandResults.map((result) => result.requestId));
+    assert.ok(!retainedResultIds.has(Math.min(...ringRequestIds)),
+      "the oldest exact result must be evicted instead of growing memory without bound");
+    const oldestRingRequestId = Math.min(...ringRequestIds);
+    assert.ok(ringRequestIds.filter((requestId) => requestId !== oldestRingRequestId)
+      .every((requestId) => retainedResultIds.has(requestId)),
+      "each non-evicted request must retain its own exact result");
+
+    const addedMidi = await confirmEditorMutation("/api/v1/builder/midi-region/add", {
+      songIndex: 0, trackId: "audio::track:1", name: "Temporary MIDI",
+      startBeats: 0, durationBeats: 4, loopLengthBeats: 4,
+      notes: [{ id: 9001, pitch: 60, startBeats: 0, durationBeats: 1, velocity: 0.8 }],
+    });
+    const temporaryMidi = addedMidi.state.songs[0].midiRegions.find((region) => region.name === "Temporary MIDI");
+    assert.ok(temporaryMidi, "MIDI add must appear in the authoritative state");
+    const removedMidi = await confirmEditorMutation("/api/v1/builder/midi-region/remove", {
+      songIndex: 0, regionId: temporaryMidi.id,
+    });
+    assert.ok(!removedMidi.state.songs[0].midiRegions.some((region) => region.id === temporaryMidi.id),
+      "MIDI remove must be applied before its exact ACK");
+    const absentMidiRemoval = await confirmEditorMutation("/api/v1/builder/midi-region/remove", {
+      songIndex: 0, regionId: temporaryMidi.id,
+    }, false);
+    assert.match(absentMidiRemoval.result.error, /did not create a new revision/,
+      "an idempotent missing-region delete must be an explicit no-op outcome");
+
+    const addedAudio = await confirmEditorMutation("/api/v1/builder/region/add", {
+      songIndex: 0, trackId: "audio::track:2", file: audioFixture,
+      startSeconds: 1, durationSeconds: 0.5,
+    });
+    const temporaryAudio = addedAudio.state.songs[0].regions.at(-1);
+    assert.ok(temporaryAudio, "Audio region add must appear in the authoritative state");
+    const updatedAudio = await confirmEditorMutation("/api/v1/builder/region/update", {
+      songIndex: 0, regionId: temporaryAudio.id, startSeconds: 2,
+    });
+    assert.equal(updatedAudio.state.songs[0].regions.find((region) => region.id === temporaryAudio.id)?.startSeconds,
+      2, "Audio region update must be applied before its exact ACK");
+    const removedAudio = await confirmEditorMutation("/api/v1/builder/region/remove", {
+      songIndex: 0, regionId: temporaryAudio.id,
+    });
+    assert.ok(!removedAudio.state.songs[0].regions.some((region) => region.id === temporaryAudio.id),
+      "Audio region remove must be applied before its exact ACK");
+
+    const invalidCycle = await confirmEditorMutation("/api/v1/builder/cycle/update", {
+      songIndex: 99, active: true,
+    }, false);
+    assert.match(invalidCycle.result.error, /did not create a new revision/,
+      "invalid cycle targets must be rejected without a fake history mutation");
+    await confirmEditorMutation("/api/v1/builder/cycle/update", {
+      songIndex: 0, active: true, leftSec: 1, rightSec: 8,
+    });
+    await confirmEditorMutation("/api/v1/builder/section/add", {
+      songIndex: 0, startSeconds: 12, name: "Verse",
+    });
+    await confirmEditorMutation("/api/v1/builder/event/add", { songIndex: 0 });
+    await confirmEditorMutation("/api/v1/builder/bus/add", {});
+    await confirmEditorMutation("/api/v1/builder/song/end", {
+      index: 0, endSeconds: 120,
+    });
 
     const quantized = notes.map((note) => ({ ...note,
       startBeats: Math.round(note.startBeats * 2) / 2, durationBeats: 0.5 }));
@@ -382,7 +502,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.ok(staleImportStatus, "stale media import rejection must settle");
     assert.equal(staleImportStatus.success, false);
     assert.match(staleImportStatus.error, /Project changed/);
-    await request("/api/v1/builder/track/add", {
+    await confirmEditorMutation("/api/v1/builder/track/add", {
       kind: "instrument", name: "Epoch Fence Fixture", songIndex: 0,
     });
     const fencedProject = await waitFor((snapshot) => snapshot.tracks?.some(
@@ -412,7 +532,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "stale project edits must not create a history revision");
     assert.equal(staleEdit.state.songs[0].midiRegions[0].name, fencedRegion.name,
       "stale project edits must not mutate entities with reused/indexed targets");
-    console.log("PASS: actual Core HTTP/state persistence, project-epoch fences for editor/media uploads, large note/point edits, active-playback Undo/Redo, automation recording and rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
+    console.log("PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction, audio/MIDI region CRUD, structural song/bus/event/section/cycle results, project-epoch fences for editor/media uploads, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.

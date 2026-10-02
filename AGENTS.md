@@ -109,14 +109,18 @@ use the high-water mark only when talking to an older Core that omits the exact
 result field. If a result ages out of the ring, the action is unconfirmed, not
 inferred from a later request. A no-op Undo/Redo must never be reported as
 applied merely because a later request succeeded.
-MIDI-region add/update and automation lane/point transactions also receive a
-request ID and a bounded 256-entry exact applied/rejected result, including
-project epoch and revision, published with the resulting state snapshot.
-`applied` currently means the message-thread project history revision changed;
-it does not yet prove that the matching immutable playback snapshot was
-successfully prepared and published. MIDI-region removal, audio-region edits,
-and other project mutation families do not yet have this exact result protocol.
-Do not extend the claim beyond those enumerated routes.
+Audio- and MIDI-region add/update/remove, plus automation lane/point
+transactions, receive a request ID and a bounded 256-entry exact result in the
+resulting state snapshot. The result separates `applied` (project-history
+mutation) from `playbackApplied` (the immutable graph published for the same
+project epoch includes at least that history revision). State also exposes the
+epoch/revision represented by the last successfully published audio graph. If
+the graph snapshot cannot be prepared, Core retains the last-good graph,
+reports the project mutation separately, and tells the renderer not to resend
+it blindly; the renderer refreshes authoritative project state and surfaces
+the audio/project revision mismatch. This is detection and recovery guidance,
+not rollback or full atomic UI/project/audio state. Other project mutation
+families and best-effort controls still do not have exact per-request outcomes.
 The renderer's reliable command queue mirrors Core's 256-command/32 MiB
 retention bounds and freezes JSON bodies at invocation time, accounting their
 UTF-8 payload bytes until completion. Continuous controls may coalesce only by
@@ -392,13 +396,13 @@ The design removes unbounded latency from the deadline path:
   Snapshot preparation is bounded and happens off audio. If it fails or
   exceeds its budget, retain the last valid graph, report the failure, and do
   not fall back to mutable project reads. This preserves callback safety.
-  Project-scoped commands are fenced by Core session/project epoch and
-  MIDI-region add/update plus automation lane/point edits have exact
-  project-revision outcomes. Those outcomes currently confirm the project
-  mutation, not successful playback-snapshot preparation: on preparation
-  failure the UI may still show the new project while audio safely continues
-  on the last valid graph. Keep this distinction visible until graph-publish
-  failure is tied to the originating transaction's rejection/recovery path.
+  Project-scoped commands are fenced by Core session/project epoch. Audio/MIDI
+  region CRUD and automation lane/point edits have exact project-revision
+  outcomes that additionally report whether the matching playback graph was
+  published. On preparation failure the UI refreshes to authoritative project
+  state and exposes that audio continues on the last valid graph; this does not
+  yet roll back the committed edit or provide full atomic UI/project/audio
+  state. Other project mutation families remain outside this exact protocol.
 - **Sparse, cache-friendly mixing.** Only real edges are walked. A single
   canonical renderer applies fader, pan, mute, solo, sends, buses, click, and
   physical egress rather than duplicating signal logic.

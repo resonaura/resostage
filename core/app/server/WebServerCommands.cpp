@@ -250,10 +250,24 @@ bool isProjectScopedCommand(WebCommandKind kind) {
 
 bool isTransactionalEditorCommand(WebCommandKind kind) {
     static constexpr WebCommandKind kTransactionalEditorKinds[] = {
-        WebCommandKind::BuilderMIDIRegionAdd, WebCommandKind::BuilderMIDIRegionUpdate,
+        WebCommandKind::BuilderSongAdd, WebCommandKind::BuilderSongRemove,
+        WebCommandKind::BuilderSongMove, WebCommandKind::BuilderSongUpdate,
+        WebCommandKind::BuilderSongEnd, WebCommandKind::BuilderTrackAdd,
+        WebCommandKind::BuilderTrackDuplicate, WebCommandKind::BuilderTrackRemove,
+        WebCommandKind::BuilderTrackMove, WebCommandKind::BuilderTrackUpdate,
+        WebCommandKind::BuilderBusAdd, WebCommandKind::BuilderBusRemove,
+        WebCommandKind::BuilderBusMove, WebCommandKind::BuilderBusUpdate,
+        WebCommandKind::BuilderEventAdd, WebCommandKind::BuilderEventRemove,
+        WebCommandKind::BuilderEventMove, WebCommandKind::BuilderEventUpdate,
+        WebCommandKind::BuilderSectionAdd, WebCommandKind::BuilderSectionRemove,
+        WebCommandKind::BuilderSectionUpdate, WebCommandKind::BuilderCycleUpdate,
+        WebCommandKind::BuilderRegionAdd, WebCommandKind::BuilderRegionRemove,
+        WebCommandKind::BuilderRegionUpdate, WebCommandKind::BuilderMIDIRegionAdd,
+        WebCommandKind::BuilderMIDIRegionRemove, WebCommandKind::BuilderMIDIRegionUpdate,
         WebCommandKind::BuilderAutomationLaneAdd, WebCommandKind::BuilderAutomationLaneRemove,
         WebCommandKind::BuilderAutomationLaneUpdate, WebCommandKind::BuilderAutomationPointAdd,
         WebCommandKind::BuilderAutomationPointRemove, WebCommandKind::BuilderAutomationPointsReplace,
+        WebCommandKind::BuilderAutomationRecordGesture,
     };
     return std::find(std::begin(kTransactionalEditorKinds), std::end(kTransactionalEditorKinds), kind)
         != std::end(kTransactionalEditorKinds);

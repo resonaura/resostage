@@ -135,18 +135,20 @@ void MainComponent::builderCycleUpdate(const std::string& json) {
         return;
     Project& proj = engine.project();
 
+    int requestedSongIndex = proj.cycle.songIndex;
+    if (getInt(doc, "songIndex", requestedSongIndex)
+        && (requestedSongIndex < 0
+            || requestedSongIndex >= static_cast<int>(proj.songs.size())))
+        return;
+
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Edit cycle");
 
     // Single project-wide cycle. songIndex rebinds the zone to a song
     // (required when creating/moving locators); left/right stay song-local.
-    int songIndex = proj.cycle.songIndex;
+    int songIndex = requestedSongIndex;
     if (getInt(doc, "songIndex", songIndex)) {
-        if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size())) {
-            engine.projectHistoryCommitEdit();
-            return;
-        }
         proj.cycle.songIndex = songIndex;
     }
 

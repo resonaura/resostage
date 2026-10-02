@@ -113,15 +113,18 @@ Implemented in the current source block (not a hardware/acoustic proof):
   stale activity-index rejection. The full native suite and the real-Core
   HTTP editor-state harness pass (exact current totals below).
 
-Still open: snapshot-build rejection preserves callback safety but is not yet a
-transactional rejection of the user edit. The UI can temporarily show an
-admitted edit while audio stays on the last valid publication; request-specific
-applied/rejected feedback and recovery must be completed with command
-epoch/acknowledgement work below. Add sanitizer/concurrent stress coverage,
-measure callback deadlines/allocations, and prove audible/sample continuity
-while editing with loaded AU/VST3 chains. Resolved vendor parameter indices are
-not yet fully prebound in this playback snapshot; automation parameter metadata
-caching remains a separate pending item.
+Snapshot-build failure now remains distinguishable from successful playback
+publication in exact editor results: `applied` means project history changed,
+while `playbackApplied` and `playbackRevision` confirm the immutable graph.
+The result is published with the same state frame; the renderer refreshes the
+authoritative project and rejects blind retry when audio still uses its
+last-good graph. This is explicit mismatch recovery, not transactional rollback:
+the stored project edit is not undone if snapshot preparation fails. Add a
+fault-injected Core test for this path, sanitizer/concurrent stress coverage,
+callback deadline/allocation measurements, and audible/sample continuity tests
+with loaded AU/VST3 chains. Resolved vendor parameter indices are not yet fully
+prebound in this playback snapshot; automation parameter metadata caching
+remains separate pending work.
 
 Acceptance exercised: concurrent note/automation edits and Undo/Redo through
 the HTTP harness while transport advances; snapshot revision/budget and stale
@@ -165,14 +168,19 @@ Implemented in the current continuation block (2026-10-02):
   final message-thread conversion. A project switch between begin and upload
   now settles the import as a failure, removes temporary bytes and cannot
   mutate a reused track index in the new project.
-- Undo/Redo and the following editor transactions publish exact request-ID
-  outcomes in bounded 256-entry rings: MIDI-region add/update and automation
-  lane add/remove/update plus point add/remove/replace. Results carry applied,
-  error, project epoch and project revision and are published with the state
-  snapshot. History advances its legacy applied high-water mark only on a real
-  mutation. Expired results remain unknown; the renderer never infers success
-  from an unrelated later request. Transactional UI calls wait for their exact
-  result and matching snapshot and do not blind-retry after timeout.
+- Undo/Redo and editor transactions publish exact request-ID outcomes in
+  bounded 256-entry rings. These now cover song/track/bus/event/section/cycle
+  structural edits, audio/MIDI region add/update/remove, automation lane and
+  point edits, and one submitted automation-record gesture. Import jobs,
+  plug-in lifecycle, lighting, active-document dialogs and high-rate scalar
+  controls remain distinct protocols. Results carry project epoch/history
+  revision and graph publication revision. `playbackApplied` only becomes true
+  when the published graph's monotonic ProjectHistory revision covers the edit;
+  project identity remains independently fenced by the Core session/epoch.
+  History advances its legacy applied high-water mark only on a real mutation.
+  Expired results remain unknown; the renderer never infers success from an
+  unrelated later request. Transactional UI calls wait for their exact result
+  and do not blind-retry after timeout or graph-publication failure.
 - The existing renderer queue remains capped at 256 requests/32 MiB; captured
   identity is included in coalescing keys for continuous values. Deferred-Core
   queue exhaustion and stale-epoch rejection now settle exact history/editor
@@ -187,26 +195,46 @@ Implemented in the current continuation block (2026-10-02):
   establish acoustic/device behavior, vendor plug-in continuity, sanitizer
   cleanliness or physical-platform coverage.
 
+Latest continuation verification (2026-10-02): UI TypeScript passed and the
+complete UI suite passed 744 tests across 108 files; production UI build passed;
+lint had zero errors and
+12 existing warnings. The optimized Core target built and `ctest --test-dir
+core/build --output-on-failure` passed 1/1 native targets. The real-Core
+`editor-state.mjs` harness passed audio/MIDI region CRUD, song/bus/event/section/
+cycle structural outcomes, concurrent request IDs, 257-edit result-ring
+eviction, playback graph revision checks, project-epoch fences, active-playback
+Undo/Redo, import/stale edit/reopen and 413 cases. Focused UI tests confirm an
+expired exact result triggers one refetch, remains unknown and is not retried,
+and fire-and-forget command failures are surfaced in the shell without retry.
+This is state/protocol evidence, not audible continuity or vendor/hardware
+proof. No Electron suite was rerun.
+
 Still open; do not call this full editor transactionality:
 
-- Exact edit outcomes currently cover only MIDI-region add/update and the
-  enumerated automation lane/point operations. MIDI-region removal, audio
-  region operations, arrangement regions, project/track/bus/event/section and
-  lighting mutations, `BuilderAutomationRecordGesture`, and most scalar
-  controls do not yet all expose exact per-request application results. The
-  Core session/epoch fence covers the project-scoped command table, but a
-  best-effort UI `post()` can still swallow a later rejection.
-- An `applied` editor result currently means the message-thread project
-  history revision changed. It does not prove the corresponding immutable
-  playback snapshot was successfully prepared/published. Snapshot preparation
-  failure correctly retains the last valid audio graph, but the originating
-  edit can still appear committed in UI while audio uses that prior snapshot.
-  Tie snapshot build/publication outcome to its originating mutation before
-  claiming end-to-end atomic UI/project/audio state.
-- Admission result rings are bounded and process-local. A client that misses or
-  outlives its exact result must show unresolved/unknown and refetch; do not
-  infer outcome from field coincidence or a later revision. Add explicit UI
-  recovery/undo guidance for expired outcomes where necessary.
+- A failed playback snapshot is now observable and surfaced, but the editor
+  mutation remains committed in project history; no safe per-command rollback
+  exists because repeated gesture IDs intentionally coalesce several commands
+  into one history entry. Do not undo a whole gesture to compensate for a
+  single graph failure. Recovery currently refreshes state and tells the user
+  audio remains on the last-good graph; transactional rollback/retry needs an
+  isolated edit transaction model.
+- Exact outcomes now cover the structural/audio/MIDI/automation route families
+  listed above, but not plug-in lifecycle, lighting, import-job completion,
+  active-document save/open completion, or most scalar/mixer controls. The
+  session/epoch fence covers their admission/application boundary, but this is
+  not per-request applied acknowledgement for every app mutation.
+- Reordered concurrent audio/MIDI edits and matching graph revisions pass the
+  real-Core harness. A 257-edit run proves the exact result ring retains only
+  the latest 256 request IDs. A UI test proves an expired result remains
+  unknown, triggers one state refetch, and never resends the accepted command.
+  Still verify Core message-queue saturation/HTTP 503, deferred queue
+  exhaustion, same-Core reopen/reused IDs, Core restart during a pending edit,
+  and late responses. Queue admission failure remains explicit but has no
+  editor-result ring entry because the command was never accepted.
+- Admission result rings remain bounded and process-local. A client that misses
+  an exact result does not infer success from field coincidence or a later
+  revision; after its bounded wait it refreshes state and reports the outcome
+  as unknown. The operator must not retry blindly.
 - Verify stale/reordered behavior for the remaining project-scoped command
   families, Core restart/session change, late replies, ring eviction, bounded
   queue exhaustion, plugin/project loading overlap, and upload-ticket expiry.
@@ -214,18 +242,18 @@ Still open; do not call this full editor transactionality:
 
 Next implementation:
 
-1. Make playback snapshot preparation/publish success or failure observable to
-   the exact originating transaction without blocking the audio callback. Keep
-   the old graph safely active on failure and surface a rejected edit/draft
-   recovery path; test while playback continues.
-2. Extend exact outcomes to the remaining editor mutation endpoints with
-   deliberate no-op/idempotent semantics. Do not make high-rate fader/knob
-   streams await one ACK per value; use bounded final-gesture semantics where
-   appropriate and keep continuous latest-wins controls separate.
-3. Complete same-Core reopen/reused-ID/reorder, stale response, ACK ring
-   eviction and queue-exhaustion cases. Keep HTTP/TCP for reliable commands and
-   latest-wins UDP for sampled telemetry; switching to WebSocket/Socket.IO does
-   not supply these application semantics.
+1. Fault-inject playback-snapshot preparation failure from an accepted editor
+   command; prove Core retains the previous graph, reports `applied=true` but
+   `playbackApplied=false`, UI refreshes once, and transport does not stop.
+2. Exercise HTTP command-queue and deferred-message-queue exhaustion. Show
+   accepted-result expiry as unknown and never infer application from another
+   request's later state.
+3. Complete same-Core reopen/reused-ID, Core restart during pending edits, and
+   late-response cases. Add exact completion only to remaining structural
+   mutations that truly participate in history. Do not make high-rate fader or
+   knob streams await one ACK per value; keep continuous latest-wins controls
+   separate. HTTP/TCP remains the reliable-command channel; UDP remains sampled
+   telemetry and a WebSocket/Socket.IO swap does not supply these semantics.
 
 ## P1 — manual Touch/Latch/Write is not yet a complete live lifecycle
 

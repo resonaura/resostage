@@ -46,6 +46,8 @@ struct WEditorCommandResult {
     uint64_t projectEpoch = 0;
     uint64_t projectRevision = 0;
     std::string error;
+    bool playbackApplied = false;
+    uint64_t playbackRevision = 0;
 };
 
 // ── App Settings ─────────────────────────────────────────────────────────────
@@ -944,6 +946,7 @@ struct WEngineTelemetryPayload {
     std::string stateSessionId;
     uint64_t projectEpoch = 0;
     uint64_t stateRevision = 0;
+    uint64_t playbackProjectRevision = 0;
     uint64_t lastHistoryRequestId = 0;
     std::vector<WHistoryResult> historyResults;
     std::vector<WEditorCommandResult> editorCommandResults;

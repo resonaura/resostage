@@ -35,6 +35,7 @@ import type {
 // quick succession) coalesce into one fetch instead of stampeding the server.
 let _refetchHandler: ((snapshot?: Partial<WebUiState>) => void) | null = null;
 let _refetchTimer: ReturnType<typeof setTimeout> | null = null;
+export const EDITOR_COMMAND_FAILURE_EVENT = "resostage:editor-command-failure";
 export interface ProjectCommandIdentity {
   origin: string;
   stateSessionId: string;
@@ -223,6 +224,26 @@ export function postReliable(path: string, body?: unknown): Promise<void> {
     isProjectScopedPath(path) ? captureProjectCommandIdentity() : null);
 }
 
+/**
+ * Project-editor mutations are reliable transactions. Attach a rejection
+ * observer for legacy fire-and-forget gesture call sites while preserving the
+ * original promise for owners that await it and render a local recovery state.
+ * Core also publishes failed transactions through statusMessage.
+ */
+function postEditorMutation(path: string, body?: unknown): Promise<void> {
+  const pending = postReliable(path, body);
+  void pending.catch((cause: unknown) => {
+    _triggerRefetch();
+    if (typeof window !== "undefined") {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      window.dispatchEvent(new CustomEvent(EDITOR_COMMAND_FAILURE_EVENT, {
+        detail: { message: message.slice(0, 320) },
+      }));
+    }
+  });
+  return pending;
+}
+
 async function sendReliableSerialized(
   path: string,
   serializedBody: string,
@@ -283,6 +304,16 @@ async function sendReliableSerialized(
           || !Number.isSafeInteger(snapshot.stateRevision)
           || result.projectRevision > snapshot.stateRevision!)
           throw new Error("Core returned an inconsistent editor-command revision");
+        if (result.playbackApplied === true
+          && (!Number.isSafeInteger(result.playbackRevision)
+            || result.playbackRevision! < result.projectRevision))
+          throw new Error("Core returned an inconsistent playback-snapshot revision");
+        if (result.playbackApplied === false
+          || (Number.isSafeInteger(snapshot.playbackProjectRevision)
+            && snapshot.playbackProjectRevision! < result.projectRevision)) {
+          throw new Error(result.error ||
+            `Core stored project revision ${result.projectRevision}, but audio is still using its last valid snapshot at revision ${result.playbackRevision}. The project view was refreshed; do not resend this edit blindly.`);
+        }
         return;
       }
       // A present result ring is authoritative. Keep waiting for this request;
@@ -293,7 +324,8 @@ async function sendReliableSerialized(
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    throw new Error("Core did not confirm the project edit before timeout. It may still be queued; do not resend blindly.");
+    _triggerRefetch();
+    throw new Error("Core did not confirm the project edit before timeout. Its outcome is unknown; state was refreshed and the command was not resent. Do not retry blindly.");
   }, utf8ByteLength(serializedBody));
 }
 
@@ -942,9 +974,9 @@ export const builder = {
   // for callers that build their own exact track list right after (see
   // ImportStemsModal.tsx), since otherwise the seeded tracks silently
   // shift every index the caller assumes is fresh.
-  songAdd: (noSeed = false) => post("/api/v1/builder/song/add", { noSeed }),
+  songAdd: (noSeed = false) => postEditorMutation("/api/v1/builder/song/add", { noSeed }),
   songImportFolder: () => post("/api/v1/builder/song/import-folder"),
-  songRemove: (index: number) => post("/api/v1/builder/song/remove", { index }),
+  songRemove: (index: number) => postEditorMutation("/api/v1/builder/song/remove", { index }),
   /**
    * Move a song's end marker. `endSeconds <= 0` clears the override and lets
    * the song go back to being as long as its content.
@@ -953,9 +985,9 @@ export const builder = {
    * for every frame of one drag, and omit it for a discrete edit.
    */
   songEnd: (index: number, endSeconds: number, gestureId?: string) =>
-    post("/api/v1/builder/song/end", { index, endSeconds, gestureId }),
+    postEditorMutation("/api/v1/builder/song/end", { index, endSeconds, gestureId }),
   songMove: (index: number, delta: number) =>
-    post("/api/v1/builder/song/move", { index, delta }),
+    postEditorMutation("/api/v1/builder/song/move", { index, delta }),
   songUpdate: (patch: {
     index: number;
     name: string;
@@ -972,7 +1004,7 @@ export const builder = {
     clickSends: { busId: string; level: number; enabled: boolean }[];
     tempoPoints?: { beat: number; bpm: number; timeSeconds: number; curve: number }[];
     signaturePoints?: { beat: number; numerator: number; denominator: number; bar: number }[];
-  }) => post("/api/v1/builder/song/update", patch),
+  }) => postEditorMutation("/api/v1/builder/song/update", patch),
 
   trackAdd: (
     songIndex: number,
@@ -982,17 +1014,17 @@ export const builder = {
       channels?: number;
       instrumentPluginId?: string;
     },
-  ) => post("/api/v1/builder/track/add", { songIndex, ...params }),
+  ) => postEditorMutation("/api/v1/builder/track/add", { songIndex, ...params }),
   trackDuplicate: (index: number, withContent = false) =>
-    post("/api/v1/builder/track/duplicate", { index, withContent }),
+    postEditorMutation("/api/v1/builder/track/duplicate", { index, withContent }),
   trackRemove: (songIndex: number, index: number) =>
-    post("/api/v1/builder/track/remove", { songIndex, index }),
+    postEditorMutation("/api/v1/builder/track/remove", { songIndex, index }),
   trackMove: (
     songIndex: number,
     index: number,
     target: number | { delta?: number; to?: number },
   ) =>
-    post(
+    postEditorMutation(
       "/api/v1/builder/track/move",
       typeof target === "number"
         ? { songIndex, index, delta: target }
@@ -1008,7 +1040,7 @@ export const builder = {
     mute?: boolean;
     solo?: boolean;
     mono?: boolean;
-  }) => post("/api/v1/builder/track/update", patch),
+  }) => postEditorMutation("/api/v1/builder/track/update", patch),
 
   // `gestureId`: pass the same id across several regionAdd/regionRemove/
   // regionUpdate calls that belong to one user gesture (split/duplicate/
@@ -1029,9 +1061,9 @@ export const builder = {
     fadeOutCurve?: number;
     loop?: boolean;
     gestureId?: string;
-  }) => post("/api/v1/builder/region/add", patch),
+  }) => postEditorMutation("/api/v1/builder/region/add", patch),
   regionRemove: (songIndex: number, regionId: string, gestureId?: string) =>
-    post("/api/v1/builder/region/remove", { songIndex, regionId, gestureId }),
+    postEditorMutation("/api/v1/builder/region/remove", { songIndex, regionId, gestureId }),
   regionUpdate: (patch: {
     songIndex: number;
     regionId: string;
@@ -1052,7 +1084,7 @@ export const builder = {
     semitones?: number;
     reverse?: boolean;
     gestureId?: string;
-  }) => post("/api/v1/builder/region/update", patch),
+  }) => postEditorMutation("/api/v1/builder/region/update", patch),
 
   midiRegionAdd: (patch: {
     songIndex: number;
@@ -1071,9 +1103,9 @@ export const builder = {
     umpEvents?: import("@/lib/state/types").MidiUmpEventRow[];
     automationLanes?: import("@/lib/state/types").AutomationLaneRow[];
     gestureId?: string;
-  }) => postReliable("/api/v1/builder/midi-region/add", patch),
+  }) => postEditorMutation("/api/v1/builder/midi-region/add", patch),
   midiRegionRemove: (songIndex: number, regionId: string, gestureId?: string) =>
-    post("/api/v1/builder/midi-region/remove", {
+    postEditorMutation("/api/v1/builder/midi-region/remove", {
       songIndex,
       regionId,
       gestureId,
@@ -1096,7 +1128,7 @@ export const builder = {
     umpEvents?: import("@/lib/state/types").MidiUmpEventRow[];
     automationLanes?: import("@/lib/state/types").AutomationLaneRow[];
     gestureId?: string;
-  }) => postReliable("/api/v1/builder/midi-region/update", patch),
+  }) => postEditorMutation("/api/v1/builder/midi-region/update", patch),
 
   automationLaneAdd: (patch: {
     songIndex: number;
@@ -1172,7 +1204,7 @@ export const builder = {
     rdpTolerance?: number;
     points: { timeBeats: number; value: number }[];
     gestureId?: string;
-  }) => post("/api/v1/builder/automation/record-gesture", patch),
+  }) => postEditorMutation("/api/v1/builder/automation/record-gesture", patch),
 
   async trackImportWAV(
     songIndex: number,
@@ -1205,10 +1237,10 @@ export const builder = {
     return this.trackImportWAVDialog(songIndex, index);
   },
 
-  busAdd: () => post("/api/v1/builder/bus/add"),
-  busRemove: (index: number) => post("/api/v1/builder/bus/remove", { index }),
+  busAdd: () => postEditorMutation("/api/v1/builder/bus/add"),
+  busRemove: (index: number) => postEditorMutation("/api/v1/builder/bus/remove", { index }),
   busMove: (index: number, delta: number) =>
-    post("/api/v1/builder/bus/move", { index, delta }),
+    postEditorMutation("/api/v1/builder/bus/move", { index, delta }),
   busUpdate: (patch: {
     index: number;
     name: string;
@@ -1219,14 +1251,14 @@ export const builder = {
     mute: boolean;
     solo: boolean;
     isAux: boolean;
-  }) => post("/api/v1/builder/bus/update", patch),
+  }) => postEditorMutation("/api/v1/builder/bus/update", patch),
 
   eventAdd: (songIndex: number) =>
-    post("/api/v1/builder/event/add", { songIndex }),
+    postEditorMutation("/api/v1/builder/event/add", { songIndex }),
   eventRemove: (songIndex: number, index: number) =>
-    post("/api/v1/builder/event/remove", { songIndex, index }),
+    postEditorMutation("/api/v1/builder/event/remove", { songIndex, index }),
   eventMove: (songIndex: number, index: number, delta: number) =>
-    post("/api/v1/builder/event/move", { songIndex, index, delta }),
+    postEditorMutation("/api/v1/builder/event/move", { songIndex, index, delta }),
   eventUpdate: (patch: {
     songIndex: number;
     index: number;
@@ -1241,22 +1273,22 @@ export const builder = {
     midiNote: number;
     midiVelocity: number;
     httpUrl: string;
-  }) => post("/api/v1/builder/event/update", patch),
+  }) => postEditorMutation("/api/v1/builder/event/update", patch),
 
   // Structural song markers (Intro/Verse/Chorus/Bridge/Outro/Solo/custom).
   // Identity is by sectionId (like regions), not positional index (like
   // events) -- repositioning a marker (drag) is just a startSeconds update.
   sectionAdd: (songIndex: number, startSeconds: number, name?: string) =>
-    post("/api/v1/builder/section/add", { songIndex, startSeconds, name }),
+    postEditorMutation("/api/v1/builder/section/add", { songIndex, startSeconds, name }),
   sectionRemove: (songIndex: number, sectionId: string) =>
-    post("/api/v1/builder/section/remove", { songIndex, sectionId }),
+    postEditorMutation("/api/v1/builder/section/remove", { songIndex, sectionId }),
   sectionUpdate: (patch: {
     songIndex: number;
     sectionId: string;
     name?: string;
     startSeconds?: number;
     colorIndex?: number;
-  }) => post("/api/v1/builder/section/update", patch),
+  }) => postEditorMutation("/api/v1/builder/section/update", patch),
 
   // Per-song cycle locators (Logic-style loop/skip). Coordinates persist even
   // when inactive; AudioEngine applies seeks so every connected client hears
@@ -1268,7 +1300,7 @@ export const builder = {
     leftSec?: number;
     rightSec?: number;
     gestureId?: string;
-  }) => post("/api/v1/builder/cycle/update", patch),
+  }) => postEditorMutation("/api/v1/builder/cycle/update", patch),
 };
 
 // Lighting rig config + fixture roster + Light-timeline tracks/cues -- see
