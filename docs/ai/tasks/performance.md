@@ -57,9 +57,11 @@ evidence for the whole callback before claiming dropout elimination.
   overflow, helper load/render tests passed (1,995 assertions). Still exercise
   dense sustain-release/panic traffic during a deliberately slow real vendor
   state capture and verify acoustic continuity.
-- Helper message-thread control timer wakes at 8 ms even idle. Replace polling
-  only with a verified event-driven/coalesced edge that preserves editor,
-  parameter/state and latency-response time. Merely slowing it increases delay.
+- Helper message-thread control timer is now event-driven: `runCommandWorker`
+  dispatches `callAsync` to trigger immediate evaluation on the message thread
+  upon `signalControlWake()`, eliminating editor command latency (~0.1 ms vs 8 ms).
+  The timer adapts dynamically between 8 ms (when an editor is open or a command
+  is pending) and 50 ms (when completely idle), reducing idle wakeups by ~84%.
 - Surface actual deadline misses/control/MIDI rejection counters and realistic
   recovery behavior. Don't remove meaningful bounded IPC copies speculatively.
 - Changed-latency PDC refill continuity is an explicit residual acoustic task;

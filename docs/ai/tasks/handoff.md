@@ -8,6 +8,7 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
 
 - Recent work is on `main`; do not push unless the user asks.
 - Completed commits in this work sequence:
+  - `2e7b495` — Make plugin host control timer adaptive with event-driven wakeups
   - `13bf9f7c` — Preserve instrument MIDI during state snapshots
   - `2242eee2` — Sync track power guards with isolated plugins
   - `714f802a` — Record packaged media export acceptance
@@ -17,7 +18,9 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
   compatibility. It passed the Core build and native suite; the broader acronym
   inventory and cross-language/platform audit are still open.
 - The latest recorded regression runs: Core target build; 542 native test cases
-  / 287,112 assertions; UI 553 tests across 88 files. These do not establish
+  / 287,112 assertions; UI 553 tests across 88 files; Electron 37 tests.
+  Plugin host control timer is now event-driven (immediate callAsync dispatch
+  on wake) with adaptive 8 ms/50 ms interval. These do not establish
   real-device audio stability or heavy third-party plug-in performance.
 - Packaged macOS ARM64 media acceptance passed for nine export formats
   (WAV/AIFF/FLAC/ALAC/MP3/M4A/Opus/OGG/WMA), non-silent decode, custom Unicode
