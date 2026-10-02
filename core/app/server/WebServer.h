@@ -1424,16 +1424,17 @@ private:
     std::unique_ptr<juce::DatagramSocket> udpSocket_;
     std::atomic<int> targetTelemetryHz_{60};
     std::atomic<uint32_t> telemetrySeq_{0};
-    double lastUdpSendTimeSec_ = 0.0;
+    double lastUDPSendTimeSec_ = 0.0;
+    double& lastUdpSendTimeSec_ = lastUDPSendTimeSec_;
 
-    struct RemoteUdpSubscriber {
+    struct RemoteUDPSubscriber {
         std::string ip;
-        int port = kUdpTelemetryPort;
+        int port = kUDPTelemetryPort;
         double lastSeenSec = 0.0;
     };
-    using RemoteUDPSubscriber = RemoteUdpSubscriber;
+    using RemoteUdpSubscriber = RemoteUDPSubscriber;
     mutable std::mutex udpSubscribersMutex_;
-    std::vector<RemoteUdpSubscriber> udpSubscribers_;
+    std::vector<RemoteUDPSubscriber> udpSubscribers_;
 
     // SPA web roots (bundle Contents/Resources/web, dev ui/dist, ...) tried
     // in order by serveStatic on the lws thread. Immutable after start().

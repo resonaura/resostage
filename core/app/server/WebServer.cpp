@@ -601,7 +601,7 @@ int resosetWsCallback(struct lws* wsi, int reason, void* user, void* in, size_t 
             char clientIp[64] = "";
             lws_get_peer_simple(wsi, clientIp, sizeof(clientIp));
             if (clientIp[0] != '\0')
-                server->registerUdpSubscriber(clientIp);
+                server->registerUDPSubscriber(clientIp);
             server->reportClientPeriodUs(pss->periodUs);
             // Every client starts at the full target cadence (see
             // WebServer::kTelemetryHz) and adapts from there -- see
@@ -908,21 +908,21 @@ void WebServer::publishState(const WebUiState& next) {
     auto binary = std::make_shared<const std::vector<uint8_t>>(buildBinaryTelemetryFrame(next, seq));
 
     // High-speed UDP telemetry for embedded (Electron) mode: send binary telemetry frame
-    // over loopback to 127.0.0.1:kUdpTelemetryPort and all remote UDP subscribers across LAN.
+    // over loopback to 127.0.0.1:kUDPTelemetryPort and all remote UDP subscribers across LAN.
     // Decimated to match targetTelemetryHz_.
     const int targetHz = targetTelemetryHz_.load(std::memory_order_relaxed);
     const double targetPeriodSec = 1.0 / (targetHz > 0 ? targetHz : 60);
     const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
 
-    if (nowSec - lastUdpSendTimeSec_ >= targetPeriodSec - 0.002) {
-        lastUdpSendTimeSec_ = nowSec;
+    if (nowSec - lastUDPSendTimeSec_ >= targetPeriodSec - 0.002) {
+        lastUDPSendTimeSec_ = nowSec;
         if (udpSocket_ != nullptr && binary != nullptr && !binary->empty()) {
-            udpSocket_->write("127.0.0.1", kUdpTelemetryPort, binary->data(), static_cast<int>(binary->size()));
+            udpSocket_->write("127.0.0.1", kUDPTelemetryPort, binary->data(), static_cast<int>(binary->size()));
 
             std::lock_guard<std::mutex> lock(udpSubscribersMutex_);
             udpSubscribers_.erase(
                 std::remove_if(udpSubscribers_.begin(), udpSubscribers_.end(),
-                    [nowSec](const RemoteUdpSubscriber& s) { return (nowSec - s.lastSeenSec) > 15.0; }),
+                    [nowSec](const RemoteUDPSubscriber& s) { return (nowSec - s.lastSeenSec) > 15.0; }),
                 udpSubscribers_.end());
             for (const auto& sub : udpSubscribers_) {
                 udpSocket_->write(sub.ip.c_str(), sub.port, binary->data(), static_cast<int>(binary->size()));

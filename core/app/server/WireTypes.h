@@ -1051,11 +1051,11 @@ struct WTelemetryHzPayload {
     int telemetryHz = 0;
 };
 
-struct WSubscribeUdpPayload {
+struct WSubscribeUDPPayload {
     int port = 0;
 };
 
-using WSubscribeUDPPayload = WSubscribeUdpPayload;
+using WSubscribeUdpPayload = WSubscribeUDPPayload;
 
 struct WTrackImportBeginPayload {
     int songIndex = -1;

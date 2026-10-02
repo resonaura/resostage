@@ -417,13 +417,13 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     } else if (std::strcmp(path, "/api/v1/remote/subscribe-udp") == 0) {
         char clientIp[64] = "";
         lws_get_peer_simple(wsi, clientIp, sizeof(clientIp));
-        int port = kUdpTelemetryPort;
-        wire::WSubscribeUdpPayload p;
+        int port = kUDPTelemetryPort;
+        wire::WSubscribeUDPPayload p;
         if (!glz::read_json(p, std::string_view(body, bodyLen)) && p.port > 0) {
             port = p.port;
         }
         if (clientIp[0] != '\0') {
-            registerUdpSubscriber(clientIp, port);
+            registerUDPSubscriber(clientIp, port);
         }
         writeJsonOk(wsi);
         return true;
