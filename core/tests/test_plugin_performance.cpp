@@ -15,13 +15,83 @@
 #include "plugins/PluginMIDIBuffer.h"
 #endif
 
+#include "plugins/PluginDelayBank.h"
+
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <iostream>
+#include <new>
 #include <vector>
 
 using namespace resostage;
+
+namespace {
+
+thread_local bool sAudioRenderAllocProbeActive = false;
+thread_local uint64_t sAudioRenderAllocProbeCount = 0;
+
+} // namespace
+
+#if !defined(_MSC_VER)
+void* operator new(std::size_t size) {
+    if (sAudioRenderAllocProbeActive) {
+        ++sAudioRenderAllocProbeCount;
+    }
+    void* ptr = std::malloc(size);
+    if (!ptr) throw std::bad_alloc();
+    return ptr;
+}
+
+void operator delete(void* ptr) noexcept {
+    std::free(ptr);
+}
+
+void operator delete(void* ptr, std::size_t) noexcept {
+    std::free(ptr);
+}
+
+void* operator new[](std::size_t size) {
+    if (sAudioRenderAllocProbeActive) {
+        ++sAudioRenderAllocProbeCount;
+    }
+    void* ptr = std::malloc(size);
+    if (!ptr) throw std::bad_alloc();
+    return ptr;
+}
+
+void operator delete[](void* ptr) noexcept {
+    std::free(ptr);
+}
+
+void operator delete[](void* ptr, std::size_t) noexcept {
+    std::free(ptr);
+}
+
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+    if (sAudioRenderAllocProbeActive) {
+        ++sAudioRenderAllocProbeCount;
+    }
+    return std::malloc(size);
+}
+
+void operator delete(void* ptr, const std::nothrow_t&) noexcept {
+    std::free(ptr);
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
+    if (sAudioRenderAllocProbeActive) {
+        ++sAudioRenderAllocProbeCount;
+    }
+    return std::malloc(size);
+}
+
+void operator delete[](void* ptr, const std::nothrow_t&) noexcept {
+    std::free(ptr);
+}
+#endif
 
 namespace {
 
@@ -47,7 +117,14 @@ TEST_CASE("plug-in MIDI packet preparation measures empty sparse and dense block
                                  std::array<MidiEvent, kMaximumMidiEventsPerBlock>& output) {
         output.fill(MidiEvent{});
         uint32_t count = 0;
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
         juce::MidiBuffer::Iterator iterator(source);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
         juce::MidiMessage message;
         int samplePosition = 0;
         while (count < output.size() && iterator.getNextEvent(message, samplePosition)) {
@@ -304,6 +381,218 @@ TEST_CASE("MixRenderer with 8 insert plug-in chains performance") {
 
     CHECK(avgUsPerBlock < 200.0); // Far below 5333 µs deadline
     CHECK(cpuPercent < 4.0);
+}
+
+TEST_CASE("MixRenderer allocator probe: zero heap allocation during block render with PDC and strip processing") {
+    MixGraph graph;
+    constexpr uint32_t kTracks = 16;
+    constexpr uint32_t kSends = 4;
+    graph.strips.resize(kTracks + kSends + 1); // 16 tracks, 4 sends, 1 master
+    for (uint32_t t = 0; t < kTracks; ++t) {
+        auto& strip = graph.strips[t];
+        strip.id = "track:" + std::to_string(t);
+        strip.kind = StripKind::Track;
+        strip.channels = 2;
+        strip.gainLinear = 1.0f;
+        strip.audible = true;
+
+        MixEdge toMaster;
+        toMaster.from = t;
+        toMaster.to = static_cast<uint32_t>(graph.strips.size() - 1);
+        toMaster.gainLinear = 0.8f;
+        toMaster.active = true;
+        graph.edges.push_back(toMaster);
+
+        for (uint32_t s = 0; s < kSends; ++s) {
+            MixEdge toSend;
+            toSend.from = t;
+            toSend.to = kTracks + s;
+            toSend.gainLinear = 0.3f;
+            toSend.active = true;
+            graph.edges.push_back(toSend);
+        }
+    }
+
+    for (uint32_t s = 0; s < kSends; ++s) {
+        auto& strip = graph.strips[kTracks + s];
+        strip.id = "send:" + std::to_string(s);
+        strip.kind = StripKind::Send;
+        strip.channels = 2;
+        strip.gainLinear = 1.0f;
+        strip.audible = true;
+
+        MixEdge toMaster;
+        toMaster.from = kTracks + s;
+        toMaster.to = static_cast<uint32_t>(graph.strips.size() - 1);
+        toMaster.gainLinear = 1.0f;
+        toMaster.active = true;
+        graph.edges.push_back(toMaster);
+    }
+
+    auto& master = graph.strips.back();
+    master.id = "main";
+    master.kind = StripKind::Main;
+    master.channels = 2;
+    master.gainLinear = 1.0f;
+    master.audible = true;
+
+    // Set up strip processors
+    std::vector<MixStripProcessor> stripProcessors(graph.strips.size());
+    for (auto& proc : stripProcessors) {
+        proc.context = nullptr;
+        proc.process = benchInsertProcessor;
+    }
+
+    // Set up PDC delays on odd tracks
+    std::vector<uint32_t> stripLatencies(graph.strips.size(), 0);
+    for (size_t t = 0; t < kTracks; t += 2) {
+        stripLatencies[t] = 64;
+    }
+    std::vector<std::string> warnings;
+    auto delayBank = PluginDelayBank::build(graph, stripLatencies, 48000.0, warnings);
+    REQUIRE(delayBank != nullptr);
+
+    MixProcessorView procView;
+    procView.strips = stripProcessors.data();
+    procView.count = stripProcessors.size();
+    delayBank->applyTo(procView);
+
+    MixRenderer renderer;
+    renderer.prepare(48000.0, 512, graph.strips.size(), graph.edges.size());
+
+#if !defined(_MSC_VER)
+    // Verify probe is sensitive to heap allocations:
+    sAudioRenderAllocProbeCount = 0;
+    sAudioRenderAllocProbeActive = true;
+    void* testAlloc = ::operator new(64);
+    sAudioRenderAllocProbeActive = false;
+    ::operator delete(testAlloc);
+    CHECK(sAudioRenderAllocProbeCount > 0);
+#endif
+
+    // Warm up one block to stabilize smoothers
+    renderer.beginBlock(graph, 256);
+    renderer.process(graph, 256, procView);
+
+    // Now test zero allocations over 1000 audio blocks:
+    sAudioRenderAllocProbeCount = 0;
+    sAudioRenderAllocProbeActive = true;
+    for (int block = 0; block < 1000; ++block) {
+        renderer.beginBlock(graph, 256);
+        renderer.process(graph, 256, procView);
+    }
+    sAudioRenderAllocProbeActive = false;
+
+    CHECK(sAudioRenderAllocProbeCount == 0);
+}
+
+TEST_CASE("MixRenderer latency percentiles (p50/p95/p99/max) and PDC alignment across 64, 128, 256, 512 frames") {
+    const int blockSizes[] = {64, 128, 256, 512};
+
+    for (int blockSize : blockSizes) {
+        MixGraph graph;
+        graph.strips.resize(3);
+        graph.routingLayoutKey = 42;
+        graph.strips[0].id = "track:0";
+        graph.strips[0].kind = StripKind::Track;
+        graph.strips[0].channels = 2;
+        graph.strips[0].gainLinear = 1.0f;
+        graph.strips[0].audible = true;
+
+        graph.strips[1].id = "track:1";
+        graph.strips[1].kind = StripKind::Track;
+        graph.strips[1].channels = 2;
+        graph.strips[1].gainLinear = 1.0f;
+        graph.strips[1].audible = true;
+
+        graph.strips[2].id = "main";
+        graph.strips[2].kind = StripKind::Main;
+        graph.strips[2].channels = 2;
+        graph.strips[2].gainLinear = 1.0f;
+        graph.strips[2].audible = true;
+
+        MixEdge edge0{.from = 0, .to = 2, .gainLinear = 1.0f, .active = true};
+        MixEdge edge1{.from = 1, .to = 2, .gainLinear = 1.0f, .active = true};
+        graph.edges.push_back(edge0);
+        graph.edges.push_back(edge1);
+
+        // Track 0 has 128 samples latency, Track 1 has 0 samples latency
+        constexpr uint32_t kLatency = 128;
+        std::vector<std::string> warnings;
+        auto delayBank = PluginDelayBank::build(graph, {kLatency, 0, 0}, 48000.0, warnings);
+        REQUIRE(delayBank != nullptr);
+
+        MixProcessorView procView;
+        delayBank->applyTo(procView);
+
+        MixRenderer renderer;
+        renderer.prepare(48000.0, 512, 3, 2);
+
+        // 1. Benchmark latency across 2000 blocks
+        constexpr int kTrials = 2000;
+        std::vector<double> timingsUs;
+        timingsUs.reserve(kTrials);
+
+        // Warmup
+        for (int i = 0; i < 50; ++i) {
+            renderer.beginBlock(graph, blockSize);
+            renderer.process(graph, blockSize, procView);
+        }
+
+        for (int i = 0; i < kTrials; ++i) {
+            renderer.beginBlock(graph, blockSize);
+            const auto t0 = std::chrono::high_resolution_clock::now();
+            renderer.process(graph, blockSize, procView);
+            const auto t1 = std::chrono::high_resolution_clock::now();
+            timingsUs.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
+        }
+
+        std::sort(timingsUs.begin(), timingsUs.end());
+        const double p50 = timingsUs[static_cast<size_t>(kTrials * 0.50)];
+        const double p95 = timingsUs[static_cast<size_t>(kTrials * 0.95)];
+        const double p99 = timingsUs[static_cast<size_t>(kTrials * 0.99)];
+        const double maxTime = timingsUs.back();
+        const double deadlineUs = (static_cast<double>(blockSize) / 48000.0) * 1.0e6;
+
+        MESSAGE("Block " << blockSize << " frames (deadline " << deadlineUs << " µs): "
+                << "p50=" << p50 << " µs (" << (p50 / deadlineUs * 100.0) << "% CPU), "
+                << "p95=" << p95 << " µs (" << (p95 / deadlineUs * 100.0) << "% CPU), "
+                << "p99=" << p99 << " µs (" << (p99 / deadlineUs * 100.0) << "% CPU), "
+                << "max=" << maxTime << " µs (" << (maxTime / deadlineUs * 100.0) << "% CPU)");
+
+        CHECK(maxTime < deadlineUs); // Zero underruns
+        CHECK(p99 < deadlineUs * 0.10); // Under 10% CPU at 99th percentile
+
+        // 2. Verify PDC alignment:
+        // Track 0 has 128 samples latency, so Edge 1 (track 1 -> main) is delayed by 128 samples.
+        // Rebuild clean delay line
+        renderer.prepare(48000.0, 512, 3, 2);
+        delayBank = PluginDelayBank::build(graph, {kLatency, 0, 0}, 48000.0, warnings);
+        delayBank->applyTo(procView);
+
+        int sampleCounter = 0;
+        int impulseArrivedSample = -1;
+
+        for (int b = 0; b < 10; ++b) {
+            renderer.beginBlock(graph, blockSize);
+            if (b == 0) {
+                float* track1L = renderer.sourceChannel(1, 0);
+                REQUIRE(track1L != nullptr);
+                track1L[0] = 1.0f; // Impulse on Track 1 at sample 0
+            }
+            renderer.process(graph, blockSize, procView);
+            const float* mainL = renderer.postChannel(2, 0);
+            REQUIRE(mainL != nullptr);
+            for (int s = 0; s < blockSize; ++s) {
+                if (mainL[s] > 0.5f && impulseArrivedSample < 0) {
+                    impulseArrivedSample = sampleCounter + s;
+                }
+            }
+            sampleCounter += blockSize;
+        }
+
+        CHECK(impulseArrivedSample == static_cast<int>(kLatency));
+    }
 }
 
 } // TEST_SUITE
