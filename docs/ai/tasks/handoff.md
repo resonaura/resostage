@@ -79,6 +79,9 @@ Additional critical issues:
   `useMidiRegionEditorState.test.tsx` testing reconciliation, follow-ups, Undo, and epoch change.
 - `b04353b`: Added accessible typeahead search via `textValue` to automation parameter Select options.
 - `65239a3`: Canonicalized `WAVSource` in `OfflineRenderer.cpp` and `finalizeWAVFile()` in `OfflineWAVWriter.{h,cpp}` with backward-compatible aliases.
+- `de27854`: Safe declicked mute automation (downstream of console meters, with 10 ms audibility ramping) and aux send automation edge bindings in `StripAutomationPlan` and `MixRenderer`. 560 native test cases / 327,376 assertions pass.
+- `7808523`: Direct numerical automation point editing (keyboard Return/Enter, "Set exact value…" context menu option, double-click on point, floating input popover with unit display and boundary clamping) and next-unautomated lane addition with bullet markers (`•`) in `AutomationTrackControls`. 100 UI test files / 676 tests pass.
+- `8751069`: Canonicalized BPM, UDP, and MIDI clock acronyms (`setClockBPM`, `setBPM`, `registerUDPSubscriber`, `kUDPTelemetryPort`, `sendFrameOverUDP`, `kArtNetUDPPort`) with backward-compatible aliases across `CoreMidiDispatcher`, `LightEngine`, `WebServer`, `LightHardwareServer`, and `ArtNetPacket`.
 
 ## Work in progress: inspect before continuing
 
@@ -87,13 +90,13 @@ and verified end-to-end against live Core HTTP commands and transport continuity
 `scripts/verification/editor-state.mjs` confirms:
 - >4 KiB note and automation updates over HTTP without socket termination
 - Live note quantize during active playback without stopping or resetting clock
-- Live strip fader and pan automation creation and point replacement during active playback
+- Live strip fader, pan, mute, and send automation creation and point replacement during active playback
 - Continuous sample transport advancement through live project edits
 - Undo and Redo roundtrips restoring exact note durations and curves
 - Explicit 413 rejection for oversized command bodies
 - Persistence across project save and clean reopen
-- Test evidence: 100 UI Vitest test files / 669 tests pass, 5 Electron shell tests / 39 tests pass,
-  558 native engine tests / 327,352 assertions pass, zero tsc errors, zero oxlint errors.
+- Test evidence: 100 UI Vitest test files / 676 tests pass, 5 Electron shell tests / 39 tests pass,
+  560 native engine tests / 327,376 assertions pass, zero tsc errors, zero oxlint errors.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,
@@ -102,15 +105,13 @@ folders. Commit each finished block; do not push.
 
 ## Immediate next actions
 
-1. Multi-sublane layout & numeric editing: Currently + adds an empty lane for the chosen parameter;
-   complete multi-sublane expansion allowing simultaneous lane display per track and direct numerical editing.
-2. Residual acoustic tasks: safe declicked mute automation (with audibility ramping) and edge-slot
-   aux send automation bindings in MixRenderer (`MixEdgeDelay`).
-3. Complete remaining acronym inventory in [naming.md](naming.md) while preserving backward-compatible wire/schema aliases.
-4. Validate visuals in both themes and several track heights. Shared controls,
+1. Validate visuals in both themes and several track heights. Shared controls,
    project/track colors, restrained fills, reduced-motion transitions, topmost
    playhead. Curve/node hit areas must not conflict with arrangement marquee.
-5. Run complete UI suite/typecheck/lint and relevant native suites/build after
+2. Touch/Latch/Write recording integration: compile binding tables off audio,
+   bounded callback buffers, one pass/history transaction, off-thread thinning.
+3. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
+4. Run complete UI suite/typecheck/lint and relevant native suites/build after
    integrating changes; commit by finished block. Report actual totals, vendor
    skips and hardware limits. Update this file and detailed tasks with evidence.
 

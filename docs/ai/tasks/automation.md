@@ -19,9 +19,14 @@ Previous arrangement UI existed, but had significant functional gaps:
 
 ## Implemented foundations (verify latest commits)
 
-`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648`, `1739b29`, `9bf4652`, `ba9cb39`, `b04353b` implement:
-- Zero-allocation strip fader and pan automation in `MixRenderer` and `OfflineRenderer`
-  via `StripAutomationPlan.h/.cpp` with 558 native tests passing (327,352 assertions)
+`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648`, `1739b29`, `9bf4652`, `ba9cb39`, `b04353b`, `de27854`, `7808523` implement:
+- Zero-allocation strip fader, pan, mute, and aux send automation in `MixRenderer` and `OfflineRenderer`
+  via `StripAutomationPlan.h/.cpp` with 560 native tests passing (327,376 assertions)
+- Safe declicked mute automation (downstream of console meters, 10 ms audibility ramping)
+  and edge-slot aux send automation bindings
+- Direct numerical point editing (Return/Enter shortcut, "Set exact value…" context menu option,
+  double-click on point, floating input popover with unit display and boundary clamping)
+- Next-unautomated lane addition on + click with bullet indicators (`•`) on automated parameters in selector
 - Exclusive/cancellable gestures, full-point atomic replacement/empty creation,
   real vendor metadata/current values, stable vendor identities
 - Shared HeroUI wrappers (`Select`, `Button`, `Tooltip`), DAW focus isolation (`tabIndex={-1}`)
@@ -32,14 +37,14 @@ Previous arrangement UI existed, but had significant functional gaps:
 - Accessible typeahead search for automation parameter selector via `textValue`
 - End-to-end verification in `scripts/verification/editor-state.mjs` verifying uninterrupted
   transport playback during live MIDI and automation edits, Undo/Redo, 413, and persistence
-- Complete test suites: 100 UI Vitest test files / 669 tests, 5 Electron shell tests / 39 tests,
-  558 native engine tests / 327,352 assertions passing cleanly
+- Complete test suites: 100 UI Vitest test files / 676 tests, 5 Electron shell tests / 39 tests,
+  560 native engine tests / 327,376 assertions passing cleanly
 
 ## Finish in this order
 
-1. Strip fader and pan automation playback is implemented and verified. Safe mute
-   and send automation remain explicitly reserved until safe audibility/edge-gain
-   behavior exists. Live-editing while playing is fully verified by `editor-state.mjs`.
+1. Strip fader, pan, mute, and send automation playback is fully implemented and verified.
+   Safe declicked audibility ramping and edge-gain modulation are operational.
+   Live-editing while playing is fully verified by `editor-state.mjs`.
 2. Component/gesture tests and actual HTTP persistence/history acceptance are verified.
    Selected automation points delete with Delete/Backspace hotkey when focused, with
    pointer gestures isolated from parent arrangement marquee. Empty current-value
