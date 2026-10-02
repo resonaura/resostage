@@ -7,6 +7,9 @@
 import type { MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
 import { isMidiClipFile, parseMidiClipFile, writeMidiClipFile } from "@/lib/midi/midiClipFile";
 import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";
+import { songBeatsAtSeconds, songSecondsAtBeat } from "@/lib/midi/tempoMap";
+
+export { songBeatsAtSeconds, songSecondsAtBeat } from "@/lib/midi/tempoMap";
 
 const PPQN = 480;
 const MAX_BYTES = 32 * 1024 * 1024;
@@ -518,44 +521,6 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
     ...chunk("MThd", [...u16(1), ...u16(chunks.length), ...u16(PPQN)]),
     ...chunks.flat(),
   ]);
-}
-
-/** Map Core's step/linear-BPM tempo map to seconds for an offline export. */
-export function songSecondsAtBeat(song: SongRow, beat: number): number {
-  const points = [...(song.tempoPoints ?? [])]
-    .filter((point) => Number.isFinite(point.beat) && Number.isFinite(point.bpm) && point.bpm > 0)
-    .sort((a, b) => a.beat - b.beat);
-  if (!points.length || points[0].beat > 0)
-    points.unshift({ beat: 0, bpm: song.bpm || 120, timeSeconds: 0, curve: 0 });
-  let seconds = 0;
-  for (let index = 0; index < points.length; index++) {
-    const current = points[index];
-    const next = points[index + 1];
-    const end = Math.min(beat, next?.beat ?? beat);
-    const span = Math.max(0, end - current.beat);
-    if (span > 0) {
-      const delta = next ? next.bpm - current.bpm : 0;
-      const rate = next && current.curve !== 0 && next.beat > current.beat
-        ? delta / (next.beat - current.beat) : 0;
-      seconds += Math.abs(rate) < 1e-9
-        ? span * 60 / current.bpm
-        : 60 / rate * Math.log((current.bpm + rate * span) / current.bpm);
-    }
-    if (!next || beat <= next.beat) break;
-  }
-  return seconds;
-}
-
-export function songBeatsAtSeconds(song: SongRow, seconds: number): number {
-  let high = Math.max(1, seconds * Math.max(1, song.bpm || 120) / 30);
-  while (songSecondsAtBeat(song, high) < seconds && high < 1_000_000) high *= 2;
-  let low = 0;
-  for (let step = 0; step < 48; step++) {
-    const mid = (low + high) / 2;
-    if (songSecondsAtBeat(song, mid) < seconds) low = mid;
-    else high = mid;
-  }
-  return (low + high) / 2;
 }
 
 /**

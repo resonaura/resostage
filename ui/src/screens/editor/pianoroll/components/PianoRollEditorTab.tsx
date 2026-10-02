@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { Button } from "@/components/ui";
 import { Music, Plus } from "lucide-react";
 import { emptyProjectActions, EmptyProjectState } from "@/screens/editor/project/components/EmptyProjectState";
@@ -12,6 +12,7 @@ import { builder, timelineHistory, transport } from "@/lib/state/api";
 import { useContinuousPlayhead } from "@/lib/state/optimistic";
 import { getTrackColor } from "@/lib/theme";
 import { songDurationSeconds } from "@/screens/editor/timeline/layout/logic/rows";
+import { createSongTempoMap } from "@/lib/midi/tempoMap";
 import type {
   MidiNoteRow,
   PeaksResponse,
@@ -107,16 +108,18 @@ function PianoRollActiveView({
       false, // publishToReact = false
     );
 
-  const bpm = currentSong.bpm > 0 ? currentSong.bpm : 120;
-  const staticSongBeats = (playheadAbsoluteSec * bpm) / 60.0;
+  const tempoMap = useMemo(
+    () => createSongTempoMap(currentSong),
+    [currentSong],
+  );
+  const staticSongBeats = tempoMap.secondsToBeats(playheadAbsoluteSec);
   const playheadBeats = staticSongBeats - activeRegion.startBeats;
 
   const getLivePlayheadBeats = useCallback(() => {
     const liveSec = getLivePlayheadAbsolute();
-    const currentBpm = currentSong.bpm > 0 ? currentSong.bpm : 120;
-    const songBeats = (liveSec * currentBpm) / 60.0;
+    const songBeats = tempoMap.secondsToBeats(liveSec);
     return songBeats - activeRegion.startBeats;
-  }, [getLivePlayheadAbsolute, currentSong.bpm, activeRegion.startBeats]);
+  }, [getLivePlayheadAbsolute, tempoMap, activeRegion.startBeats]);
 
   const handleNotesChange = (updatedNotes: MidiNoteRow[]): Promise<void> => {
     // Keep the lossless MIDI 2.0 shadow values in sync with the
@@ -259,8 +262,7 @@ function PianoRollActiveView({
             0,
             regionRelativeBeats + activeRegion.startBeats,
           );
-          const bpm = currentSong.bpm > 0 ? currentSong.bpm : 120;
-          const seekSec = (songBeats * 60.0) / bpm;
+          const seekSec = tempoMap.beatsToSeconds(songBeats);
           void transport.seek(seekSec, state.songIndex);
         }}
         onNotesChange={handleNotesChange}
