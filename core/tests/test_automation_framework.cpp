@@ -18,6 +18,7 @@
 
 #include <charconv>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 using namespace resostage;
@@ -72,6 +73,63 @@ TEST_CASE("Automation editing: the point budget fails atomically") {
     CHECK_FALSE(builder_json::parseAutomationPoints(document, points, error));
     REQUIRE(points.size() == 1);
     CHECK(points.front().timeBeats == 2.0);
+}
+
+TEST_CASE("Automation scalar admission shares collection validation before float narrowing") {
+    glz::generic document;
+    AutomationPoint point{99.0, 0.5f, 0.0f};
+    std::string error;
+    for (const auto* invalid : {
+        R"({"timeBeats":-1,"value":0.5})",
+        R"({"timeBeats":1,"value":1e300})",
+        R"({"timeBeats":1,"value":0.5,"curve":2})",
+        R"({"timeBeats":1,"value":0.5,"curve":"invalid"})",
+        R"({"timeBeats":1,"value":"invalid"})",
+        R"({"timeBeats":1})"}) {
+        document = glz::generic::object_t{};
+        REQUIRE(builder_json::parseJson(invalid, document));
+        CHECK_FALSE(builder_json::parseAutomationPoint(document, point, error));
+        CHECK(point.timeBeats == 99.0);
+    }
+    CHECK_FALSE(builder_json::validateAutomationPoint(
+        std::numeric_limits<double>::infinity(), 0.5, 0.0, error));
+    CHECK_FALSE(builder_json::validateAutomationPoint(
+        1.0, std::numeric_limits<double>::quiet_NaN(), 0.0, error));
+    CHECK(builder_json::canAdmitAutomationPoint(builder_json::kMaximumAutomationEditPoints, true));
+    CHECK_FALSE(builder_json::canAdmitAutomationPoint(builder_json::kMaximumAutomationEditPoints, false));
+    CHECK(builder_json::canAdmitAutomationPoint(builder_json::kMaximumAutomationEditPoints - 1, false));
+    document = glz::generic::object_t{};
+    REQUIRE(builder_json::parseJson(R"({"timeBeats":1,"value":0.25,"curve":-0.5})", document));
+    REQUIRE(builder_json::parseAutomationPoint(document, point, error));
+    CHECK(point.timeBeats == 1.0);
+    CHECK(point.value == 0.25f);
+    CHECK(point.curve == -0.5f);
+}
+
+TEST_CASE("Automation initial points reject malformed legacy fields without fabricated nodes") {
+    glz::generic document;
+    std::vector<AutomationPoint> points{{99.0, 0.5f, 0.0f}};
+    std::string error;
+    for (const auto* invalid : {
+        R"({"initialValue":1e300})",
+        R"({"initialValue":"invalid"})",
+        R"({"initialValue":0.5,"initialTimeBeats":-1})",
+        R"({"initialValue":0.5,"initialTimeBeats":"invalid"})",
+        R"({"initialTimeBeats":1})"}) {
+        document = glz::generic::object_t{};
+        REQUIRE(builder_json::parseJson(invalid, document));
+        CHECK_FALSE(builder_json::parseAutomationInitialPoint(document, points, error));
+        REQUIRE(points.size() == 1);
+        CHECK(points[0].timeBeats == 99.0);
+    }
+    document = glz::generic::object_t{};
+    REQUIRE(builder_json::parseAutomationInitialPoint(document, points, error));
+    CHECK(points.empty());
+    REQUIRE(builder_json::parseJson(R"({"initialValue":0.75,"initialTimeBeats":2})", document));
+    REQUIRE(builder_json::parseAutomationInitialPoint(document, points, error));
+    REQUIRE(points.size() == 1);
+    CHECK(points[0].timeBeats == 2.0);
+    CHECK(points[0].value == 0.75f);
 }
 
 TEST_CASE("Automation recording admission validates the entire pass before mutation") {

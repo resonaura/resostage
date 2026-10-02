@@ -56,18 +56,17 @@ void MainComponent::builderAutomationLaneAdd(const std::string& json) {
         setStatus("Could not add automation lane: invalid target range");
         return;
     }
-    double initialTimeBeats = 0.0, initialValue = 0.0;
     if (doc.contains("points")) {
         std::string error;
         if (!parseAutomationPoints(doc, lane.points, error)) {
             setStatus("Could not add automation lane: " + juce::String(error));
             return;
         }
-    } else if (getDouble(doc, "initialValue", initialValue)) {
-        (void)getDouble(doc, "initialTimeBeats", initialTimeBeats);
-        if (std::isfinite(initialTimeBeats) && std::isfinite(initialValue)) {
-            lane.points.push_back({std::max(0.0, initialTimeBeats),
-                static_cast<float>(initialValue), 0.0f});
+    } else {
+        std::string error;
+        if (!parseAutomationInitialPoint(doc, lane.points, error)) {
+            setStatus("Could not add automation lane: " + juce::String(error));
+            return;
         }
     }
 
@@ -208,11 +207,15 @@ void MainComponent::builderAutomationPointAdd(const std::string& json) {
     glz::generic doc;
     int songIndex = -1;
     std::string laneId;
-    double timeBeats = 0.0, value = 0.0, curve = 0.0;
     if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex) || !getString(doc, "laneId", laneId)
-        || !getDouble(doc, "timeBeats", timeBeats) || !getDouble(doc, "value", value) || !engine.isProjectLoaded())
+        || !engine.isProjectLoaded())
         return;
-    getDouble(doc, "curve", curve);
+    AutomationPoint pt;
+    std::string error;
+    if (!parseAutomationPoint(doc, pt, error)) {
+        setStatus("Could not add automation point: " + juce::String(error));
+        return;
+    }
 
     Project& proj = engine.project();
     if (songIndex < 0 || songIndex >= static_cast<int>(proj.songs.size()))
@@ -241,24 +244,24 @@ void MainComponent::builderAutomationPointAdd(const std::string& json) {
     }
     if (!lanePtr) return;
 
+    const auto existing = std::find_if(lanePtr->points.begin(), lanePtr->points.end(),
+        [&](const AutomationPoint& point) { return std::abs(point.timeBeats - pt.timeBeats) < 1.0e-6; });
+    if (!canAdmitAutomationPoint(lanePtr->points.size(), existing != lanePtr->points.end())) {
+        setStatus("Could not add automation point: the lane already contains 65,536 points");
+        return;
+    }
+
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Add automation point");
 
-    AutomationPoint pt;
-    pt.timeBeats = std::max(0.0, timeBeats);
-    pt.value = static_cast<float>(value);
-    pt.curve = static_cast<float>(std::clamp(curve, -1.0, 1.0));
-
-    bool updated = false;
-    for (auto& p : lanePtr->points) {
-        if (std::abs(p.timeBeats - pt.timeBeats) < 1.0e-6) {
-            p = pt;
-            updated = true;
-            break;
-        }
-    }
-    if (!updated) {
+    if (existing != lanePtr->points.end()) {
+        // Sub-microbeat differences identify the same point throughout the
+        // command boundary. Keep its position so a value update cannot shrink
+        // the next gap below the complete-editor distinct-position threshold.
+        pt.timeBeats = existing->timeBeats;
+        *existing = pt;
+    } else {
         lanePtr->points.push_back(pt);
         std::sort(lanePtr->points.begin(), lanePtr->points.end(),
                   [](const AutomationPoint& a, const AutomationPoint& b) {

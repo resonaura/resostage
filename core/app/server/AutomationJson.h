@@ -17,6 +17,61 @@ namespace resostage::builder_json {
 inline constexpr size_t kMaximumAutomationEditPoints = 65'536;
 enum class AutomationPointDuplicates { Reject, KeepLatest };
 
+constexpr bool canAdmitAutomationPoint(size_t existingCount, bool replacing) noexcept {
+    return replacing || existingCount < kMaximumAutomationEditPoints;
+}
+
+/** Shared scalar/collection validation, performed before narrowing to float. */
+inline bool validateAutomationPoint(double beat, double value, double curve,
+                                    std::string& error) {
+    if (!std::isfinite(beat) || beat < 0.0 || !std::isfinite(value)
+        || std::abs(value) > std::numeric_limits<float>::max()
+        || !std::isfinite(curve) || curve < -1.0 || curve > 1.0) {
+        error = "Automation points require finite nonnegative beats, values and curves in [-1, 1]";
+        return false;
+    }
+    return true;
+}
+
+inline bool parseAutomationPoint(const glz::generic& row, AutomationPoint& output,
+                                  std::string& error) {
+    double beat = 0.0, value = 0.0, curve = 0.0;
+    if (!row.is_object() || !getDouble(row, "timeBeats", beat)
+        || !getDouble(row, "value", value)
+        || (row.contains("curve") && !getDouble(row, "curve", curve))) {
+        error = "Automation point positions, values and curves must be numbers";
+        return false;
+    }
+    if (!validateAutomationPoint(beat, value, curve, error)) return false;
+    output = {beat, static_cast<float>(value), static_cast<float>(curve)};
+    return true;
+}
+
+/** Legacy lane creation may supply one initial point instead of points[].
+ * Absence means an empty lane; malformed supplied fields reject the request.
+ */
+inline bool parseAutomationInitialPoint(const glz::generic& doc,
+                                        std::vector<AutomationPoint>& output,
+                                        std::string& error) {
+    if (!doc.contains("initialValue")) {
+        if (doc.contains("initialTimeBeats")) {
+            error = "An initial automation position requires an initial value";
+            return false;
+        }
+        output.clear();
+        return true;
+    }
+    double beat = 0.0, value = 0.0;
+    if (!getDouble(doc, "initialValue", value)
+        || (doc.contains("initialTimeBeats") && !getDouble(doc, "initialTimeBeats", beat))) {
+        error = "Initial automation positions and values must be numbers";
+        return false;
+    }
+    if (!validateAutomationPoint(beat, value, 0.0, error)) return false;
+    output = {{beat, static_cast<float>(value), 0.0f}};
+    return true;
+}
+
 /**
  * Parses one complete lane replacement off audio. Rejects the entire request
  * before mutation on bad input; sorting keeps curve attached to its endpoint.
@@ -34,18 +89,9 @@ inline bool parseAutomationPoints(const glz::generic& doc,
     std::vector<AutomationPoint> parsed;
     parsed.reserve(input->size());
     for (const auto& row : *input) {
-        double beat = 0.0, value = 0.0, curve = 0.0;
-        if (!row.is_object() || !getDouble(row, "timeBeats", beat)
-            || !getDouble(row, "value", value)
-            || (row.contains("curve") && !getDouble(row, "curve", curve))
-            || !std::isfinite(beat) || beat < 0.0
-            || !std::isfinite(value)
-            || std::abs(value) > std::numeric_limits<float>::max()
-            || !std::isfinite(curve) || curve < -1.0 || curve > 1.0) {
-            error = "Automation points require finite nonnegative beats, values and curves in [-1, 1]";
-            return false;
-        }
-        parsed.push_back({beat, static_cast<float>(value), static_cast<float>(curve)});
+        AutomationPoint point;
+        if (!parseAutomationPoint(row, point, error)) return false;
+        parsed.push_back(point);
     }
     std::stable_sort(parsed.begin(), parsed.end(),
         [](const AutomationPoint& a, const AutomationPoint& b) {
