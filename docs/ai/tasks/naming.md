@@ -43,6 +43,12 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
   compatibility wrapper. No separate case-only `WebServerHTTP.h` exists.
 - `EventDispatcher` internal callers use canonical HTTP/DMX type and method
   spellings; legacy spellings remain as compatibility wrappers/aliases.
+- `WAVMetadata.{h,cpp}`: canonical `parseBPMFromName()` and `stripBPMSuffix()` with
+  backward-compatible `parseBpmFromName()` and `stripBpmSuffix()` wrappers.
+- `TempoMap.h`: canonical `fallbackBPM()` with `fallbackBpm()` compatibility alias.
+- `ClickGenerator.h`: canonical `currentBPM()` with `currentBpm()` compatibility alias.
+- `PluginPowerManager.h`: canonical `estimatedDSPSavingsPercent` with `estimatedDspSavingsPercent` compatibility alias.
+- `IoPressurePolicy.h`: canonical `IOPressureLevel`, `kIOMinTightFraction`, and `kIOMinCriticalFraction` with legacy aliases.
 - Invariants preserved:
   - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
   - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
@@ -50,7 +56,7 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
     macOS/Windows file systems. A future rename needs a two-step Git move and
     reference-aware updates, not ambiguous duplicate paths.
 
-The WAV/UDP/HTTP/DMX cleanup and references were built and the native test target
+The WAV/UDP/HTTP/DMX/BPM/DSP/IO cleanup and references were built and the native test target
 passed on 2026-10-01. Remaining: continue the repository-wide inventory of
 acronym identifiers and filenames, migrate any remaining internal uses away
 from transitional aliases, and run UI/Electron/script plus supported platform

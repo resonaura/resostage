@@ -8,6 +8,7 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
 
 - Recent work is on `main`; do not push unless the user asks.
 - Completed commits in this work sequence:
+  - `d348319` — Canonicalize BPM, DSP, and IO acronyms with backwards-compatible aliases
   - `e0c4dbd` — Retain slot UUID ownership across plugin moves and discover recoverable orphan lanes
   - `5e26397` — Add touch session lifecycle and return ramp model for live automation recording
   - `84642ad` — Preserve automation continuity and boundary points across region splits
@@ -21,7 +22,7 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
   - `2242eee2` — Sync track power guards with isolated plugins
   - `714f802a` — Record packaged media export acceptance
   - `c4af206` — Update native and UI validation evidence
-- A focused acronym cleanup in this snapshot canonicalizes WAV/UDP/HTTP/DMX
+- A focused acronym cleanup in this snapshot canonicalizes WAV/UDP/HTTP/DMX/BPM/DSP/IO
   names and WAV/UDP source filenames, retaining legacy aliases for source
   compatibility. It passed the Core build and native suite; the broader acronym
   inventory and cross-language/platform audit are still open.
