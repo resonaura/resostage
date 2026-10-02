@@ -113,7 +113,8 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
 
     // 1. Evaluate TrackAutomation lanes defined on the SongDef
     for (const auto& lane : song.automationLanes) {
-        if (!lane.enabled || lane.muted || lane.points.empty())
+        if (!lane.enabled || lane.muted || lane.points.empty()
+            || lane.writeMode == AutomationWriteMode::Write)
             continue;
 
         const float value = AutomationEvaluator::evaluatePoints(
@@ -144,7 +145,8 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
             mr.loopStartBeats, mr.loopLengthBeats, mr.loop);
 
         for (const auto& lane : mr.automationLanes) {
-            if (!lane.enabled || lane.muted || lane.points.empty())
+            if (!lane.enabled || lane.muted || lane.points.empty()
+                || lane.writeMode == AutomationWriteMode::Write)
                 continue;
 
             const float value = AutomationEvaluator::evaluatePoints(
@@ -181,6 +183,7 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
         for (const auto& lane : region.automationLanes) {
             if (!lane.enabled || lane.muted || lane.points.empty()
                 || lane.target.domain != AutomationDomain::Plugin
+                || lane.writeMode == AutomationWriteMode::Write
                 || pluginBank == nullptr)
                 continue;
 

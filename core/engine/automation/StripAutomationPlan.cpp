@@ -36,7 +36,8 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
         for (const auto& lane : project.songs[songIndex].automationLanes) {
             if (lane.target.domain != AutomationDomain::Strip
                 || lane.scope != AutomationScope::Track || !lane.enabled
-                || lane.muted || lane.points.empty())
+                || lane.muted || lane.points.empty()
+                || lane.writeMode == AutomationWriteMode::Write)
                 continue;
             Parameter parameter;
             uint8_t mask = 0;

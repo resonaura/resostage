@@ -307,4 +307,25 @@ TEST_CASE("malformed envelopes fail preparation and physical bounds contain impo
     }
 }
 
+TEST_CASE("StripAutomationPlan: Write mode suppresses playback so new values overwrite cleanly") {
+    auto project = automationProject();
+    auto lane = envelope("faderGainDb", -6.0206f);
+    lane.writeMode = AutomationWriteMode::Write;
+    project.songs[0].automationLanes = {lane};
+    OutputLaneConfig output{.totalChannels = 2};
+    auto graph = buildMixGraph(project, output);
+    std::string error;
+    graph.stripAutomation = StripAutomationPlan::prepare(project, graph, error);
+    REQUIRE(error.empty());
+    REQUIRE(graph.stripAutomation != nullptr);
+    // In Write mode, the lane should not be bound to playback
+    CHECK(graph.stripAutomation->bindingCount(0) == 0);
+
+    // Switching writeMode back to Touch or Read enables playback
+    project.songs[0].automationLanes[0].writeMode = AutomationWriteMode::Touch;
+    graph.stripAutomation = StripAutomationPlan::prepare(project, graph, error);
+    REQUIRE(error.empty());
+    CHECK(graph.stripAutomation->bindingCount(0) == 1);
+}
+
 } // TEST_SUITE
