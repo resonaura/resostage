@@ -92,6 +92,7 @@ uint64_t routingLayoutKey(const MixGraph& graph) {
     for (const auto& edge : graph.edges) {
         hashU32(hash, edge.from);
         hashU32(hash, edge.to);
+        hashU32(hash, edge.sendIndex);
         hashByte(hash, static_cast<uint8_t>(edge.tap));
         hashByte(hash, static_cast<uint8_t>(edge.sourceChannel));
     }
@@ -428,12 +429,16 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
             case OutputType::SendsOnly:
                 break; // audible only through the send rows below
         }
-        for (const SendConfig& send : output.sends) {
+        for (size_t sendIndex = 0; sendIndex < output.sends.size(); ++sendIndex) {
+            const SendConfig& send = output.sends[sendIndex];
             if (!send.enabled)
                 continue;
             const SendTap tap = send.tap != SendTap::PostPan ? send.tap : (send.preFader ? SendTap::PreFader : SendTap::PostPan);
+            const size_t previousSize = graph.edges.size();
             addEdge(from, graph.find(send.bus), sendLevelToGain(send.level), tap,
                     /*sourceChannel=*/-1);
+            if (graph.edges.size() != previousSize)
+                graph.edges.back().sendIndex = static_cast<uint32_t>(sendIndex);
         }
     };
 

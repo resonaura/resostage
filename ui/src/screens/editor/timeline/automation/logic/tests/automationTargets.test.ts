@@ -80,6 +80,9 @@ describe("automationTargets", () => {
     const sendGroup = groups.find((g) => g.category === "send")!;
     expect(sendGroup.targets[0].label).toContain("Reverb");
     expect(sendGroup.targets[0].disabledReason).toBeUndefined();
+    expect(sendGroup.targets[0].parameterId).toBe("send:audio::send:1");
+    expect(sendGroup.targets[0].legacyParameterId).toBe("send:0");
+    expect(sendGroup.targets[0].currentValue).toBe(1);
 
     // Plugin group has slot
     const pluginGroup = groups.find((g) => g.category === "plugin")!;
@@ -112,6 +115,30 @@ describe("automationTargets", () => {
     const groups = getTrackAutomationTargets(offlineTrack);
     const pluginGroup = groups.find((g) => g.category === "plugin")!;
     expect(pluginGroup.targets[0].disabledReason).toContain("failed");
+  });
+
+  it("keeps stable send identity after reordering and exposes exact legacy index aliases", () => {
+    const first = baseTrack.output!.sends![0];
+    const second = { ...first, bus: "audio::send:2", level: 25 };
+    const reordered = { ...baseTrack, output: { ...baseTrack.output!, sends: [second, first] } };
+    const targets = getTrackAutomationTargets(reordered).find((group) => group.category === "send")!.targets;
+    expect(targets[0].parameterId).toBe("send:audio::send:2");
+    expect(targets[0].currentValue).toBe(0.25);
+    expect(matchesAutomationTarget(targets[1], { ...targets[1], parameterId: "send:audio::send:1" })).toBe(true);
+    expect(matchesAutomationTarget(targets[1], { ...targets[1], parameterId: "send:1" })).toBe(true);
+    expect(matchesAutomationTarget(targets[1], { ...targets[1], parameterId: "send:1garbage" })).toBe(false);
+  });
+
+  it("disables disconnected, disabled, and ambiguous stable sends explicitly", () => {
+    const first = baseTrack.output!.sends![0];
+    const track = { ...baseTrack, output: { ...baseTrack.output!, sends: [first, { ...first },
+      { ...first, bus: "audio::send:disabled", enabled: false }, { ...first, bus: "" }] } };
+    const targets = getTrackAutomationTargets(track).find((group) => group.category === "send")!.targets;
+    expect(new Set(targets.map((target) => target.id)).size).toBe(targets.length);
+    expect(targets[0].disabledReason).toContain("Ambiguous");
+    expect(targets[1].disabledReason).toContain("Ambiguous");
+    expect(targets[2].disabledReason).toBe("Send is disabled");
+    expect(targets[3].disabledReason).toContain("disconnected");
   });
 
   it("retains existing lane parameters for active plug-in slots", () => {

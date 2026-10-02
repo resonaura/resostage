@@ -11,8 +11,10 @@
 #include "audio/graph/MixRenderer.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <limits>
+#include <string_view>
 
 namespace resostage {
 
@@ -63,36 +65,51 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
 
             if (parameter == Parameter::SendGain) {
                 std::string targetBusId;
-                const std::string sendRef = lane.target.parameterId.substr(5);
+                const std::string_view sendRef(lane.target.parameterId.data() + 5,
+                                               lane.target.parameterId.size() - 5);
                 const bool isIndex = !sendRef.empty()
-                    && std::all_of(sendRef.begin(), sendRef.end(), ::isdigit);
+                    && std::all_of(sendRef.begin(), sendRef.end(),
+                        [](char character) { return character >= '0' && character <= '9'; });
+                const std::vector<SendConfig>* sends = nullptr;
                 if (graph.strips[stripIndex].kind == StripKind::Track
                     && graph.strips[stripIndex].projectIndex < project.tracks.size()) {
-                    const auto& trackDef = project.tracks[graph.strips[stripIndex].projectIndex];
-                    if (isIndex) {
-                        const size_t sIdx = std::stoul(sendRef);
-                        if (sIdx < trackDef.output.sends.size())
-                            targetBusId = trackDef.output.sends[sIdx].bus;
-                    } else {
-                        targetBusId = sendRef;
-                    }
+                    sends = &project.tracks[graph.strips[stripIndex].projectIndex].output.sends;
                 } else if (graph.strips[stripIndex].kind == StripKind::Click) {
-                    if (isIndex) {
-                        const size_t sIdx = std::stoul(sendRef);
-                        if (sIdx < project.click.output.sends.size())
-                            targetBusId = project.click.output.sends[sIdx].bus;
-                    } else {
-                        targetBusId = sendRef;
+                    sends = &project.click.output.sends;
+                }
+                if (sends == nullptr || sendRef.empty())
+                    continue;
+                size_t targetSendIndex = sends->size();
+                if (isIndex) {
+                    const auto parsed = std::from_chars(sendRef.data(),
+                        sendRef.data() + sendRef.size(), targetSendIndex);
+                    if (parsed.ec != std::errc{}
+                        || parsed.ptr != sendRef.data() + sendRef.size()
+                        || targetSendIndex >= sends->size())
+                        continue; // Malformed legacy indices are unbound, never exceptions.
+                } else {
+                    for (size_t index = 0; index < sends->size(); ++index) {
+                        if (!(*sends)[index].enabled || (*sends)[index].bus != sendRef)
+                            continue;
+                        if (targetSendIndex != sends->size()) {
+                            // A stable bus ID cannot distinguish duplicate taps. Preserve
+                            // the lane unbound rather than changing an arbitrary send.
+                            targetSendIndex = sends->size();
+                            break;
+                        }
+                        targetSendIndex = index;
                     }
                 }
-                if (targetBusId.empty())
+                if (targetSendIndex >= sends->size() || !(*sends)[targetSendIndex].enabled)
                     continue;
+                targetBusId = (*sends)[targetSendIndex].bus;
                 const uint32_t toStrip = graph.find(targetBusId);
                 if (toStrip == MixGraph::kNoStrip)
                     continue;
                 bool foundEdge = false;
                 for (size_t e = 0; e < graph.edges.size(); ++e) {
-                    if (graph.edges[e].from == stripIndex && graph.edges[e].to == toStrip) {
+                    if (graph.edges[e].from == stripIndex && graph.edges[e].to == toStrip
+                        && graph.edges[e].sendIndex == targetSendIndex) {
                         targetEdgeIndex = static_cast<uint32_t>(e);
                         foundEdge = true;
                         break;

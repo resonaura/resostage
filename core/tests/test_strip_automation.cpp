@@ -228,6 +228,105 @@ TEST_CASE("plan owns points and preserves curve and first matching lane semantic
     CHECK(audio.right == doctest::Approx(0.25f).epsilon(1e-5));
 }
 
+TEST_CASE("send automation binds only its aux edge beside a direct route to the same bus") {
+    auto project = automationProject();
+    SendBus sendBus;
+    sendBus.id = "audio::send:1";
+    project.sends.push_back(sendBus);
+    auto& output = project.tracks[0].output;
+    output.type = OutputType::Bus;
+    output.target = sendBus.id;
+    SendConfig send;
+    send.bus = sendBus.id;
+    send.level = 100.0;
+    output.sends.push_back(send);
+    auto lane = envelope("send:audio::send:1", 0.0f);
+    lane.target.minValue = 0.0f;
+    lane.target.maxValue = 1.0f;
+    project.songs[0].automationLanes = {lane};
+    const auto graph = preparedGraph(project);
+    REQUIRE(graph.stripAutomation->bindingCount(0) == 1);
+    const auto track = graph.find("audio::track:1");
+    const auto bus = graph.find(sendBus.id);
+    size_t directCount = 0, sendCount = 0;
+    for (const auto& edge : graph.edges) {
+        if (edge.from != track || edge.to != bus) continue;
+        if (edge.sendIndex == MixEdge::kNoSend) ++directCount;
+        else {
+            CHECK(edge.sendIndex == 0);
+            ++sendCount;
+        }
+    }
+    CHECK(directCount == 1);
+    CHECK(sendCount == 1);
+    AutomationRender audio(graph);
+    audio.settle(graph, 0, 0.0);
+    // Only the aux is zeroed. The independent full-gain direct route survives.
+    CHECK(audio.renderer.postChannel(bus, 0)[kSamples - 1]
+          == doctest::Approx(0.25f).epsilon(1e-4));
+}
+
+TEST_CASE("stable send bus identity survives reordering and rejects ambiguous or missing taps") {
+    auto project = automationProject();
+    for (const char* id : {"audio::send:1", "audio::send:2"}) {
+        SendBus bus;
+        bus.id = id;
+        project.sends.push_back(bus);
+        SendConfig send;
+        send.bus = id;
+        send.level = 100.0;
+        project.tracks[0].output.sends.push_back(send);
+    }
+    auto lane = envelope("send:audio::send:1", 0.0f);
+    lane.target.minValue = 0.0f;
+    lane.target.maxValue = 1.0f;
+    project.songs[0].automationLanes = {lane};
+    SUBCASE("send order changes") {
+        std::swap(project.tracks[0].output.sends[0], project.tracks[0].output.sends[1]);
+        const auto graph = preparedGraph(project);
+        REQUIRE(graph.stripAutomation->bindingCount(0) == 1);
+        AutomationRender audio(graph);
+        audio.settle(graph, 0, 0.0);
+        CHECK(audio.renderer.postChannel(graph.find("audio::send:1"), 0)[kSamples - 1]
+              == doctest::Approx(0.0f).epsilon(1e-4));
+        CHECK(audio.renderer.postChannel(graph.find("audio::send:2"), 0)[kSamples - 1]
+              == doctest::Approx(0.25f).epsilon(1e-4));
+    }
+    SUBCASE("duplicate enabled bus references") {
+        project.tracks[0].output.sends.push_back(project.tracks[0].output.sends[0]);
+        const auto graph = preparedGraph(project);
+        CHECK(graph.stripAutomation->bindingCount(0) == 0);
+    }
+    SUBCASE("disabled send cannot automate the remaining direct route") {
+        project.tracks[0].output.type = OutputType::Bus;
+        project.tracks[0].output.target = "audio::send:1";
+        project.tracks[0].output.sends[0].enabled = false;
+        const auto graph = preparedGraph(project);
+        CHECK(graph.stripAutomation->bindingCount(0) == 0);
+    }
+    SUBCASE("numeric legacy slot remains exact among duplicate bus taps") {
+        project.tracks[0].output.sends.push_back(project.tracks[0].output.sends[0]);
+        project.songs[0].automationLanes[0].target.parameterId = "send:2";
+        const auto graph = preparedGraph(project);
+        CHECK(graph.stripAutomation->bindingCount(0) == 1);
+        AutomationRender audio(graph);
+        audio.settle(graph, 0, 0.0);
+        CHECK(audio.renderer.postChannel(graph.find("audio::send:1"), 0)[kSamples - 1]
+              == doctest::Approx(0.25f).epsilon(1e-4));
+    }
+    SUBCASE("oversized numeric legacy suffix is unbound without throwing") {
+        project.songs[0].automationLanes[0].target.parameterId =
+            "send:9999999999999999999999999999999999999999";
+        const auto graph = preparedGraph(project);
+        CHECK(graph.stripAutomation->bindingCount(0) == 0);
+    }
+    SUBCASE("bus identity without configured aux send stays unbound") {
+        project.tracks[0].output.sends.erase(project.tracks[0].output.sends.begin());
+        const auto graph = preparedGraph(project);
+        CHECK(graph.stripAutomation->bindingCount(0) == 0);
+    }
+}
+
 TEST_CASE("absolute source beats handle tempo changes seeks song switches and ten thousand cycles") {
     auto project = automationProject();
     auto pan = envelope("pan", -1.0f);

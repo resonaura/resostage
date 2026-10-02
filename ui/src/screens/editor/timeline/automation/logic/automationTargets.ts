@@ -90,11 +90,16 @@ export function getTrackAutomationTargets(
     track.output.sends.forEach((send, index) => {
       const bus = buses?.find((b) => b.id === send.bus);
       const busName = bus?.name || `Bus ${index + 1}`;
+      const matchingSends = track.output!.sends!.filter((candidate) => candidate.bus === send.bus);
+      const enabledMatches = matchingSends.filter((candidate) => candidate.enabled);
       sendTargets.push({
-        id: `send:${track.id}:${send.bus || index}`,
+        id: `send:${track.id}:${send.bus || index}${matchingSends.length > 1 ? `:${index}` : ""}`,
         domain: "strip",
         entityId: track.id,
-        parameterId: `send:${index}`,
+        // Bus identity survives send reordering. Positional IDs are retained
+        // only as aliases for projects created before stable send bindings.
+        parameterId: `send:${send.bus}`,
+        legacyParameterId: `send:${index}`,
         label: `Send to ${busName}`,
         category: "send",
         valueType: "floatNormalized",
@@ -103,6 +108,9 @@ export function getTrackAutomationTargets(
         maxValue: 1.0,
         unit: "%",
         currentValue: send.level / 100,
+        disabledReason: !send.bus ? "Send bus removed or disconnected"
+          : !send.enabled ? "Send is disabled"
+          : enabledMatches.length !== 1 ? "Ambiguous: multiple enabled sends target this bus" : undefined,
       });
     });
   }
@@ -319,12 +327,7 @@ export function getTrackAutomationTargets(
         }
       } else if (lane.target.domain === "strip") {
         if (lane.target.parameterId.startsWith("send:")) {
-          const sendIdx = parseInt(lane.target.parameterId.slice(5), 10);
-          const sendExists =
-            Number.isFinite(sendIdx) &&
-            track.output?.sends &&
-            sendIdx >= 0 &&
-            sendIdx < track.output.sends.length;
+          const sendExists = sendTargets.some((target) => matchesAutomationTarget(target, lane.target));
           if (!sendExists) {
             orphanTargets.push({
               id: `orphan:${lane.id}`,

@@ -115,8 +115,13 @@ struct MixStrip {
 };
 
 struct MixEdge {
+    static constexpr uint32_t kNoSend = 0xFFFFFFFFu;
     uint32_t from = 0;
     uint32_t to = 0;
+    // SourceOutput::sends slot, resolved off audio. Direct bus/output routes
+    // deliberately keep kNoSend even when they share the same destination.
+    // This is publication metadata, not an additional persisted routing field.
+    uint32_t sendIndex = kNoSend;
     // Send level (1.0 for a plain main route). The source's own fader and pan
     // are NOT in here -- they were already applied once when `from` was
     // processed, which is exactly why the meter and the mix can never disagree.
