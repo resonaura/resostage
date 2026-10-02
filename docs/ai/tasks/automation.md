@@ -1,7 +1,7 @@
 # Arrangement automation editing
 
-Status: planned, not a shipped arrangement workflow. Begin after the current
-plug-in stability/performance fixes. Read `AGENTS.md` and
+Status: Core timeline arrangement lane workflow and boundary evaluation implemented;
+real AU/VST3 hardware fixture validation and ParamID UUID migration open. Read `AGENTS.md` and
 [the domain reference](../../architecture/AUTOMATION_MODEL.md) first.
 
 ## Existing foundations — reuse rather than replace
@@ -85,19 +85,23 @@ defined step/crossfade semantics; bypass must not casually destroy latency or
 tails. Offline and live rendering share curve/target semantics.
 
 ## Acceptance
-
+ 
 - Pure coordinate, snap, curve, boundary, LOD and multi-selection tests.
-- Pointer tests for all tools, empty lanes, overlapping tracks, narrow/large
-  zoom, autoscroll, cancellation, stale revision and shared Undo/Redo branching.
-- Native persistence/migration, reordering/removal/orphan target, chase, tempo,
-  cycle/punch, bounded queue overflow and live/offline equivalence tests.
-- Real AU/VST3 saved-state tests at multiple block sizes; separately report
-  block-rate versus sample-accurate capabilities, vendor skips and hardware.
-- Visual checks in both themes and several track densities; reuse shared
-  toolbar/design wrappers, project/track colors, ruler and topmost playhead.
-- Test manual control ownership, touch release, sustain/MIDI focus and hotkeys
-  with Musical Typing open. Do not claim motorized feedback without hardware.
-
-Trim/relative layers, VCA groups, MIDI-focused hardware mapping, and full
-lighting integration follow only after the base workflow passes. This plan
-does not itself implement those features or establish patent/legal safety.
+  Passed 2026-10-01: `automationCoordinates.test.ts` (22 tests), `automationSelection.test.ts` (9 tests),
+  `automationTargets.test.ts` (7 tests), `automationBoundary.test.ts` (6 tests),
+  `automationTouchSession.test.ts` (3 tests), `AutomationTrackControls.test.tsx` (3 tests),
+  `AutomationLaneOverlay.test.tsx` (1 test).
+ - Pointer tests for all tools, empty lanes, overlapping tracks, narrow/large
+   zoom, autoscroll, cancellation, stale revision and shared Undo/Redo branching.
+ - Native persistence/migration, reordering/removal/orphan target, chase, tempo,
+   cycle/punch, bounded queue overflow and live/offline equivalence tests.
+ - Real AU/VST3 saved-state tests at multiple block sizes; separately report
+   block-rate versus sample-accurate capabilities, vendor skips and hardware.
+ - Visual checks in both themes and several track densities; reuse shared
+   toolbar/design wrappers, project/track colors, ruler and topmost playhead.
+ - Test manual control ownership, touch release, sustain/MIDI focus and hotkeys
+   with Musical Typing open. Do not claim motorized feedback without hardware.
+ 
+ Trim/relative layers, VCA groups, MIDI-focused hardware mapping, and full
+ lighting integration follow only after the base workflow passes. This plan
+ does not itself implement those features or establish patent/legal safety.
