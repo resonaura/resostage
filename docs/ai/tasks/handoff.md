@@ -82,6 +82,7 @@ Additional critical issues:
 - `de27854`: Safe declicked mute automation (downstream of console meters, with 10 ms audibility ramping) and aux send automation edge bindings in `StripAutomationPlan` and `MixRenderer`. 560 native test cases / 327,376 assertions pass.
 - `7808523`: Direct numerical automation point editing (keyboard Return/Enter, "Set exact value…" context menu option, double-click on point, floating input popover with unit display and boundary clamping) and next-unautomated lane addition with bullet markers (`•`) in `AutomationTrackControls`. 100 UI test files / 676 tests pass.
 - `8751069`: Canonicalized BPM, UDP, and MIDI clock acronyms (`setClockBPM`, `setBPM`, `registerUDPSubscriber`, `kUDPTelemetryPort`, `sendFrameOverUDP`, `kArtNetUDPPort`) with backward-compatible aliases across `CoreMidiDispatcher`, `LightEngine`, `WebServer`, `LightHardwareServer`, and `ArtNetPacket`.
+- `aa44fac`: Enabled Touch, Latch, and Write automation modes with tone styling in `AutomationTrackControls`, implemented `punchOutLatchSession` and `revertWriteModeToSafety` in `automationTouchSession.ts`, added Write mode auto-revert to Touch safety in `builderAutomationRecordGesture`, added C++ Write mode test in `test_automation_framework.cpp`, and added live Touch and Write gesture recording verification to `editor-state.mjs`.
 
 ## Work in progress: inspect before continuing
 
@@ -91,12 +92,13 @@ and verified end-to-end against live Core HTTP commands and transport continuity
 - >4 KiB note and automation updates over HTTP without socket termination
 - Live note quantize during active playback without stopping or resetting clock
 - Live strip fader, pan, mute, and send automation creation and point replacement during active playback
+- Live Touch gesture recording and Write mode auto-safety revert during active playback
 - Continuous sample transport advancement through live project edits
 - Undo and Redo roundtrips restoring exact note durations and curves
 - Explicit 413 rejection for oversized command bodies
 - Persistence across project save and clean reopen
-- Test evidence: 100 UI Vitest test files / 676 tests pass, 5 Electron shell tests / 39 tests pass,
-  560 native engine tests / 327,376 assertions pass, zero tsc errors, zero oxlint errors.
+- Test evidence: 100 UI Vitest test files / 679 tests pass, 5 Electron shell tests / 39 tests pass,
+  560 native engine tests / 327,391 assertions pass, zero tsc errors, zero oxlint errors.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,
