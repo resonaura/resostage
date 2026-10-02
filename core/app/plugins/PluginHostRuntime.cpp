@@ -115,23 +115,39 @@ bool PluginHostRuntime::captureStateFiles(std::string& error) {
         error = "Live plug-in bank is unavailable";
         return false;
     }
-    auto stateDirectory = projectDirectory.getChildFile("LiveState");
-    if (stateDirectory.exists() && !stateDirectory.deleteRecursively()) {
-        error = "Could not replace isolated plug-in state snapshot";
+    const auto snapshot = builtBank.bank->snapshotStates();
+    if (!snapshot.warnings.empty()) {
+        error = "Plug-in state snapshot was incomplete";
+        for (const auto& warning : snapshot.warnings) {
+            if (error.size() + warning.size() + 2 > 448) {
+                error += "; additional diagnostics omitted";
+                break;
+            }
+            error += "; " + warning;
+        }
         return false;
     }
-    if (stateDirectory.createDirectory().failed()) {
-        error = "Could not create isolated plug-in state snapshot directory";
+
+    // Build a complete replacement beside the published snapshot so a failed
+    // plug-in serialization or disk write cannot erase the last recoverable
+    // state. Directory renames stay on the same volume.
+    const auto stateDirectory = projectDirectory.getChildFile("LiveState");
+    const auto stagingDirectory = projectDirectory.getChildFile(
+        ".LiveState-pending-" + juce::Uuid().toString().removeCharacters("{}-"));
+    const auto previousDirectory = projectDirectory.getChildFile(
+        ".LiveState-previous-" + juce::Uuid().toString().removeCharacters("{}-"));
+    if (stagingDirectory.createDirectory().failed()) {
+        error = "Could not create staged isolated plug-in state snapshot";
         return false;
     }
 #if !defined(_WIN32)
-    if (::chmod(stateDirectory.getFullPathName().toRawUTF8(), 0700) != 0) {
+    if (::chmod(stagingDirectory.getFullPathName().toRawUTF8(), 0700) != 0) {
+        stagingDirectory.deleteRecursively();
         error = "Could not secure isolated plug-in state directory";
         return false;
     }
 #endif
 
-    const auto snapshot = builtBank.bank->snapshotStates();
     const auto& slots = projectLoader.project().tracks.front().plugins;
     for (const auto& blob : snapshot.blobs) {
         const auto found = std::find_if(slots.begin(), slots.end(),
@@ -139,7 +155,7 @@ bool PluginHostRuntime::captureStateFiles(std::string& error) {
         if (found == slots.end())
             continue;
         const size_t slotIndex = static_cast<size_t>(found - slots.begin());
-        auto destination = stateDirectory.getChildFile(
+        auto destination = stagingDirectory.getChildFile(
             "slot-" + juce::String(static_cast<juce::int64>(slotIndex)) + ".state");
         juce::TemporaryFile temporary(destination);
         auto stream = temporary.getFile().createOutputStream();
@@ -149,10 +165,27 @@ bool PluginHostRuntime::captureStateFiles(std::string& error) {
         if (stream != nullptr)
             stream->flush();
         if (!wrote || !temporary.overwriteTargetFileWithTemporary()) {
+            stagingDirectory.deleteRecursively();
             error = "Could not persist isolated plug-in state for slot " + blob.slotId;
             return false;
         }
     }
+
+    const bool hadPrevious = stateDirectory.exists();
+    if (hadPrevious && !stateDirectory.moveFileTo(previousDirectory)) {
+        stagingDirectory.deleteRecursively();
+        error = "Could not preserve the last isolated plug-in state snapshot";
+        return false;
+    }
+    if (!stagingDirectory.moveFileTo(stateDirectory)) {
+        if (hadPrevious)
+            (void)previousDirectory.moveFileTo(stateDirectory);
+        stagingDirectory.deleteRecursively();
+        error = "Could not publish isolated plug-in state snapshot";
+        return false;
+    }
+    if (hadPrevious)
+        (void)previousDirectory.deleteRecursively();
     return true;
 }
 

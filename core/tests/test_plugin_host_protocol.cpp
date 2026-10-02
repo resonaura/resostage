@@ -390,6 +390,55 @@ TEST_CASE("offline plug-in MIDI retains full SysEx support beyond the live packe
     CHECK((*offlineMidi.buffer().begin()).numBytes == static_cast<int>(sysEx.size()));
     CHECK(offlineMidi.rejectedEvents() == 0);
 }
+
+TEST_CASE("instrument MIDI deferred during state capture is replayed in order without growth") {
+    PluginMIDIBuffer captured;
+    REQUIRE(captured.add(juce::MidiMessage::noteOn(1, 64,
+                       static_cast<uint8_t>(100)), 17));
+    REQUIRE(captured.add(juce::MidiMessage::noteOff(1, 64), 31));
+    PluginMIDIDeferredQueue deferred;
+    deferred.capture(captured.buffer());
+    CHECK(deferred.hasPending());
+
+    PluginMIDIBuffer replay;
+    const auto* preparedStorage = replay.buffer().data.begin();
+    CHECK(deferred.replayInto(replay) == 2);
+    CHECK_FALSE(deferred.hasPending());
+    REQUIRE(replay.size() == 2);
+    auto iterator = replay.buffer().begin();
+    const auto noteOn = *iterator++;
+    const auto noteOff = *iterator;
+    CHECK(noteOn.samplePosition == 0);
+    CHECK(noteOn.data[0] == 0x90);
+    CHECK(noteOn.data[1] == 64);
+    CHECK(noteOff.samplePosition == 0);
+    CHECK(noteOff.data[0] == 0x80);
+    CHECK(noteOff.data[1] == 64);
+    CHECK(replay.buffer().data.begin() == preparedStorage);
+}
+
+TEST_CASE("deferred MIDI overflow clears ambiguous history and replays channel panic") {
+    juce::MidiBuffer input;
+    for (uint32_t index = 0; index <= PluginMIDIDeferredQueue::capacity; ++index)
+        REQUIRE(input.addEvent(juce::MidiMessage::noteOn(1, 60,
+                           static_cast<uint8_t>(100)), static_cast<int>(index)));
+
+    PluginMIDIDeferredQueue deferred;
+    deferred.capture(input);
+    CHECK(deferred.hasPending());
+    CHECK(deferred.takeDroppedEvents() == PluginMIDIDeferredQueue::capacity + 1);
+
+    PluginMIDIBuffer replay;
+    CHECK(deferred.replayInto(replay) == 48);
+    CHECK_FALSE(deferred.hasPending());
+    REQUIRE(replay.size() == 48);
+    int allSoundOffCount = 0;
+    for (const juce::MidiMessageMetadata event : replay.buffer())
+        if (event.numBytes == 3 && event.data[0] >= 0xb0
+            && event.data[0] <= 0xbf && event.data[1] == 120)
+            ++allSoundOffCount;
+    CHECK(allSoundOffCount == 16);
+}
 #endif
 
 TEST_CASE("plug-in host shared memory opens a second process view and signals it") {

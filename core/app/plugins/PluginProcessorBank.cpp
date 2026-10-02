@@ -243,6 +243,13 @@ PluginPlayHead::getPosition() const {
 }
 
 struct PluginProcessorBank::Node {
+    explicit Node(bool instrumentNode = false) : instrument(instrumentNode) {
+        if (instrument) {
+            deferredMidi = std::make_unique<PluginMIDIDeferredQueue>();
+            replayMidi = std::make_unique<PluginMIDIBuffer>();
+        }
+    }
+
     ~Node() {
         if (instance != nullptr) {
             try {
@@ -259,6 +266,8 @@ struct PluginProcessorBank::Node {
     std::unique_ptr<juce::AudioPluginInstance> instance;
     std::atomic<bool> bypassed{false};
     bool instrument = false;
+    std::unique_ptr<PluginMIDIDeferredQueue> deferredMidi;
+    std::unique_ptr<PluginMIDIBuffer> replayMidi;
     bool missingInstrument = false;
     std::string loadState = "loading";
     std::string loadError;
@@ -452,8 +461,13 @@ PluginProcessorBank::StateSnapshot PluginProcessorBank::snapshotStates() {
             continue;
         }
         for (auto& node : chain->nodes) {
-            if (node == nullptr || node->instance == nullptr)
+            if (node == nullptr)
                 continue;
+            if (node->instance == nullptr) {
+                snapshot.warnings.push_back(
+                    "No live instance available for plug-in slot " + node->slotId);
+                continue;
+            }
 
             node->stateCaptureRequested.store(true, std::memory_order_release);
             const auto deadline = std::chrono::steady_clock::now()
@@ -489,6 +503,15 @@ PluginProcessorBank::StateSnapshot PluginProcessorBank::snapshotStates() {
                 snapshot.warnings.push_back(
                     "Plug-in state limit exceeded for slot " + node->slotId);
                 continue;
+            }
+            if (node->deferredMidi != nullptr) {
+                const uint64_t dropped = node->deferredMidi->takeDroppedEvents();
+                if (dropped != 0) {
+                    snapshot.warnings.push_back(
+                        "Deferred MIDI overflow for plug-in slot " + node->slotId
+                        + "; sent All Sound Off and dropped "
+                        + std::to_string(dropped) + " events");
+                }
             }
             StateBlob blob;
             blob.slotId = node->slotId;
@@ -715,8 +738,10 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
             }
         }
 
+        const bool hasDeferredMidi = node->deferredMidi != nullptr
+            && node->deferredMidi->hasPending();
         const bool hasInput = node->instrument
-            ? (hasMidi || chain.midiActivity.hasActiveNotes())
+            ? (hasMidi || hasDeferredMidi || chain.midiActivity.hasActiveNotes())
             : (hasAudioInput || hasMidi);
         if (hasInput) {
             // Immediate instantaneous wake-up (< 0.05 ms) if incoming signal enters
@@ -728,13 +753,40 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
             continue;
         }
 
-        if (node->stateCaptureRequested.load(std::memory_order_acquire))
+        if (node->stateCaptureRequested.load(std::memory_order_acquire)) {
+            if (node->deferredMidi != nullptr)
+                node->deferredMidi->capture(chain.midi.buffer());
             continue;
+        }
         node->activeCalls.fetch_add(1, std::memory_order_acq_rel);
         if (node->stateCaptureRequested.load(std::memory_order_acquire)) {
             node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
+            if (node->deferredMidi != nullptr)
+                node->deferredMidi->capture(chain.midi.buffer());
             continue;
         }
+
+        bool replayingDeferredMidi = false;
+        if (node->deferredMidi != nullptr && node->replayMidi != nullptr
+            && node->deferredMidi->hasPending()) {
+            auto& replay = *node->replayMidi;
+            replay.clear();
+            (void)node->deferredMidi->replayInto(replay);
+            for (const juce::MidiMessageMetadata event : chain.midi.buffer()) {
+                if (!replay.add(event.data, event.numBytes, event.samplePosition))
+                    (void)node->deferredMidi->captureEvent(event);
+            }
+            chain.midi.swapContents(replay);
+            replayingDeferredMidi = true;
+        }
+
+        const auto restoreCurrentMidi = [&]() noexcept {
+            if (!replayingDeferredMidi)
+                return;
+            chain.midi.swapContents(*node->replayMidi);
+            node->replayMidi->clear();
+            replayingDeferredMidi = false;
+        };
 
         try {
             const int inChannels = node->instance->getTotalNumInputChannels();
@@ -749,6 +801,7 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
             if (node->requiredChannels > 2) {
                 const int samplesToProcess = std::min(numSamples, node->buffer.getNumSamples());
                 if (samplesToProcess <= 0) {
+                    restoreCurrentMidi();
                     node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
                     continue;
                 }
@@ -797,6 +850,7 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
             std::fill(left, left + numSamples, 0.0f);
             std::fill(right, right + numSamples, 0.0f);
         }
+        restoreCurrentMidi();
         node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
     }
     if (chain.activePluginIndexTelemetry != nullptr)
@@ -978,11 +1032,10 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                     }
                 }
                 for (const auto& slot : *slots) {
-                    auto node = std::make_shared<Node>();
+                    auto node = std::make_shared<Node>(slot.plugin.instrument);
                     node->slotId = slot.id;
                     node->pluginIdentifier = slot.plugin.identifier;
                     node->bypassed.store(slot.bypassed, std::memory_order_relaxed);
-                    node->instrument = slot.plugin.instrument;
                     node->loadState = "loading";
                     PluginPowerFlags flags;
                     flags.keepAwake = slot.keepAwake;
@@ -1150,11 +1203,10 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 continue;
             }
 
-            auto node = std::make_shared<Node>();
+            auto node = std::make_shared<Node>(slot.plugin.instrument);
             node->slotId = slot.id;
             node->pluginIdentifier = slot.plugin.identifier;
             node->bypassed.store(slot.bypassed, std::memory_order_relaxed);
-            node->instrument = slot.plugin.instrument;
             PluginPowerFlags pflags;
             pflags.keepAwake = slot.keepAwake;
             pflags.isInstrument = slot.plugin.instrument;
