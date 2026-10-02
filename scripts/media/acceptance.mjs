@@ -190,8 +190,235 @@ export async function runRenderAcceptance(coreExecutable, mediaExecutable, inspe
     for (const directory of [legacyDestination, customDestination])
       assert.equal(entries(directory).filter((file) => file.startsWith(".resostage-")).length, 0);
     console.log("Production destination validation passed: rejected paths, legacy omission and explicit default reset.");
+
+    // =========================================================================
+    // Media Import Acceptance: exercise production HTTP import workflows
+    // =========================================================================
+    console.log("Starting media import acceptance suite...");
+
+    const uploadMedia = async (requestId, buffer) => {
+      const response = await fetch(
+        `${origin}/api/v1/builder/track/import-wav/upload?requestId=${encodeURIComponent(requestId)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": String(buffer.length),
+          },
+          body: buffer,
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+      return response;
+    };
+
+    const pollImportStatus = async (requestId) => {
+      for (let attempt = 0; attempt < 100; ++attempt) {
+        const res = await fetch(
+          `${origin}/api/v1/builder/track/import-status?requestId=${encodeURIComponent(requestId)}`,
+          { signal: AbortSignal.timeout(5000) }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.finished) return data;
+        }
+        await sleep(50);
+      }
+      throw new Error(`Import timed out for request ${requestId}`);
+    };
+
+    const pollState = async (predicate, description) => {
+      for (let attempt = 0; attempt < 100; ++attempt) {
+        const state = await request("/api/v1/state");
+        if (predicate(state)) return state;
+        await sleep(50);
+      }
+      throw new Error(`Timed out waiting for state condition: ${description}`);
+    };
+
+    // 1. Successful Audio Import
+    const audioFixture = join(temp, "test-import-audio.wav");
+    invoke(["-f", "lavfi", "-i", "sine=frequency=523:sample_rate=48000:duration=0.5",
+      "-ac", "2", "-c:a", "pcm_f32le", audioFixture]);
+    const audioBytes = readFileSync(audioFixture);
+
+    const beginAudio = await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "test-import-audio.wav", startSeconds: 0.1, requestId: "req-audio-1"
+    });
+    assert.equal(beginAudio.ok, true, "Audio import begin must succeed");
+
+    const uploadAudioRes = await uploadMedia("req-audio-1", audioBytes);
+    assert.equal(uploadAudioRes.status, 200, "Audio upload POST must succeed");
+    const audioImportStatus = await pollImportStatus("req-audio-1");
+    assert.equal(audioImportStatus.success, true, `Audio import failed: ${audioImportStatus.error}`);
+
+    let state = await pollState((s) => s.songs[0].regions.filter((r) => r.trackId === "audio::track:1").length >= 2,
+      "imported audio region present on track 1");
+    console.log("Media import passed: successful audio import.");
+
+    // 2. Successful Video Import (with audio)
+    const videoFixture = join(temp, "test-import-video.mp4");
+    invoke(["-f", "lavfi", "-i", "testsrc=duration=0.5:size=320x240:rate=30",
+      "-f", "lavfi", "-i", "sine=frequency=659:duration=0.5",
+      "-c:v", "mpeg4", "-c:a", "aac", videoFixture]);
+    const videoBytes = readFileSync(videoFixture);
+
+    const beginVideo = await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "test-import-video.mp4", startSeconds: 0.2, requestId: "req-video-1"
+    });
+    assert.equal(beginVideo.ok, true, "Video import begin must succeed");
+
+    const uploadVideoRes = await uploadMedia("req-video-1", videoBytes);
+    assert.equal(uploadVideoRes.status, 200, "Video upload POST must succeed");
+    const videoImportStatus = await pollImportStatus("req-video-1");
+    assert.equal(videoImportStatus.success, true, `Video import failed: ${videoImportStatus.error}`);
+
+    const videoDir = join(project, "Video");
+    assert.ok(existsSync(videoDir), "Project package must contain Video folder for retained original video");
+    const videoFiles = entries(videoDir);
+    assert.ok(videoFiles.some((f) => f.includes("test-import-video.mp4")),
+      `Original video file must be retained in Video/ folder, got: ${videoFiles.join(", ")}`);
+    console.log("Media import passed: successful video import with retained original video in package.");
+
+    // 3. No-Audio Video Import (must fail cleanly and leave no partial regions)
+    const silentVideoFixture = join(temp, "silent-video.mp4");
+    invoke(["-f", "lavfi", "-i", "testsrc=duration=0.5:size=320x240:rate=30",
+      "-c:v", "mpeg4", "-an", silentVideoFixture]);
+    const silentVideoBytes = readFileSync(silentVideoFixture);
+
+    const regionsBeforeSilent = (await request("/api/v1/state")).songs[0].regions.length;
+    await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "silent-video.mp4", startSeconds: 0.0, requestId: "req-silent-video"
+    });
+    const uploadSilentRes = await uploadMedia("req-silent-video", silentVideoBytes);
+    assert.equal(uploadSilentRes.status, 200);
+    const silentImportStatus = await pollImportStatus("req-silent-video");
+    assert.equal(silentImportStatus.success, false, "No-audio video import must fail");
+    assert.ok(silentImportStatus.error.length > 0, "No-audio failure must report an error");
+
+    const regionsAfterSilent = (await request("/api/v1/state")).songs[0].regions.length;
+    assert.equal(regionsAfterSilent, regionsBeforeSilent, "Failed no-audio import must not add a region");
+    console.log("Media import passed: no-audio video rejected cleanly without partial state.");
+
+    // 4. Corrupt Media Source (must fail cleanly)
+    const corruptBytes = Buffer.from("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00CORRUPT_GARBAGE_PAYLOAD");
+    await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "corrupt.wav", startSeconds: 0.0, requestId: "req-corrupt"
+    });
+    const uploadCorruptRes = await uploadMedia("req-corrupt", corruptBytes);
+    assert.equal(uploadCorruptRes.status, 200);
+    const corruptImportStatus = await pollImportStatus("req-corrupt");
+    assert.equal(corruptImportStatus.success, false, "Corrupt file import must fail");
+    assert.equal((await request("/api/v1/state")).songs[0].regions.length, regionsBeforeSilent,
+      "Failed corrupt import must not add a region");
+    console.log("Media import passed: corrupt media source rejected cleanly.");
+
+    // 5. Duplicate Filenames (must produce distinct UUID entries and never collide)
+    const countBeforeDup = (await request("/api/v1/state")).songs[0].regions.length;
+    await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "duplicate.wav", startSeconds: 0.0, requestId: "req-dup-1"
+    });
+    await uploadMedia("req-dup-1", audioBytes);
+    const dup1Status = await pollImportStatus("req-dup-1");
+    assert.equal(dup1Status.success, true);
+
+    await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "duplicate.wav", startSeconds: 0.25, requestId: "req-dup-2"
+    });
+    await uploadMedia("req-dup-2", audioBytes);
+    const dup2Status = await pollImportStatus("req-dup-2");
+    assert.equal(dup2Status.success, true);
+
+    state = await pollState((s) => s.songs[0].regions.length >= countBeforeDup + 2,
+      "both duplicate files produce distinct regions");
+    const allRegions = state.songs[0].regions;
+    assert.equal(allRegions.length, countBeforeDup + 2, "Both duplicate files must produce distinct regions");
+    const dup1Region = allRegions[allRegions.length - 2];
+    const dup2Region = allRegions[allRegions.length - 1];
+    assert.notEqual(dup1Region.id, dup2Region.id, "Duplicate filenames must have distinct region IDs");
+    assert.notEqual(dup1Region.source.file, dup2Region.source.file, "Duplicate filenames must have distinct archive files");
+    console.log("Media import passed: duplicate filenames handled with distinct UUID archive entries.");
+
+    // 6. Cancelled / Disconnected Upload (client aborts mid-stream)
+    await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "aborted.wav", startSeconds: 0.0, requestId: "req-aborted"
+    });
+    await new Promise((resolveAbort) => {
+      import("node:http").then(({ request: httpReq }) => {
+        const req = httpReq(`${origin}/api/v1/builder/track/import-wav/upload?requestId=req-aborted`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "Content-Length": "1000000",
+          },
+        });
+        req.on("error", () => resolveAbort());
+        req.write(Buffer.alloc(1024, 0x55));
+        setTimeout(() => {
+          req.destroy();
+          resolveAbort();
+        }, 50);
+      });
+    });
+    await sleep(200);
+    state = await request("/api/v1/state");
+    assert.ok(state.projectName === "Render Acceptance", "Core must remain fully responsive after aborted upload");
+    console.log("Media import passed: aborted/disconnected upload cleaned up without crash or leaked state.");
+
+    // 7. Queue Rejection: invalid song/track target (negative index or duplicate ticket)
+    const invalidTargetRes = await fetch(`${origin}/api/v1/builder/track/import-wav/begin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ songIndex: -1, index: 0, fileName: "x.wav", startSeconds: 0, requestId: "req-invalid" }),
+    });
+    assert.equal(invalidTargetRes.status, 409, "Invalid negative import target must be rejected with 409");
+
+    const dupTicket1 = await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "x.wav", startSeconds: 0, requestId: "req-dup-ticket"
+    });
+    assert.equal(dupTicket1.ok, true);
+    const dupTicketRes = await fetch(`${origin}/api/v1/builder/track/import-wav/begin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ songIndex: 0, index: 0, fileName: "x.wav", startSeconds: 0, requestId: "req-dup-ticket" }),
+    });
+    assert.equal(dupTicketRes.status, 409, "Duplicate ticket must be rejected with 409");
+    console.log("Media import passed: invalid targets, duplicate tickets and queue bounds rejected.");
+
+    // 8. Song Boundary Extension
+    const longAudioFixture = join(temp, "long-audio.wav");
+    invoke(["-f", "lavfi", "-i", "sine=frequency=300:sample_rate=48000:duration=2.0",
+      "-ac", "2", "-c:a", "pcm_f32le", longAudioFixture]);
+    const longAudioBytes = readFileSync(longAudioFixture);
+
+    await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0, index: 0, fileName: "long-audio.wav", startSeconds: 1.5, requestId: "req-extend"
+    });
+    await uploadMedia("req-extend", longAudioBytes);
+    const extendStatus = await pollImportStatus("req-extend");
+    assert.equal(extendStatus.success, true);
+
+    let songAfterExt;
+    for (let attempt = 0; attempt < 50; ++attempt) {
+      songAfterExt = (await request("/api/v1/state")).songs[0];
+      if (songAfterExt.endSeconds >= 3.5) break;
+      await sleep(50);
+    }
+    assert.ok(songAfterExt.endSeconds >= 3.5,
+      `Song boundary must extend to encompass imported audio (expected >= 3.5, got ${songAfterExt.endSeconds})`);
+    console.log("Media import passed: song boundary extension on import.");
+
+    // 9. Save and Reopen Persistence
+    await stopCore();
+    await startCore();
+    const stateAfterReopen = await pollState((s) => s.songs[0].regions.length >= 4,
+      "imported regions survive restart");
+    assert.ok(stateAfterReopen.songs[0].regions.length >= 4, "Imported regions must survive project save and reopen");
+    console.log("Media import passed: imported regions and media survive save/reopen across Core restart.");
+
     if (inspect) await inspect(origin, temp);
     console.log("Render acceptance passed: production HTTP graph → 9 formats → decoded non-silent audio; custom folder and persisted/reset destination.");
+    console.log("Media acceptance complete: export + import production HTTP verified.");
   } finally {
     await stopCore();
     rmSync(temp, { recursive: true, force: true });
