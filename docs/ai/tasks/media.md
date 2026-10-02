@@ -15,10 +15,13 @@ Do not reimplement it or introduce a runtime PATH/package-manager dependency.
 1. The macOS ARM64 application assembly, deep strict signature, helper icon/
    metadata probes and installed HTTP export invocation passed on 2026-10-01.
    Repeat these checks for release artifacts and the remaining platforms.
-2. Exercise actual HTTP import-begin/upload/completion: successful audio/video,
-   no-audio video, corrupt source, duplicate filename, cancelled/disconnected
-   upload, queue rejection, and song boundary extension. Confirm failure leaves
-   no region/history/temporary file and success survives save/reopen.
+2. Production HTTP import-begin/upload/completion acceptance passed on the
+   macOS ARM64 packaged Core on 2026-10-01 via `scripts/media/acceptance.mjs`
+   (successful audio/video, retained original video in package, no-audio video
+   clean rejection, corrupt media source rejection, duplicate filename distinct
+   UUID archive entries, aborted/disconnected upload cleanup without leak,
+   invalid target and duplicate ticket 409 rejection, song boundary extension,
+   and region/media package persistence across Core restart).
 3. Nine-format HTTP graph-to-codec export and custom destination persistence/
    validation passed on the macOS ARM64 packaged Core on 2026-10-01 via
    `scripts/media/acceptance.mjs` (decoded non-silent output, restart persistence,
