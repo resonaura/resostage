@@ -47,7 +47,6 @@ export function getTrackAutomationTargets(
       maxValue: 12.0,
       unit: "dB",
       currentValue: track.gainDb,
-      disabledReason: "Strip automation playback is not available yet",
     },
     {
       id: `strip:${track.id}:pan`,
@@ -62,7 +61,6 @@ export function getTrackAutomationTargets(
       maxValue: 1.0,
       unit: "",
       currentValue: track.pan,
-      disabledReason: "Strip automation playback is not available yet",
     },
     {
       id: `strip:${track.id}:mute`,
@@ -77,7 +75,7 @@ export function getTrackAutomationTargets(
       maxValue: 1.0,
       unit: "",
       currentValue: track.mute ? 1 : 0,
-      disabledReason: "Strip automation playback is not available yet",
+      disabledReason: "Mute automation playback is not available yet (requires audibility smoothing)",
     },
   ];
 

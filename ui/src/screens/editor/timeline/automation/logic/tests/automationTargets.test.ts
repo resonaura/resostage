@@ -72,6 +72,9 @@ describe("automationTargets", () => {
       "pan",
       "mute",
     ]);
+    expect(stripGroup.targets[0].disabledReason).toBeUndefined();
+    expect(stripGroup.targets[1].disabledReason).toBeUndefined();
+    expect(stripGroup.targets[2].disabledReason).toContain("Mute automation playback is not available yet");
 
     // Send group points to Reverb
     const sendGroup = groups.find((g) => g.category === "send")!;

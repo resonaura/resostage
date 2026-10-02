@@ -92,7 +92,7 @@ describe("AutomationTrackControls", () => {
     expect(select).not.toBeNull();
     expect(select?.getAttribute("tabindex")).toBe("-1");
 
-    const buttons = container.querySelectorAll("button[aria-label]");
+    const buttons = container.querySelectorAll<HTMLButtonElement>("button[aria-label]");
     expect(buttons.length).toBeGreaterThanOrEqual(2);
     buttons.forEach((btn) => {
       if (!btn.disabled) {

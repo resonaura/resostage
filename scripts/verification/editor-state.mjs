@@ -117,6 +117,36 @@ export async function verifyEditorState(coreExecutable, inspect) {
     state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[0]?.points.length === points.length, "large curve-preserving point replacement");
     assert.ok(state.songs[0].automationLanes[0].points.every((point) => Math.abs(point.curve - 0.4) < 1e-6));
 
+    // Strip fader gain and pan automation live during playback
+    await request("/api/v1/transport/play", {});
+    const playingStrip = await waitFor((s) => s.playing, "Play for strip automation");
+    await request("/api/v1/builder/automation-lane/add", { songIndex: 0, domain: "strip", entityId: "audio::track:1",
+      parameterId: "faderGainDb", valueType: "decibels", defaultValue: 0, minValue: -60, maxValue: 12, points: [] });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.length === 2, "strip fader gain lane creation");
+    const faderLane = state.songs[0].automationLanes[1];
+    assert.equal(faderLane.target.parameterId, "faderGainDb");
+    const faderPoints = [
+      { timeBeats: 0, value: 0, curve: 0 },
+      { timeBeats: 4, value: -6, curve: 0.5 },
+      { timeBeats: 8, value: -18, curve: -0.5 },
+    ];
+    await request("/api/v1/builder/automation-points/replace", { songIndex: 0, laneId: faderLane.id, points: faderPoints });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[1]?.points.length === 3, "strip fader points replacement");
+    assert.equal(state.playing, true, "Strip automation edit must not stop playback");
+    assert.ok(state.playheadSeconds > playingStrip.playheadSeconds, "Transport continuously advances through strip automation edit");
+
+    // Pan automation lane
+    await request("/api/v1/builder/automation-lane/add", { songIndex: 0, domain: "strip", entityId: "audio::track:1",
+      parameterId: "pan", valueType: "floatNormalized", defaultValue: 0, minValue: -1, maxValue: 1, points: [
+        { timeBeats: 0, value: -0.5, curve: 0 },
+        { timeBeats: 4, value: 0.5, curve: 0 },
+      ] });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.length === 3, "strip pan lane creation");
+    assert.equal(state.songs[0].automationLanes[2].target.parameterId, "pan");
+
+    await request("/api/v1/transport/stop", {});
+    await waitFor((s) => !s.playing, "Stop after strip automation");
+
     const rejected = await fetch(origin + "/api/v1/transport/play", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ padding: "x".repeat(65536) }), signal: AbortSignal.timeout(8000) });
     assert.equal(rejected.status, 413);
@@ -127,7 +157,11 @@ export async function verifyEditorState(coreExecutable, inspect) {
     await request("/api/v1/project/save", {});
     for (let attempt = 0; attempt < 100; ++attempt) {
       const saved = JSON.parse(readFileSync(metadataPath, "utf8"));
-      if (saved.songs?.[0]?.midiRegions?.[0]?.notes.length === notes.length && saved.songs[0].automationLanes?.[0]?.points.length === points.length) break;
+      if (saved.songs?.[0]?.midiRegions?.[0]?.notes.length === notes.length
+          && saved.songs[0].automationLanes?.length === 3
+          && saved.songs[0].automationLanes?.[0]?.points.length === points.length
+          && saved.songs[0].automationLanes?.[1]?.points.length === 3
+          && saved.songs[0].automationLanes?.[2]?.points.length === 2) break;
       if (attempt === 99) throw new Error("Project save did not persist edited collections");
       await sleep(50);
     }
@@ -137,8 +171,12 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(getRegion(state).notes.length, notes.length);
     assert.ok(getRegion(state).notes.every((note) => note.durationBeats === 0.5 && note.startBeats % 0.5 === 0));
     assert.equal(state.songs[0].automationLanes[0].points.length, points.length);
+    assert.equal(state.songs[0].automationLanes[1].target.parameterId, "faderGainDb");
+    assert.equal(state.songs[0].automationLanes[1].points.length, 3);
+    assert.equal(state.songs[0].automationLanes[2].target.parameterId, "pan");
+    assert.equal(state.songs[0].automationLanes[2].points.length, 2);
     if (inspect) await inspect(origin);
-    console.log("PASS: large MIDI/automation HTTP edits, live transport continuity, Undo/Redo,413, save/reopen");
+    console.log("PASS: large MIDI/automation HTTP edits, strip fader/pan playback, live transport continuity, Undo/Redo, 413, save/reopen");
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.
