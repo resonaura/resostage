@@ -13,8 +13,19 @@ import type { TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools
 import { useAutomationCommit } from "@/screens/editor/timeline/automation/hooks/useAutomationCommit";
 import { beatToPixel, hitTestAutomation, pixelDeltaToBeats, pixelToBeat, pixelToValue,
   valueToPixel } from "@/screens/editor/timeline/automation/logic/automationCoordinates";
-import { replaceAutomationStroke, setAutomationSelectionCurve,
-  smoothAutomationSelection } from "@/screens/editor/timeline/automation/logic/automationEditing";
+import {
+  copySelectedAutomationPoints,
+  duplicateAutomationSelection,
+  pasteAutomationClipboard,
+  replaceAutomationStroke,
+  setAutomationSelectionCurve,
+  smoothAutomationSelection,
+} from "@/screens/editor/timeline/automation/logic/automationEditing";
+import {
+  getAutomationClipboard,
+  hasAutomationClipboard,
+  setAutomationClipboard,
+} from "@/screens/editor/timeline/automation/logic/automationClipboard";
 import { adjustCurvature, insertAutomationPoint, moveSegment, moveSelectedPoints,
   removeAutomationPoints, selectPointsInRect,
   toggleSelectPoint } from "@/screens/editor/timeline/automation/logic/automationSelection";
@@ -142,6 +153,47 @@ export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
   };
   const selectAllPoints = () => setSelectedIndices(new Set(activePoints.map((_, index) => index)));
   const clearSelection = () => setSelectedIndices(new Set());
+
+  const copySelectedPoints = () => {
+    if (selectedIndices.size === 0) return;
+    const clip = copySelectedAutomationPoints(activePoints, selectedIndices, {
+      domain: lane.target.domain,
+      parameterId: lane.target.parameterId,
+    });
+    if (clip) setAutomationClipboard(clip);
+  };
+
+  const cutSelectedPoints = () => {
+    if (readOnly || pendingRef.current || selectedIndices.size === 0) return;
+    copySelectedPoints();
+    deleteSelectedPoints();
+  };
+
+  const pastePoints = (targetBeats?: number) => {
+    if (readOnly || pendingRef.current) return;
+    const clip = getAutomationClipboard();
+    if (!clip || clip.points.length === 0) return;
+    let baseBeats = targetBeats;
+    if (baseBeats === undefined) {
+      if (selectedIndices.size > 0) {
+        const selectedPoints = activePoints.filter((_, idx) => selectedIndices.has(idx));
+        baseBeats = Math.max(...selectedPoints.map((p) => p.timeBeats)) + step;
+      } else {
+        baseBeats = activePoints.length > 0 ? activePoints[activePoints.length - 1].timeBeats + step : 0;
+      }
+    }
+    const result = pasteAutomationClipboard(activePoints, clip, snap(baseBeats), minValue, maxValue);
+    setSelectedIndices(result.newIndices);
+    void commitOperation(result.points);
+  };
+
+  const duplicateSelectedPoints = () => {
+    if (readOnly || pendingRef.current || selectedIndices.size === 0) return;
+    const result = duplicateAutomationSelection(activePoints, selectedIndices, step, minValue, maxValue);
+    if (!result) return;
+    setSelectedIndices(result.newIndices);
+    void commitOperation(result.points);
+  };
 
   const onPointerDown = (event: PointerEvent) => {
     // Automation mode claims the complete surface, including empty/read-only
@@ -323,5 +375,6 @@ export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
     onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onContextMenu,
     onPointerLeave: () => { if (!sessionRef.current) setHoverInfo(null); },
     deleteSelectedPoints, smoothSelectedPoints, setSelectedCurve, setSelectedPointsValue, selectAllPoints, clearSelection,
+    copySelectedPoints, cutSelectedPoints, pastePoints, duplicateSelectedPoints, hasClipboard: hasAutomationClipboard,
     isPending: commit.isPending, error: commit.error, selectionCount: selectedIndices.size };
 }

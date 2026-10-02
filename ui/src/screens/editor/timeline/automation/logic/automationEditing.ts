@@ -6,6 +6,7 @@
 
 import { clamp } from "@/screens/editor/timeline/automation/logic/automationCoordinates";
 import type { AutomationPointViewModel } from "@/screens/editor/timeline/automation/logic/types";
+import type { AutomationPointClipboard } from "@/screens/editor/timeline/automation/logic/automationClipboard";
 
 /** Core stores values/curves as floats; reconciliation tolerates that round trip. */
 export function automationPointsEqual(
@@ -77,3 +78,91 @@ export function setAutomationSelectionCurve(
       : point
   ));
 }
+
+/**
+ * Copies selected points and computes their normalized beat offsets relative to the first selected point.
+ */
+export function copySelectedAutomationPoints(
+  points: AutomationPointViewModel[],
+  selected: Set<number>,
+  sourceTarget?: { domain: string; parameterId: string },
+): AutomationPointClipboard | null {
+  if (selected.size === 0) return null;
+  const selectedPoints = points
+    .filter((_, index) => selected.has(index))
+    .sort((a, b) => a.timeBeats - b.timeBeats);
+  if (selectedPoints.length === 0) return null;
+
+  const minBeats = selectedPoints[0].timeBeats;
+  const maxBeats = selectedPoints[selectedPoints.length - 1].timeBeats;
+  const spanBeats = Math.max(0, maxBeats - minBeats);
+
+  return {
+    spanBeats,
+    points: selectedPoints.map((p) => ({
+      offsetBeats: p.timeBeats - minBeats,
+      value: p.value,
+      curve: p.curve,
+    })),
+    sourceDomain: sourceTarget?.domain,
+    sourceParameterId: sourceTarget?.parameterId,
+  };
+}
+
+/**
+ * Pastes clipboard points at target beat offset, replacing underlying points across the pasted span.
+ */
+export function pasteAutomationClipboard(
+  existing: AutomationPointViewModel[],
+  clipboard: AutomationPointClipboard,
+  targetBeats: number,
+  minValue = 0,
+  maxValue = 1,
+): { points: AutomationPointViewModel[]; newIndices: Set<number> } {
+  if (clipboard.points.length === 0) {
+    return { points: existing, newIndices: new Set() };
+  }
+
+  const baseBeats = Math.max(0, targetBeats);
+  const pasted: AutomationPointViewModel[] = clipboard.points.map((p) => ({
+    timeBeats: Math.max(0, baseBeats + p.offsetBeats),
+    value: clamp(p.value, minValue, maxValue),
+    curve: clamp(p.curve, -1, 1),
+  }));
+
+  const updated = replaceAutomationStroke(existing, pasted);
+
+  const newIndices = new Set<number>();
+  pasted.forEach((pt) => {
+    const idx = updated.findIndex(
+      (u) => Math.abs(u.timeBeats - pt.timeBeats) < 1e-6 && Math.abs(u.value - pt.value) < 1e-5,
+    );
+    if (idx !== -1) newIndices.add(idx);
+  });
+
+  return { points: updated, newIndices };
+}
+
+/**
+ * Duplicates selected points immediately following the selection span, aligned to grid step.
+ */
+export function duplicateAutomationSelection(
+  existing: AutomationPointViewModel[],
+  selected: Set<number>,
+  gridStepBeats = 1,
+  minValue = 0,
+  maxValue = 1,
+): { points: AutomationPointViewModel[]; newIndices: Set<number> } | null {
+  const clip = copySelectedAutomationPoints(existing, selected);
+  if (!clip || clip.points.length === 0) return null;
+
+  const selectedPoints = existing.filter((_, idx) => selected.has(idx));
+  const minBeats = Math.min(...selectedPoints.map((p) => p.timeBeats));
+  const shiftBeats = clip.spanBeats > 0
+    ? (gridStepBeats > 0 ? Math.ceil(clip.spanBeats / gridStepBeats) * gridStepBeats : clip.spanBeats)
+    : Math.max(0.25, gridStepBeats);
+
+  const destinationBeats = minBeats + shiftBeats;
+  return pasteAutomationClipboard(existing, clip, destinationBeats, minValue, maxValue);
+}
+

@@ -13,6 +13,10 @@ export function useAutomationKeyboard(id: string, surface: RefObject<HTMLDivElem
     deleteSelectedPoints: () => void;
     selectAllPoints: () => void;
     clearSelection: () => void;
+    copySelectedPoints?: () => void;
+    cutSelectedPoints?: () => void;
+    pastePoints?: () => void;
+    duplicateSelectedPoints?: () => void;
     onEditValue?: () => void;
   }) {
   useEffect(() => {
@@ -22,6 +26,18 @@ export function useAutomationKeyboard(id: string, surface: RefObject<HTMLDivElem
       ["delete", "delete", actions.deleteSelectedPoints], ["backspace", "backspace", actions.deleteSelectedPoints],
       ["select-all", `${mod} + a`, actions.selectAllPoints], ["deselect", "escape", actions.clearSelection],
     ];
+    if (actions.copySelectedPoints) {
+      commands.push(["copy", `${mod} + c`, actions.copySelectedPoints]);
+    }
+    if (actions.cutSelectedPoints) {
+      commands.push(["cut", `${mod} + x`, actions.cutSelectedPoints]);
+    }
+    if (actions.pastePoints) {
+      commands.push(["paste", `${mod} + v`, actions.pastePoints]);
+    }
+    if (actions.duplicateSelectedPoints) {
+      commands.push(["duplicate", `${mod} + d`, actions.duplicateSelectedPoints]);
+    }
     if (actions.onEditValue) {
       commands.push(
         ["edit-value-return", "return", actions.onEditValue],
@@ -34,5 +50,17 @@ export function useAutomationKeyboard(id: string, surface: RefObject<HTMLDivElem
         action(); return true;
       }));
     return () => unregister.forEach((dispose) => dispose());
-  }, [id, surface, readOnly, actions.deleteSelectedPoints, actions.selectAllPoints, actions.clearSelection, actions.onEditValue]);
+  }, [
+    id,
+    surface,
+    readOnly,
+    actions.deleteSelectedPoints,
+    actions.selectAllPoints,
+    actions.clearSelection,
+    actions.copySelectedPoints,
+    actions.cutSelectedPoints,
+    actions.pastePoints,
+    actions.duplicateSelectedPoints,
+    actions.onEditValue,
+  ]);
 }

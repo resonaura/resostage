@@ -19,6 +19,10 @@ describe("useAutomationKeyboard", () => {
   const deleteSelectedPoints = vi.fn();
   const selectAllPoints = vi.fn();
   const clearSelection = vi.fn();
+  const copySelectedPoints = vi.fn();
+  const cutSelectedPoints = vi.fn();
+  const pastePoints = vi.fn();
+  const duplicateSelectedPoints = vi.fn();
   const onEditValue = vi.fn();
 
   function KeyboardHarness({
@@ -33,6 +37,10 @@ describe("useAutomationKeyboard", () => {
       deleteSelectedPoints,
       selectAllPoints,
       clearSelection,
+      copySelectedPoints,
+      cutSelectedPoints,
+      pastePoints,
+      duplicateSelectedPoints,
       onEditValue,
     });
     return createElement("div", {
@@ -156,5 +164,41 @@ describe("useAutomationKeyboard", () => {
       new KeyboardEvent("keydown", { key: "Enter", code: "NumpadEnter", bubbles: true }),
     );
     expect(onEditValue).toHaveBeenCalledTimes(2);
+  });
+
+  it("triggers copy, cut, paste, and duplicate on Mod shortcuts when surface is focused", () => {
+    act(() => {
+      root.render(createElement(KeyboardHarness, { id: "lane-test" }));
+    });
+
+    const surface = container.querySelector<HTMLDivElement>("#automation-surface")!;
+    surface.focus();
+
+    const isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+    const modKey = isMac ? { metaKey: true } : { ctrlKey: true };
+
+    // Mod+C -> copySelectedPoints
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "c", code: "KeyC", ...modKey, bubbles: true }),
+    );
+    expect(copySelectedPoints).toHaveBeenCalledTimes(1);
+
+    // Mod+X -> cutSelectedPoints
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "x", code: "KeyX", ...modKey, bubbles: true }),
+    );
+    expect(cutSelectedPoints).toHaveBeenCalledTimes(1);
+
+    // Mod+V -> pastePoints
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "v", code: "KeyV", ...modKey, bubbles: true }),
+    );
+    expect(pastePoints).toHaveBeenCalledTimes(1);
+
+    // Mod+D -> duplicateSelectedPoints
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "d", code: "KeyD", ...modKey, bubbles: true }),
+    );
+    expect(duplicateSelectedPoints).toHaveBeenCalledTimes(1);
   });
 });

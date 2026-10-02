@@ -14,6 +14,7 @@ import {
   buildAutomationSvgPaths,
   decimatePointsForViewport,
   getCurveHandlePosition,
+  pixelToBeat,
   valueToPixel,
 } from "@/screens/editor/timeline/automation/logic/automationCoordinates";
 import { formatAutomationValue } from "@/screens/editor/timeline/automation/logic/automationTargets";
@@ -66,6 +67,11 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     onPointerLeave,
     onContextMenu,
     deleteSelectedPoints,
+    copySelectedPoints,
+    cutSelectedPoints,
+    pastePoints,
+    duplicateSelectedPoints,
+    hasClipboard,
     smoothSelectedPoints,
     setSelectedCurve,
     setSelectedPointsValue,
@@ -91,7 +97,7 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
   });
 
   const surface = useRef<HTMLDivElement>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; localX?: number } | null>(null);
   const commandId = `${songIndex}.${lane.id}`;
   const minValue = targetOption?.minValue ?? lane.target.minValue;
   const maxValue = targetOption?.maxValue ?? lane.target.maxValue;
@@ -109,6 +115,10 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     deleteSelectedPoints,
     selectAllPoints,
     clearSelection,
+    copySelectedPoints,
+    cutSelectedPoints,
+    pastePoints,
+    duplicateSelectedPoints,
     onEditValue: handleEditValue,
   });
   const pointIndices = useMemo(() => new Map(activePoints.map((point, index) => [point, index])), [activePoints]);
@@ -205,7 +215,11 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
       onPointerLeave={onPointerLeave}
       onContextMenu={(event) => {
         onContextMenu(event);
-        if (!readOnly) setMenu({ x: event.clientX, y: event.clientY });
+        if (!readOnly) {
+          const rect = surface.current?.getBoundingClientRect();
+          const localX = rect ? event.clientX - rect.left : 0;
+          setMenu({ x: event.clientX, y: event.clientY, localX });
+        }
       }}
       style={{
         cursor:
@@ -297,16 +311,29 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
         <ContextMenuItem disabled={selectionCount === 0 || isPending}
           onClick={() => { handleEditValue(); setMenu(null); }}>Set exact value…</ContextMenuItem>
         <ContextMenuDivider />
-        <ContextMenuItem disabled={selectionCount === 0 || isPending} danger shortcutCommand={`automation.${commandId}.delete`}
+        <ContextMenuItem disabled={selectionCount === 0 || isPending} shortcutCommand={`automation.${commandId}.copy`}
+          onClick={() => { copySelectedPoints(); setMenu(null); }}>Copy points</ContextMenuItem>
+        <ContextMenuItem disabled={selectionCount === 0 || isPending || readOnly} shortcutCommand={`automation.${commandId}.cut`}
+          onClick={() => { cutSelectedPoints(); setMenu(null); }}>Cut points</ContextMenuItem>
+        <ContextMenuItem disabled={!hasClipboard() || isPending || readOnly} shortcutCommand={`automation.${commandId}.paste`}
+          onClick={() => {
+            const clickBeats = menu.localX !== undefined ? pixelToBeat(menu.localX, bpm, pxPerSec) : undefined;
+            pastePoints(clickBeats);
+            setMenu(null);
+          }}>Paste points</ContextMenuItem>
+        <ContextMenuItem disabled={selectionCount === 0 || isPending || readOnly} shortcutCommand={`automation.${commandId}.duplicate`}
+          onClick={() => { duplicateSelectedPoints(); setMenu(null); }}>Duplicate points</ContextMenuItem>
+        <ContextMenuDivider />
+        <ContextMenuItem disabled={selectionCount === 0 || isPending || readOnly} danger shortcutCommand={`automation.${commandId}.delete`}
           onClick={() => { deleteSelectedPoints(); setMenu(null); }}>Delete points</ContextMenuItem>
-        <ContextMenuItem disabled={selectionCount < 3 || isPending}
+        <ContextMenuItem disabled={selectionCount < 3 || isPending || readOnly}
           onClick={() => { smoothSelectedPoints(); setMenu(null); }}>Smooth selection</ContextMenuItem>
         <ContextMenuDivider />
-        <ContextMenuItem disabled={selectionCount === 0 || isPending}
+        <ContextMenuItem disabled={selectionCount === 0 || isPending || readOnly}
           onClick={() => { setSelectedCurve(0); setMenu(null); }}>Linear curve</ContextMenuItem>
-        <ContextMenuItem disabled={selectionCount === 0 || isPending}
+        <ContextMenuItem disabled={selectionCount === 0 || isPending || readOnly}
           onClick={() => { setSelectedCurve(0.5); setMenu(null); }}>Curve up</ContextMenuItem>
-        <ContextMenuItem disabled={selectionCount === 0 || isPending}
+        <ContextMenuItem disabled={selectionCount === 0 || isPending || readOnly}
           onClick={() => { setSelectedCurve(-0.5); setMenu(null); }}>Curve down</ContextMenuItem>
         <ContextMenuDivider />
         <ContextMenuItem shortcutCommand={`automation.${commandId}.select-all`}
