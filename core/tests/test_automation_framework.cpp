@@ -12,6 +12,8 @@
 #include "automation/RamerDouglasPeucker.h"
 #include "project/ProjectJson.h"
 #include "project/ProjectSchema.h"
+#include "server/AutomationJson.h"
+#include "plugins/PluginParameterBinding.h"
 #include "timing/TempoMap.h"
 
 #include <charconv>
@@ -21,6 +23,56 @@
 using namespace resostage;
 
 TEST_SUITE("AutomationFramework") {
+
+TEST_CASE("Plug-in parameter binding: vendor identity survives reordered indices") {
+    std::vector<PluginParameterBinding> bindings{{"id:cutoff", 7}, {"id:resonance", 1}};
+    CHECK(resolvePluginParameterBinding(bindings, "id:cutoff") == 7);
+    CHECK(resolvePluginParameterBinding(bindings, "id:resonance") == 1);
+    CHECK(resolvePluginParameterBinding(bindings, "id:removed") == -1);
+    CHECK(resolvePluginParameterBinding(bindings, "param:3") == 3);
+    CHECK(resolvePluginParameterBinding(bindings, "3") == 3);
+    CHECK(resolvePluginParameterBinding(bindings, "param:3suffix") == -1);
+    CHECK(resolvePluginParameterBinding(bindings, "param:-1") == -1);
+    CHECK(resolvePluginParameterBinding(bindings, "") == -1);
+}
+
+TEST_CASE("Automation editing: full replacements validate before mutation") {
+    glz::generic document;
+    std::vector<AutomationPoint> points{{99.0, 0.25f, 0.0f}};
+    std::string error;
+    REQUIRE(builder_json::parseJson(R"({"points":[{"timeBeats":4,"value":0.8,"curve":-0.75},{"timeBeats":1,"value":0.2,"curve":0.5}]})", document));
+    REQUIRE(builder_json::parseAutomationPoints(document, points, error));
+    REQUIRE(points.size() == 2);
+    CHECK(points[0].timeBeats == 1.0);
+    CHECK(points[0].curve == doctest::Approx(0.5f));
+    CHECK(points[1].curve == doctest::Approx(-0.75f));
+
+    for (const auto* invalid : {
+        R"({"points":[{"timeBeats":-1,"value":0.5}]})",
+        R"({"points":[{"timeBeats":1,"value":0.5,"curve":2}]})",
+        R"({"points":[{"timeBeats":1,"value":0.5},{"timeBeats":1,"value":0.7}]})",
+        R"({"points":[{"timeBeats":1,"value":1e100}]})",
+        R"({"points":[null]})",
+        R"({"points":{}})"}) {
+        REQUIRE(builder_json::parseJson(invalid, document));
+        CHECK_FALSE(builder_json::parseAutomationPoints(document, points, error));
+        REQUIRE(points.size() == 2);
+        CHECK(points[0].value == doctest::Approx(0.2f));
+    }
+    REQUIRE(builder_json::parseJson(R"({"points":[]})", document));
+    REQUIRE(builder_json::parseAutomationPoints(document, points, error));
+    CHECK(points.empty());
+}
+
+TEST_CASE("Automation editing: the point budget fails atomically") {
+    glz::generic document = glz::generic::object_t{};
+    document["points"] = glz::generic::array_t(builder_json::kMaximumAutomationEditPoints + 1);
+    std::vector<AutomationPoint> points{{2.0, 0.5f, 0.1f}};
+    std::string error;
+    CHECK_FALSE(builder_json::parseAutomationPoints(document, points, error));
+    REQUIRE(points.size() == 1);
+    CHECK(points.front().timeBeats == 2.0);
+}
 
 TEST_CASE("AutomationCurve: Curvature interpolation formula") {
     // Linear

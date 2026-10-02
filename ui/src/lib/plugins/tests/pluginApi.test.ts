@@ -6,7 +6,7 @@
 
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { pluginCatalog, pluginChains } from "@/lib/state/api";
+import { builder, pluginCatalog, pluginChains } from "@/lib/state/api";
 import * as backend from "@/lib/state/backend";
 
 describe("pluginCatalog", () => {
@@ -103,6 +103,24 @@ describe("pluginChains", () => {
     vi.restoreAllMocks();
   });
 
+  it("parameters() preserves actual identities, values and metadata status", async () => {
+    const metadata = {
+      slotId: "slot 123",
+      loadState: "loaded",
+      loadError: "",
+      truncated: false,
+      parameters: [{ index: 7, parameterId: "id:cutoff", name: "Cutoff", label: "Hz",
+        defaultValue: 0.5, currentValue: 0.72, steps: 0, automatable: true }],
+    };
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: true, json: async () => metadata,
+    } as Response);
+    expect(await pluginChains.parameters(metadata.slotId)).toEqual(metadata);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/plugins/slot/parameters?slotId=slot%20123",
+    );
+  });
+
   it("openEditor() posts stripId and slotId to /api/v1/plugins/slot/editor", async () => {
     const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
       ok: true,
@@ -152,5 +170,40 @@ describe("pluginChains", () => {
         delta: -1,
       }),
     });
+  });
+});
+
+describe("atomic automation edits", () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  it("replaces an envelope in one reliable request preserving curves", async () => {
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({ ok: true } as Response);
+    const patch = { songIndex: 0, laneId: "lane", gestureId: "gesture",
+      points: [{ timeBeats: 1, value: 0.2, curve: -0.5 }, { timeBeats: 3, value: 0.9, curve: 0.3 }] };
+    await builder.automationPointsReplace(patch);
+    expect(fetchSpy).toHaveBeenCalledWith("/api/v1/builder/automation-points/replace", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+    });
+  });
+
+  it("empty explicit points create an untouched lane without seeded dots", async () => {
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({ ok: true } as Response);
+    const patch = { songIndex: 0, domain: "strip" as const, entityId: "audio::track:1",
+      parameterId: "pan", points: [] };
+    await builder.automationLaneAdd(patch);
+    expect(fetchSpy).toHaveBeenCalledWith("/api/v1/builder/automation-lane/add", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+    });
+  });
+
+  it("rejected and failed requests stay visible to the editor", async () => {
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: false, status: 503, text: async () => "Core command queue is full",
+    } as Response);
+    await expect(builder.automationPointsReplace({ songIndex: 0, laneId: "lane", points: [] }))
+      .rejects.toThrow("Core command queue is full");
+    fetchSpy.mockRejectedValueOnce(new Error("Disconnected"));
+    await expect(builder.automationLaneAdd({ songIndex: 0, domain: "strip",
+      entityId: "track", parameterId: "pan" })).rejects.toThrow("Disconnected");
   });
 });

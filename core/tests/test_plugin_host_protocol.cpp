@@ -668,6 +668,37 @@ TEST_CASE("isolated helper loads a real macOS Audio Unit and opens its editor") 
     CHECK(host.requestOpenEditor(0));
     CHECK(host.requestCloseEditor(0));
 
+    std::vector<float> values;
+    const auto metadata = host.parameterDescriptorsForSlot(0, &values);
+    REQUIRE_FALSE(metadata.empty());
+    REQUIRE(values.size() == metadata.size());
+    CHECK_FALSE(host.parameterMetadataTruncated());
+    for (size_t i = 0; i < metadata.size(); ++i) {
+        CHECK(metadata[i].name[0] != '\0');
+        CHECK(std::string_view(metadata[i].parameterId).starts_with("id:"));
+        CHECK(std::isfinite(values[i]));
+        CHECK(values[i] >= 0.0f);
+        CHECK(values[i] <= 1.0f);
+    }
+    const auto continuous = std::find_if(metadata.begin(), metadata.end(),
+        [](const ParameterDescriptor& parameter) {
+            return parameter.automatable != 0 && parameter.steps > 128;
+        });
+    REQUIRE(continuous != metadata.end());
+    const size_t index = static_cast<size_t>(continuous - metadata.begin());
+    ParameterEvent changed;
+    changed.slotIndex = 0;
+    changed.parameterIndex = static_cast<int32_t>(continuous->parameterIndex);
+    changed.normalizedValue = values[index] < 0.5f ? 0.75f : 0.25f;
+    REQUIRE(host.enqueueParameterEvent(changed));
+    const auto valueDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < valueDeadline) {
+        (void)host.parameterDescriptorsForSlot(0, &values);
+        if (std::abs(values[index] - changed.normalizedValue) < 0.001f) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    CHECK(values[index] == doctest::Approx(changed.normalizedValue).epsilon(0.001f));
+
     exerciseHostPowerControls(host, false);
     host.stop();
 }

@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "audio/recording/AudioRecordWorker.h"
+#include "server/CommandBodyLimits.h"
 
 
 // Forward-declare libwebsockets types so the header stays lightweight.
@@ -190,6 +191,7 @@ enum class WebCommandKind : uint8_t {
     BuilderAutomationLaneUpdate,
     BuilderAutomationPointAdd,
     BuilderAutomationPointRemove,
+    BuilderAutomationPointsReplace,
     BuilderAutomationRecordGesture,
     BuilderBusAdd,
     BuilderBusRemove,
@@ -1370,6 +1372,7 @@ private:
     std::string clientView;
 
     moodycamel::ReaderWriterQueue<WebCommand> commands{64};
+    command_body::ByteBudget commandBytes;
 
     mutable std::mutex exportMutex;
     bool exportReady = false;

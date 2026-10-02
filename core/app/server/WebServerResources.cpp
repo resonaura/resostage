@@ -382,7 +382,7 @@ int WebServer::servePluginParameters(struct lws* wsi, const char* queryArgs) {
         return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid slotId");
     const std::string json = pluginParametersProvider
         ? pluginParametersProvider(slotId)
-        : "{\"slotId\":\"\",\"parameters\":[]}";
+        : "{\"slotId\":\"\",\"parameters\":[],\"loadState\":\"failed\",\"loadError\":\"Plug-in metadata service is unavailable\",\"truncated\":false}";
     return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
                              json.c_str(), json.size());
 }

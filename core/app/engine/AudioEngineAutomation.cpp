@@ -39,16 +39,6 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
         ? tempoMap->samplesToBeats(blockStartSample, safeRate)
         : (blockStartSeconds * 2.0);
 
-    const auto parsePluginParameterIndex = [](std::string_view id) noexcept {
-        if (id.starts_with("param:")) id.remove_prefix(6);
-        int index = -1;
-        if (id.empty()) return index;
-        const auto parsed = std::from_chars(id.data(), id.data() + id.size(), index);
-        if (parsed.ec != std::errc{} || parsed.ptr != id.data() + id.size())
-            return -1;
-        return index;
-    };
-
     // MIDI controller automation is stored as typed values (CC 0..127,
     // pitch bend -8192..8191), not always normalized floats. Keep parsing and
     // event construction allocation-free because this runs at block rate.
@@ -131,8 +121,8 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
 
         if (lane.target.domain == AutomationDomain::Plugin) {
             if (pluginBank != nullptr) {
-                const int parameterIndex = parsePluginParameterIndex(
-                    lane.target.parameterId);
+                const int parameterIndex = pluginBank->resolvePluginParameterIndex(
+                    lane.target.entityId, lane.target.parameterId);
                 if (parameterIndex >= 0)
                     pluginBank->setPluginParameterBySlotId(
                         lane.target.entityId, parameterIndex, value);
@@ -161,8 +151,8 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
                 lane.points, relBeats, lane.target.defaultValue);
 
             if (lane.target.domain == AutomationDomain::Plugin && pluginBank != nullptr) {
-                const int parameterIndex = parsePluginParameterIndex(
-                    lane.target.parameterId);
+                const int parameterIndex = pluginBank->resolvePluginParameterIndex(
+                    lane.target.entityId, lane.target.parameterId);
                 if (parameterIndex >= 0)
                     pluginBank->setPluginParameterBySlotId(
                         lane.target.entityId, parameterIndex, value);
@@ -194,8 +184,8 @@ void AudioEngine::dispatchAutomationForBlock(const SongDef& song,
                 || pluginBank == nullptr)
                 continue;
 
-            const int parameterIndex = parsePluginParameterIndex(
-                lane.target.parameterId);
+            const int parameterIndex = pluginBank->resolvePluginParameterIndex(
+                lane.target.entityId, lane.target.parameterId);
             if (parameterIndex < 0)
                 continue;
             const float value = AutomationEvaluator::evaluatePoints(

@@ -15,9 +15,11 @@
 #include "engine/AudioEngineInternal.h"
 #include "project/ProjectJson.h"
 #include "server/BuilderJson.h"
+#include "server/AutomationJson.h"
 #include "timing/TempoMap.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 
 namespace resostage {
@@ -49,8 +51,19 @@ void MainComponent::builderAutomationLaneAdd(const std::string& json) {
     if (getDouble(doc, "defaultValue", defVal)) lane.target.defaultValue = static_cast<float>(defVal);
     if (getDouble(doc, "minValue", minVal)) lane.target.minValue = static_cast<float>(minVal);
     if (getDouble(doc, "maxValue", maxVal)) lane.target.maxValue = static_cast<float>(maxVal);
+    if (!std::isfinite(lane.target.defaultValue) || !std::isfinite(lane.target.minValue)
+        || !std::isfinite(lane.target.maxValue) || lane.target.minValue > lane.target.maxValue) {
+        setStatus("Could not add automation lane: invalid target range");
+        return;
+    }
     double initialTimeBeats = 0.0, initialValue = 0.0;
-    if (getDouble(doc, "initialValue", initialValue)) {
+    if (doc.contains("points")) {
+        std::string error;
+        if (!parseAutomationPoints(doc, lane.points, error)) {
+            setStatus("Could not add automation lane: " + juce::String(error));
+            return;
+        }
+    } else if (getDouble(doc, "initialValue", initialValue)) {
         (void)getDouble(doc, "initialTimeBeats", initialTimeBeats);
         if (std::isfinite(initialTimeBeats) && std::isfinite(initialValue)) {
             lane.points.push_back({std::max(0.0, initialTimeBeats),
@@ -67,31 +80,27 @@ void MainComponent::builderAutomationLaneAdd(const std::string& json) {
     std::string regionId;
     getString(doc, "regionId", regionId);
 
+    // Resolve the destination before opening history: a removed region must
+    // not create a dirty no-op or report that a lane was added successfully.
+    std::vector<AutomationLane>* destination = &s.automationLanes;
+    if (!regionId.empty()) {
+        destination = nullptr;
+        for (auto& region : s.midiRegions)
+            if (region.id == regionId) { destination = &region.automationLanes; break; }
+        if (destination == nullptr)
+            for (auto& region : s.regions)
+                if (region.id == regionId) { destination = &region.automationLanes; break; }
+        if (destination == nullptr) {
+            setStatus("Could not add automation lane: region no longer exists");
+            return;
+        }
+    }
+
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Add automation lane");
 
-    if (!regionId.empty()) {
-        bool added = false;
-        for (auto& mr : s.midiRegions) {
-            if (mr.id == regionId) {
-                mr.automationLanes.push_back(lane);
-                added = true;
-                break;
-            }
-        }
-        if (!added) {
-            for (auto& r : s.regions) {
-                if (r.id == regionId) {
-                    r.automationLanes.push_back(lane);
-                    added = true;
-                    break;
-                }
-            }
-        }
-    } else {
-        s.automationLanes.push_back(std::move(lane));
-    }
+    destination->push_back(std::move(lane));
 
     engine.projectHistoryCommitEdit();
     engine.markDirty();
@@ -318,6 +327,44 @@ void MainComponent::builderAutomationPointRemove(const std::string& json) {
     }
 }
 
+void MainComponent::builderAutomationPointsReplace(const std::string& json) {
+    glz::generic doc;
+    int songIndex = -1;
+    std::string laneId;
+    if (!parseJson(json, doc) || !getInt(doc, "songIndex", songIndex)
+        || !getString(doc, "laneId", laneId) || !engine.isProjectLoaded()) return;
+    auto& project = engine.project();
+    if (songIndex < 0 || songIndex >= static_cast<int>(project.songs.size())) return;
+    auto* lane = findAutomationLane(project.songs[static_cast<size_t>(songIndex)], laneId);
+    if (lane == nullptr) {
+        setStatus("Could not edit automation: lane no longer exists");
+        return;
+    }
+    std::vector<AutomationPoint> points;
+    std::string error;
+    if (!parseAutomationPoints(doc, points, error)) {
+        setStatus("Could not edit automation: " + juce::String(error));
+        return;
+    }
+    if (points.size() == lane->points.size()
+        && std::equal(points.begin(), points.end(), lane->points.begin(),
+            [](const AutomationPoint& a, const AutomationPoint& b) {
+                return std::bit_cast<uint64_t>(a.timeBeats) == std::bit_cast<uint64_t>(b.timeBeats)
+                    && std::bit_cast<uint32_t>(a.value) == std::bit_cast<uint32_t>(b.value)
+                    && std::bit_cast<uint32_t>(a.curve) == std::bit_cast<uint32_t>(b.curve);
+            })) return;
+    std::string gestureId;
+    getString(doc, "gestureId", gestureId);
+    // One snapshot/commit preserves scope, mode, target and curves together;
+    // selection drags cannot leave half-applied remove/add commands behind.
+    engine.projectHistoryBeginEdit(gestureId, "Edit automation points");
+    lane->points = std::move(points);
+    engine.projectHistoryCommitEdit();
+    engine.markDirty();
+    notifyProjectStructureChanged();
+    setStatus("Automation points updated");
+}
+
 void MainComponent::builderAutomationRecordGesture(const std::string& json) {
     glz::generic doc;
     int songIndex = -1;
@@ -404,4 +451,3 @@ void MainComponent::builderAutomationRecordGesture(const std::string& json) {
 }
 
 } // namespace resostage
-

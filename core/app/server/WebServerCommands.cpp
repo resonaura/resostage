@@ -7,6 +7,7 @@
 #include "WebServer.h"
 #include "WebServerHttp.h"
 #include "server/BuilderJson.h"
+#include "server/AutomationJson.h"
 #include "server/WireTypes.h"
 
 #include <libwebsockets.h>
@@ -126,6 +127,7 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/automation-lane/update", WebCommandKind::BuilderAutomationLaneUpdate},
     {"/api/v1/builder/automation-point/add", WebCommandKind::BuilderAutomationPointAdd},
     {"/api/v1/builder/automation-point/remove", WebCommandKind::BuilderAutomationPointRemove},
+    {"/api/v1/builder/automation-points/replace", WebCommandKind::BuilderAutomationPointsReplace},
     {"/api/v1/builder/automation/record-gesture", WebCommandKind::BuilderAutomationRecordGesture},
     {"/api/v1/builder/bus/add", WebCommandKind::BuilderBusAdd},
     {"/api/v1/builder/bus/remove", WebCommandKind::BuilderBusRemove},
@@ -373,6 +375,24 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         }
         return true;
     } else if (WebCommandKind builderKind; builderCommandKindForPath(path, builderKind)) {
+        if (builderKind == WebCommandKind::BuilderAutomationPointsReplace
+            || builderKind == WebCommandKind::BuilderAutomationLaneAdd) {
+            glz::generic document;
+            if (body == nullptr || !builder_json::parseJson(std::string(body, bodyLen), document)
+                || !document.is_object()) {
+                writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid automation edit");
+                return true;
+            }
+            if (builderKind == WebCommandKind::BuilderAutomationPointsReplace
+                || document.contains("points")) {
+                std::vector<AutomationPoint> validated;
+                std::string error;
+                if (!builder_json::parseAutomationPoints(document, validated, error)) {
+                    writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, error.c_str());
+                    return true;
+                }
+            }
+        }
         if (builderKind == WebCommandKind::BuilderTrackImportWavBegin) {
             wire::WTrackImportBeginPayload p;
             if (glz::read_json(p, std::string_view(body, bodyLen)))

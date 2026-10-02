@@ -429,6 +429,7 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderAutomationLaneUpdate: builderAutomationLaneUpdate(cmd.json); break;
             case WebCommandKind::BuilderAutomationPointAdd: builderAutomationPointAdd(cmd.json); break;
             case WebCommandKind::BuilderAutomationPointRemove: builderAutomationPointRemove(cmd.json); break;
+            case WebCommandKind::BuilderAutomationPointsReplace: builderAutomationPointsReplace(cmd.json); break;
             case WebCommandKind::BuilderAutomationRecordGesture: builderAutomationRecordGesture(cmd.json); break;
             case WebCommandKind::BuilderBusAdd: builderBusAdd(); break;
             case WebCommandKind::BuilderBusRemove: builderBusRemove(cmd.json); break;

@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace resostage {
@@ -126,6 +127,10 @@ public:
                                     float normalizedValue) noexcept {
         (void)slotId; (void)parameterIndex; (void)normalizedValue;
     }
+    /** Stable vendor identity dispatch; legacy sessions may support only param:N. */
+    virtual void setPluginParameterById(const std::string& slotId,
+                                      std::string_view parameterId,
+                                      float normalizedValue) noexcept;
     /** Conservative serial-path tail used as a Leave minimum, in seconds. */
     virtual double declaredTailSeconds() const noexcept { return 0.0; }
     virtual std::vector<std::string> warnings() const { return {}; }

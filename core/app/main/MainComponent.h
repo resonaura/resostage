@@ -239,6 +239,7 @@ private:
     void builderAutomationLaneUpdate(const std::string& json);
     void builderAutomationPointAdd(const std::string& json);
     void builderAutomationPointRemove(const std::string& json);
+    void builderAutomationPointsReplace(const std::string& json);
     void builderAutomationRecordGesture(const std::string& json);
     void setTrackSendFromJson(const std::string& json);
     void removeTrackSendFromJson(const std::string& json);

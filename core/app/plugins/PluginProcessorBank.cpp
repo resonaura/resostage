@@ -11,10 +11,12 @@
 #include "project/ProjectSchema.h"
 #include "plugins/PluginHostProtocol.h"
 #include "plugins/PluginMidiActivity.h"
+#include "plugins/PluginParameterBinding.h"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <charconv>
 #include <climits>
 #include <cmath>
 #include <limits>
@@ -35,6 +37,18 @@ constexpr size_t kMaximumStateBytesPerSlot = 64 * 1024 * 1024;
 constexpr size_t kMaximumStateBytesPerBank = 256 * 1024 * 1024;
 constexpr size_t kMaximumIsolatedChains = 32;
 std::atomic<uint64_t> nextPluginHostGeneration{1};
+
+std::string pluginParameterId(const juce::AudioProcessorParameter& parameter,
+                               uint32_t index) {
+    if (const auto* hosted = dynamic_cast<const juce::HostedAudioProcessorParameter*>(&parameter)) {
+        const auto id = hosted->getParameterID().toStdString();
+        // Never truncate identities: distinct long IDs could otherwise bind
+        // one envelope to another vendor control. Those retain legacy indices.
+        if (!id.empty() && id.size() < sizeof(plugin_host::ParameterDescriptor::parameterId) - 3)
+            return "id:" + id;
+    }
+    return "param:" + std::to_string(index);
+}
 
 const std::vector<PluginSlot>* slotsForStrip(const Project& project,
                                              const MixStrip& strip) {
@@ -252,6 +266,23 @@ PluginPlayHead::getPosition() const {
 }
 
 struct PluginProcessorBank::Node {
+    struct ValueListener final : juce::AudioProcessorParameter::Listener {
+        ValueListener(juce::AudioProcessorParameter& input,
+                      std::atomic<float>& output) : parameter(input), destination(output) {
+            const float value = parameter.getValue();
+            destination.store(std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f,
+                              std::memory_order_relaxed);
+            parameter.addListener(this);
+        }
+        ~ValueListener() override { parameter.removeListener(this); }
+        void parameterValueChanged(int, float value) override {
+            if (std::isfinite(value))
+                destination.store(std::clamp(value, 0.0f, 1.0f), std::memory_order_relaxed);
+        }
+        void parameterGestureChanged(int, bool) override {}
+        juce::AudioProcessorParameter& parameter;
+        std::atomic<float>& destination;
+    };
     explicit Node(bool instrumentNode = false) : instrument(instrumentNode) {
         if (instrument) {
             deferredMidi = std::make_unique<PluginMIDIDeferredQueue>();
@@ -260,6 +291,9 @@ struct PluginProcessorBank::Node {
     }
 
     ~Node() {
+        // Listener pointers refer to the host mapping. Remove them while both
+        // the mapping and vendor parameters still live, before releaseResources.
+        valueListeners.clear();
         if (instance != nullptr) {
             try {
                 instance->releaseResources();
@@ -273,6 +307,9 @@ struct PluginProcessorBank::Node {
     std::string slotId;
     std::string pluginIdentifier;
     std::unique_ptr<juce::AudioPluginInstance> instance;
+    std::vector<PluginParameterBinding> parameterBindings;
+    bool bindingsPrepared = false;
+    std::vector<std::unique_ptr<ValueListener>> valueListeners;
     std::atomic<bool> bypassed{false};
     bool instrument = false;
     std::unique_ptr<PluginMIDIDeferredQueue> deferredMidi;
@@ -961,7 +998,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         }
         slotCount += slots->size();
         if (executionMode == ExecutionMode::IsolatedProcess) ++isolatedChainCount;
-        if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+        if (progress) progress(completedSlots, graph.strips[stripIndex].name
+            + " · Preparing plug-in chain");
         auto chain = std::make_unique<StripChain>(maximumBlockSize, nonRealtime);
         chain->stripId = graph.strips[stripIndex].id;
         chain->sampleRate = sampleRate;
@@ -1117,7 +1155,12 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                                 hostGeneration,
                                 static_cast<uint32_t>(maximumBlockSize), hostError,
                                 sampleRate, hosted->projectDirectory,
-                                pluginRegistryFile())) {
+                                pluginRegistryFile(), [&](uint32_t index) {
+                                    if (progress && index < slots->size())
+                                        progress(completedSlots + index,
+                                            graph.strips[stripIndex].name + " · "
+                                            + (*slots)[index].plugin.name);
+                                })) {
                             chain->hostedProcess = std::move(hosted);
                             chain->processorLatencySamples = static_cast<int>(
                                 std::min<uint32_t>(
@@ -1211,6 +1254,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         }
 
         for (const auto& slot : *slots) {
+            if (progress) progress(completedSlots + static_cast<uint32_t>(chain->nodes.size()),
+                graph.strips[stripIndex].name + " · " + slot.plugin.name);
             std::shared_ptr<Node> reusableNode;
             if (previousBank != nullptr) {
                 for (const auto& previousChain : previousBank->chains) {
@@ -1423,9 +1468,22 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     // not trigger a rebuild loop immediately after publication.
     for (auto& chain : bank->chains)
         if (chain != nullptr)
-            for (auto& node : chain->nodes)
+            for (auto& node : chain->nodes) {
+                // Identity lookup is prepared once, including the isolated
+                // metadata copy. Dispatch never asks vendors to enumerate or
+                // allocate a parameter list on the audio callback.
+                if (!node->bindingsPrepared) {
+                    for (const auto& parameter : bank->parametersForSlot(node->slotId))
+                        node->parameterBindings.push_back({parameter.parameterId, parameter.index});
+                    std::sort(node->parameterBindings.begin(), node->parameterBindings.end(),
+                        [](const PluginParameterBinding& a, const PluginParameterBinding& b) {
+                            return a.id < b.id;
+                        });
+                    node->bindingsPrepared = true;
+                }
                 if (node->instance != nullptr)
                     node->instance->addListener(bank.get());
+            }
 
     PluginTransportState initialTransport;
     initialTransport.sample = 0;
@@ -1542,6 +1600,10 @@ void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex
                 hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
                 try {
                     param->setValue(std::clamp(value, 0.0f, 1.0f));
+                    if (static_cast<size_t>(paramIndex) < node.valueListeners.size()
+                        && node.valueListeners[static_cast<size_t>(paramIndex)] != nullptr)
+                        node.valueListeners[static_cast<size_t>(paramIndex)]->parameterValueChanged(
+                            paramIndex, param->getValue());
                 } catch (...) {
                     hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
                     throw;
@@ -1591,6 +1653,10 @@ bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
                                 hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
                                 try {
                                     param->setValue(std::clamp(value, 0.0f, 1.0f));
+                                    if (static_cast<size_t>(paramIndex) < node->valueListeners.size()
+                                        && node->valueListeners[static_cast<size_t>(paramIndex)] != nullptr)
+                                        node->valueListeners[static_cast<size_t>(paramIndex)]->parameterValueChanged(
+                                            paramIndex, param->getValue());
                                 } catch (...) {
                                     hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
                                     throw;
@@ -1735,7 +1801,7 @@ std::string PluginProcessorBank::getSlotLoadState(const std::string& slotId) con
             return node->loadState;
         }
     }
-    return "loading";
+    return "missing";
 }
 
 std::vector<PluginProcessorBank::ParameterInfo>
@@ -1750,18 +1816,25 @@ PluginProcessorBank::parametersForSlot(const std::string& slotId) const {
             std::vector<ParameterInfo> result;
             if (chain->hostedProcess != nullptr
                 && chain->hostedProcess->process != nullptr) {
+                std::vector<float> currentValues;
                 const auto descriptors = chain->hostedProcess->process
-                    ->parameterDescriptorsForSlot(slotIndex);
+                    ->parameterDescriptorsForSlot(slotIndex, &currentValues);
                 result.reserve(descriptors.size());
-                for (const auto& descriptor : descriptors) {
+                for (size_t i = 0; i < descriptors.size(); ++i) {
+                    const auto& descriptor = descriptors[i];
                     const auto nameEnd = std::find(std::begin(descriptor.name),
                                                    std::end(descriptor.name), '\0');
                     const auto labelEnd = std::find(std::begin(descriptor.label),
                                                     std::end(descriptor.label), '\0');
+                    const auto idEnd = std::find(std::begin(descriptor.parameterId),
+                                                 std::end(descriptor.parameterId), '\0');
                     result.push_back({descriptor.parameterIndex,
                                       std::string(std::begin(descriptor.name), nameEnd),
                                       std::string(std::begin(descriptor.label), labelEnd),
-                                      descriptor.defaultValue, descriptor.steps});
+                                      descriptor.defaultValue, descriptor.steps,
+                                      std::string(std::begin(descriptor.parameterId), idEnd),
+                                      currentValues[i],
+                                      descriptor.automatable != 0});
                 }
                 return result;
             }
@@ -1783,7 +1856,10 @@ PluginProcessorBank::parametersForSlot(const std::string& slotId) const {
                                       parameter->getLabel().toStdString(),
                                       std::clamp(parameter->getDefaultValue(), 0.0f, 1.0f),
                                       static_cast<uint32_t>(
-                                          std::max(0, parameter->getNumSteps()))});
+                                          std::max(0, parameter->getNumSteps())),
+                                      pluginParameterId(*parameter, static_cast<uint32_t>(i)),
+                                      std::clamp(parameter->getValue(), 0.0f, 1.0f),
+                                      parameter->isAutomatable()});
                 }
             } catch (...) {
                 result.clear();
@@ -1792,6 +1868,51 @@ PluginProcessorBank::parametersForSlot(const std::string& slotId) const {
         }
     }
     return {};
+}
+
+bool PluginProcessorBank::parameterMetadataTruncated(const std::string& slotId) const noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes)
+            if (node != nullptr && node->slotId == slotId)
+                return chain->hostedProcess != nullptr
+                    && chain->hostedProcess->process != nullptr
+                    ? chain->hostedProcess->process->parameterMetadataTruncated()
+                    : node->instance != nullptr && node->instance->getParameters().size()
+                        > static_cast<int>(plugin_host::kMaximumParameterDescriptorsPerChain);
+    }
+    return false;
+}
+
+int PluginProcessorBank::resolvePluginParameterIndex(const std::string& slotId,
+                                                     std::string_view parameterId) const noexcept {
+    for (const auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (const auto& node : chain->nodes)
+            if (node != nullptr && node->slotId == slotId)
+                return resolvePluginParameterBinding(node->parameterBindings, parameterId);
+    }
+    return -1;
+}
+
+void PluginProcessorBank::bindParameterValueTelemetry(const std::string& slotId,
+    uint32_t parameterIndex, std::atomic<float>& destination) {
+    for (auto& chain : chains) {
+        if (chain == nullptr) continue;
+        for (auto& node : chain->nodes) {
+            if (node == nullptr || node->slotId != slotId || node->instance == nullptr) continue;
+            const auto& parameters = node->instance->getParameters();
+            if (parameterIndex >= static_cast<uint32_t>(parameters.size())
+                || parameterIndex >= plugin_host::kMaximumParameterDescriptorsPerChain
+                || parameters[static_cast<int>(parameterIndex)] == nullptr) return;
+            node->valueListeners.resize(std::min<uint32_t>(
+                static_cast<uint32_t>(parameters.size()),
+                plugin_host::kMaximumParameterDescriptorsPerChain));
+            node->valueListeners[parameterIndex] = std::make_unique<Node::ValueListener>(
+                *parameters[static_cast<int>(parameterIndex)], destination);
+            return;
+        }
+    }
 }
 
 std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) const {

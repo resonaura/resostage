@@ -11,6 +11,7 @@
 #include "events/MidiNoteActivity.h"
 #include "server/WireTypes.h"
 #include "server/BuilderJson.h"
+#include "server/CommandBodyLimits.h"
 #include "server/WebServerHttp.h"
 #include "server/WebServerTelemetryBinary.h"
 #include <juce_core/juce_core.h>
@@ -28,6 +29,7 @@
 #include <cstring>
 #include <filesystem>
 #include <optional>
+#include <new>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -116,7 +118,7 @@ ClientView parseClientView(const std::string& s) {
 }
 
 
-// Per-HTTP-transaction body accumulator for small REST POSTs. Upload
+// Per-HTTP-transaction bounded body accumulator for REST POSTs. Upload
 // Project/media uploads bypass `body` entirely -- large archives and media
 // must use bounded RAM, so their bytes are streamed
 // straight to `uploadFile` instead of buffered in RAM.
@@ -124,6 +126,7 @@ struct HttpSession {
     char path[256]{};
     char method[16]{};
     std::vector<char> body;
+    bool bodyRejected = false;
     bool isApi = false;
     bool isStatic = false;
     bool isUpload = false;
@@ -239,6 +242,25 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
     auto* pss = static_cast<HttpSession*>(user);
     auto* server = static_cast<WebServer*>(lws_context_user(lws_get_context(wsi)));
     const auto why = static_cast<enum lws_callback_reasons>(reason);
+    // lws allocates raw protocol storage, not a C++ object. Bind/drop delimit
+    // each HTTP transaction (including keep-alive), so construct/destruct the
+    // vector explicitly rather than leaking or treating zeroed bytes as one.
+    if (why == LWS_CALLBACK_HTTP_BIND_PROTOCOL) {
+        if (pss != nullptr) new (pss) HttpSession{};
+        return 0;
+    }
+    if (why == LWS_CALLBACK_HTTP_DROP_PROTOCOL) {
+        if (pss != nullptr) {
+            if (pss->uploadFile != nullptr) {
+                std::fclose(pss->uploadFile);
+                std::remove(pss->uploadPath);
+                if (server != nullptr && pss->isWavUpload)
+                    server->finishTrackImport(pss->importRequestId, false, "Media upload interrupted");
+            }
+            pss->~HttpSession();
+        }
+        return 0;
+    }
     const auto failUpload = [&](int status, const std::string& error) {
         if (pss != nullptr) {
             if (pss->uploadFile != nullptr) std::fclose(pss->uploadFile);
@@ -257,6 +279,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 return -1;
 
             pss->body.clear();
+            pss->bodyRejected = false;
             pss->isApi = false;
             pss->isStatic = false;
             pss->isUpload = false;
@@ -419,6 +442,10 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 if (contentLen > 0)
                     lws_hdr_copy(wsi, clBuf, sizeof(clBuf), WSI_TOKEN_HTTP_CONTENT_LENGTH);
                 const long cl = std::strtol(clBuf, nullptr, 10);
+                if (cl > 0 && static_cast<uint64_t>(cl) > command_body::limitForPath(pss->path)) {
+                    pss->bodyRejected = true;
+                    return writeJsonError(wsi, 413, "Editor command exceeds its bounded payload limit");
+                }
                 if (cl <= 0) {
                     if (server->handleHttpApi(wsi, pss->path, pss->method, "", 0))
                         return 0;
@@ -453,10 +480,12 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                 return 0;
             }
             const char* chunk = static_cast<const char*>(in);
+            if (pss->bodyRejected) return -1;
             if (chunk != nullptr && len > 0) {
-                // Cap body size to keep bad clients from filling RAM.
-                if (pss->body.size() + len > 4096)
-                    return -1;
+                if (!command_body::canAppend(pss->body.size(), len, command_body::limitForPath(pss->path))) {
+                    pss->bodyRejected = true;
+                    return writeJsonError(wsi, 413, "Editor command exceeds its bounded payload limit");
+                }
                 pss->body.insert(pss->body.end(), chunk, chunk + len);
             }
             return 0;
@@ -478,6 +507,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
     if (why == LWS_CALLBACK_HTTP_BODY_COMPLETION) {
             if (pss == nullptr || server == nullptr || !pss->isApi)
                 return lws_callback_http_dummy(wsi, why, user, in, len);
+            if (pss->bodyRejected) return -1;
             if (pss->isUpload) {
                 if (pss->uploadFailed) return -1;
                 if (pss->uploadFile != nullptr) {
@@ -976,12 +1006,18 @@ uint64_t WebServer::frameGeneration() const {
 }
 
 bool WebServer::pollCommand(WebCommand& out) {
-    return commands.try_dequeue(out);
+    if (!commands.try_dequeue(out)) return false;
+    commandBytes.release(out.path.size() + out.json.size());
+    return true;
 }
 
 bool WebServer::enqueueCommand(WebCommand cmd) {
-    if (!commands.try_enqueue(std::move(cmd)))
+    const auto size = cmd.path.size() + cmd.json.size();
+    if (!commandBytes.reserve(size)) return false;
+    if (!commands.try_enqueue(std::move(cmd))) {
+        commandBytes.release(size);
         return false;
+    }
     // Wake the message thread immediately so all incoming web commands
     // (transport, mixer faders, mutes, solos, actions, cues, settings) apply instantly.
     if (urgentCommandHook)

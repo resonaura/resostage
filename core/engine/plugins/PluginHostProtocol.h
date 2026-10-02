@@ -22,7 +22,7 @@ namespace resostage::plugin_host {
 // header free of JUCE, STL containers, pointers, and platform handles: the
 // mapped area is a byte-level process boundary, not a shared object graph.
 inline constexpr uint32_t kMagic = 0x52535048; // "RSPH"
-inline constexpr uint32_t kProtocolVersion = 7;
+inline constexpr uint32_t kProtocolVersion = 8;
 inline constexpr size_t kSlotCount = 3;
 inline constexpr uint32_t kMaximumBlockSamples = 8192;
 inline constexpr uint32_t kMaximumMidiEventsPerBlock = 512;
@@ -113,12 +113,13 @@ struct ParameterEvent {
 // off the callback, so parameter discovery never calls vendor code in Core.
 struct ParameterDescriptor {
     uint16_t slotIndex = 0;
-    uint16_t reserved = 0;
+    uint16_t automatable = 1;
     uint32_t parameterIndex = 0;
     float defaultValue = 0.0f;
     uint32_t steps = 0;
     char name[64]{};
     char label[16]{};
+    char parameterId[128]{};
 };
 
 struct alignas(16) ControlEventCell {
@@ -188,6 +189,11 @@ struct alignas(64) SharedArea {
     uint8_t parameterMetadataTruncated = 0;
     std::array<ParameterDescriptor, kMaximumParameterDescriptorsPerChain>
         parameterDescriptors{};
+    // Helper parameter listeners publish latest normalized values directly.
+    // These are independent scalars, not a multi-field DSP snapshot; Core's
+    // HTTP thread can read them without calling or blocking vendor code.
+    std::array<std::atomic<float>, kMaximumParameterDescriptorsPerChain>
+        parameterValues{};
     std::atomic<uint32_t> hostState{
         static_cast<uint32_t>(HostState::Initializing)};
     std::atomic<uint32_t> command{

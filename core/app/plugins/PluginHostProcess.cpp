@@ -37,7 +37,8 @@ bool PluginHostProcess::start(const juce::File& executable,
                               std::string& error,
                               double sampleRate,
                               const juce::File& projectDirectory,
-                              const juce::File& registryFile) {
+                              const juce::File& registryFile,
+                              const std::function<void(uint32_t)>& startupProgress) {
     stop();
     if (!executable.existsAsFile()) {
         error = "Live plug-in host executable is missing: "
@@ -88,7 +89,13 @@ bool PluginHostProcess::start(const juce::File& executable,
 
     const auto deadline = std::chrono::steady_clock::now()
         + std::chrono::milliseconds(kHostReadyTimeoutMilliseconds);
+    uint32_t previousStartupIndex = std::numeric_limits<uint32_t>::max();
     while (std::chrono::steady_clock::now() < deadline) {
+        const auto index = sharedMemory.area()->activePluginIndex.load(std::memory_order_acquire);
+        if (startupProgress && index != previousStartupIndex) {
+            previousStartupIndex = index;
+            startupProgress(index);
+        }
         const auto state = static_cast<plugin_host::HostState>(
             sharedMemory.area()->hostState.load(std::memory_order_acquire));
         if (state == plugin_host::HostState::Ready) {
@@ -170,8 +177,10 @@ std::string PluginHostProcess::pluginSlotLoadError(size_t slotIndex) const {
 }
 
 std::vector<plugin_host::ParameterDescriptor>
-PluginHostProcess::parameterDescriptorsForSlot(size_t slotIndex) const {
+PluginHostProcess::parameterDescriptorsForSlot(size_t slotIndex,
+                                              std::vector<float>* currentValues) const {
     std::vector<plugin_host::ParameterDescriptor> result;
+    if (currentValues != nullptr) currentValues->clear();
     const auto* area = sharedMemory.area();
     if (area == nullptr || !isReady() || slotIndex >= area->pluginSlotCount)
         return result;
@@ -180,10 +189,18 @@ PluginHostProcess::parameterDescriptorsForSlot(size_t slotIndex) const {
         plugin_host::kMaximumParameterDescriptorsPerChain);
     for (uint32_t i = 0; i < count; ++i) {
         const auto& descriptor = area->parameterDescriptors[i];
-        if (descriptor.slotIndex == slotIndex)
+        if (descriptor.slotIndex == slotIndex) {
             result.push_back(descriptor);
+            if (currentValues != nullptr)
+                currentValues->push_back(area->parameterValues[i].load(std::memory_order_relaxed));
+        }
     }
     return result;
+}
+
+bool PluginHostProcess::parameterMetadataTruncated() const noexcept {
+    const auto* area = sharedMemory.area();
+    return area != nullptr && isReady() && area->parameterMetadataTruncated != 0;
 }
 
 bool PluginHostProcess::enqueueParameterEvent(

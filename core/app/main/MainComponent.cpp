@@ -331,11 +331,15 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
         // is called on the HTTP service thread.
         if (engine.hasCurrentPluginProcessorBank()) {
             if (const auto bank = engine.activePluginProcessorBank()) {
+                response.loadState = bank->getSlotLoadState(slotId);
+                response.loadError = bank->getSlotLoadError(slotId);
+                response.truncated = bank->parameterMetadataTruncated(slotId);
                 for (const auto& parameter : bank->parametersForSlot(slotId)) {
                     response.parameters.push_back({parameter.index, parameter.name,
                                                    parameter.label,
                                                    parameter.defaultValue,
-                                                   parameter.steps});
+                                                   parameter.steps, parameter.parameterId,
+                                                   parameter.currentValue, parameter.automatable});
                 }
             }
         }

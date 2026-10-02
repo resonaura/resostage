@@ -20,6 +20,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace resostage {
@@ -89,6 +90,9 @@ public:
         std::string label;
         float defaultValue = 0.0f;
         uint32_t steps = 0;
+        std::string parameterId;
+        float currentValue = 0.0f;
+        bool automatable = true;
     };
 
     struct BuildResult {
@@ -192,6 +196,13 @@ public:
     std::string getSlotLoadError(const std::string& slotId) const;
     /** Non-realtime discovery from a hosted chain's startup snapshot. */
     std::vector<ParameterInfo> parametersForSlot(const std::string& slotId) const;
+    bool parameterMetadataTruncated(const std::string& slotId) const noexcept;
+    /** Prepared ID lookup, bounded and allocation-free on live/offline DSP. */
+    int resolvePluginParameterIndex(const std::string& slotId,
+                                    std::string_view parameterId) const noexcept;
+    /** Helper startup only: mapping stays valid until the bank is destroyed. */
+    void bindParameterValueTelemetry(const std::string& slotId, uint32_t parameterIndex,
+                                     std::atomic<float>& destination);
     void setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept;
     void prewarmStrip(size_t stripIndex) noexcept;
     /** Prepared hosted indices only (at most 128 slots/32 live chains). */

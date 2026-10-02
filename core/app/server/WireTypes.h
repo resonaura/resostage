@@ -289,11 +289,17 @@ struct WPluginParameterInfo {
     std::string label;
     float defaultValue = 0.0f;
     uint32_t steps = 0;
+    std::string parameterId;
+    float currentValue = 0.0f;
+    bool automatable = true;
 };
 
 struct WPluginParameterList {
     std::string slotId;
     std::vector<WPluginParameterInfo> parameters;
+    std::string loadState = "loading";
+    std::string loadError;
+    bool truncated = false;
 };
 
 // Project-global metronome, mirrored field-for-field from ClickChannel in

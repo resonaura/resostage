@@ -95,6 +95,28 @@ export interface PluginSlotRow {
   loadError?: string;
 }
 
+/** Immutable names/identities plus the helper's latest normalized value snapshot. */
+export interface PluginParameterInfo {
+  index: number;
+  /** Stable vendor identity (id:...) or explicit legacy index fallback (param:...). */
+  parameterId: string;
+  name: string;
+  label: string;
+  defaultValue: number;
+  currentValue: number;
+  steps: number;
+  automatable: boolean;
+}
+
+export interface PluginParameterList {
+  slotId: string;
+  loadState: "loading" | "loaded" | "missing" | "failed";
+  loadError: string;
+  /** A missing target is conclusive only after loaded, complete metadata. */
+  truncated: boolean;
+  parameters: PluginParameterInfo[];
+}
+
 export interface Click {
   enabled: boolean;
   name: string;

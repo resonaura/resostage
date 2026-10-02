@@ -93,7 +93,12 @@ bool PluginHostRuntime::prepare(const juce::File& snapshotDirectory,
     try {
         builtBank = PluginProcessorBank::build(
             project, graph, &projectLoader, registryFile,
-            sampleRate, maximumBlockSize, false);
+            sampleRate, maximumBlockSize, false, nullptr, nullptr,
+            PluginProcessorBank::ExecutionMode::InProcess, 0,
+            [activePluginIndex](uint32_t index, const std::string&) {
+                if (activePluginIndex != nullptr)
+                    activePluginIndex->store(index, std::memory_order_release);
+            });
     } catch (const std::exception& exception) {
         error = std::string("Plug-in chain preparation failed: ") + exception.what();
         return false;
@@ -296,6 +301,8 @@ void PluginHostRuntime::publishParameterDescriptors(
     const auto& slots = projectLoader.project().tracks.front().plugins;
     try {
         for (size_t slotIndex = 0; slotIndex < slots.size(); ++slotIndex) {
+            if (builtBank.bank->parameterMetadataTruncated(slots[slotIndex].id))
+                area.parameterMetadataTruncated = 1;
             const auto parameters = builtBank.bank->parametersForSlot(slots[slotIndex].id);
             for (const auto& parameter : parameters) {
                 if (area.parameterDescriptorCount
@@ -308,11 +315,16 @@ void PluginHostRuntime::publishParameterDescriptors(
                 descriptor.parameterIndex = parameter.index;
                 descriptor.defaultValue = parameter.defaultValue;
                 descriptor.steps = parameter.steps;
+                descriptor.automatable = parameter.automatable ? 1 : 0;
                 juce::String(parameter.name.empty()
                     ? "Parameter " + std::to_string(parameter.index + 1)
                     : parameter.name).copyToUTF8(descriptor.name, sizeof(descriptor.name));
                 juce::String(parameter.label).copyToUTF8(
                     descriptor.label, sizeof(descriptor.label));
+                juce::String(parameter.parameterId).copyToUTF8(
+                    descriptor.parameterId, sizeof(descriptor.parameterId));
+                builtBank.bank->bindParameterValueTelemetry(slots[slotIndex].id,
+                    parameter.index, area.parameterValues[area.parameterDescriptorCount - 1]);
             }
         }
     } catch (...) {

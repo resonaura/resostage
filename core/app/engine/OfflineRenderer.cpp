@@ -16,6 +16,7 @@
 #include "automation/AutomationEvaluator.h"
 #include "project/ProjectLoader.h"
 #include "project/MidiRegionLoop.h"
+#include "plugins/PluginParameterBinding.h"
 #include "timing/TempoMap.h"
 #include "signalsmith-stretch/signalsmith-stretch.h"
 
@@ -36,6 +37,12 @@ namespace resostage {
 using offline_detail::OfflineMidiEvent;
 using offline_detail::buildOfflineMidiEvents;
 using offline_detail::WAVWriter;
+
+void OfflineProcessorSession::setPluginParameterById(const std::string& slotId,
+    std::string_view parameterId, float normalizedValue) noexcept {
+    const int index = resolvePluginParameterBinding({}, parameterId);
+    if (index >= 0) setPluginParameter(slotId, index, normalizedValue);
+}
 
 namespace {
 
@@ -593,17 +600,9 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                     const float value = AutomationEvaluator::evaluatePoints(
                         lane.points, laneBeat, lane.target.defaultValue);
                     if (lane.target.domain == AutomationDomain::Plugin) {
-                        int parameterIndex = -1;
-                        std::string_view id(lane.target.parameterId);
-                        if (id.starts_with("param:")) id.remove_prefix(6);
-                        const auto parsed = std::from_chars(
-                            id.data(), id.data() + id.size(), parameterIndex);
-                        if (!id.empty() && parsed.ec == std::errc{}
-                            && parsed.ptr == id.data() + id.size()) {
-                            processorSession->setPluginParameter(
-                                lane.target.entityId, parameterIndex,
-                                normalizedAutomationValue(lane, value));
-                        }
+                        processorSession->setPluginParameterById(
+                            lane.target.entityId, lane.target.parameterId,
+                            normalizedAutomationValue(lane, value));
                     } else if (lane.target.domain == AutomationDomain::MidiCC
                                && processorSession->stripHasInstrument(strip)) {
                         const std::string_view parameterId(lane.target.parameterId);

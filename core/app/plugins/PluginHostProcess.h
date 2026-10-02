@@ -13,6 +13,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -39,7 +40,8 @@ public:
                uint32_t maximumBlockSamples, std::string& error,
                double sampleRate = 48000.0,
                const juce::File& projectDirectory = {},
-               const juce::File& registryFile = {});
+               const juce::File& registryFile = {},
+               const std::function<void(uint32_t)>& startupProgress = {});
     void stop() noexcept;
     bool isRunning() const noexcept;
     bool isReady() const noexcept;
@@ -65,7 +67,8 @@ public:
     std::string pluginSlotLoadError(size_t index) const;
     /** Startup-only immutable metadata; query from a non-realtime thread. */
     std::vector<plugin_host::ParameterDescriptor> parameterDescriptorsForSlot(
-        size_t slotIndex) const;
+        size_t slotIndex, std::vector<float>* currentValues = nullptr) const;
+    bool parameterMetadataTruncated() const noexcept;
     double processorTailSeconds() const noexcept {
         const auto* area = sharedMemory.area();
         return area != nullptr ? area->processorTailSeconds : 0.0;

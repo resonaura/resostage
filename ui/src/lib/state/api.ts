@@ -16,6 +16,7 @@ import type {
   LightCueRow,
   LivePeakChunkResponse,
   PeaksResponse,
+  PluginParameterList,
   WebUiState,
 } from "@/lib/state/types";
 
@@ -114,6 +115,22 @@ async function post(path: string, body?: unknown): Promise<void> {
     // command just means the next state frame won't reflect it and the
     // user can press again; there's nothing useful to surface here.
   }
+}
+
+/** Transactional edits keep queue/network failures visible to their gesture owner. */
+export async function postReliable(path: string, body?: unknown): Promise<void> {
+  await serializeCommand(async () => {
+    const response = await apiFetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body === undefined ? "{}" : JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || `Core rejected the edit (HTTP ${response.status})`);
+    }
+  });
+  _triggerRefetch();
 }
 
 /** Decisions are generation-bound; unlike best-effort controls, errors stay visible. */
@@ -381,16 +398,7 @@ export const pluginCatalog = {
 };
 
 export const pluginChains = {
-  parameters: async (slotId: string): Promise<{
-    slotId: string;
-    parameters: Array<{
-      index: number;
-      name: string;
-      label: string;
-      defaultValue: number;
-      steps: number;
-    }>;
-  }> => {
+  parameters: async (slotId: string): Promise<PluginParameterList> => {
     const response = await apiFetch(
       `/api/v1/plugins/slot/parameters?slotId=${encodeURIComponent(slotId)}`,
     );
@@ -825,7 +833,7 @@ export const builder = {
     umpEvents?: import("@/lib/state/types").MidiUmpEventRow[];
     automationLanes?: import("@/lib/state/types").AutomationLaneRow[];
     gestureId?: string;
-  }) => post("/api/v1/builder/midi-region/add", patch),
+  }) => postReliable("/api/v1/builder/midi-region/add", patch),
   midiRegionRemove: (songIndex: number, regionId: string, gestureId?: string) =>
     post("/api/v1/builder/midi-region/remove", {
       songIndex,
@@ -850,7 +858,7 @@ export const builder = {
     umpEvents?: import("@/lib/state/types").MidiUmpEventRow[];
     automationLanes?: import("@/lib/state/types").AutomationLaneRow[];
     gestureId?: string;
-  }) => post("/api/v1/builder/midi-region/update", patch),
+  }) => postReliable("/api/v1/builder/midi-region/update", patch),
 
   automationLaneAdd: (patch: {
     songIndex: number;
@@ -868,14 +876,15 @@ export const builder = {
     muted?: boolean;
     initialTimeBeats?: number;
     initialValue?: number;
+    points?: import("@/lib/state/types").AutomationPointRow[];
     gestureId?: string;
-  }) => post("/api/v1/builder/automation-lane/add", patch),
+  }) => postReliable("/api/v1/builder/automation-lane/add", patch),
   automationLaneRemove: (
     songIndex: number,
     laneId: string,
     gestureId?: string,
   ) =>
-    post("/api/v1/builder/automation-lane/remove", {
+    postReliable("/api/v1/builder/automation-lane/remove", {
       songIndex,
       laneId,
       gestureId,
@@ -887,7 +896,7 @@ export const builder = {
     muted?: boolean;
     writeMode?: import("@/lib/state/types").AutomationWriteMode;
     gestureId?: string;
-  }) => post("/api/v1/builder/automation-lane/update", patch),
+  }) => postReliable("/api/v1/builder/automation-lane/update", patch),
   automationPointAdd: (patch: {
     songIndex: number;
     laneId: string;
@@ -895,19 +904,25 @@ export const builder = {
     value: number;
     curve?: number;
     gestureId?: string;
-  }) => post("/api/v1/builder/automation-point/add", patch),
+  }) => postReliable("/api/v1/builder/automation-point/add", patch),
   automationPointRemove: (
     songIndex: number,
     laneId: string,
     timeBeats: number,
     gestureId?: string,
   ) =>
-    post("/api/v1/builder/automation-point/remove", {
+    postReliable("/api/v1/builder/automation-point/remove", {
       songIndex,
       laneId,
       timeBeats,
       gestureId,
     }),
+  automationPointsReplace: (patch: {
+    songIndex: number;
+    laneId: string;
+    points: import("@/lib/state/types").AutomationPointRow[];
+    gestureId?: string;
+  }) => postReliable("/api/v1/builder/automation-points/replace", patch),
   automationRecordGesture: (patch: {
     songIndex: number;
     laneId: string;
