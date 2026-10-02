@@ -101,6 +101,15 @@ export async function verifyEditorState(coreExecutable, inspect) {
     const liveEdited = await waitFor((state) => getRegion(state)?.notes.every((note) => note.durationBeats === 0.5), "quantize while playing");
     assert.equal(liveEdited.playing, true, "Note edit must not stop transport");
     await waitFor((state) => state.playing && state.playheadSeconds > playing.playheadSeconds, "continuous transport after edit");
+
+    // Exercise actual history dispatch while playing too. This checks
+    // authoritative notes and transport intent, not acoustic continuity.
+    await request("/api/v1/timeline/undo", {});
+    const liveUndo = await waitFor((state) => getRegion(state)?.notes.every((note) => Math.abs(note.durationBeats - 0.22) < 1e-6), "Undo while playing");
+    assert.equal(liveUndo.playing, true, "Undo must not stop transport");
+    await request("/api/v1/timeline/redo", {});
+    const liveRedo = await waitFor((state) => getRegion(state)?.notes.every((note) => note.durationBeats === 0.5), "Redo while playing");
+    assert.equal(liveRedo.playing, true, "Redo must not stop transport");
     await request("/api/v1/transport/stop", {});
     await waitFor((state) => !state.playing, "Stop");
 
@@ -141,6 +150,17 @@ export async function verifyEditorState(coreExecutable, inspect) {
     await request("/api/v1/builder/automation-lane/update", { songIndex: 0, laneId: faderLane.id, writeMode: "touch" });
     state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[1]?.writeMode === "touch", "set writeMode to touch");
     assert.equal(state.playing, true, "Mode change must not interrupt playback");
+
+    const beforeInvalidGesture = state.songs[0].automationLanes[1].points;
+    await request("/api/v1/builder/automation/record-gesture", {
+      songIndex: 0, laneId: faderLane.id, punchInBeats: 4, releaseBeats: 6, releaseValue: -12,
+      points: [{ timeBeats: 3, value: -6 }],
+    });
+    state = await waitFor((current) => current.statusMessage?.includes("Recorded automation points must stay inside"), "recording pass rejection after admission");
+    assert.deepEqual(state.songs[0].automationLanes[1].points, beforeInvalidGesture,
+      "Rejected recording must leave the complete envelope intact");
+    assert.equal(state.songs[0].automationLanes[1].writeMode, "touch");
+    assert.equal(state.playing, true, "Rejected recording must not stop transport");
 
     await request("/api/v1/builder/automation/record-gesture", {
       songIndex: 0,
@@ -249,7 +269,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(state.songs[0].automationLanes[4].target.parameterId, "send:0");
     assert.equal(state.songs[0].automationLanes[4].points.length, 2);
     if (inspect) await inspect(origin);
-    console.log("PASS: large MIDI/automation HTTP edits, live Touch/Write gestures & safety revert, strip fader/pan/mute/send playback, live transport continuity, Undo/Redo, 413, save/reopen");
+    console.log("PASS: actual Core HTTP/state persistence, large note/point edits, active-playback Undo/Redo, strip lane and record-gesture admission, rejected pass atomicity, Write safety revert, 413, save/reopen (not acoustic or UI manual-override proof)");
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.
