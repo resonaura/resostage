@@ -20,8 +20,10 @@ Do not reimplement it or introduce a runtime PATH/package-manager dependency.
    upload, queue rejection, and song boundary extension. Confirm failure leaves
    no region/history/temporary file and success survives save/reopen.
 3. Nine-format HTTP graph-to-codec export and custom destination persistence/
-   validation are covered by `scripts/media/acceptance.mjs`. Still exercise
-   production export with heavy saved AU/VST3 state,
+   validation passed on the macOS ARM64 packaged Core on 2026-10-01 via
+   `scripts/media/acceptance.mjs` (decoded non-silent output, restart persistence,
+   invalid paths, legacy omission, explicit reset). Still exercise production
+   export with heavy saved AU/VST3 state,
    multiple stems/ranges, cancellation, and output collisions. Verify effects
    are rendered before conversion and publication remains all-or-nothing.
 4. Run complete suites after concurrent changes. Report AU/vendor fixture skips
