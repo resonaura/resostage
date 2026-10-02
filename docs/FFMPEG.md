@@ -107,6 +107,6 @@ harness in `scripts/media/acceptance.mjs` exercises all nine output formats,
 Unicode custom destinations, Core restart persistence, rejected paths, older
 clients and explicit default reset. Actual HTTP import/history and heavy vendor
 rendering remain separate checks; codec smoke does not certify them.
-The full native run on 2026-10-01 passed all 540 cases and 285,554 assertions.
+The full native run on 2026-10-01 passed all 542 cases and 287,112 assertions.
 Do not infer ARM Windows/Linux or physical Intel Mac coverage from pinned
 packages or Rosetta. The current plan is [ai/tasks/media.md](ai/tasks/media.md).
