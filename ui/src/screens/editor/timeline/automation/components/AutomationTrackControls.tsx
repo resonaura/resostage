@@ -64,8 +64,8 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
   readOnly?: boolean;
 }) {
   const targetGroups = useMemo(
-    () => getTrackAutomationTargets(track, buses),
-    [track, buses],
+    () => getTrackAutomationTargets(track, buses, lanes),
+    [track, buses, lanes],
   );
 
   const activeLane = lanes.find((l) => l.id === activeLaneId) ?? lanes[0];

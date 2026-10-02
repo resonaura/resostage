@@ -5,6 +5,7 @@
  */
 
 import type {
+  AutomationLaneRow,
   BusRow,
   TrackRow,
 } from "@/lib/state/types";
@@ -25,6 +26,7 @@ export interface GroupedAutomationTargets {
 export function getTrackAutomationTargets(
   track: TrackRow,
   buses?: BusRow[],
+  existingLanes?: AutomationLaneRow[],
 ): GroupedAutomationTargets[] {
   const groups: GroupedAutomationTargets[] = [];
 
@@ -128,6 +130,42 @@ export function getTrackAutomationTargets(
         unit: "",
         disabledReason: isLoaded ? undefined : `Plug-in ${slot.loadState || "offline"}`,
       });
+
+      // Retain any other parameters already automated in existingLanes for this slot
+      if (existingLanes) {
+        existingLanes.forEach((lane) => {
+          if (
+            lane.target.domain === "plugin" &&
+            lane.target.entityId === slot.id &&
+            lane.target.parameterId !== "param:0"
+          ) {
+            const exists = pluginTargets.some(
+              (t) => t.entityId === slot.id && t.parameterId === lane.target.parameterId,
+            );
+            if (!exists) {
+              let paramLabel = lane.target.parameterId;
+              if (paramLabel.startsWith("param:")) {
+                const idx = parseInt(paramLabel.slice(6), 10);
+                paramLabel = Number.isFinite(idx) ? `Param ${idx + 1}` : paramLabel;
+              }
+              pluginTargets.push({
+                id: `plugin:${slot.id}:${lane.target.parameterId}`,
+                domain: "plugin",
+                entityId: slot.id,
+                parameterId: lane.target.parameterId,
+                label: `${slotName} · ${paramLabel}`,
+                category: "plugin",
+                valueType: lane.target.valueType ?? "floatNormalized",
+                defaultValue: lane.target.defaultValue ?? 0.5,
+                minValue: lane.target.minValue ?? 0.0,
+                maxValue: lane.target.maxValue ?? 1.0,
+                unit: "",
+                disabledReason: isLoaded ? undefined : `Plug-in ${slot.loadState || "offline"}`,
+              });
+            }
+          }
+        });
+      }
     });
   }
   if (pluginTargets.length > 0) {
@@ -231,6 +269,99 @@ export function getTrackAutomationTargets(
       categoryLabel: "MIDI CC",
       targets: midiTargets,
     });
+  }
+
+  // 5. Orphan / Missing targets from existing lanes
+  if (existingLanes && existingLanes.length > 0) {
+    const orphanTargets: AutomationTargetOption[] = [];
+    existingLanes.forEach((lane) => {
+      if (lane.target.domain === "plugin") {
+        const slotFound = track.plugins?.some((p) => p.id === lane.target.entityId);
+        if (!slotFound) {
+          const slotShort =
+            lane.target.entityId.length > 8
+              ? `${lane.target.entityId.slice(0, 8)}…`
+              : lane.target.entityId;
+          orphanTargets.push({
+            id: `orphan:${lane.id}`,
+            domain: lane.target.domain,
+            entityId: lane.target.entityId,
+            parameterId: lane.target.parameterId,
+            label: `[Missing Plug-in] ${slotShort} · ${lane.target.parameterId}`,
+            category: "orphan",
+            valueType: lane.target.valueType ?? "floatNormalized",
+            defaultValue: lane.target.defaultValue ?? 0.0,
+            minValue: lane.target.minValue ?? 0.0,
+            maxValue: lane.target.maxValue ?? 1.0,
+            unit: "",
+            disabledReason: "Plug-in slot removed or unavailable",
+          });
+        }
+      } else if (lane.target.domain === "strip") {
+        if (lane.target.parameterId.startsWith("send:")) {
+          const sendIdx = parseInt(lane.target.parameterId.slice(5), 10);
+          const sendExists =
+            Number.isFinite(sendIdx) &&
+            track.output?.sends &&
+            sendIdx >= 0 &&
+            sendIdx < track.output.sends.length;
+          if (!sendExists) {
+            orphanTargets.push({
+              id: `orphan:${lane.id}`,
+              domain: "strip",
+              entityId: lane.target.entityId,
+              parameterId: lane.target.parameterId,
+              label: `[Missing Send] ${lane.target.parameterId}`,
+              category: "orphan",
+              valueType: lane.target.valueType ?? "floatNormalized",
+              defaultValue: 1.0,
+              minValue: 0.0,
+              maxValue: 1.0,
+              unit: "%",
+              disabledReason: "Send bus removed or disconnected",
+            });
+          }
+        } else if (lane.target.entityId !== track.id) {
+          orphanTargets.push({
+            id: `orphan:${lane.id}`,
+            domain: "strip",
+            entityId: lane.target.entityId,
+            parameterId: lane.target.parameterId,
+            label: `[Detached Strip] ${lane.target.parameterId}`,
+            category: "orphan",
+            valueType: lane.target.valueType ?? "floatNormalized",
+            defaultValue: 0.0,
+            minValue: 0.0,
+            maxValue: 1.0,
+            unit: "",
+            disabledReason: "Channel strip detached",
+          });
+        }
+      } else if (lane.target.domain === "midiCC" && !isMidi) {
+        orphanTargets.push({
+          id: `orphan:${lane.id}`,
+          domain: "midiCC",
+          entityId: lane.target.entityId,
+          parameterId: lane.target.parameterId,
+          label: `[Detached MIDI] ${lane.target.parameterId}`,
+          category: "orphan",
+          valueType: lane.target.valueType ?? "integer",
+          defaultValue: 0,
+          minValue: 0,
+          maxValue: 127,
+          unit: "",
+          disabledReason: "Track does not support MIDI",
+        });
+      }
+    });
+
+    if (orphanTargets.length > 0) {
+      groups.push({
+        category: "orphan",
+        categoryLabel: "Missing / Detached Targets",
+        targets: orphanTargets,
+      });
+    }
   }
 
   return groups;

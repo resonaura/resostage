@@ -13,7 +13,7 @@ import type {
   ParameterValueType,
 } from "@/lib/state/types";
 
-export type AutomationTargetCategory = "strip" | "send" | "plugin" | "midi";
+export type AutomationTargetCategory = "strip" | "send" | "plugin" | "midi" | "orphan";
 
 export interface AutomationTargetOption {
   id: string;

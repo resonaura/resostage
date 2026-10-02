@@ -108,6 +108,89 @@ describe("automationTargets", () => {
     expect(pluginGroup.targets[0].disabledReason).toContain("failed");
   });
 
+  it("retains existing lane parameters for active plug-in slots", () => {
+    const groups = getTrackAutomationTargets(baseTrack, undefined, [
+      {
+        id: "lane:serum:filter",
+        target: {
+          domain: "plugin",
+          entityId: "slot:1",
+          parameterId: "param:2",
+          valueType: "floatNormalized",
+          defaultValue: 0.5,
+          minValue: 0,
+          maxValue: 1,
+        },
+        scope: "track",
+        writeMode: "read",
+        enabled: true,
+        muted: false,
+        points: [],
+      },
+    ]);
+
+    const pluginGroup = groups.find((g) => g.category === "plugin")!;
+    expect(pluginGroup.targets.length).toBe(2);
+    expect(pluginGroup.targets.some((t) => t.parameterId === "param:0")).toBe(true);
+    const customParam = pluginGroup.targets.find((t) => t.parameterId === "param:2");
+    expect(customParam).toBeDefined();
+    expect(customParam?.label).toContain("Param 3");
+  });
+
+  it("detects orphan plug-in and send lanes when entities are removed", () => {
+    const groups = getTrackAutomationTargets(baseTrack, undefined, [
+      {
+        id: "lane:orphan:plugin",
+        target: {
+          domain: "plugin",
+          entityId: "slot:removed_vst",
+          parameterId: "param:5",
+          valueType: "floatNormalized",
+          defaultValue: 0.5,
+          minValue: 0,
+          maxValue: 1,
+        },
+        scope: "track",
+        writeMode: "read",
+        enabled: true,
+        muted: false,
+        points: [],
+      },
+      {
+        id: "lane:orphan:send",
+        target: {
+          domain: "strip",
+          entityId: "track:1",
+          parameterId: "send:99",
+          valueType: "floatNormalized",
+          defaultValue: 1.0,
+          minValue: 0,
+          maxValue: 1,
+        },
+        scope: "track",
+        writeMode: "read",
+        enabled: true,
+        muted: false,
+        points: [],
+      },
+    ]);
+
+    const orphanGroup = groups.find((g) => g.category === "orphan");
+    expect(orphanGroup).toBeDefined();
+    expect(orphanGroup?.categoryLabel).toBe("Missing / Detached Targets");
+    expect(orphanGroup?.targets.length).toBe(2);
+
+    const pluginOrphan = orphanGroup?.targets.find((t) => t.id === "orphan:lane:orphan:plugin");
+    expect(pluginOrphan).toBeDefined();
+    expect(pluginOrphan?.label).toContain("[Missing Plug-in]");
+    expect(pluginOrphan?.disabledReason).toContain("removed or unavailable");
+
+    const sendOrphan = orphanGroup?.targets.find((t) => t.id === "orphan:lane:orphan:send");
+    expect(sendOrphan).toBeDefined();
+    expect(sendOrphan?.label).toContain("[Missing Send]");
+    expect(sendOrphan?.disabledReason).toContain("removed or disconnected");
+  });
+
   describe("formatAutomationValue", () => {
     it("formats decibels properly with -inf", () => {
       expect(formatAutomationValue(-60, { parameterId: "faderGainDb" })).toBe("-∞ dB");

@@ -157,4 +157,41 @@ describe("AutomationTrackControls", () => {
       muted: true,
     });
   });
+
+  it("renders orphan target and selects it without falling back to fader gain", () => {
+    const orphanLane: AutomationLaneRow = {
+      id: "lane-orphan",
+      target: {
+        domain: "plugin",
+        entityId: "slot-missing-uuid",
+        parameterId: "param:3",
+        valueType: "floatNormalized",
+        defaultValue: 0.5,
+        minValue: 0,
+        maxValue: 1,
+      },
+      scope: "track",
+      writeMode: "read",
+      enabled: true,
+      muted: false,
+      points: [{ timeBeats: 0, value: 0.5, curve: 0 }],
+    };
+
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [orphanLane],
+          activeLaneId: "lane-orphan",
+          onSelectLane: vi.fn(),
+        }),
+      );
+    });
+
+    const select = container.querySelector("select");
+    expect(select?.value).toBe("orphan:lane-orphan");
+    expect(container.textContent).toContain("[Missing Plug-in]");
+    expect(container.textContent).toContain("slot-mis");
+  });
 });

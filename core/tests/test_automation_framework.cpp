@@ -14,6 +14,7 @@
 #include "project/ProjectSchema.h"
 #include "timing/TempoMap.h"
 
+#include <charconv>
 #include <cmath>
 #include <vector>
 
@@ -330,6 +331,92 @@ TEST_CASE("ProjectJson: Lossless roundtrip of AutomationLanes") {
     CHECK(parsedMr.automationLanes[0].points.size() == 2);
     CHECK(parsedMr.automationLanes[0].points[1].value == doctest::Approx(0.9f));
     CHECK(parsedMr.automationLanes[0].points[1].curve == doctest::Approx(0.8f));
+}
+
+TEST_CASE("AutomationTarget: Slot UUID retention, orphan lane recovery, and paramID parsing") {
+    // 1. Parameter index parsing edge cases
+    const auto parseParamIndex = [](std::string_view id) noexcept -> int {
+        if (id.starts_with("param:")) id.remove_prefix(6);
+        int index = -1;
+        if (id.empty()) return index;
+        const auto parsed = std::from_chars(id.data(), id.data() + id.size(), index);
+        if (parsed.ec != std::errc{} || parsed.ptr != id.data() + id.size())
+            return -1;
+        return index;
+    };
+
+    CHECK(parseParamIndex("param:0") == 0);
+    CHECK(parseParamIndex("param:104") == 104);
+    CHECK(parseParamIndex("42") == 42);
+    CHECK(parseParamIndex("param:") == -1);
+    CHECK(parseParamIndex("param:-1") == -1);
+    CHECK(parseParamIndex("param:abc") == -1);
+    CHECK(parseParamIndex("") == -1);
+    CHECK(parseParamIndex("param:12x") == -1);
+
+    // 2. Track with multiple plugins and slot UUID retention across reorder
+    TrackDef track;
+    track.id = "audio::track:1";
+    track.name = "Guitar";
+
+    PluginSlot slotA;
+    slotA.id = "slot_uuid_chorus_01";
+    slotA.plugin.name = "Chorus";
+
+    PluginSlot slotB;
+    slotB.id = "slot_uuid_delay_02";
+    slotB.plugin.name = "Delay";
+
+    PluginSlot slotC;
+    slotC.id = "slot_uuid_reverb_03";
+    slotC.plugin.name = "Reverb";
+
+    track.plugins = {slotA, slotB, slotC};
+
+    // Automation lane binds specifically to slotB UUID
+    AutomationLane delayMixLane;
+    delayMixLane.id = "lane_delay_mix";
+    delayMixLane.target.domain = AutomationDomain::Plugin;
+    delayMixLane.target.entityId = slotB.id; // slot_uuid_delay_02
+    delayMixLane.target.parameterId = "param:1";
+    delayMixLane.points = {{0.0, 0.2f, 0.0f}, {4.0, 0.8f, 0.0f}};
+
+    // Reorder plugins: move slotB to first position (slotB, slotA, slotC)
+    std::swap(track.plugins[0], track.plugins[1]);
+    CHECK(track.plugins[0].id == "slot_uuid_delay_02");
+    CHECK(track.plugins[1].id == "slot_uuid_chorus_01");
+
+    // The lane's target entityId still matches slotB.id regardless of slot index
+    const auto findSlotForLane = [&](const AutomationLane& lane) -> const PluginSlot* {
+        for (const auto& s : track.plugins) {
+            if (s.id == lane.target.entityId)
+                return &s;
+        }
+        return nullptr;
+    };
+
+    const auto* matchedSlot = findSlotForLane(delayMixLane);
+    REQUIRE(matchedSlot != nullptr);
+    CHECK(matchedSlot->id == "slot_uuid_delay_02");
+    CHECK(matchedSlot->plugin.name == "Delay");
+
+    // 3. Remove plug-in: lane becomes an orphan but retains its points and target identity
+    track.plugins.erase(track.plugins.begin()); // Erase slotB
+    CHECK(track.plugins.size() == 2);
+    CHECK(findSlotForLane(delayMixLane) == nullptr); // Slot is missing, lane is an orphan
+
+    // Points and target configuration remain completely intact
+    CHECK(delayMixLane.target.entityId == "slot_uuid_delay_02");
+    CHECK(delayMixLane.target.parameterId == "param:1");
+    CHECK(delayMixLane.points.size() == 2);
+    CHECK(delayMixLane.points[1].value == doctest::Approx(0.8f));
+
+    // 4. Restore plug-in (undo removal): lane reattaches immediately to slot UUID
+    track.plugins.insert(track.plugins.begin(), slotB);
+    const auto* reattachedSlot = findSlotForLane(delayMixLane);
+    REQUIRE(reattachedSlot != nullptr);
+    CHECK(reattachedSlot->id == "slot_uuid_delay_02");
+    CHECK(reattachedSlot->plugin.name == "Delay");
 }
 
 } // TEST_SUITE("AutomationFramework")
