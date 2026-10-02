@@ -596,11 +596,11 @@ TEST_CASE("MixRenderer latency percentiles (p50/p95/p99/max) and PDC alignment a
 }
 
 TEST_CASE("Dynamic PDC changed-latency refill continuity and alignment during active rendering") {
-    // Tests real-time live transition when a plugin changes its latency report
-    // from 64 to 128 samples during continuous audio rendering across all standard
-    // hardware block sizes (64, 128, 256, 512 frames).
+    // Synthetic MixRenderer/PluginDelayBank transition from 64 to 128 samples
+    // at representative block sizes. This does not run a vendor or reconfigure
+    // a physical device. The allocation probe covers ordinary C++ new/new[].
     // Verifies:
-    // 1. Zero heap allocations on the audio thread during and across transitions.
+    // 1. Zero probed C++ allocations during the renderer transition.
     // 2. Refill transient is bounded exactly to the new delay length.
     // 3. Signal continuity: zero NaN/Inf, outputs clean delayed stream.
     // 4. Phase and alignment match the newly declared latency exactly.
@@ -694,6 +694,16 @@ TEST_CASE("Dynamic PDC changed-latency refill continuity and alignment during ac
             for (int s = 0; s < blockSize; ++s) {
                 REQUIRE_FALSE(std::isnan(mainL[s]));
                 REQUIRE_FALSE(std::isinf(mainL[s]));
+                // A changed-delay ring is fresh: exactly its first 128 output
+                // frames are zero, then every frame must match the new source
+                // origin. Checking only the final block missed long refill gaps.
+                const int elapsed = b * blockSize + s;
+                const int source = globalSample - blockSize + s
+                    - static_cast<int>(currentLatency);
+                const float expected = elapsed < static_cast<int>(currentLatency)
+                    ? 0.0f : static_cast<float>(std::sin(
+                        2.0 * 3.141592653589793 * freq * source / sr));
+                CHECK(mainL[s] == doctest::Approx(expected).epsilon(0.001f));
             }
         }
 
@@ -713,7 +723,7 @@ TEST_CASE("Dynamic PDC changed-latency refill continuity and alignment during ac
     }
 }
 
-TEST_CASE("MixRenderer multi-buffer device transitions (64, 128, 256, 512 frames) with PDC maintain zero allocations and phase continuity") {
+TEST_CASE("MixRenderer varying block sizes (64, 128, 256, 512 frames) with PDC maintain probed zero allocations and phase continuity") {
     MixGraph graph;
     graph.strips.resize(3);
     graph.routingLayoutKey = 200;

@@ -567,12 +567,15 @@ TEST_CASE("PluginPowerManager: Real-time throughput & bypass benchmark") {
     constexpr int kIterations = 2000; // ~1,024,000 samples
     std::vector<float> left(kBlockSize, 0.0f);
     std::vector<float> right(kBlockSize, 0.0f);
+    size_t suspendedPasses = 0;
+    size_t activePasses = 0;
 
     // Benchmark suspended execution (O(1) bypass)
     const auto startSuspended = std::chrono::steady_clock::now();
     for (int iter = 0; iter < kIterations; ++iter) {
         for (int i = 0; i < kNumSlots; ++i) {
             if (trackers[i].isProcessingNeeded()) {
+                ++suspendedPasses;
                 // Simulate heavy DSP math
                 for (int s = 0; s < kBlockSize; ++s) {
                     left[s] = (left[s] * 0.95f) + 0.01f;
@@ -592,6 +595,7 @@ TEST_CASE("PluginPowerManager: Real-time throughput & bypass benchmark") {
     for (int iter = 0; iter < kIterations; ++iter) {
         for (int i = 0; i < kNumSlots; ++i) {
             if (trackers[i].isProcessingNeeded()) {
+                ++activePasses;
                 for (int s = 0; s < kBlockSize; ++s) {
                     left[s] = (left[s] * 0.95f) + 0.01f;
                     right[s] = (right[s] * 0.95f) + 0.01f;
@@ -605,8 +609,12 @@ TEST_CASE("PluginPowerManager: Real-time throughput & bypass benchmark") {
     MESSAGE("50 Plugins over 1,024,000 samples: Suspended = " << suspendedMs
             << " ms, Active = " << activeMs << " ms (Speedup: " << (activeMs / std::max(0.001, suspendedMs)) << "x)");
 
-    // Suspended bypass must be dramatically faster (> 5x) than running 50 DSP passes
-    CHECK(activeMs > suspendedMs * 5.0);
+    // Scheduling/thermal contention can delay either wall-time window. Assert
+    // the deterministic work-elimination contract; retain timings as diagnostics
+    // rather than declaring valid code broken by unrelated host load.
+    CHECK(suspendedPasses == 0);
+    CHECK(activePasses == static_cast<size_t>(kIterations * kNumSlots));
+    CHECK(left.front() == doctest::Approx(0.2f).epsilon(0.001));
 }
 
 TEST_CASE("PluginPowerManager: chain prewarm edge avoids per-insert request work") {
