@@ -32,8 +32,10 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
   `WAVMetadata.{h,cpp}` now use canonical filenames and symbols. The legacy
   `WavStreamDecoder` type and `extractTempoFromWavFile()` spellings remain as
   source-compatibility aliases/wrappers.
-- `core/app/engine/OfflineWAVWriter.{h,cpp}` now uses canonical filenames and
-  `WAVWriter`; `WavWriter` remains as a source-compatibility alias.
+- `core/app/engine/OfflineRenderer.cpp`: canonicalized `WAVSource` with backward-compatible
+  `WavSource` alias.
+- `core/app/engine/OfflineWAVWriter.{h,cpp}` now uses canonical filenames, `WAVWriter`,
+  and `finalizeWAVFile()`; `WavWriter` and `finalizeWavFile()` remain as source-compatibility aliases.
 - `AudioRecordWorker`: canonicalized internal header writer `writeWAVHeader()`.
 - `core/app/network/UDPDiscovery.{h,cpp}` now uses canonical filenames and
   `UDPDiscovery`; `UdpDiscovery` remains as a source-compatibility alias.

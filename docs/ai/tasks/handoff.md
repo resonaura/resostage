@@ -78,6 +78,7 @@ Additional critical issues:
   and clear selection upon project change/open. Added unit test suite in
   `useMidiRegionEditorState.test.tsx` testing reconciliation, follow-ups, Undo, and epoch change.
 - `b04353b`: Added accessible typeahead search via `textValue` to automation parameter Select options.
+- `65239a3`: Canonicalized `WAVSource` in `OfflineRenderer.cpp` and `finalizeWAVFile()` in `OfflineWAVWriter.{h,cpp}` with backward-compatible aliases.
 
 ## Work in progress: inspect before continuing
 
