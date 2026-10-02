@@ -198,9 +198,11 @@ void MainComponent::publishWebState() {
     state.canRedo = engine.canRedoTimeline();
     state.undoLabel = engine.undoTimelineLabel();
     state.redoLabel = engine.redoTimelineLabel();
+    state.projectEpoch = projectEpoch_;
     state.stateRevision = engine.projectHistoryRevision();
     state.lastHistoryRequestId = lastHistoryRequestId_;
     state.historyResults.assign(historyResults_.begin(), historyResults_.end());
+    state.editorCommandResults.assign(editorCommandResults_.begin(), editorCommandResults_.end());
 
     state.songs.reserve(proj.songs.size());
     for (const SongDef& song : proj.songs) {

@@ -18,18 +18,24 @@ afterEach(() => { dismissHistoryError(); vi.useRealTimers(); });
 function fixture() {
   let now = 0;
   let origin = "one";
+  let projectIdentity: { origin: string; stateSessionId: string; projectEpoch: number } | null = null;
   const fetch = vi.fn();
   const applySnapshot = vi.fn();
   const prepare = vi.fn(async () => {});
   const navigate = createHistoryNavigator({
     fetch, applySnapshot, prepare,
     origin: () => origin,
+    projectIdentity: () => projectIdentity,
     serialize: async (command) => command(),
     now: () => now,
     timeoutMs: 100,
     sleep: async (ms) => { now += ms; },
   });
-  return { fetch, applySnapshot, prepare, navigate, setOrigin: (next: string) => { origin = next; } };
+  return {
+    fetch, applySnapshot, prepare, navigate,
+    setOrigin: (next: string) => { origin = next; },
+    setProjectIdentity: (next: typeof projectIdentity) => { projectIdentity = next; },
+  };
 }
 
 describe("authoritative history navigation", () => {
@@ -110,17 +116,18 @@ describe("authoritative history navigation", () => {
 
   it("does not fall back to a later high-water mark when an exact result expired", async () => {
     const test = fixture();
-    test.fetch.mockResolvedValueOnce(response({ historyRequestId: 12, stateSessionId: "Core" }))
-      .mockResolvedValueOnce(response({
+    const snapshot = {
         stateSessionId: "Core",
         lastHistoryRequestId: 100,
         stateRevision: 100,
         historyResults: [],
-      }));
+      };
+    test.fetch.mockResolvedValueOnce(response({ historyRequestId: 12, stateSessionId: "Core" }))
+      .mockResolvedValue(response(snapshot));
 
     await test.navigate("undo");
     expect(test.applySnapshot).not.toHaveBeenCalled();
-    expect(getHistoryNavigationState().error).toContain("exact result");
+    expect(getHistoryNavigationState().error).toContain("do not resend blindly");
   });
 
   it("rejects a restarted Core instead of accepting its reset request counter", async () => {
@@ -138,6 +145,30 @@ describe("authoritative history navigation", () => {
     await test.navigate("undo");
     expect(test.fetch).not.toHaveBeenCalled();
     expect(getHistoryNavigationState().error).toContain("changed");
+  });
+
+  it("binds a history command and its result wait to one project epoch", async () => {
+    const test = fixture();
+    const identity = { origin: "one", stateSessionId: "Core", projectEpoch: 7 };
+    test.setProjectIdentity(identity);
+    test.fetch.mockImplementation(async (path, init) => {
+      if (path.endsWith("/undo")) {
+        expect(init?.headers).toMatchObject({
+          "X-ResoStage-Session": "Core",
+          "X-ResoStage-Project-Epoch": "7",
+        });
+        return response({ historyRequestId: 1, stateSessionId: "Core", projectEpoch: 7 });
+      }
+      test.setProjectIdentity({ ...identity, projectEpoch: 8 });
+      return response({
+        stateSessionId: "Core", projectEpoch: 7, stateRevision: 9,
+        historyResults: [{ requestId: 1, applied: true, projectRevision: 9, error: "" }],
+      });
+    });
+
+    await test.navigate("undo");
+    expect(test.applySnapshot).not.toHaveBeenCalled();
+    expect(getHistoryNavigationState().error).toContain("Project changed");
   });
 
   it("times out a deferred history action without repeating its POST", async () => {

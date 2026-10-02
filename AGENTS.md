@@ -89,6 +89,16 @@ libwebsockets protocol storage has C++ construction/destruction at HTTP bind/dro
 boundaries. Reliable editor posts expose rejection, and local drafts remain
 distinct from authoritative snapshots until a matching Core echo. An HTTP
 admission response is not an applied-project acknowledgement.
+Each Core process publishes a session ID and a volatile project epoch. The
+epoch advances whenever the authoritative project is replaced, even when a
+new project reuses entity IDs. Project-scoped HTTP commands carry both values;
+the WebServer rejects another Core session, and the JUCE message thread checks
+the epoch again immediately before applying a queued command. A legacy client
+without headers is still accepted but its epoch is captured at admission.
+Projects loaded through the media-upload flow carry the same identity from the
+begin ticket through uploaded bytes and final message-thread import, so bytes
+cannot retarget a track after a project switch. Stale queued commands must
+reject; never silently redirect them to the new project's matching indices.
 Undo/Redo additionally publish a bounded ring of the 256 most recent exact
 history-request outcomes (`requestId`, `applied`, project revision, and
 rejection reason) in the same published state snapshot as the corresponding
@@ -99,12 +109,23 @@ use the high-water mark only when talking to an older Core that omits the exact
 result field. If a result ages out of the ring, the action is unconfirmed, not
 inferred from a later request. A no-op Undo/Redo must never be reported as
 applied merely because a later request succeeded.
+MIDI-region add/update and automation lane/point transactions also receive a
+request ID and a bounded 256-entry exact applied/rejected result, including
+project epoch and revision, published with the resulting state snapshot.
+`applied` currently means the message-thread project history revision changed;
+it does not yet prove that the matching immutable playback snapshot was
+successfully prepared and published. MIDI-region removal, audio-region edits,
+and other project mutation families do not yet have this exact result protocol.
+Do not extend the claim beyond those enumerated routes.
 The renderer's reliable command queue mirrors Core's 256-command/32 MiB
 retention bounds and freezes JSON bodies at invocation time, accounting their
 UTF-8 payload bytes until completion. Continuous controls may coalesce only by
 stable full target identity (including send destination); their pending latest
-values have a separate byte cap. This client admission bound still does not
-replace a Core-side project-epoch check or request-specific applied result.
+values have a separate byte cap. UI queue items capture Core session/project
+identity before enqueue, refuse to send if that identity changes, and attach it
+to project-scoped requests. This client bound does not replace Core's second
+message-thread epoch check. Best-effort controls still do not have
+request-specific completion errors.
 
 Internal frontend imports use the `@/` alias rooted at `ui/src`; TypeScript,
 Vite, and Vitest must keep that mapping aligned. Electron has its own `@/`
@@ -366,10 +387,14 @@ The design removes unbounded latency from the deadline path:
   revisions and a track-layout generation fence stale lookups/scratch layouts.
   Snapshot preparation is bounded and happens off audio. If it fails or
   exceeds its budget, retain the last valid graph, report the failure, and do
-  not fall back to mutable project reads. This preserves callback safety but
-  does not yet make an already-admitted project edit transactional: the UI may
-  temporarily show newer state while audio continues on the last valid
-  publication until an explicit applied/rejected acknowledgement is added.
+  not fall back to mutable project reads. This preserves callback safety.
+  Project-scoped commands are fenced by Core session/project epoch and
+  MIDI-region add/update plus automation lane/point edits have exact
+  project-revision outcomes. Those outcomes currently confirm the project
+  mutation, not successful playback-snapshot preparation: on preparation
+  failure the UI may still show the new project while audio safely continues
+  on the last valid graph. Keep this distinction visible until graph-publish
+  failure is tied to the originating transaction's rejection/recovery path.
 - **Sparse, cache-friendly mixing.** Only real edges are walked. A single
   canonical renderer applies fader, pan, mute, solo, sends, buses, click, and
   physical egress rather than duplicating signal logic.

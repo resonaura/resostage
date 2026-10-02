@@ -13,8 +13,10 @@
 #include <libwebsockets.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <string_view>
 
 namespace resostage {
@@ -189,6 +191,92 @@ bool builderCommandKindForPath(const char* path, WebCommandKind& outKind) {
         }
     }
     return false;
+}
+
+bool isProjectScopedCommand(WebCommandKind kind) {
+    static constexpr WebCommandKind kProjectScopedKinds[] = {
+        WebCommandKind::Play, WebCommandKind::TransportRecord, WebCommandKind::StopToStart,
+        WebCommandKind::Next, WebCommandKind::Prev, WebCommandKind::SelectSong,
+        WebCommandKind::Seek, WebCommandKind::SetTrackGain, WebCommandKind::SetTrackPan,
+        WebCommandKind::SetTrackPanLaw, WebCommandKind::SetTrackMute,
+        WebCommandKind::SetTrackSolo, WebCommandKind::SetTrackSoloSafe,
+        WebCommandKind::SetTrackMono, WebCommandKind::SetTrackRecordArm,
+        WebCommandKind::SetTrackInputMonitor, WebCommandKind::SetFocusedTrack,
+        WebCommandKind::SetTrackInputSource, WebCommandKind::SetTrackTrim,
+        WebCommandKind::SetBusGain, WebCommandKind::SetBusPan, WebCommandKind::SetBusMute,
+        WebCommandKind::SetBusSolo, WebCommandKind::SetBusSoloSafe, WebCommandKind::SetClickSolo,
+        WebCommandKind::SetClickSoloSafe, WebCommandKind::SetTrackSend,
+        WebCommandKind::RemoveTrackSend, WebCommandKind::SetProjectName,
+        WebCommandKind::SetAutoInputMonitoring, WebCommandKind::SetAutoPunch,
+        WebCommandKind::SetLowLatencyMonitoring, WebCommandKind::BuilderSongAdd,
+        WebCommandKind::BuilderSongImportFolder, WebCommandKind::BuilderSongRemove,
+        WebCommandKind::BuilderSongMove, WebCommandKind::BuilderSongUpdate,
+        WebCommandKind::BuilderSongEnd, WebCommandKind::BuilderTrackAdd,
+        WebCommandKind::BuilderTrackDuplicate, WebCommandKind::BuilderTrackRemove,
+        WebCommandKind::BuilderTrackMove, WebCommandKind::BuilderTrackUpdate,
+        WebCommandKind::BuilderTrackImportWAVBegin, WebCommandKind::BuilderTrackImportWAVDialog,
+        WebCommandKind::BuilderRegionAdd, WebCommandKind::BuilderRegionRemove,
+        WebCommandKind::BuilderRegionUpdate, WebCommandKind::BuilderMIDIRegionAdd,
+        WebCommandKind::BuilderMIDIRegionRemove, WebCommandKind::BuilderMIDIRegionUpdate,
+        WebCommandKind::PluginSlotAdd, WebCommandKind::PluginSlotReplace,
+        WebCommandKind::PluginSlotRemove, WebCommandKind::PluginSlotMove,
+        WebCommandKind::PluginSlotBypass, WebCommandKind::PluginSlotRetry,
+        WebCommandKind::PluginSlotOpenEditor, WebCommandKind::PluginSlotKeepAwake,
+        WebCommandKind::PluginSlotPark, WebCommandKind::PluginSlotUnpark,
+        WebCommandKind::BuilderAutomationLaneAdd, WebCommandKind::BuilderAutomationLaneRemove,
+        WebCommandKind::BuilderAutomationLaneUpdate, WebCommandKind::BuilderAutomationPointAdd,
+        WebCommandKind::BuilderAutomationPointRemove, WebCommandKind::BuilderAutomationPointsReplace,
+        WebCommandKind::BuilderAutomationRecordGesture, WebCommandKind::BuilderBusAdd,
+        WebCommandKind::BuilderBusRemove, WebCommandKind::BuilderBusMove,
+        WebCommandKind::BuilderBusUpdate, WebCommandKind::BuilderEventAdd,
+        WebCommandKind::BuilderEventRemove, WebCommandKind::BuilderEventMove,
+        WebCommandKind::BuilderEventUpdate, WebCommandKind::BuilderSectionAdd,
+        WebCommandKind::BuilderSectionRemove, WebCommandKind::BuilderSectionUpdate,
+        WebCommandKind::BuilderCycleUpdate, WebCommandKind::SetLightingConfig,
+        WebCommandKind::LightFixtureAdd, WebCommandKind::LightFixtureDuplicate,
+        WebCommandKind::LightFixtureRemove, WebCommandKind::LightFixtureUpdate,
+        WebCommandKind::LightTrackAdd, WebCommandKind::LightTrackRemove,
+        WebCommandKind::LightTrackMove, WebCommandKind::LightTrackUpdate,
+        WebCommandKind::LightCueAdd, WebCommandKind::LightCueRemove,
+        WebCommandKind::LightCueUpdate, WebCommandKind::TimelineUndo,
+        WebCommandKind::TimelineRedo,
+    };
+    return std::find(std::begin(kProjectScopedKinds), std::end(kProjectScopedKinds), kind)
+        != std::end(kProjectScopedKinds);
+}
+
+bool isTransactionalEditorCommand(WebCommandKind kind) {
+    static constexpr WebCommandKind kTransactionalEditorKinds[] = {
+        WebCommandKind::BuilderMIDIRegionAdd, WebCommandKind::BuilderMIDIRegionUpdate,
+        WebCommandKind::BuilderAutomationLaneAdd, WebCommandKind::BuilderAutomationLaneRemove,
+        WebCommandKind::BuilderAutomationLaneUpdate, WebCommandKind::BuilderAutomationPointAdd,
+        WebCommandKind::BuilderAutomationPointRemove, WebCommandKind::BuilderAutomationPointsReplace,
+    };
+    return std::find(std::begin(kTransactionalEditorKinds), std::end(kTransactionalEditorKinds), kind)
+        != std::end(kTransactionalEditorKinds);
+}
+
+bool readProjectCommandIdentity(struct lws* wsi, std::string& sessionId,
+                                uint64_t& projectEpoch, bool& present) {
+    static constexpr char kSessionHeader[] = "x-resostage-session:";
+    static constexpr char kEpochHeader[] = "x-resostage-project-epoch:";
+    const int sessionLength = lws_hdr_custom_length(wsi, kSessionHeader, sizeof(kSessionHeader) - 1);
+    const int epochLength = lws_hdr_custom_length(wsi, kEpochHeader, sizeof(kEpochHeader) - 1);
+    present = sessionLength >= 0 || epochLength >= 0;
+    if (!present)
+        return true;
+    if (sessionLength <= 0 || sessionLength > 128 || epochLength <= 0 || epochLength > 20)
+        return false;
+    char session[129]{};
+    char epoch[21]{};
+    if (lws_hdr_custom_copy(wsi, session, sizeof(session), kSessionHeader,
+                            sizeof(kSessionHeader) - 1) != sessionLength
+        || lws_hdr_custom_copy(wsi, epoch, sizeof(epoch), kEpochHeader,
+                               sizeof(kEpochHeader) - 1) != epochLength)
+        return false;
+    sessionId.assign(session, static_cast<size_t>(sessionLength));
+    const auto [end, error] = std::from_chars(epoch, epoch + epochLength, projectEpoch);
+    return error == std::errc{} && end == epoch + epochLength;
 }
 
 } // namespace
@@ -394,10 +482,39 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             }
         }
         if (builderKind == WebCommandKind::BuilderTrackImportWAVBegin) {
+            std::string sessionId;
+            uint64_t projectEpoch = 0;
+            bool hasIdentity = false;
+            if (!readProjectCommandIdentity(wsi, sessionId, projectEpoch, hasIdentity)) {
+                writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST,
+                               "invalid project command identity headers");
+                return true;
+            }
+            if (hasIdentity) {
+                if (sessionId != stateSessionId_) {
+                    writeJsonError(wsi, 409, "Core session changed before media import");
+                    return true;
+                }
+                bool epochMatches = false;
+                {
+                    std::lock_guard<std::mutex> lock(stateMutex);
+                    epochMatches = state.projectEpoch == projectEpoch;
+                }
+                if (!epochMatches) {
+                    writeJsonError(wsi, 409, "Project changed before media import");
+                    return true;
+                }
+            } else {
+                sessionId = stateSessionId_;
+                std::lock_guard<std::mutex> lock(stateMutex);
+                projectEpoch = state.projectEpoch;
+                hasIdentity = true;
+            }
             wire::WTrackImportBeginPayload p;
             if (glz::read_json(p, std::string_view(body, bodyLen)))
                 writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid media import target");
-            else if (!beginTrackImport(p.songIndex, p.index, p.fileName, p.startSeconds, p.requestId))
+            else if (!beginTrackImport(p.songIndex, p.index, p.fileName, p.startSeconds, p.requestId,
+                                       sessionId, projectEpoch, hasIdentity))
                 writeJsonError(wsi, 409, "Media import target is invalid, already reserved, or the upload queue is full");
             else writeJsonOk(wsi);
             return true;
@@ -434,19 +551,61 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     if (!ok)
         return false;
 
+    const bool projectScoped = isProjectScopedCommand(cmd.kind);
+    std::string requestSessionId;
+    uint64_t requestProjectEpoch = 0;
+    bool hasRequestIdentity = false;
+    if (projectScoped
+        && !readProjectCommandIdentity(wsi, requestSessionId, requestProjectEpoch,
+                                       hasRequestIdentity)) {
+        writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid project command identity headers");
+        return true;
+    }
+    if (projectScoped) {
+        if (hasRequestIdentity) {
+            if (requestSessionId != stateSessionId_) {
+                writeJsonError(wsi, 409, "Core session changed before the project edit was sent");
+                return true;
+            }
+        } else {
+            // Legacy clients are still accepted, but the command must be
+            // fenced to the project observed at admission so a later queued
+            // load/replacement cannot retarget it.
+            requestSessionId = stateSessionId_;
+            std::lock_guard<std::mutex> lock(stateMutex);
+            requestProjectEpoch = state.projectEpoch;
+            hasRequestIdentity = true;
+        }
+        cmd.expectedStateSessionId = requestSessionId;
+        cmd.expectedProjectEpoch = requestProjectEpoch;
+        cmd.hasExpectedProjectIdentity = true;
+    }
+
     const bool isHistory = cmd.kind == WebCommandKind::TimelineUndo
         || cmd.kind == WebCommandKind::TimelineRedo;
     if (isHistory)
         cmd.historyRequestId = ++nextHistoryRequestId_;
+    const bool isEditorTransaction = isTransactionalEditorCommand(cmd.kind);
+    if (isEditorTransaction)
+        cmd.editorRequestId = ++nextEditorRequestId_;
     const uint64_t historyRequestId = cmd.historyRequestId;
+    const uint64_t editorRequestId = cmd.editorRequestId;
+    const uint64_t acceptedProjectEpoch = requestProjectEpoch;
     if (!enqueueCommand(std::move(cmd))) {
         writeJsonError(wsi, 503, "Core command queue is full; retry the command");
         return true;
     }
     if (isHistory) {
-        wire::WHistoryAccepted accepted{true, historyRequestId, stateSessionId_};
+        wire::WHistoryAccepted accepted{true, historyRequestId, stateSessionId_,
+                                         acceptedProjectEpoch};
         const auto json = glz::write_json(accepted).value_or("{}");
         webserver_http::writeHTTPResponse(wsi, HTTP_STATUS_OK,
+            "application/json", json.data(), json.size());
+    } else if (isEditorTransaction) {
+        wire::WEditorCommandAccepted accepted{true, editorRequestId, stateSessionId_,
+                                               acceptedProjectEpoch};
+        const auto json = glz::write_json(accepted).value_or("{}");
+        webserver_http::writeHTTPResponse(wsi, 202,
             "application/json", json.data(), json.size());
     } else {
         writeJsonOk(wsi);

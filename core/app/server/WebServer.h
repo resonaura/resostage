@@ -299,12 +299,22 @@ enum class WebCommandKind : uint8_t {
 };
 
 struct WebCommand {
+    WebCommand() = default;
+    WebCommand(WebCommandKind commandKind, int commandArg = 0, double commandValue = 0.0,
+               std::string commandPath = {}, std::string commandJson = {})
+        : kind(commandKind), arg(commandArg), value(commandValue),
+          path(std::move(commandPath)), json(std::move(commandJson)) {}
+
     WebCommandKind kind = WebCommandKind::Stop;
     int arg = 0;        // SelectSong index, or track/bus index for mixer commands
     double value = 0.0; // gain (dB) / pan (-1..1) / bool (0.0 or 1.0) depending on kind
     std::string path = {};   // LoadProjectFromPath / BuilderTrackImportWavUpload: temp file path
     std::string json = {};   // Builder*: raw POST body, parsed message-thread-side
     uint64_t historyRequestId = 0; // Nonzero only for reliable HTTP Undo/Redo acknowledgements.
+    std::string expectedStateSessionId;
+    uint64_t expectedProjectEpoch = 0;
+    bool hasExpectedProjectIdentity = false;
+    uint64_t editorRequestId = 0; // Nonzero for reliable project mutations requiring exact outcomes.
 };
 
 // Snapshot of everything the SPA needs, written by the message thread (~30 Hz)
@@ -315,6 +325,13 @@ struct WebUiState {
     struct HistoryResult {
         uint64_t requestId = 0;
         bool applied = false;
+        uint64_t projectRevision = 0;
+        std::string error;
+    };
+    struct EditorCommandResult {
+        uint64_t requestId = 0;
+        bool applied = false;
+        uint64_t projectEpoch = 0;
         uint64_t projectRevision = 0;
         std::string error;
     };
@@ -499,9 +516,11 @@ struct WebUiState {
     // Core-session identity plus project mutation revision order structural
     // responses without increasing idle WS traffic on every timer publish.
     std::string stateSessionId;
+    uint64_t projectEpoch = 0;
     uint64_t stateRevision = 0;
     uint64_t lastHistoryRequestId = 0;
     std::vector<HistoryResult> historyResults;
+    std::vector<EditorCommandResult> editorCommandResults;
 
     struct SongRow {
         std::string name;
@@ -1249,9 +1268,12 @@ public:
     // consumes its ticket before receiving bytes. Empty IDs preserve the old
     // single-flight API and cannot replace another outstanding legacy ticket.
     bool beginTrackImport(int songIndex, int trackIndex, std::string fileName, double startSeconds,
-                          const std::string& requestId = {});
+                          const std::string& requestId = {},
+                          std::string stateSessionId = {}, uint64_t projectEpoch = 0,
+                          bool hasProjectIdentity = false);
     bool takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName, double& startSeconds,
-                               const std::string& requestId = {});
+                               const std::string& requestId = {}, std::string* stateSessionId = nullptr,
+                               uint64_t* projectEpoch = nullptr, bool* hasProjectIdentity = nullptr);
     // Message-thread completion; HTTP readers receive a copied job result.
     void finishTrackImport(const std::string& requestId, bool success, std::string error);
     int serveTrackImportStatus(struct lws* wsi, const std::string& requestId);
@@ -1374,6 +1396,7 @@ private:
     const std::string stateSessionId_ = std::to_string(
         std::chrono::system_clock::now().time_since_epoch().count());
     uint64_t nextHistoryRequestId_ = 0; // WebServer thread only.
+    uint64_t nextEditorRequestId_ = 0; // WebServer thread only.
 
     // Pre-serialized frames, rebuilt in publishState() on the message thread.
     // WS service thread only does shared_ptr copy + lws_write — no ostringstream.
@@ -1419,6 +1442,9 @@ private:
         int trackIndex = -1;
         std::string fileName;
         double startSeconds = 0.0;
+        std::string stateSessionId;
+        uint64_t projectEpoch = 0;
+        bool hasProjectIdentity = false;
         int64_t expiresAtMilliseconds = 0;
     };
     std::unordered_map<std::string, PendingTrackImport> pendingTrackImports;

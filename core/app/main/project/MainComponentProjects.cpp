@@ -532,6 +532,9 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
 }
 
 void MainComponent::onProjectLoaded() {
+    ++projectEpoch_;
+    if (projectEpoch_ == 0)
+        ++projectEpoch_;
     ensureSongSelected();
     const auto& proj = engine.project();
     if (!proj.activeTrackId.empty()) {
@@ -650,4 +653,3 @@ void MainComponent::importSongFolderNative() {
 }
 
 } // namespace resostage
-

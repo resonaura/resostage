@@ -46,6 +46,24 @@ describe("media import completion", () => {
     await expect(importMediaFile(0, 0, new File(["video"], "silent.mov"))).rejects.toThrow("No audio stream");
   });
 
+  it("sends the captured Core project identity with both ticket and media bytes", async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(response({})).mockResolvedValueOnce(response({}))
+      .mockResolvedValueOnce(response({ finished: true, success: true, error: "" }));
+    const identity = {
+      "X-ResoStage-Session": "Core session",
+      "X-ResoStage-Project-Epoch": "5",
+    };
+    await importMediaFile(0, 1, new File(["audio"], "take.mov"), 2, identity);
+    expect(apiFetch).toHaveBeenNthCalledWith(1, "/api/v1/builder/track/import-wav/begin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...identity },
+      body: expect.any(String),
+    });
+    expect(apiFetch).toHaveBeenNthCalledWith(2,
+      expect.stringMatching(/^\/api\/v1\/builder\/track\/import-wav\/upload\?requestId=/),
+      { method: "POST", headers: identity, body: expect.any(File) });
+  });
+
   it("does not upload after an invalid/rejected target", async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(response({ error: "Queue full" }, false, 409));
     await expect(importMediaFile(0, 0, new File(["a"], "a.wav"))).rejects.toThrow("Queue full");

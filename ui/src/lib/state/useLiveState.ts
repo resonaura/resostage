@@ -29,6 +29,7 @@ import {
   registerLiveMidiSender,
   unregisterLiveMidiSender,
   clearApiCaches,
+  observeProjectCommandIdentity,
 } from "@/lib/state/api";
 import { mergeState } from "@/lib/state/mergeState";
 import { StructuralSnapshotOrder } from "@/lib/state/structuralOrder";
@@ -271,6 +272,7 @@ export function useLiveState(view: string = "player") {
           lastHttpStateSuccessAt = Date.now();
           const data = (await res.json()) as Partial<WebUiState>;
           if (cancelled || !structuralOrderRef.current.accept(data, generation, request)) return;
+          observeProjectCommandIdentity(data);
           if (data.tracks) setTrackIds(data.tracks.map((t) => t.id));
           if (data.meters) setMeterIds(data.meters.map((m) => m.id));
 
@@ -420,6 +422,7 @@ export function useLiveState(view: string = "player") {
                 return;
               }
               if (!structuralOrderRef.current.accept(parsed, structuralOrderRef.current.generation())) return;
+              observeProjectCommandIdentity(parsed);
               if (parsed.meters) {
                 setMeterIds(parsed.meters.map((m) => m.id));
               }
@@ -586,6 +589,7 @@ export function useLiveState(view: string = "player") {
     registerRefetchHandler((snapshot) => {
       if (!snapshot) { void fetchState(); return; }
       if (!structuralOrderRef.current.accept(snapshot, structuralOrderRef.current.generation())) return;
+      observeProjectCommandIdentity(snapshot);
       // A confirmed history snapshot is already authoritative. Publish it
       // now instead of making another round-trip and waiting for a poll tick.
       if (snapshot.tracks) setTrackIds(snapshot.tracks.map((track) => track.id));

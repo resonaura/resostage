@@ -23,11 +23,27 @@ struct WHistoryAccepted {
     bool ok = true;
     uint64_t historyRequestId = 0;
     std::string stateSessionId;
+    uint64_t projectEpoch = 0;
 };
 
 struct WHistoryResult {
     uint64_t requestId = 0;
     bool applied = false;
+    uint64_t projectRevision = 0;
+    std::string error;
+};
+
+struct WEditorCommandAccepted {
+    bool accepted = false;
+    uint64_t requestId = 0;
+    std::string stateSessionId;
+    uint64_t projectEpoch = 0;
+};
+
+struct WEditorCommandResult {
+    uint64_t requestId = 0;
+    bool applied = false;
+    uint64_t projectEpoch = 0;
     uint64_t projectRevision = 0;
     std::string error;
 };
@@ -926,9 +942,11 @@ struct WEngineTelemetryPayload {
     std::string undoLabel;
     std::string redoLabel;
     std::string stateSessionId;
+    uint64_t projectEpoch = 0;
     uint64_t stateRevision = 0;
     uint64_t lastHistoryRequestId = 0;
     std::vector<WHistoryResult> historyResults;
+    std::vector<WEditorCommandResult> editorCommandResults;
     std::string lastAction;
     uint64_t lastActionNonce = 0;
     int telemetryHz = 0;

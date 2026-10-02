@@ -136,16 +136,7 @@ Entry points: `ui/src/lib/state/api.ts` (`serializeCommand`, `postReliable`,
 `postContinuousImpl`), `historyNavigation.ts`, MIDI/automation draft hooks,
 `core/app/server/WebServer` command admission, and message-thread application.
 
-Confirmed gaps:
-
-- The client serializer checks only `backendOrigin()`. Replacing a project on
-  the same Core, even with reused track/region IDs, does not invalidate queued
-  document edits. UI draft guards alone cannot unsend an admitted stale command.
-- History has an applied-action protocol, but ordinary builder writes do not
-  have a matching request/revision acknowledgement. Matching field values can
-  coincide with an unrelated edit/Undo and are not proof this request applied.
-
-Closed in the current continuation block:
+Implemented in the current continuation block (2026-10-02):
 
 - `ui/src/lib/state/commandQueue.ts` now provides the single reliable renderer
   queue: at most 256 admitted commands and 32 MiB of retained serialized JSON
@@ -158,56 +149,78 @@ Closed in the current continuation block:
   `busId` and optional send semantics are retained, so sends to two buses cannot
   overwrite each other. Individual bodies are capped at 4 KiB and coalesced
   pending strings at 1 MiB.
-- Undo/Redo now publish the exact outcome and project revision for each recent
-  request in a bounded 256-entry result ring. `lastHistoryRequestId` advances
-  only when the history mutation succeeded. This closes the false-positive case
-  where a no-op Undo appeared applied because a later request advanced the
-  monotonic high-water mark. The renderer checks the exact result first and
-  uses the high-water behavior only when talking to an older Core (which omits
-  the exact-result field); an expired result is explicitly treated as unknown.
-  Core publishes the mutation and its result atomically in one state frame, so
-  UI cannot race an intermediate post-mutation/pre-ack snapshot.
-- UI validation for this block: complete Vitest passed 736 tests/107 files;
-  `pnpm --dir ui exec tsc -b --pretty false` passed. The initial bounded-queue
-  block passed focused queue/history tests 11/11; the exact history-outcome
-  tests pass 10/10. The full native suite passes 578 cases / 424,387 assertions.
-  The actual-Core HTTP editor-state harness now verifies no-op Undo rejection,
-  exact successful Undo/Redo outcomes, their project revisions, live transport,
-  and save/reopen persistence.
+- Project identity is published as `(stateSessionId, projectEpoch)`. The epoch
+  advances on each authoritative project replacement, independently of entity
+  IDs. Renderer command-queue entries capture this identity before queueing,
+  attach it to project-scoped HTTP posts, and refuse to send if Core or project
+  identity changes while queued. The Core checks session at HTTP admission and
+  checks the captured epoch again on the JUCE message thread immediately before
+  applying the command. Legacy requests without headers remain compatible, but
+  Core binds them to the state snapshot observed at admission.
+- Media import begin tickets preserve session/epoch through streamed upload and
+  final message-thread conversion. A project switch between begin and upload
+  now settles the import as a failure, removes temporary bytes and cannot
+  mutate a reused track index in the new project.
+- Undo/Redo and the following editor transactions publish exact request-ID
+  outcomes in bounded 256-entry rings: MIDI-region add/update and automation
+  lane add/remove/update plus point add/remove/replace. Results carry applied,
+  error, project epoch and project revision and are published with the state
+  snapshot. History advances its legacy applied high-water mark only on a real
+  mutation. Expired results remain unknown; the renderer never infers success
+  from an unrelated later request. Transactional UI calls wait for their exact
+  result and matching snapshot and do not blind-retry after timeout.
+- The existing renderer queue remains capped at 256 requests/32 MiB; captured
+  identity is included in coalescing keys for continuous values. Deferred-Core
+  queue exhaustion and stale-epoch rejection now settle exact history/editor
+  outcomes and media-job failure instead of leaving accepted requests pending.
+- Verification on 2026-10-02: `pnpm --dir ui test` passed 740 tests in 108
+  files; `pnpm --dir ui exec tsc -b --pretty false` passed; optimized Core
+  target built with `cmake --build core/build --target ResoStage -j2`; the real
+  Core `scripts/verification/editor-state.mjs` harness passed, including
+  active-playback Undo/Redo, save/reopen, stale media ticket, stale MIDI edit,
+  and 413 admission. Four focused UI suites also passed 27/27. This does not
+  establish acoustic/device behavior, vendor plug-in continuity, sanitizer
+  cleanliness or physical-platform coverage.
 
-Still open: queued edits remain bound only to the backend origin, not to the
-Core session plus project epoch. Ordinary edits still lack exact request IDs,
-applied/rejected outcomes and project revisions; the special Undo/Redo protocol
-is not a substitute. Best-effort scalar controls still intentionally swallow
-network failures. A Core snapshot-publication failure can retain the last-good
-graph without an exact rejection delivered to the originating gesture. These
-protocol gaps are not solved by the client queue limits above.
+Still open; do not call this full editor transactionality:
 
-Required implementation:
+- Exact edit outcomes currently cover only MIDI-region add/update and the
+  enumerated automation lane/point operations. MIDI-region removal, audio
+  region operations, arrangement regions, project/track/bus/event/section and
+  lighting mutations, `BuilderAutomationRecordGesture`, and most scalar
+  controls do not yet all expose exact per-request application results. The
+  Core session/epoch fence covers the project-scoped command table, but a
+  best-effort UI `post()` can still swallow a later rejection.
+- An `applied` editor result currently means the message-thread project
+  history revision changed. It does not prove the corresponding immutable
+  playback snapshot was successfully prepared/published. Snapshot preparation
+  failure correctly retains the last valid audio graph, but the originating
+  edit can still appear committed in UI while audio uses that prior snapshot.
+  Tie snapshot build/publication outcome to its originating mutation before
+  claiming end-to-end atomic UI/project/audio state.
+- Admission result rings are bounded and process-local. A client that misses or
+  outlives its exact result must show unresolved/unknown and refetch; do not
+  infer outcome from field coincidence or a later revision. Add explicit UI
+  recovery/undo guidance for expired outcomes where necessary.
+- Verify stale/reordered behavior for the remaining project-scoped command
+  families, Core restart/session change, late replies, ring eviction, bounded
+  queue exhaustion, plugin/project loading overlap, and upload-ticket expiry.
+  Refine route classification if a new project mutation endpoint is added.
 
-- Bind document-derived edits to Core identity and project epoch, validate both
-  before send and before message-thread application, and reject stale work
-  explicitly. Reopen with the same names/IDs must still be a new document epoch.
-  Safety Stop/cancel must remain serviceable under the appropriate scope.
-- Use bounded request IDs and applied/rejected results plus project revision
-  for transactional editor/history operations. Reuse one mutation/history queue
-  and existing acknowledgement foundations; no parallel state authority.
-- Extend the new byte-bounded queue with Core session/project epoch identity;
-  validate before send and before message-thread application. Keep the
-  serialized-body accounting and error path intact; avoid copying the body.
-- Coalesce only latest values for the same epoch, entity, parameter and send
-  destination. Do not coalesce transactions, mix independent controls, or let
-  an old positional track index target a reordered track without validation.
-- Unknown completion/timeouts must not invite a blind duplicate retry. Keep
-  drafts separate until the exact applied acknowledgement or an explicit
-  rejection/resolution path is observed.
+Next implementation:
 
-Acceptance: stalled command queue then same-Core project replacement/reopen,
-reused IDs, reorder, two parallel send controls, payload/count exhaustion,
-admission versus delayed/rejected application, lost/late replies, Undo/Redo
-branches and continuous playback. Record retained RAM and confirmation latency.
-Keeping HTTP/TCP commands plus latest-wins UDP telemetry is appropriate; a
-WebSocket/Socket.IO migration does not supply these application semantics.
+1. Make playback snapshot preparation/publish success or failure observable to
+   the exact originating transaction without blocking the audio callback. Keep
+   the old graph safely active on failure and surface a rejected edit/draft
+   recovery path; test while playback continues.
+2. Extend exact outcomes to the remaining editor mutation endpoints with
+   deliberate no-op/idempotent semantics. Do not make high-rate fader/knob
+   streams await one ACK per value; use bounded final-gesture semantics where
+   appropriate and keep continuous latest-wins controls separate.
+3. Complete same-Core reopen/reused-ID/reorder, stale response, ACK ring
+   eviction and queue-exhaustion cases. Keep HTTP/TCP for reliable commands and
+   latest-wins UDP for sampled telemetry; switching to WebSocket/Socket.IO does
+   not supply these application semantics.
 
 ## P1 — manual Touch/Latch/Write is not yet a complete live lifecycle
 
@@ -385,24 +398,26 @@ clock.
 
 ## Execution order for remaining work
 
-1. Bind UI commands and Core message-thread mutations to a Core session plus
-   project epoch; add exact request-specific applied/rejected status and
-   project-revision acknowledgements for transactional writes. Connect snapshot
-   publication failure to that outcome without lying about HTTP admission.
-2. Complete acceptance and failure UX for immutable, bounded project playback
+1. Connect immutable playback-snapshot preparation/publication success or
+   failure to the originating request result without blocking audio or lying
+   about project-history application. Keep the prior graph active on failure.
+2. Extend exact request outcomes to remaining region/project mutations with
+   deliberate idempotent/no-op semantics. Do not make high-rate controls await
+   one acknowledgement per sample/value.
+3. Complete acceptance and failure UX for immutable, bounded project playback
    snapshots: sanitizer/concurrency coverage, callback allocation/deadline
    measurement and actual AU/VST3 audio-continuity proof. Keep transport running
    and do not hide races by locking editor commands or restarting healthy helpers.
-3. Complete Core-owned live manual-value arbitration for Touch/Latch/Write, then
+4. Complete Core-owned live manual-value arbitration for Touch/Latch/Write, then
    wire each supported control surface and handle TempoMap, cycle wrap, Stop,
    seek, project epoch, rejection recovery and one coherent history action.
-4. Validate MIDI-region embedded automation lanes before history/mutation;
+5. Validate MIDI-region embedded automation lanes before history/mutation;
    define live/offline Write rendering and preserve the old envelope outside a
    recorded punch window.
-5. Recover automation whose plug-in slot was removed; cache immutable parameter
+6. Recover automation whose plug-in slot was removed; cache immutable parameter
    descriptors by epoch/slot/generation rather than refetching all visible slot
    tables on a timer.
-6. Finish TempoMap-based Piano Roll ruler/cycle/project-axis positioning, then
+7. Finish TempoMap-based Piano Roll ruler/cycle/project-axis positioning, then
    run heavy vendor/device, theme, platform and save/reopen acceptance in
    `media.md` and `performance.md`.
 
@@ -496,7 +511,7 @@ The expanded synthetic coverage passed in the final integrated native run.
 Native record-gesture validation is committed in `73e1b8b`; a global status
 string is not a request-specific applied/rejected acknowledgement.
 
-Current uncommitted playback-snapshot block verification (2026-10-02):
+Prior playback-snapshot block verification (2026-10-02):
 optimized Core and native test targets built with `cmake --build core/build
 --target ResoStage resostage_engine_tests -j2`; focused SongActivity passed 8
 cases/2,192 assertions; the complete native suite passed 578 cases/424,387
@@ -504,3 +519,13 @@ assertions. `scripts/verification/editor-state.mjs` passed against that freshly
 built Core, including live-edit/Undo/Redo/rejection/save-reopen checks. UI and
 Electron suites were not rerun for this Core-only block. No acoustic/device,
 loaded-vendor, sanitizer, or callback-deadline claim is made.
+
+Command-identity block verification (2026-10-02):
+`cmake --build core/build --target ResoStage -j2` passed; `pnpm --dir ui test`
+passed 740 tests in 108 files; `pnpm --dir ui exec tsc -b --pretty false`
+passed; four focused state/import/plugin suites passed 27/27; the actual-Core
+`scripts/verification/editor-state.mjs` passed, covering active-playback
+Undo/Redo, save/reopen, stale media ticket after project replacement, stale
+MIDI edit rejection without revision/entity mutation, and bounded HTTP 413.
+This block has not rerun the complete native/Electron suites and establishes no
+acoustic, vendor, sanitizer, hardware, or callback-deadline guarantee.

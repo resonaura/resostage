@@ -7,29 +7,27 @@ agent. Read the complete repository `AGENTS.md` first. Check `git status` and
 recent commits before acting: code changes after this snapshot take precedence.
 Do not redo completed implementation from obsolete chat history.
 
-## User's current request
+## Current continuation focus
 
-Audit and repair arrangement automation: shared HeroUI/theme chrome, animated
-mode changes, exclusive draw/marquee gestures, translucent effective-value
-baseline for empty lanes (no fake points), explicit + to add a lane, real vendor
-parameter discovery with loading/failed/missing/unbound handling, multi-point
-selection/delete/context smoothing, bendable segment curves.
+Continue the state-integrity work. The last code block added Core-session and
+project-epoch fences, exact acknowledgements for selected MIDI/automation
+transactions, and identity propagation through streamed media imports. Audit
+that implementation first; do not replace it with another queue or state
+authority. Keep the distinctions explicit:
 
-Additional critical issues:
-1. Piano Roll edits/quantize must actually reach Core, survive save/reopen and
-   affect playback. Changing snap division with selected notes automatically
-   quantizes only that selection; changing grid with no selection must not edit.
-2. Non-soloed tracks must not flicker when dimmed.
-3. Project loading must identify both the track and actual current plug-in.
-4. State updates must distinguish command admission, authoritative application,
-   optimistic drafts and latest-wins telemetry. Do not migrate transport merely
-   to hide consistency bugs.
-5. **Live editing is mandatory:** notes, regions, automation and supported controls
-   must be updatable while transport is playing. No Stop/Play requirement, clock
-   reset, message-thread seek or restart of healthy plug-in chains. Prepare edits
-   outside audio and atomically publish complete compatible snapshots at a block
-   boundary. Define what happens to notes already sounding and let the playhead
-   continue. Test real playback, not only stopped-state visuals/save persistence.
+- HTTP admission is not application.
+- Project-history mutation is not proof that the matching immutable audio
+  playback snapshot was prepared and published.
+- A last-good audio graph must remain safe if snapshot preparation fails, while
+  the exact originating edit receives a rejection/recovery result.
+- Live edits must not stop transport, reset the clock, or restart a healthy
+  plug-in chain.
+
+Then extend exact outcomes to remaining editor mutation families with bounded
+memory, deliberate no-op semantics and same-Core project-replacement coverage.
+Keep uncompleted automation, Piano Roll, plug-in loading, callback-deadline,
+AU/VST3, and hardware acceptance from [audit.md](audit.md) in scope after this
+transaction boundary is trustworthy.
 
 ## Verified root causes and committed fixes
 
@@ -131,37 +129,48 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   files and UI TypeScript. UI/Electron were not
   rerun for the Core snapshot block; this is not acoustic, loaded-vendor,
   sanitizer, or callback-deadline proof.
-- Current history fix: Core now reports exact applied/rejected outcomes and
+- Current history fix: Core reports exact applied/rejected outcomes and
   project revisions for the 256 latest Undo/Redo requests and advances the
   legacy applied-request high-water mark only after a real history change. The
   UI checks the exact request result before that legacy marker. Focused history
   tests pass 10/10. Core publishes the history mutation and its result in the
   same frame; expired outcomes stay unknown instead of falling back to another
-  request's high-water mark. Full UI and native suites pass, as does the real
-  Core HTTP harness including no-op rejection and live Undo/Redo. This does not
-  add Core session/project-epoch binding or exact outcomes for ordinary edits.
+  request's high-water mark.
+- Current uncommitted block adds Core-session/project-epoch headers and
+  message-thread revalidation for project-scoped commands; request identity is
+  carried through media import tickets. Exact request outcomes cover MIDI
+  region add/update and automation lane/point transactions. Verification:
+  optimized Core build passed, full UI Vitest 740 tests/108 files, UI TypeScript
+  passed, and real-Core `editor-state.mjs` passed stale-upload/stale-edit plus
+  active-playback Undo/Redo and save/reopen cases. No full native/Electron run,
+  acoustic proof, vendor proof or callback-deadline evidence in this block.
+  Exact-result coverage is deliberately incomplete; see [audit.md](audit.md).
 
-Concurrent agent work must be merged and checked rather than overwritten.
+Commit `9dc3008` contains this implementation, verification script, tests,
+`AGENTS.md`, audit and handoff updates. It is not pushed. Start by checking
+`git status`; preserve any newer work. No push.
 Every source keeps the standard license header. English comments/commits,
 `@/` frontend imports, separate components/hooks/logic/tests, lowercase one-word
 folders. Commit each finished block; do not push.
 
 ## Immediate next actions
 
-1. Bind commands to Core session and project epoch, then add request-specific
-   applied/rejected outcomes and revisions for edits. Renderer queue byte/count
-   bounds and immutable callback snapshots are now implemented. The remaining
-   protocol must also report when a new playback snapshot is rejected, without
-   confusing HTTP admission with application. Keep the shared queue/history
-   owner; do not introduce another state authority.
-2. Finish publication acceptance: sanitizer/concurrency coverage, callback
+1. Finish tying playback-snapshot preparation/publication success or failure to
+   the originating transaction result without blocking the audio callback.
+   Keep the last valid graph active on failure and surface an explicit UI draft
+   rejection/recovery path.
+2. Extend exact request outcomes to remaining audio/MIDI region and project
+   mutations, while keeping high-rate scalar/control streams latest-wins and
+   bounded. Cover no-op/idempotent operations, reorder, stale replies and result
+   ring eviction.
+3. Finish publication acceptance: sanitizer/concurrency coverage, callback
    allocation/deadline measurement, and loaded AU/VST3 continuity proof. Do not
    conceal failures by stopping transport or restarting healthy helpers.
-3. Finish actual Touch/Latch/Write manual ownership, supported surface bindings,
+4. Finish actual Touch/Latch/Write manual ownership, supported surface bindings,
    tempo/cycle/epoch handling and bounded recording/rejection recovery. Recorded
    point collections and endpoint tests alone do not establish this lifecycle.
-4. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
-5. Validate light/dark visual geometry, compact heights, reduced motion and
+5. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
+6. Validate light/dark visual geometry, compact heights, reduced motion and
    exclusive/cancellable gestures. Run complete UI suite/typecheck/lint and relevant native suites/build after
    integrating changes; commit by finished block. Report actual totals, vendor
    skips and hardware limits. Update this file and detailed tasks with evidence.

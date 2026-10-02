@@ -214,6 +214,8 @@ private:
     bool performTimelineRedo(bool publishState = true);
     uint64_t lastHistoryRequestId_ = 0; // Applied on the message thread, published with its restored project.
     std::deque<WebUiState::HistoryResult> historyResults_;
+    uint64_t projectEpoch_ = 0; // Changes only when the authoritative project is replaced.
+    std::deque<WebUiState::EditorCommandResult> editorCommandResults_;
 
     // Native folder picker when web sends import without a path (rare).
     void importSongFolderNative();

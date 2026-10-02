@@ -140,6 +140,9 @@ struct HttpSession {
     double importStartSeconds = 0.0;
     char importFileName[257]{};
     char importRequestId[65]{};
+    char importStateSessionId[129]{};
+    uint64_t importProjectEpoch = 0;
+    bool hasImportProjectIdentity = false;
 };
 
 // Unique temp path for a single upload's bytes; the message thread deletes it
@@ -209,7 +212,8 @@ int writeCorsPreflightResponse(struct lws* wsi) {
             reinterpret_cast<const unsigned char*>(kMethods),
             static_cast<int>(std::strlen(kMethods)), &p, end))
         return 1;
-    static const char kHeaders[] = "Content-Type";
+    static const char kHeaders[] =
+        "Content-Type, X-ResoStage-Session, X-ResoStage-Project-Epoch";
     if (lws_add_http_header_by_name(
             wsi, reinterpret_cast<const unsigned char*>("access-control-allow-headers"),
             reinterpret_cast<const unsigned char*>(kHeaders),
@@ -290,6 +294,9 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
             pss->importStartSeconds = 0.0;
             pss->importFileName[0] = '\0';
             pss->importRequestId[0] = '\0';
+            pss->importStateSessionId[0] = '\0';
+            pss->importProjectEpoch = 0;
+            pss->hasImportProjectIdentity = false;
             if (pss->uploadFile != nullptr) {
                 // Defensive: a previous transaction on a kept-alive connection
                 // aborted mid-upload without a BODY_COMPLETION/CLOSE. Don't leak
@@ -355,12 +362,16 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                     char argsBuf[512]{};
                     lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
                     std::string fileName;
+                    std::string stateSessionId;
                     const auto requestId = webserver_http::queryParam(argsBuf, "requestId");
                     if (!server->takeTrackImportTarget(pss->importSongIndex, pss->importTrackIndex,
-                            fileName, pss->importStartSeconds, requestId)) {
+                            fileName, pss->importStartSeconds, requestId, &stateSessionId,
+                            &pss->importProjectEpoch, &pss->hasImportProjectIdentity)) {
                         pss->uploadFailed = true;
                         return writeJsonError(wsi, 409, "Media upload ticket is missing or expired");
                     }
+                    std::snprintf(pss->importStateSessionId, sizeof(pss->importStateSessionId),
+                                  "%s", stateSessionId.c_str());
                     std::snprintf(pss->importRequestId, sizeof(pss->importRequestId), "%s", requestId.c_str());
                     std::snprintf(pss->importFileName, sizeof(pss->importFileName), "%s", fileName.c_str());
                 }
@@ -550,9 +561,13 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                     options.requestId = pss->importRequestId;
                     std::string optionsJson;
                     (void)glz::write_json(options, optionsJson);
-                    if (!server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWAVUpload, pss->importSongIndex,
-                                                      static_cast<double>(pss->importTrackIndex), finalPath,
-                                                      std::move(optionsJson)})) {
+                    WebCommand importCommand{WebCommandKind::BuilderTrackImportWAVUpload, pss->importSongIndex,
+                                             static_cast<double>(pss->importTrackIndex), finalPath,
+                                             std::move(optionsJson)};
+                    importCommand.expectedStateSessionId = pss->importStateSessionId;
+                    importCommand.expectedProjectEpoch = pss->importProjectEpoch;
+                    importCommand.hasExpectedProjectIdentity = pss->hasImportProjectIdentity;
+                    if (!server->enqueueCommand(std::move(importCommand))) {
                         std::remove(finalPath.c_str());
                         return failUpload(503, "Core command queue is full; retry the media import");
                     }
@@ -1007,12 +1022,12 @@ uint64_t WebServer::frameGeneration() const {
 
 bool WebServer::pollCommand(WebCommand& out) {
     if (!commands.try_dequeue(out)) return false;
-    commandBytes.release(out.path.size() + out.json.size());
+    commandBytes.release(out.path.size() + out.json.size() + out.expectedStateSessionId.size());
     return true;
 }
 
 bool WebServer::enqueueCommand(WebCommand cmd) {
-    const auto size = cmd.path.size() + cmd.json.size();
+    const auto size = cmd.path.size() + cmd.json.size() + cmd.expectedStateSessionId.size();
     if (!commandBytes.reserve(size)) return false;
     if (!commands.try_enqueue(std::move(cmd))) {
         commandBytes.release(size);

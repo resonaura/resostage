@@ -35,6 +35,70 @@ import type {
 // quick succession) coalesce into one fetch instead of stampeding the server.
 let _refetchHandler: ((snapshot?: Partial<WebUiState>) => void) | null = null;
 let _refetchTimer: ReturnType<typeof setTimeout> | null = null;
+export interface ProjectCommandIdentity {
+  origin: string;
+  stateSessionId: string;
+  projectEpoch: number;
+}
+let _projectCommandIdentity: ProjectCommandIdentity | null = null;
+
+export function observeProjectCommandIdentity(snapshot: Partial<WebUiState>): void {
+  const { stateSessionId, projectEpoch } = snapshot;
+  // View-filtered WebSocket snapshots can omit project identity. An unrelated
+  // partial frame must not clear the last full-state fence and let a queued
+  // positional command fall back to an unfenced POST.
+  if (stateSessionId === undefined || projectEpoch === undefined) return;
+  if (!stateSessionId || !Number.isSafeInteger(projectEpoch) || projectEpoch < 0) {
+    _projectCommandIdentity = null;
+    return;
+  }
+  _projectCommandIdentity = { origin: backendOrigin(), stateSessionId, projectEpoch };
+}
+
+function captureProjectCommandIdentity(): ProjectCommandIdentity | null {
+  const identity = _projectCommandIdentity;
+  return identity ? { ...identity } : null;
+}
+
+export function currentProjectCommandIdentity(): ProjectCommandIdentity | null {
+  return captureProjectCommandIdentity();
+}
+
+export function currentProjectCommandHeaders(): Record<string, string> {
+  return projectCommandHeaders(captureProjectCommandIdentity());
+}
+
+function isProjectScopedPath(path: string): boolean {
+  return path.startsWith("/api/v1/builder/")
+    || path.startsWith("/api/v1/track/")
+    || path.startsWith("/api/v1/bus/")
+    || path.startsWith("/api/v1/mixer/track/send")
+    || path.startsWith("/api/v1/plugins/slot/")
+    || (path.startsWith("/api/v1/transport/") && path !== "/api/v1/transport/stop")
+    || path.startsWith("/api/v1/recording/auto-")
+    || path === "/api/v1/recording/low-latency"
+    || path === "/api/v1/timeline/undo"
+    || path === "/api/v1/timeline/redo"
+    || path === "/api/v1/project/name";
+}
+
+function sameProjectCommandIdentity(
+  expected: ProjectCommandIdentity,
+  current: ProjectCommandIdentity | null,
+): boolean {
+  return current !== null
+    && current.origin === expected.origin
+    && current.stateSessionId === expected.stateSessionId
+    && current.projectEpoch === expected.projectEpoch;
+}
+
+function projectCommandHeaders(identity: ProjectCommandIdentity | null): Record<string, string> {
+  if (!identity) return {};
+  return {
+    "X-ResoStage-Session": identity.stateSessionId,
+    "X-ResoStage-Project-Epoch": String(identity.projectEpoch),
+  };
+}
 
 export function registerRefetchHandler(fn: (snapshot?: Partial<WebUiState>) => void): void {
   _refetchHandler = fn;
@@ -115,18 +179,26 @@ function serializeJsonBody(body: unknown, falsyIsEmpty = false): string {
 function post(path: string, body?: unknown): Promise<void> {
   try {
     const serializedBody = serializeJsonBody(body, true);
-    return sendBestEffortSerialized(path, serializedBody);
+    return sendBestEffortSerialized(path, serializedBody,
+      isProjectScopedPath(path) ? captureProjectCommandIdentity() : null);
   } catch {
     return Promise.resolve();
   }
 }
 
-async function sendBestEffortSerialized(path: string, serializedBody: string): Promise<void> {
+async function sendBestEffortSerialized(
+  path: string,
+  serializedBody: string,
+  identity: ProjectCommandIdentity | null,
+): Promise<void> {
   try {
     await serializeCommand(async () => {
+      if (identity && (identity.origin !== backendOrigin()
+        || !sameProjectCommandIdentity(identity, _projectCommandIdentity)))
+        throw new Error("Core project changed before the command was sent");
       const response = await apiFetch(path, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...projectCommandHeaders(identity) },
         body: serializedBody,
       });
       if (!response.ok) throw new Error(`Core rejected ${path} (HTTP ${response.status})`);
@@ -141,22 +213,82 @@ async function sendBestEffortSerialized(path: string, serializedBody: string): P
 
 /** Transactional edits keep queue/network failures visible to their gesture owner. */
 export function postReliable(path: string, body?: unknown): Promise<void> {
-  return sendReliableSerialized(path, serializeJsonBody(body));
+  return sendReliableSerialized(path, serializeJsonBody(body),
+    isProjectScopedPath(path) ? captureProjectCommandIdentity() : null);
 }
 
-async function sendReliableSerialized(path: string, serializedBody: string): Promise<void> {
+async function sendReliableSerialized(
+  path: string,
+  serializedBody: string,
+  identity: ProjectCommandIdentity | null,
+): Promise<void> {
   await serializeCommand(async () => {
+    if (identity && (identity.origin !== backendOrigin()
+      || !sameProjectCommandIdentity(identity, _projectCommandIdentity)))
+      throw new Error("Core project changed before the edit was sent");
     const response = await apiFetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...projectCommandHeaders(identity) },
       body: serializedBody,
     });
     if (!response.ok) {
       const detail = await response.text();
       throw new Error(detail || `Core rejected the edit (HTTP ${response.status})`);
     }
+    const acknowledgement = await response.json() as {
+      accepted?: boolean;
+      requestId?: number;
+      stateSessionId?: string;
+      projectEpoch?: number;
+    };
+    // Older Core versions return only { ok: true }. Keep that compatibility
+    // path, while current Core provides exact applied/rejected results.
+    if (!Number.isSafeInteger(acknowledgement.requestId)) {
+      _triggerRefetch();
+      return;
+    }
+    if (!acknowledgement.accepted || !acknowledgement.stateSessionId
+      || !Number.isSafeInteger(acknowledgement.projectEpoch))
+      throw new Error("Core returned an invalid editor-command admission response");
+    const requestId = acknowledgement.requestId!;
+    const sessionId = acknowledgement.stateSessionId;
+    const projectEpoch = acknowledgement.projectEpoch!;
+    const deadline = Date.now() + 30_000;
+    while (Date.now() <= deadline) {
+      if (backendOrigin() !== identity?.origin && identity)
+        throw new Error("Core changed while applying the project edit");
+      const stateResponse = await apiFetch("/api/v1/state");
+      if (!stateResponse.ok)
+        throw new Error(`Cannot confirm the project edit (HTTP ${stateResponse.status})`);
+      const snapshot = await stateResponse.json() as Partial<WebUiState>;
+      if (snapshot.stateSessionId !== sessionId)
+        throw new Error("Core restarted before this project edit could be confirmed");
+      if (identity && (identity.origin !== backendOrigin()
+        || !sameProjectCommandIdentity(identity, _projectCommandIdentity)))
+        throw new Error("Project changed while confirming the edit");
+      const result = snapshot.editorCommandResults?.find((entry) => entry.requestId === requestId);
+      if (result) {
+        _refetchHandler?.(snapshot);
+        if (!result.applied)
+          throw new Error(result.error || "Core did not apply the project edit");
+        if (identity && snapshot.projectEpoch !== identity.projectEpoch)
+          throw new Error("Project changed while applying the edit");
+        if (snapshot.projectEpoch !== projectEpoch || result.projectEpoch !== projectEpoch
+          || !Number.isSafeInteger(snapshot.stateRevision)
+          || result.projectRevision > snapshot.stateRevision!)
+          throw new Error("Core returned an inconsistent editor-command revision");
+        return;
+      }
+      // A present result ring is authoritative. Keep waiting for this request;
+      // an absent row may mean the Core has not dispatched it yet.
+      if (!Array.isArray(snapshot.editorCommandResults)) {
+        _triggerRefetch();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error("Core did not confirm the project edit before timeout. It may still be queued; do not resend blindly.");
   }, utf8ByteLength(serializedBody));
-  _triggerRefetch();
 }
 
 /** Decisions are generation-bound; unlike best-effort controls, errors stay visible. */
@@ -190,6 +322,7 @@ export async function decidePluginLoading(
 interface ContinuousPayload {
   body: string;
   bytes: number;
+  identity: ProjectCommandIdentity | null;
 }
 
 interface ContinuousRequestState {
@@ -218,13 +351,20 @@ function postContinuous(path: string, body: unknown): Promise<void> {
     const bytes = utf8ByteLength(serialized);
     if (bytes > _maximumContinuousPayloadBytes)
       return Promise.resolve();
-    payload = { body: serialized, bytes };
+    payload = {
+      body: serialized,
+      bytes,
+      identity: isProjectScopedPath(path) ? captureProjectCommandIdentity() : null,
+    };
   } catch {
     return Promise.resolve();
   }
-  const targetKey = coalescingTargetKey(
+  const identityKey = payload.identity
+    ? `${payload.identity.origin}:${payload.identity.stateSessionId}:${payload.identity.projectEpoch}`
+    : "legacy";
+  const targetKey = `${identityKey}:${coalescingTargetKey(
     path, body, _continuousValueFieldsByPath.get(path) ?? new Set(), payload.body,
-  );
+  )}`;
   const request = postContinuousImpl(path, targetKey, payload);
   _continuousPromises.add(request);
   void request.finally(() => { _continuousPromises.delete(request); });
@@ -276,9 +416,16 @@ async function postContinuousImpl(
     while (nextPayload !== null) {
       const requestPayload = nextPayload;
       await serializeCommand(async () => {
+        if (requestPayload.identity
+          && (requestPayload.identity.origin !== backendOrigin()
+            || !sameProjectCommandIdentity(requestPayload.identity, _projectCommandIdentity)))
+          throw new Error("Core project changed before the control was sent");
         const response = await apiFetch(path, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...projectCommandHeaders(requestPayload.identity),
+          },
           body: requestPayload.body,
         });
         if (!response.ok) throw new Error(`Core rejected ${path} (HTTP ${response.status})`);
@@ -561,6 +708,7 @@ const rawWaveformCache = new Map<string, WaveformRawResponse>();
 export function clearApiCaches(): void {
   rawWaveformCache.clear();
   _continuousInFlight.clear();
+  _projectCommandIdentity = null;
 }
 
 export async function fetchWaveformRaw(
@@ -1026,7 +1174,7 @@ export const builder = {
     file: File,
     startSeconds = 0,
   ): Promise<void> {
-    await importMediaFile(songIndex, index, file, startSeconds);
+    await importMediaFile(songIndex, index, file, startSeconds, currentProjectCommandHeaders());
     _triggerRefetch();
   },
 
@@ -1285,6 +1433,7 @@ const navigateHistory = createHistoryNavigator({
   fetch: apiFetch,
   origin: backendOrigin,
   serialize: serializeCommand,
+  projectIdentity: currentProjectCommandIdentity,
   prepare: async () => {
     cancelActiveDrags();
     // Finish text fields before history, otherwise their later blur can write

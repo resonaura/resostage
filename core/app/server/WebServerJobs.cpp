@@ -90,7 +90,8 @@ void WebServer::failAudioRender(std::string error) {
 }
 
 bool WebServer::beginTrackImport(int songIndex, int trackIndex, std::string fileName, double startSeconds,
-                                const std::string& requestId) {
+                                const std::string& requestId, std::string stateSessionId,
+                                uint64_t projectEpoch, bool hasProjectIdentity) {
     if (songIndex < 0 || trackIndex < 0 || fileName.size() > 256 || requestId.size() > 64)
         return false;
     const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -120,13 +121,15 @@ bool WebServer::beginTrackImport(int songIndex, int trackIndex, std::string file
     pendingTrackImports.emplace(requestId, PendingTrackImport{
         songIndex, trackIndex, std::move(fileName),
         std::isfinite(startSeconds) ? std::max(0.0, startSeconds) : 0.0,
+        std::move(stateSessionId), projectEpoch, hasProjectIdentity,
         now + 15 * 60 * 1000,
     });
     return true;
 }
 
 bool WebServer::takeTrackImportTarget(int& songIndex, int& trackIndex, std::string& fileName, double& startSeconds,
-                                     const std::string& requestId) {
+                                     const std::string& requestId, std::string* stateSessionId,
+                                     uint64_t* projectEpoch, bool* hasProjectIdentity) {
     std::lock_guard<std::mutex> lock(importMutex);
     const auto it = pendingTrackImports.find(requestId);
     if (it == pendingTrackImports.end()) return false;
@@ -140,6 +143,9 @@ bool WebServer::takeTrackImportTarget(int& songIndex, int& trackIndex, std::stri
     trackIndex = it->second.trackIndex;
     fileName = std::move(it->second.fileName);
     startSeconds = it->second.startSeconds;
+    if (stateSessionId != nullptr) *stateSessionId = it->second.stateSessionId;
+    if (projectEpoch != nullptr) *projectEpoch = it->second.projectEpoch;
+    if (hasProjectIdentity != nullptr) *hasProjectIdentity = it->second.hasProjectIdentity;
     pendingTrackImports.erase(it);
     if (auto result = trackImportResults.find(requestId); result != trackImportResults.end())
         result->second.expiresAtMilliseconds = now + 7LL * 60 * 60 * 1000;

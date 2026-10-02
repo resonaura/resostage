@@ -79,27 +79,72 @@ void MainComponent::drainWebCommands() {
             // Upload HTTP completion means queued, not converted. Preserve
             // later track-add/upload actions in their accepted order so an
             // import snapshot cannot erase or reject the rest of a batch.
-            const size_t bytes = cmd.path.size() + cmd.json.size();
+            const size_t bytes = cmd.path.size() + cmd.json.size()
+                + cmd.expectedStateSessionId.size();
             if (deferredWebCommands.size() < kMaximumDeferredCommands
                 && bytes <= kMaximumDeferredCommandBytes - deferredWebCommandBytes) {
                 deferredWebCommands.push_back(cmd);
                 deferredWebCommandBytes += bytes;
             } else {
+                const std::string error = "Pending project command queue is full; retry when the import finishes";
                 if (cmd.kind == WebCommandKind::BuilderTrackImportWAVUpload) {
                     std::remove(cmd.path.c_str());
                     glz::generic payload;
                     std::string requestId;
                     if (builder_json::parseJson(cmd.json, payload))
                         builder_json::getString(payload, "requestId", requestId);
-                    webServer.finishTrackImport(requestId, false, "Pending project command queue is full");
+                    webServer.finishTrackImport(requestId, false, error);
+                }
+                if (cmd.historyRequestId != 0) {
+                    historyResults_.push_back({cmd.historyRequestId, false,
+                                               engine.projectHistoryRevision(), error});
+                    while (historyResults_.size() > 256)
+                        historyResults_.pop_front();
+                }
+                if (cmd.editorRequestId != 0) {
+                    editorCommandResults_.push_back({cmd.editorRequestId, false, projectEpoch_,
+                                                     engine.projectHistoryRevision(), error});
+                    while (editorCommandResults_.size() > 256)
+                        editorCommandResults_.pop_front();
                 }
                 if (cmd.kind == WebCommandKind::ExportProjectForDownload)
                     webServer.failExport();
-                setStatus("Pending project command queue is full; retry when the import finishes");
+                setStatus(error);
+                publishWebState();
             }
             return;
         }
+        if (cmd.hasExpectedProjectIdentity && cmd.expectedProjectEpoch != projectEpoch_) {
+            const std::string error = "Project changed before this command was applied (expected epoch "
+                + std::to_string(cmd.expectedProjectEpoch) + ", current epoch "
+                + std::to_string(projectEpoch_) + ")";
+            if (cmd.kind == WebCommandKind::BuilderTrackImportWAVUpload) {
+                std::remove(cmd.path.c_str());
+                glz::generic payload;
+                std::string requestId;
+                if (builder_json::parseJson(cmd.json, payload))
+                    builder_json::getString(payload, "requestId", requestId);
+                webServer.finishTrackImport(requestId, false, error);
+            }
+            if (cmd.historyRequestId != 0) {
+                historyResults_.push_back({cmd.historyRequestId, false,
+                                           engine.projectHistoryRevision(), error});
+                while (historyResults_.size() > 256)
+                    historyResults_.pop_front();
+            }
+            if (cmd.editorRequestId != 0) {
+                editorCommandResults_.push_back({cmd.editorRequestId, false, projectEpoch_,
+                                                 engine.projectHistoryRevision(), error});
+                while (editorCommandResults_.size() > 256)
+                    editorCommandResults_.pop_front();
+            }
+            setStatus(error);
+            publishWebState();
+            return;
+        }
         const size_t idx = static_cast<size_t>(cmd.arg);
+        const uint64_t revisionBefore = engine.projectHistoryRevision();
+        const std::string statusBefore = lastStatusMessage;
         switch (cmd.kind) {
             case WebCommandKind::Play: engine.play(); break;
             case WebCommandKind::Stop: engine.stop(); break;
@@ -524,6 +569,22 @@ void MainComponent::drainWebCommands() {
                     performAction(action);
                 break;
             }
+        }
+        if (cmd.editorRequestId != 0) {
+            const uint64_t revisionAfter = engine.projectHistoryRevision();
+            const bool applied = revisionAfter != revisionBefore;
+            std::string error;
+            if (!applied) {
+                error = "Project edit did not create a new revision";
+                if (lastStatusMessage != statusBefore && !lastStatusMessage.empty()
+                    && lastStatusMessage.size() <= 256)
+                    error = lastStatusMessage;
+            }
+            editorCommandResults_.push_back({cmd.editorRequestId, applied, projectEpoch_,
+                                             revisionAfter, std::move(error)});
+            while (editorCommandResults_.size() > 256)
+                editorCommandResults_.pop_front();
+            publishWebState();
         }
     };
 

@@ -20,7 +20,13 @@ async function requireSuccess(response: ApiResponse): Promise<void> {
 }
 
 /** Resolves only after Core commits the imported resource and region. */
-export async function importMediaFile(songIndex: number, trackIndex: number, file: File, startSeconds = 0): Promise<void> {
+export async function importMediaFile(
+  songIndex: number,
+  trackIndex: number,
+  file: File,
+  startSeconds = 0,
+  projectIdentityHeaders: Record<string, string> = {},
+): Promise<void> {
   if (file.size > MAXIMUM_MEDIA_FILE_BYTES) throw new Error("Media file exceeds the 20 GiB limit");
   const origin = backendOrigin();
   const requestId = Array.from(crypto.getRandomValues(new Uint8Array(16)),
@@ -29,13 +35,14 @@ export async function importMediaFile(songIndex: number, trackIndex: number, fil
     if (backendOrigin() !== origin) throw new Error("The active Core changed during media import");
   };
   await requireSuccess(await apiFetch("/api/v1/builder/track/import-wav/begin", {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST", headers: { "Content-Type": "application/json", ...projectIdentityHeaders },
     body: JSON.stringify({ songIndex, index: trackIndex, fileName: file.name, startSeconds, requestId }),
   }));
   checkOrigin();
-  await requireSuccess(await apiFetch(`/api/v1/builder/track/import-wav/upload?requestId=${requestId}`, {
-    method: "POST", body: file,
-  }));
+  const uploadRequest: RequestInit = { method: "POST", body: file };
+  if (Object.keys(projectIdentityHeaders).length > 0)
+    uploadRequest.headers = projectIdentityHeaders;
+  await requireSuccess(await apiFetch(`/api/v1/builder/track/import-wav/upload?requestId=${requestId}`, uploadRequest));
   const deadline = Date.now() + 7 * 60 * 60 * 1000;
   let delayMilliseconds = 250;
   while (Date.now() < deadline) {

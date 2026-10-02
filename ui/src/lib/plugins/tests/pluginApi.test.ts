@@ -6,7 +6,7 @@
 
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { builder, pluginCatalog, pluginChains } from "@/lib/state/api";
+import { builder, clearApiCaches, pluginCatalog, pluginChains } from "@/lib/state/api";
 import * as backend from "@/lib/state/backend";
 
 describe("pluginCatalog", () => {
@@ -174,24 +174,42 @@ describe("pluginChains", () => {
 });
 
 describe("atomic automation edits", () => {
-  beforeEach(() => { vi.restoreAllMocks(); });
+  beforeEach(() => { vi.restoreAllMocks(); clearApiCaches(); });
+
+  const mockAppliedEdit = (revision: number, requestId: number) => {
+    const fetchSpy = vi.spyOn(backend, "apiFetch");
+    fetchSpy.mockResolvedValueOnce({
+      ok: true, status: 202,
+      json: async () => ({ accepted: true, requestId, stateSessionId: "Core", projectEpoch: 0 }),
+    } as unknown as Response);
+    fetchSpy.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({
+        stateSessionId: "Core", projectEpoch: 0, stateRevision: revision,
+        editorCommandResults: [{
+          requestId, applied: true, projectEpoch: 0, projectRevision: revision, error: "",
+        }],
+      }),
+    } as unknown as Response);
+    return fetchSpy;
+  };
 
   it("replaces an envelope in one reliable request preserving curves", async () => {
-    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({ ok: true } as Response);
+    const fetchSpy = mockAppliedEdit(7, 1);
     const patch = { songIndex: 0, laneId: "lane", gestureId: "gesture",
       points: [{ timeBeats: 1, value: 0.2, curve: -0.5 }, { timeBeats: 3, value: 0.9, curve: 0.3 }] };
     await builder.automationPointsReplace(patch);
-    expect(fetchSpy).toHaveBeenCalledWith("/api/v1/builder/automation-points/replace", {
+    expect(fetchSpy).toHaveBeenNthCalledWith(1, "/api/v1/builder/automation-points/replace", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
     });
   });
 
   it("empty explicit points create an untouched lane without seeded dots", async () => {
-    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({ ok: true } as Response);
+    const fetchSpy = mockAppliedEdit(8, 2);
     const patch = { songIndex: 0, domain: "strip" as const, entityId: "audio::track:1",
       parameterId: "pan", points: [] };
     await builder.automationLaneAdd(patch);
-    expect(fetchSpy).toHaveBeenCalledWith("/api/v1/builder/automation-lane/add", {
+    expect(fetchSpy).toHaveBeenNthCalledWith(1, "/api/v1/builder/automation-lane/add", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
     });
   });

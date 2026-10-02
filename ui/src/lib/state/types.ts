@@ -1078,6 +1078,8 @@ export interface WebUiState {
   redoLabel: string;
   /** Core process identity; revision ordering resets only when this changes. */
   stateSessionId?: string;
+  /** Changes whenever the loaded project is replaced, even if IDs are reused. */
+  projectEpoch?: number;
   /** Monotonic project/history mutation revision (not a transport clock). */
   stateRevision?: number;
   /** Reliable Undo/Redo request last applied to this published snapshot. */
@@ -1086,6 +1088,14 @@ export interface WebUiState {
   historyResults?: Array<{
     requestId: number;
     applied: boolean;
+    projectRevision: number;
+    error: string;
+  }>;
+  /** Exact outcomes for reliable transactional project edits. */
+  editorCommandResults?: Array<{
+    requestId: number;
+    applied: boolean;
+    projectEpoch: number;
     projectRevision: number;
     error: string;
   }>;

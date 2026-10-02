@@ -34,6 +34,7 @@ export interface HistoryNavigationDependencies {
   origin: () => string;
   prepare: () => Promise<void>;
   serialize: <T>(command: () => Promise<T>, payloadBytes: number) => Promise<T>;
+  projectIdentity?: () => { origin: string; stateSessionId: string; projectEpoch: number } | null;
   applySnapshot: (snapshot: Partial<WebUiState>) => void;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
@@ -78,15 +79,33 @@ export function createHistoryNavigator(dependencies: HistoryNavigationDependenci
       };
       await bounded(dependencies.prepare);
       boundaryListeners.forEach((listener) => listener());
+      const projectIdentity = dependencies.projectIdentity?.() ?? null;
       await dependencies.serialize(async () => {
         if (dependencies.origin() !== origin) throw new Error("Core changed before the history action was sent.");
+        if (projectIdentity && projectIdentity.origin !== origin)
+          throw new Error("Core changed before the history action was sent.");
         const response = await bounded(() => dependencies.fetch(`/api/v1/timeline/${direction}`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(projectIdentity ? {
+              "X-ResoStage-Session": projectIdentity.stateSessionId,
+              "X-ResoStage-Project-Epoch": String(projectIdentity.projectEpoch),
+            } : {}),
+          },
+          body: "{}",
         }));
         if (!response.ok) throw new Error(`Core rejected ${direction} (HTTP ${response.status}).`);
-        const accepted = await bounded(() => response.json()) as { historyRequestId?: number; stateSessionId?: string };
+        const accepted = await bounded(() => response.json()) as {
+          historyRequestId?: number;
+          stateSessionId?: string;
+          projectEpoch?: number;
+        };
         if (!Number.isSafeInteger(accepted.historyRequestId) || !accepted.stateSessionId)
           throw new Error("Core did not acknowledge this history action. Update Core and retry.");
+        if (projectIdentity && (accepted.stateSessionId !== projectIdentity.stateSessionId
+          || accepted.projectEpoch !== projectIdentity.projectEpoch))
+          throw new Error("Core project changed before the history action was sent.");
         while (now() <= deadline) {
           if (dependencies.origin() !== origin) throw new Error("Core changed while applying the history action.");
           const stateResponse = await bounded(() => dependencies.fetch("/api/v1/state"));
@@ -94,14 +113,29 @@ export function createHistoryNavigator(dependencies: HistoryNavigationDependenci
           const snapshot = await bounded(() => stateResponse.json()) as Partial<WebUiState>;
           if (snapshot.stateSessionId !== accepted.stateSessionId)
             throw new Error("Core restarted before this history action could be confirmed.");
+          if (projectIdentity) {
+            const currentIdentity = dependencies.projectIdentity?.() ?? null;
+            if (currentIdentity === null
+              || currentIdentity.origin !== projectIdentity.origin
+              || currentIdentity.stateSessionId !== projectIdentity.stateSessionId
+              || currentIdentity.projectEpoch !== projectIdentity.projectEpoch)
+              throw new Error("Project changed while confirming the history action.");
+          }
           const historyResult = snapshot.historyResults?.find(
             (result) => result.requestId === accepted.historyRequestId,
           );
-          if (Array.isArray(snapshot.historyResults) && historyResult === undefined)
-            throw new Error("Core no longer has the exact result for this history action.");
           if (historyResult !== undefined) {
-            if (!historyResult.applied)
+            if (!historyResult.applied) {
+              if (accepted.projectEpoch !== undefined
+                && snapshot.projectEpoch !== accepted.projectEpoch)
+                dependencies.applySnapshot(snapshot);
               throw new Error(historyResult.error || `Core did not apply ${direction}.`);
+            }
+            if (accepted.projectEpoch !== undefined
+              && snapshot.projectEpoch !== accepted.projectEpoch) {
+              dependencies.applySnapshot(snapshot);
+              throw new Error("Project changed while applying the history action.");
+            }
             if (!Number.isSafeInteger(historyResult.projectRevision)
               || !Number.isSafeInteger(snapshot.stateRevision)
               || snapshot.stateRevision! < historyResult.projectRevision)
@@ -110,9 +144,12 @@ export function createHistoryNavigator(dependencies: HistoryNavigationDependenci
             boundaryListeners.forEach((listener) => listener());
             return;
           }
-          // Older Core versions expose only the monotonic applied high-water
-          // mark. New Core snapshots publish an exact bounded result first.
-          if ((snapshot.lastHistoryRequestId ?? 0) >= accepted.historyRequestId!) {
+          // Older Core versions omit exact outcomes and expose only the
+          // monotonic applied high-water mark. Newer Core may still be
+          // processing this accepted command, so keep polling while its exact
+          // result ring exists rather than treating an absent row as failure.
+          if (!Array.isArray(snapshot.historyResults)
+            && (snapshot.lastHistoryRequestId ?? 0) >= accepted.historyRequestId!) {
             dependencies.applySnapshot(snapshot);
             boundaryListeners.forEach((listener) => listener());
             return;
