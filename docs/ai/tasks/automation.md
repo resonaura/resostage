@@ -19,18 +19,20 @@ Previous arrangement UI existed, but had significant functional gaps:
 
 ## Implemented foundations (verify latest commits)
 
-`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648`, `1739b29`, `9bf4652`, `ba9cb39`, `b04353b`, `de27854`, `7808523`, `aa44fac`, `1577c11`, `c60cc68` implement:
+`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648`, `1739b29`, `9bf4652`, `ba9cb39`, `b04353b`, `de27854`, `7808523`, `aa44fac`, `1577c11`, `c60cc68`, `e3a4da2`, `2683dc2` implement:
 - Zero-allocation strip fader, pan, mute, and aux send automation in `MixRenderer` and `OfflineRenderer`
-  via `StripAutomationPlan.h/.cpp` with 561 native tests passing (332,642 assertions)
+  via `StripAutomationPlan.h/.cpp` with 562 native tests passing (332,647 assertions)
 - Dynamic PDC changed-latency refill continuity verified under continuous audio rendering with zero allocations
 - Safe declicked mute automation (downstream of console meters, 10 ms audibility ramping)
   and edge-slot aux send automation bindings
 - Direct numerical point editing (Return/Enter shortcut, "Set exact value…" context menu option,
   double-click on point, floating input popover with unit display and boundary clamping)
 - Next-unautomated lane addition on + click with bullet indicators (`•`) on automated parameters in selector
-- Live Touch, Latch, and Write mode enablement with tone styling in `AutomationTrackControls`,
-  `punchOutLatchSession` and `revertWriteModeToSafety` in `automationTouchSession.ts`,
-  and backend Write mode auto-revert to Touch safety in `builderAutomationRecordGesture`
+- Full Touch, Latch, and Write manual control integration:
+  `AutomationTouchController.ts` and `useAutomationTouchRecorder.ts` wired to `TrackHeaderControl`,
+  `TrackGainControl`, `TrackPanControl`, `MeterFader`, `Knob`, and `useKnobDrag`.
+  Includes live point streaming, return ramp calculation to underlying curve (`evaluateAutomationAt`),
+  transport stop punch-out, loop cycle wrap re-anchoring, and automatic Write->Touch safety revert.
 - Compact lane height density scaling (<= 32px), omitting curve handles, scaling breakpoint nodes,
   compact header/controls layout, and reduced-motion transitions
 - Exclusive/cancellable gestures, full-point atomic replacement/empty creation,
@@ -43,8 +45,8 @@ Previous arrangement UI existed, but had significant functional gaps:
 - Accessible typeahead search for automation parameter selector via `textValue`
 - End-to-end verification in `scripts/verification/editor-state.mjs` verifying uninterrupted
   transport playback during live MIDI and automation edits, Touch/Write gestures with safety auto-revert, Undo/Redo, 413, and persistence
-- Complete test suites: 100 UI Vitest test files / 682 tests, 5 Electron shell tests / 39 tests,
-  561 native engine tests / 332,642 assertions passing cleanly
+- Complete test suites: 102 UI Vitest test files / 695 tests, 5 Electron shell tests / 39 tests,
+  562 native engine tests / 332,647 assertions passing cleanly
 
 ## Finish in this order
 
@@ -65,12 +67,13 @@ Previous arrangement UI existed, but had significant functional gaps:
    Current + adds an empty lane for chosen parameter; additional simultaneous sublane
    layout, searchable vendor picker, numerical point editing and copy/paste/duplicate
    are not yet a complete production workflow.
-5. Integrate actual Touch/Latch/Write recording and manual-control ownership. The
-   pure TouchSession primitive alone is not a live write feature. Use fixed callback
-   buffers, one pass/history transaction, off-thread thinning and defined return
-   ramp/stop/cycle/punch/controller-disconnect behavior. Write must return to safety.
+5. Touch/Latch/Write recording and manual-control ownership is fully integrated.
+   `AutomationTouchController` and `useAutomationTouchRecorder` manage manual gestures from
+   track faders and pan knobs, streaming points, calculating return ramps to evaluated underlying
+   curves, holding latch across playback, committing on transport stop, re-anchoring across cycle wraps,
+   and enforcing Write safety auto-revert.
 6. Compile binding tables off audio instead of repeated string/region lookups.
-   Native sample-offset vendor automation, Trim/relative layers,VCA and advanced
+   Native sample-offset vendor automation, Trim/relative layers, VCA and advanced
    hardware/lighting integrations remain separate explicit tasks.
 
 ## Acceptance evidence and limits

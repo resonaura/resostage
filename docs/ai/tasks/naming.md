@@ -62,7 +62,8 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
 - `CoreMidiInputListener.h`: canonical `CoreMIDIInputListener` alias.
 - `PluginMidiActivity.h`: canonical `PluginMIDIActivity` alias.
 - `Midi2Compatibility.h`: canonical `MIDI1CompatibleMessage` alias.
-- `WebServer.h` & `WireTypes.h`: canonical `RemoteUDPSubscriber` and `WSubscribeUDPPayload` aliases.
+- `WebServer.h` & `WireTypes.h`: canonical `RemoteUDPSubscriber`, `WSubscribeUDPPayload`, and `lastUDPSendTimeSec_` with legacy aliases.
+- `WebServerCommands.cpp`: uses canonical `kUDPTelemetryPort`, `wire::WSubscribeUDPPayload`, and `registerUDPSubscriber`.
 - Invariants preserved:
   - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
   - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
@@ -71,7 +72,7 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
     reference-aware updates, not ambiguous duplicate paths.
 
 The WAV/UDP/HTTP/DMX/BPM/DSP/IO/MIDI cleanup and references were built and the native test target
-passed on 2026-10-02 (560 tests / 327,376 assertions). Remaining: continue the repository-wide inventory of
+passed on 2026-10-02 (562 tests / 332,647 assertions). Remaining: continue the repository-wide inventory of
 acronym identifiers and filenames, migrate any remaining internal uses away
 from transitional aliases, and run UI/Electron/script plus supported platform
 build and resolution checks. Preserve external wire/persisted/JUCE spellings
