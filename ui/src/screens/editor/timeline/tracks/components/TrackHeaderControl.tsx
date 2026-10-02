@@ -35,6 +35,12 @@ export const TrackHeaderControl = memo(
     isSelected = false,
     isFocused = false,
     onSelect,
+    onGainDragStart,
+    onGainDragMove,
+    onGainDragEnd,
+    onPanDragStart,
+    onPanDragMove,
+    onPanDragEnd,
   }: {
     track: TrackRow;
     index: number;
@@ -45,9 +51,23 @@ export const TrackHeaderControl = memo(
     isSelected?: boolean;
     isFocused?: boolean;
     onSelect?: (gesture?: TrackSelectionGesture) => void;
+    onGainDragStart?: (initialGain: number) => void;
+    onGainDragMove?: (gain: number) => void;
+    onGainDragEnd?: (finalGain: number) => void;
+    onPanDragStart?: (initialPan: number) => void;
+    onPanDragMove?: (pan: number) => void;
+    onPanDragEnd?: (finalPan: number) => void;
   }) {
-    const gain = useTrackGainControl(track, index);
-    const pan = useTrackPanControl(track, index);
+    const gain = useTrackGainControl(track, index, {
+      onDragStart: onGainDragStart,
+      onDragMove: onGainDragMove,
+      onDragEnd: onGainDragEnd,
+    });
+    const pan = useTrackPanControl(track, index, {
+      onDragStart: onPanDragStart,
+      onDragMove: onPanDragMove,
+      onDragEnd: onPanDragEnd,
+    });
 
     const isDimmed = anySolo && !track.solo && !track.soloSafe;
     const isMidiInputTrack =
@@ -278,6 +298,8 @@ export const TrackHeaderControl = memo(
         knobSize={knobSize}
         showPanValue={h >= 52}
         onCommit={pan.setValue}
+        onDragStart={pan.onDragStart}
+        onDragEnd={pan.onDragEnd}
         onContextMenu={pan.onContextMenu}
         onCloseMenu={pan.onCloseMenu}
         onSelectPanLaw={pan.onSelectPanLaw}
@@ -340,6 +362,8 @@ export const TrackHeaderControl = memo(
                   nameSize={nameSize}
                   faderHeight={faderH}
                   onGainChange={gain.setGain}
+                  onDragStart={gain.onDragStart}
+                  onDragEnd={gain.onDragEnd}
                   onReadoutPointerDown={gain.onReadoutPointerDown}
                   onReadoutDoubleClick={gain.onReadoutDoubleClick}
                 />

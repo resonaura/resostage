@@ -24,6 +24,8 @@ export function Knob({
   defaultValue = 0,
   accent = "var(--accent, #0091ff)",
   onCommit,
+  onDragStart,
+  onDragEnd,
   size = 26,
   title,
 }: {
@@ -33,6 +35,8 @@ export function Knob({
   defaultValue?: number;
   accent?: string;
   onCommit: (v: number) => void;
+  onDragStart?: (initialValue: number) => void;
+  onDragEnd?: (finalValue: number) => void;
   size?: number;
   title?: string;
 }) {
@@ -43,6 +47,8 @@ export function Knob({
     min,
     max,
     onCommit,
+    onDragStart,
+    onDragEnd,
     round: roundValue,
     // Centre on a pan knob, zero on a send: the one place on the sweep worth
     // feeling for.

@@ -67,6 +67,8 @@ export function useKnobDrag({
   round,
   sensitivityPx = 120,
   detent,
+  onDragStart,
+  onDragEnd,
 }: {
   value: number;
   min: number;
@@ -75,15 +77,9 @@ export function useKnobDrag({
   /** Quantisation applied to every value that leaves this hook. */
   round: (v: number) => number;
   sensitivityPx?: number;
-  /**
-   * One value worth feeling on the way past -- centre for a pan knob.
-   *
-   * A knob is continuous, so there is nothing else to tick against: ticking
-   * per rounded step would buzz, and ticking at the ends says nothing the
-   * travel limit does not already say. Centre is different -- it is a value
-   * you aim for and cannot see yourself hit while looking at the meters.
-   */
   detent?: number;
+  onDragStart?: (initialValue: number) => void;
+  onDragEnd?: (finalValue: number) => void;
 }): KnobDrag {
   const [localValue, setLocalValue] = useState(() => round(value));
   const [dragging, setDragging] = useState(false);
@@ -98,6 +94,10 @@ export function useKnobDrag({
 
   const onCommitRef = useRef(onCommit);
   onCommitRef.current = onCommit;
+  const onDragStartRef = useRef(onDragStart);
+  onDragStartRef.current = onDragStart;
+  const onDragEndRef = useRef(onDragEnd);
+  onDragEndRef.current = onDragEnd;
   const roundRef = useRef(round);
   roundRef.current = round;
 
@@ -170,14 +170,19 @@ export function useKnobDrag({
     disarm();
     setLocalValue(original);
     onCommitRef.current(original);
+    onDragEndRef.current?.(original);
   };
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     // Disarm unconditionally: an Esc revert already ended the drag, but the
     // pointerup still arrives and the handle must not outlive it.
     const wasActive = activePointerId.current !== null;
+    const finalVal = pendingCommit.current ?? localValue;
     disarm();
-    if (wasActive) flushPending();
+    if (wasActive) {
+      flushPending();
+      onDragEndRef.current?.(finalVal);
+    }
     try {
       if (e.currentTarget.hasPointerCapture?.(e.pointerId))
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -212,6 +217,7 @@ export function useKnobDrag({
         lastEditTime.current = Date.now();
         startY.current = e.clientY;
         startValue.current = localValue;
+        onDragStartRef.current?.(localValue);
         cancelRef.current?.end();
         cancelRef.current = beginCancellableDrag(revert);
         try {
@@ -226,8 +232,10 @@ export function useKnobDrag({
         if (gate === "abort") {
           // Rule 3: a pointerup we never saw. Keep what the user dialled in
           // (this is a release, not a cancel) and stop tracking.
+          const finalVal = pendingCommit.current ?? localValue;
           disarm();
           flushPending();
+          onDragEndRef.current?.(finalVal);
           return;
         }
         lastEditTime.current = Date.now();

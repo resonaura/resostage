@@ -30,6 +30,7 @@ import { TimelineRowLabel } from "@/screens/editor/timeline/tracks/components/Ti
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import { TrackHeaderControl } from "@/screens/editor/timeline/tracks/components/TrackHeaderControl";
 import { AutomationTrackHeader } from "@/screens/editor/timeline/automation/components/AutomationTrackHeader";
+import { useAutomationTouchRecorder } from "@/screens/editor/timeline/automation/hooks/useAutomationTouchRecorder";
 import { getAutomationLanesForTrack } from "@/screens/editor/timeline/automation/logic/automationTargets";
 import {
   trackSelectionGesture,
@@ -110,6 +111,19 @@ export function TimelineSidebar({
     useState<SidebarLightTrackMenuState | null>(null);
   const [renamingLightTrack, setRenamingLightTrack] =
     useState<SidebarRenameState | null>(null);
+
+  const songIndex = state.songIndex ?? 0;
+  const currentSong = state.songs[songIndex];
+  const songBpm = currentSong?.bpm ?? 120;
+  const getCurrentBeats = () =>
+    Math.max(0, ((state.playheadSeconds ?? 0) * songBpm) / 60);
+
+  const touchRecorder = useAutomationTouchRecorder({
+    songIndex,
+    lanes: currentSong?.automationLanes ?? [],
+    isPlaying: Boolean(state.playing),
+    getCurrentBeats,
+  });
 
   const {
     containerRef,
@@ -371,6 +385,84 @@ export function TimelineSidebar({
                           state.tracks[trackIdx]?.id ?? null,
                           gesture,
                         );
+                      }}
+                      onGainDragStart={(initialGain) => {
+                        const trk = state.tracks[trackIdx];
+                        if (trk) {
+                          touchRecorder.startGesture(
+                            {
+                              domain: "strip",
+                              entityId: trk.stripId || trk.id,
+                              parameterId: "faderGainDb",
+                            },
+                            initialGain,
+                          );
+                        }
+                      }}
+                      onGainDragMove={(g) => {
+                        const trk = state.tracks[trackIdx];
+                        if (trk) {
+                          touchRecorder.recordValue(
+                            {
+                              domain: "strip",
+                              entityId: trk.stripId || trk.id,
+                              parameterId: "faderGainDb",
+                            },
+                            g,
+                          );
+                        }
+                      }}
+                      onGainDragEnd={(finalGain) => {
+                        const trk = state.tracks[trackIdx];
+                        if (trk) {
+                          touchRecorder.finishGesture(
+                            {
+                              domain: "strip",
+                              entityId: trk.stripId || trk.id,
+                              parameterId: "faderGainDb",
+                            },
+                            finalGain,
+                          );
+                        }
+                      }}
+                      onPanDragStart={(initialPan) => {
+                        const trk = state.tracks[trackIdx];
+                        if (trk) {
+                          touchRecorder.startGesture(
+                            {
+                              domain: "strip",
+                              entityId: trk.stripId || trk.id,
+                              parameterId: "pan",
+                            },
+                            initialPan,
+                          );
+                        }
+                      }}
+                      onPanDragMove={(p) => {
+                        const trk = state.tracks[trackIdx];
+                        if (trk) {
+                          touchRecorder.recordValue(
+                            {
+                              domain: "strip",
+                              entityId: trk.stripId || trk.id,
+                              parameterId: "pan",
+                            },
+                            p,
+                          );
+                        }
+                      }}
+                      onPanDragEnd={(finalPan) => {
+                        const trk = state.tracks[trackIdx];
+                        if (trk) {
+                          touchRecorder.finishGesture(
+                            {
+                              domain: "strip",
+                              entityId: trk.stripId || trk.id,
+                              parameterId: "pan",
+                            },
+                            finalPan,
+                          );
+                        }
                       }}
                     />
                     </AutomationTrackHeader>

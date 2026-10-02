@@ -11,10 +11,19 @@ import type { TrackRow } from "@/lib/state/types";
 import { TRACK_PAN_LAWS, formatPan } from "@/components/daw/logic/panLaw";
 
 /** Owns live pan state and pan-law menu actions for the timeline track header. */
-export function useTrackPanControl(track: TrackRow, index: number) {
-  const [value, setValue] = useLiveValue(track.pan ?? 0, (next) =>
-    mixer.setTrackPan(index, next),
-  );
+export function useTrackPanControl(
+  track: TrackRow,
+  index: number,
+  options?: {
+    onDragStart?: (value: number) => void;
+    onDragMove?: (value: number) => void;
+    onDragEnd?: (value: number) => void;
+  },
+) {
+  const [value, setValue] = useLiveValue(track.pan ?? 0, (next) => {
+    mixer.setTrackPan(index, next);
+    options?.onDragMove?.(next);
+  });
   const [menuPosition, setMenuPosition] = useState<{
     x: number;
     y: number;
@@ -38,6 +47,8 @@ export function useTrackPanControl(track: TrackRow, index: number) {
     activePanLaw: track.panLaw ?? TRACK_PAN_LAWS[0].value,
     panLaws: TRACK_PAN_LAWS,
     menuPosition,
+    onDragStart: options?.onDragStart,
+    onDragEnd: options?.onDragEnd,
     onContextMenu,
     onCloseMenu: () => setMenuPosition(null),
     onSelectPanLaw,

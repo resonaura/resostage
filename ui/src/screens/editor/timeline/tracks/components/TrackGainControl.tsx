@@ -17,6 +17,8 @@ export const TrackGainControl = memo(function TrackGainControl({
   nameSize,
   faderHeight,
   onGainChange,
+  onDragStart,
+  onDragEnd,
   onReadoutPointerDown,
   onReadoutDoubleClick,
 }: {
@@ -26,6 +28,8 @@ export const TrackGainControl = memo(function TrackGainControl({
   nameSize: number;
   faderHeight: number;
   onGainChange: (value: number) => void;
+  onDragStart?: (value: number) => void;
+  onDragEnd?: (value: number) => void;
   onReadoutPointerDown: (event: React.PointerEvent<HTMLSpanElement>) => void;
   onReadoutDoubleClick: (event: React.MouseEvent<HTMLSpanElement>) => void;
 }) {
@@ -39,6 +43,8 @@ export const TrackGainControl = memo(function TrackGainControl({
         max={12}
         step={0.5}
         onChange={onGainChange}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
         dbL={track.peakDbL ?? track.peakDb ?? -100}
         dbR={track.peakDbR ?? track.peakDb ?? -100}
         getLiveDbL={() => getTrackLiveLevel(track.id)?.peakDbL ?? -144}

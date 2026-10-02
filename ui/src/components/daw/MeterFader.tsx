@@ -56,6 +56,8 @@ export interface MeterFaderProps {
   /** Where a double-click puts the fader. */
   defaultValue?: number;
   onChange: (v: number) => void;
+  onDragStart?: (initialValue: number) => void;
+  onDragEnd?: (finalValue: number) => void;
   /** Last known peaks from the state frame; the live getters win when given. */
   dbL: number;
   dbR: number;
@@ -78,6 +80,8 @@ export const MeterFader = memo(function MeterFader({
   step = 0.5,
   defaultValue = 0,
   onChange,
+  onDragStart,
+  onDragEnd,
   dbL,
   dbR,
   getLiveDbL,
@@ -323,6 +327,7 @@ export const MeterFader = memo(function MeterFader({
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
         escRevert.onPointerDown(e);
+        onDragStart?.(value);
         // Flush immediately on press so the first click is instant.
         flushCommit(e.clientX);
       }}
@@ -338,6 +343,14 @@ export const MeterFader = memo(function MeterFader({
         // Flush any pending frame commit so the final position is always sent.
         flushCommit();
         escRevert.onPointerUp();
+        onDragEnd?.(value);
+      }}
+      onPointerCancel={(e) => {
+        if (e.currentTarget.hasPointerCapture(e.pointerId))
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        flushCommit();
+        escRevert.onPointerUp();
+        onDragEnd?.(value);
       }}
       onDoubleClick={(e) => {
         e.preventDefault();
