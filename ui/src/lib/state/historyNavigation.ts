@@ -33,7 +33,7 @@ export interface HistoryNavigationDependencies {
   fetch: (path: string, init?: RequestInit) => Promise<ApiResponse>;
   origin: () => string;
   prepare: () => Promise<void>;
-  serialize: <T>(command: () => Promise<T>) => Promise<T>;
+  serialize: <T>(command: () => Promise<T>, payloadBytes: number) => Promise<T>;
   applySnapshot: (snapshot: Partial<WebUiState>) => void;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => number;
@@ -102,7 +102,7 @@ export function createHistoryNavigator(dependencies: HistoryNavigationDependenci
           await sleep(25);
         }
         throw new Error(`Core has not confirmed ${direction}. It may still be finishing a project operation; do not resend blindly.`);
-      });
+      }, 2);
     };
     const request = tail.then(execute).catch((error: unknown) => {
       publishNavigation({ pending: true, error: error instanceof Error ? error.message : String(error) });

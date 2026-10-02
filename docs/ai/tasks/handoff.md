@@ -125,11 +125,12 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   integrated failure by quoting an older green run; see [audit.md](audit.md).
 - Previous UI/Electron evidence: UI 724 tests/105 files, Electron 39 tests;
   UI/Electron typechecks passed and lint had zero errors/12 existing warnings.
-  The current Core-only playback-snapshot block built optimized Core and native
-  tests, passed focused SongActivity (8 cases/2,192 assertions), the full native
-  suite (578 cases/424,387 assertions), and the real-Core HTTP editor-state
-  harness. UI/Electron were not rerun for this block; this is not acoustic,
-  loaded-vendor, sanitizer, or callback-deadline proof.
+  Commit `83b14c8` publishes bounded immutable playback snapshots, and its Core
+  build, native suite (578 cases/424,387 assertions) and real-Core editor-state
+  HTTP harness passed. The current renderer queue block passes UI 733 tests/107
+  files, focused queue/history 11/11 and UI TypeScript. UI/Electron were not
+  rerun for the Core snapshot block; this is not acoustic, loaded-vendor,
+  sanitizer, or callback-deadline proof.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,
@@ -138,18 +139,20 @@ folders. Commit each finished block; do not push.
 
 ## Immediate next actions
 
-1. Continue the P1 snapshot publication work in `audit.md`. Callback-visible
-   project reads now use bounded immutable snapshots attached to `MixGraph`,
-   with stale activity and track-layout fences. The remaining immediate gap is
-   request-specific applied/rejected feedback when a new snapshot cannot be
-   published, followed by sanitizer/concurrency, callback-deadline/allocation,
-   and loaded AU/VST3 continuity evidence. Do not conceal failures by stopping
-   transport or restarting healthy helpers.
-2. Finish actual Touch/Latch/Write manual ownership, supported surface bindings,
+1. Bind commands to Core session and project epoch, then add request-specific
+   applied/rejected outcomes and revisions for edits. Renderer queue byte/count
+   bounds and immutable callback snapshots are now implemented. The remaining
+   protocol must also report when a new playback snapshot is rejected, without
+   confusing HTTP admission with application. Keep the shared queue/history
+   owner; do not introduce another state authority.
+2. Finish publication acceptance: sanitizer/concurrency coverage, callback
+   allocation/deadline measurement, and loaded AU/VST3 continuity proof. Do not
+   conceal failures by stopping transport or restarting healthy helpers.
+3. Finish actual Touch/Latch/Write manual ownership, supported surface bindings,
    tempo/cycle/epoch handling and bounded recording/rejection recovery. Recorded
    point collections and endpoint tests alone do not establish this lifecycle.
-3. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
-4. Validate light/dark visual geometry, compact heights, reduced motion and
+4. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
+5. Validate light/dark visual geometry, compact heights, reduced motion and
    exclusive/cancellable gestures. Run complete UI suite/typecheck/lint and relevant native suites/build after
    integrating changes; commit by finished block. Report actual totals, vendor
    skips and hardware limits. Update this file and detailed tasks with evidence.

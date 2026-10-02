@@ -89,6 +89,12 @@ libwebsockets protocol storage has C++ construction/destruction at HTTP bind/dro
 boundaries. Reliable editor posts expose rejection, and local drafts remain
 distinct from authoritative snapshots until a matching Core echo. An HTTP
 admission response is not an applied-project acknowledgement.
+The renderer's reliable command queue mirrors Core's 256-command/32 MiB
+retention bounds and freezes JSON bodies at invocation time, accounting their
+UTF-8 payload bytes until completion. Continuous controls may coalesce only by
+stable full target identity (including send destination); their pending latest
+values have a separate byte cap. This client admission bound still does not
+replace a Core-side project-epoch check or request-specific applied result.
 
 Internal frontend imports use the `@/` alias rooted at `ui/src`; TypeScript,
 Vite, and Vitest must keep that mapping aligned. Electron has its own `@/`

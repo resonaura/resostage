@@ -9,6 +9,11 @@ import { importMediaFile } from "@/transfer/audio/logic/importRequest";
 import { cancelActiveDrags } from "@/lib/interaction/dragCancel";
 import { flushPendingCommits } from "@/lib/state/optimistic";
 import { createHistoryNavigator } from "@/lib/state/historyNavigation";
+import {
+  BoundedCommandQueue,
+  coalescingTargetKey,
+  utf8ByteLength,
+} from "@/lib/state/commandQueue";
 import type { MixGraphPayload } from "@/lib/audio/mixGraph";
 import type {
   AllPeaksResponse,
@@ -88,29 +93,44 @@ function _triggerRefetch(): void {
 // One reliable admission order across tabs/toolbars prevents concurrent
 // multi-region edits or Undo overtaking their preceding POSTs. Continuous
 // controls still coalesce their pending values before entering this queue.
-let _commandTail: Promise<unknown> = Promise.resolve();
-let _queuedCommands = 0;
-function serializeCommand<T>(command: () => Promise<T>): Promise<T> {
-  if (_queuedCommands >= 256) return Promise.reject(new Error("Too many pending Core commands"));
+const _commandQueue = new BoundedCommandQueue({
+  maxPendingCommands: 256,
+  maxRetainedPayloadBytes: 32 * 1024 * 1024,
+});
+function serializeCommand<T>(command: () => Promise<T>, payloadBytes: number): Promise<T> {
   const origin = backendOrigin();
-  ++_queuedCommands;
-  const request = _commandTail.then(() => {
+  return _commandQueue.run(payloadBytes, () => {
     if (backendOrigin() !== origin) throw new Error("Core changed before the command was sent");
     return command();
-  }).finally(() => { --_queuedCommands; });
-  _commandTail = request.catch(() => {});
-  return request;
+  });
 }
-async function post(path: string, body?: unknown): Promise<void> {
+
+function serializeJsonBody(body: unknown, falsyIsEmpty = false): string {
+  if (body === undefined || (falsyIsEmpty && !body)) return "{}";
+  const serialized = JSON.stringify(body);
+  if (typeof serialized !== "string")
+    throw new Error("Core command body is not JSON-serializable");
+  return serialized;
+}
+function post(path: string, body?: unknown): Promise<void> {
+  try {
+    const serializedBody = serializeJsonBody(body, true);
+    return sendBestEffortSerialized(path, serializedBody);
+  } catch {
+    return Promise.resolve();
+  }
+}
+
+async function sendBestEffortSerialized(path: string, serializedBody: string): Promise<void> {
   try {
     await serializeCommand(async () => {
       const response = await apiFetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : "{}",
+        body: serializedBody,
       });
       if (!response.ok) throw new Error(`Core rejected ${path} (HTTP ${response.status})`);
-    });
+    }, utf8ByteLength(serializedBody));
     _triggerRefetch();
   } catch {
     // Best-effort, matches the embedded reference client -- a dropped
@@ -120,18 +140,22 @@ async function post(path: string, body?: unknown): Promise<void> {
 }
 
 /** Transactional edits keep queue/network failures visible to their gesture owner. */
-export async function postReliable(path: string, body?: unknown): Promise<void> {
+export function postReliable(path: string, body?: unknown): Promise<void> {
+  return sendReliableSerialized(path, serializeJsonBody(body));
+}
+
+async function sendReliableSerialized(path: string, serializedBody: string): Promise<void> {
   await serializeCommand(async () => {
     const response = await apiFetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: body === undefined ? "{}" : JSON.stringify(body),
+      body: serializedBody,
     });
     if (!response.ok) {
       const detail = await response.text();
       throw new Error(detail || `Core rejected the edit (HTTP ${response.status})`);
     }
-  });
+  }, utf8ByteLength(serializedBody));
   _triggerRefetch();
 }
 
@@ -141,14 +165,17 @@ export async function decidePluginLoading(
   generation: number,
   decision: "continue" | "stop" | "retry",
 ): Promise<void> {
+  const serializedBody = JSON.stringify({ epoch, generation, decision });
+  if (typeof serializedBody !== "string")
+    throw new Error("Plug-in loading decision is not JSON-serializable");
   await serializeCommand(async () => {
     const response = await apiFetch("/api/v1/plugins/loading/decision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ epoch, generation, decision }),
+      body: serializedBody,
     });
     if (!response.ok) throw new Error(`Core rejected loading decision (HTTP ${response.status})`);
-  });
+  }, utf8ByteLength(serializedBody));
   _triggerRefetch();
 }
 
@@ -160,20 +187,77 @@ export async function decidePluginLoading(
 // postContinuous ensures that if a request is already in-flight for a specific
 // target, subsequent intermediate values replace each other in a pending slot,
 // and only the latest value is sent as soon as the in-flight POST finishes.
-const _continuousInFlight = new Map<
-  string,
-  { pending: unknown; busy: boolean }
->();
+interface ContinuousPayload {
+  body: string;
+  bytes: number;
+}
+
+interface ContinuousRequestState {
+  pending: ContinuousPayload | null;
+  busy: boolean;
+}
+
+const _continuousInFlight = new Map<string, ContinuousRequestState>();
+const _continuousValueFieldsByPath = new Map<string, ReadonlySet<string>>([
+  ["/api/v1/track/gain", new Set(["value"])],
+  ["/api/v1/track/pan", new Set(["value"])],
+  ["/api/v1/track/trim", new Set(["inputTrimDb"])],
+  ["/api/v1/bus/gain", new Set(["value"])],
+  ["/api/v1/bus/pan", new Set(["value"])],
+  ["/api/v1/mixer/track/send", new Set(["level"])],
+]);
+const _maximumContinuousPayloadBytes = 4096;
+const _maximumContinuousPendingBytes = 1024 * 1024;
+let _continuousPendingBytes = 0;
 
 const _continuousPromises = new Set<Promise<void>>();
 function postContinuous(path: string, body: unknown): Promise<void> {
-  const request = postContinuousImpl(path, body);
+  let payload: ContinuousPayload;
+  try {
+    const serialized = serializeJsonBody(body);
+    const bytes = utf8ByteLength(serialized);
+    if (bytes > _maximumContinuousPayloadBytes)
+      return Promise.resolve();
+    payload = { body: serialized, bytes };
+  } catch {
+    return Promise.resolve();
+  }
+  const targetKey = coalescingTargetKey(
+    path, body, _continuousValueFieldsByPath.get(path) ?? new Set(), payload.body,
+  );
+  const request = postContinuousImpl(path, targetKey, payload);
   _continuousPromises.add(request);
   void request.finally(() => { _continuousPromises.delete(request); });
   return request;
 }
-async function postContinuousImpl(path: string, body: unknown): Promise<void> {
-  const targetKey = `${path}:${(body as Record<string, unknown>)?.index ?? (body as Record<string, unknown>)?.trackIndex ?? ""}`;
+function replaceContinuousPending(
+  state: ContinuousRequestState,
+  payload: ContinuousPayload,
+): boolean {
+  const previousBytes = state.pending?.bytes ?? 0;
+  if (payload.bytes > _maximumContinuousPendingBytes
+    - (_continuousPendingBytes - previousBytes))
+    return false;
+  _continuousPendingBytes -= previousBytes;
+  state.pending = payload;
+  _continuousPendingBytes += payload.bytes;
+  return true;
+}
+
+function releaseContinuousPending(state: ContinuousRequestState): ContinuousPayload | null {
+  const pending = state.pending;
+  if (pending !== null) {
+    _continuousPendingBytes -= pending.bytes;
+    state.pending = null;
+  }
+  return pending;
+}
+
+async function postContinuousImpl(
+  path: string,
+  targetKey: string,
+  payload: ContinuousPayload,
+): Promise<void> {
   let state = _continuousInFlight.get(targetKey);
   if (!state) {
     state = { pending: null, busy: false };
@@ -181,35 +265,33 @@ async function postContinuousImpl(path: string, body: unknown): Promise<void> {
   }
 
   if (state.busy) {
-    state.pending = body;
+    replaceContinuousPending(state, payload);
     return;
   }
 
   state.busy = true;
-  let nextPayload: unknown = body;
+  let nextPayload: ContinuousPayload | null = payload;
 
   try {
     while (nextPayload !== null) {
-      state.pending = null;
-      const payload = nextPayload;
+      const requestPayload = nextPayload;
       await serializeCommand(async () => {
         const response = await apiFetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: requestPayload.body,
         });
         if (!response.ok) throw new Error(`Core rejected ${path} (HTTP ${response.status})`);
-      });
-      nextPayload = state.pending;
+      }, requestPayload.bytes);
+      nextPayload = releaseContinuousPending(state);
     }
   } catch {
     /* best effort */
   } finally {
     state.busy = false;
-    if (state.pending === null) {
-      _continuousInFlight.delete(targetKey);
-      _triggerRefetch();
-    }
+    releaseContinuousPending(state);
+    _continuousInFlight.delete(targetKey);
+    _triggerRefetch();
   }
 }
 

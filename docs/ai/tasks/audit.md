@@ -144,12 +144,31 @@ Confirmed gaps:
 - History has an applied-action protocol, but ordinary builder writes do not
   have a matching request/revision acknowledgement. Matching field values can
   coincide with an unrelated edit/Undo and are not proof this request applied.
-- The client queue is bounded to 256 commands, not retained payload bytes.
-  Large note collections can retain far more memory than a weak laptop can
-  tolerate despite Core's separate bounded queue admission.
-- Continuous coalescing currently keys by route and `index`/`trackIndex` only.
-  Different send buses on the same track can replace each other's pending
-  values. Every independent control needs its full stable target identity.
+
+Closed in the current continuation block:
+
+- `ui/src/lib/state/commandQueue.ts` now provides the single reliable renderer
+  queue: at most 256 admitted commands and 32 MiB of retained serialized JSON
+  bodies. Bodies are serialized before queueing, their UTF-8 byte lengths are
+  counted without creating an encoder copy, and both reservations are released
+  on success or failure. `postReliable` returns count/byte exhaustion to the
+  transactional gesture owner. History reserves its exact `{}` body too.
+- Continuous controls coalesce by path plus sorted stable identity fields.
+  Only the continuous value field for that route is omitted; `trackIndex` plus
+  `busId` and optional send semantics are retained, so sends to two buses cannot
+  overwrite each other. Individual bodies are capped at 4 KiB and coalesced
+  pending strings at 1 MiB.
+- UI validation for this block: complete Vitest passed 733 tests/107 files;
+  `pnpm --dir ui exec tsc -b --pretty false` passed. Focused queue/history tests
+  passed 11/11.
+
+Still open: queued edits remain bound only to the backend origin, not to the
+Core session plus project epoch. Ordinary edits still lack exact request IDs,
+applied/rejected outcomes and project revisions; the special Undo/Redo protocol
+is not a substitute. Best-effort scalar controls still intentionally swallow
+network failures. A Core snapshot-publication failure can retain the last-good
+graph without an exact rejection delivered to the originating gesture. These
+protocol gaps are not solved by the client queue limits above.
 
 Required implementation:
 
@@ -160,9 +179,9 @@ Required implementation:
 - Use bounded request IDs and applied/rejected results plus project revision
   for transactional editor/history operations. Reuse one mutation/history queue
   and existing acknowledgement foundations; no parallel state authority.
-- Bound client payload bytes as well as command count. Account for the exact
-  admitted serialized payload, release accounting on every failure/finish,
-  and expose exhaustion to the gesture owner. Avoid multiple full-size copies.
+- Extend the new byte-bounded queue with Core session/project epoch identity;
+  validate before send and before message-thread application. Keep the
+  serialized-body accounting and error path intact; avoid copying the body.
 - Coalesce only latest values for the same epoch, entity, parameter and send
   destination. Do not coalesce transactions, mix independent controls, or let
   an old positional track index target a reordered track without validation.
@@ -353,18 +372,17 @@ clock.
 
 ## Execution order for remaining work
 
-1. Complete acceptance and failure UX for immutable, bounded project playback
-   snapshots. Core callback readers are now snapshot-backed and fail closed;
-   next add request-specific publication acknowledgement/rejection, sanitizer
-   and concurrency coverage, callback allocation/deadline measurement, and
-   actual AU/VST3 audio-continuity proof. Keep transport running and do not hide
-   races by locking editor commands or restarting healthy helpers.
-2. Complete Core-owned live manual-value arbitration for Touch/Latch/Write, then
+1. Bind UI commands and Core message-thread mutations to a Core session plus
+   project epoch; add exact request-specific applied/rejected status and
+   project-revision acknowledgements for transactional writes. Connect snapshot
+   publication failure to that outcome without lying about HTTP admission.
+2. Complete acceptance and failure UX for immutable, bounded project playback
+   snapshots: sanitizer/concurrency coverage, callback allocation/deadline
+   measurement and actual AU/VST3 audio-continuity proof. Keep transport running
+   and do not hide races by locking editor commands or restarting healthy helpers.
+3. Complete Core-owned live manual-value arbitration for Touch/Latch/Write, then
    wire each supported control surface and handle TempoMap, cycle wrap, Stop,
    seek, project epoch, rejection recovery and one coherent history action.
-3. Bind edits to project epochs and applied request/revision acknowledgements;
-   bound client retained bytes and coalesce continuous values by full stable
-   target identity.
 4. Validate MIDI-region embedded automation lanes before history/mutation;
    define live/offline Write rendering and preserve the old envelope outside a
    recorded punch window.
