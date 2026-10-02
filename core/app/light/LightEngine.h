@@ -81,7 +81,8 @@ public:
     void setProject(std::shared_ptr<const Project> proj);
 
     // Update current BPM (for tempo-synced effects). Called from transport.
-    void setBpm(double bpm) { bpm_.store(bpm, std::memory_order_relaxed); }
+    void setBPM(double bpm) { bpm_.store(bpm, std::memory_order_relaxed); }
+    void setBpm(double bpm) { setBPM(bpm); }
 
 private:
     void threadLoop();

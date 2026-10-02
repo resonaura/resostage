@@ -258,7 +258,7 @@ void CoreMidiDispatcher::stopClock() {
     enqueue(cmd);
 }
 
-void CoreMidiDispatcher::setClockBpm(double bpm) {
+void CoreMidiDispatcher::setClockBPM(double bpm) {
     clockBpm.store(bpm, std::memory_order_relaxed);
     pendingTempoReanchor.store(true, std::memory_order_relaxed);
 }

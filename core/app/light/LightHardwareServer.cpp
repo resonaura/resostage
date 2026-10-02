@@ -265,7 +265,7 @@ void LightHardwareServer::updateFixtureFrame(const std::string& fixtureId, const
         }
         conn->wantsConnection = true;
     }
-    sendFrameOverUdp(*conn, channelsPerPixel, pixelBytes, pixelByteCount, refreshHz, host);
+    sendFrameOverUDP(*conn, channelsPerPixel, pixelBytes, pixelByteCount, refreshHz, host);
 }
 
 // Called on the LightEngine thread, the instant a frame exists. One
@@ -273,7 +273,7 @@ void LightHardwareServer::updateFixtureFrame(const std::string& fixtureId, const
 // caller already did to build the pixel bytes, and it never blocks: a full
 // socket buffer returns EWOULDBLOCK and we drop that frame, which for
 // periodic full-state data is exactly the right answer.
-void LightHardwareServer::sendFrameOverUdp(Connection& conn, uint8_t channelsPerPixel,
+void LightHardwareServer::sendFrameOverUDP(Connection& conn, uint8_t channelsPerPixel,
                                             const uint8_t* pixelBytes, size_t pixelByteCount,
                                             double refreshHz, const std::string& host) {
     const uint16_t port = conn.udpPort.load(std::memory_order_relaxed);

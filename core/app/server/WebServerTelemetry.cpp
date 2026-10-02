@@ -92,7 +92,7 @@ void WebServer::setTargetTelemetryHz(int hz) {
     effectiveTelemetryHz_.store(clamped, std::memory_order_relaxed);
 }
 
-void WebServer::registerUdpSubscriber(const std::string& ip, int port) {
+void WebServer::registerUDPSubscriber(const std::string& ip, int port) {
     if (ip.empty() || port <= 0 || port > 65535)
         return;
     // libwebsockets may report an IPv4 peer through an IPv6-mapped address.

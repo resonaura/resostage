@@ -124,8 +124,12 @@ private:
     // Called on the LightEngine thread from updateFixtureFrame(). See its
     // definition for why the send happens there rather than on the network
     // thread.
-    void sendFrameOverUdp(Connection& conn, uint8_t channelsPerPixel, const uint8_t* pixelBytes,
+    void sendFrameOverUDP(Connection& conn, uint8_t channelsPerPixel, const uint8_t* pixelBytes,
                           size_t pixelByteCount, double refreshHz, const std::string& host);
+    void sendFrameOverUdp(Connection& conn, uint8_t channelsPerPixel, const uint8_t* pixelBytes,
+                          size_t pixelByteCount, double refreshHz, const std::string& host) {
+        sendFrameOverUDP(conn, channelsPerPixel, pixelBytes, pixelByteCount, refreshHz, host);
+    }
 
     std::atomic<bool> running_{false};
     std::thread discoveryThread_;

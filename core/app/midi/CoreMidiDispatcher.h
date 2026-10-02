@@ -126,7 +126,8 @@ public:
     // Live in-place tempo change: no MIDI message of its own (it's a rate
     // change, not a transport event), no phase discontinuity for the next
     // unsent tick. Use this for a gapless song transition to a different bpm.
-    void setClockBpm(double bpm);
+    void setClockBPM(double bpm);
+    void setClockBpm(double bpm) { setClockBPM(bpm); }
     // Song Position Pointer (0xF2): tells followers the absolute position, in
     // MIDI-beats (sixteenth notes) since Start, ahead of a Continue after a
     // seek/relocate. 14-bit value (masked internally) -- see the call site in

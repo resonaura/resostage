@@ -1278,8 +1278,12 @@ public:
     // regardless, which for one client on one tab is six payloads of wasted
     // work per frame on the message thread.
     // High-speed UDP telemetry for embedded (Electron) mode & remote streaming.
-    static constexpr int kUdpTelemetryPort = 2898;
-    void registerUdpSubscriber(const std::string& ip, int port = kUdpTelemetryPort);
+    static constexpr int kUDPTelemetryPort = 2898;
+    static constexpr int kUdpTelemetryPort = kUDPTelemetryPort;
+    void registerUDPSubscriber(const std::string& ip, int port = kUDPTelemetryPort);
+    void registerUdpSubscriber(const std::string& ip, int port = kUDPTelemetryPort) {
+        registerUDPSubscriber(ip, port);
+    }
 
     enum class ViewSlot { Player = 0, Mixer, Editor, Settings, Light, Count };
     void noteViewOpened(ViewSlot slot);

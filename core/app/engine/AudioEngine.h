@@ -158,8 +158,11 @@ public:
     // the real DMX output silently keep running at the stale old BPM until
     // the next song change, even though the operator's own preview (which
     // reads SongDef::bpm fresh every publish) shows the new tempo instantly.
+    void notifyLightEngineBPMChanged(double bpm) {
+        lightEngine.setBPM(bpm);
+    }
     void notifyLightEngineBpmChanged(double bpm) {
-        lightEngine.setBpm(bpm);
+        notifyLightEngineBPMChanged(bpm);
     }
 
     /** Rebuilds routing and the asynchronous insert bank after a chain edit. */

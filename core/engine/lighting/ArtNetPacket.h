@@ -39,6 +39,7 @@ std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>&
 bool parseArtDmxPacket(const uint8_t* packet, size_t size,
                        int& outUniverse, std::vector<uint8_t>& outData);
 
-static constexpr uint16_t kArtNetUdpPort = 6454;
+static constexpr uint16_t kArtNetUDPPort = 6454;
+static constexpr uint16_t kArtNetUdpPort = kArtNetUDPPort;
 
 } // namespace resostage
