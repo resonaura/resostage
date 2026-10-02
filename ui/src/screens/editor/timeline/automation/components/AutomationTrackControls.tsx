@@ -71,7 +71,7 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
         title={error ?? target?.disabledReason ?? "Automation parameter"}
         value={target?.id} isDisabled={disabled}
         options={groups.flatMap((group) => group.targets.map((option) => ({
-          id: option.id, label: option.label, section: group.categoryLabel,
+          id: option.id, label: option.label, textValue: option.label, section: group.categoryLabel,
           // Existing unbound data stays selectable and recoverable.
           isDisabled: Boolean(option.disabledReason) && !lanes.some((lane) => matchesAutomationTarget(option, lane.target)),
         })))}
