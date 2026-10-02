@@ -4,8 +4,8 @@ Status: current follow-up, 2026-10-01. Earlier cross-thread power/bypass mailbox
 work is implemented and preserved in [the power architecture](../../architecture/PLUGIN_POWER_MANAGEMENT.md)
 and [dated benchmark evidence](../../performance/PLUGIN_BASELINE.md).
 
-The 2026-10-01 native validation passed the Core build and 542 native test
-cases / 287,112 assertions; the UI suite passed 553 tests. These are regression
+The 2026-10-02 native validation passed the Core build and 561 native test
+cases / 332,642 assertions; the UI suite passed 682 tests across 100 files. These are regression
 results, not heavy-vendor acoustic acceptance or callback-allocation proof.
 
 ## Current correctness/performance pass
@@ -67,8 +67,9 @@ evidence for the whole callback before claiming dropout elimination.
   published in SystemHealthSnapshot, forwarded over WebServer telemetry (WHealthTelemetry),
   merged into WebUiState, and displayed in HealthSettingsTab with real-time operator alerts
   for missed deadlines. Bounded IPC copies are preserved.
-- Changed-latency PDC refill continuity is an explicit residual acoustic task;
-  unsafe concurrent history copying is not an acceptable solution.
+- Changed-latency PDC refill continuity is verified by `Dynamic PDC changed-latency refill continuity and alignment during active rendering`
+  in `test_plugin_performance.cpp`: zero allocations on the audio thread across latency transitions (64 -> 128 samples),
+  bounded refill transient without NaN/Inf, and sample-accurate steady-state phase alignment matching the new latency.
 
 ## Acceptance and measurements
 

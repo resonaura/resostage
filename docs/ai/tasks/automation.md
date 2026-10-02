@@ -19,9 +19,10 @@ Previous arrangement UI existed, but had significant functional gaps:
 
 ## Implemented foundations (verify latest commits)
 
-`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648`, `1739b29`, `9bf4652`, `ba9cb39`, `b04353b`, `de27854`, `7808523`, `aa44fac` implement:
+`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648`, `1739b29`, `9bf4652`, `ba9cb39`, `b04353b`, `de27854`, `7808523`, `aa44fac`, `1577c11`, `c60cc68` implement:
 - Zero-allocation strip fader, pan, mute, and aux send automation in `MixRenderer` and `OfflineRenderer`
-  via `StripAutomationPlan.h/.cpp` with 560 native tests passing (327,391 assertions)
+  via `StripAutomationPlan.h/.cpp` with 561 native tests passing (332,642 assertions)
+- Dynamic PDC changed-latency refill continuity verified under continuous audio rendering with zero allocations
 - Safe declicked mute automation (downstream of console meters, 10 ms audibility ramping)
   and edge-slot aux send automation bindings
 - Direct numerical point editing (Return/Enter shortcut, "Set exact value…" context menu option,
@@ -30,6 +31,8 @@ Previous arrangement UI existed, but had significant functional gaps:
 - Live Touch, Latch, and Write mode enablement with tone styling in `AutomationTrackControls`,
   `punchOutLatchSession` and `revertWriteModeToSafety` in `automationTouchSession.ts`,
   and backend Write mode auto-revert to Touch safety in `builderAutomationRecordGesture`
+- Compact lane height density scaling (<= 32px), omitting curve handles, scaling breakpoint nodes,
+  compact header/controls layout, and reduced-motion transitions
 - Exclusive/cancellable gestures, full-point atomic replacement/empty creation,
   real vendor metadata/current values, stable vendor identities
 - Shared HeroUI wrappers (`Select`, `Button`, `Tooltip`), DAW focus isolation (`tabIndex={-1}`)
@@ -40,8 +43,8 @@ Previous arrangement UI existed, but had significant functional gaps:
 - Accessible typeahead search for automation parameter selector via `textValue`
 - End-to-end verification in `scripts/verification/editor-state.mjs` verifying uninterrupted
   transport playback during live MIDI and automation edits, Touch/Write gestures with safety auto-revert, Undo/Redo, 413, and persistence
-- Complete test suites: 100 UI Vitest test files / 679 tests, 5 Electron shell tests / 39 tests,
-  560 native engine tests / 327,391 assertions passing cleanly
+- Complete test suites: 100 UI Vitest test files / 682 tests, 5 Electron shell tests / 39 tests,
+  561 native engine tests / 332,642 assertions passing cleanly
 
 ## Finish in this order
 
