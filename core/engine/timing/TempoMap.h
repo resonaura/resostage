@@ -74,8 +74,12 @@ public:
         return points_;
     }
 
-    [[nodiscard]] double fallbackBpm() const noexcept {
+    [[nodiscard]] double fallbackBPM() const noexcept {
         return fallbackBpm_;
+    }
+
+    [[nodiscard]] double fallbackBpm() const noexcept {
+        return fallbackBPM();
     }
 
     [[nodiscard]] double beatsToSeconds(double beat) const noexcept {

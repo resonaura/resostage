@@ -42,7 +42,8 @@ public:
     // startSample is typically the song playhead (0 = bar 1, beat 1 = strong).
     void render(float* outMono, int numFrames, int64_t startSample) const;
 
-    double currentBpm() const { return bpm; }
+    double currentBPM() const { return bpm; }
+    double currentBpm() const { return currentBPM(); }
     int currentBeatsPerBar() const { return beatsPerBar; }
     int currentBeatUnit() const { return beatUnit; }
     double currentSampleRate() const { return sampleRateHz; }

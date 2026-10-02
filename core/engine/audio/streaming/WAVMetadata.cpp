@@ -94,7 +94,7 @@ bool extractTempoFromWAVFile(const std::string& filesystemPath, double& outBpm) 
     return false;
 }
 
-bool parseBpmFromName(const std::string& name, double& outBpm) {
+bool parseBPMFromName(const std::string& name, double& outBpm) {
     static const std::regex re(R"((\d{2,3}(?:\.\d+)?)[\s_-]*bpm)", std::regex::icase);
     std::smatch m;
     if (!std::regex_search(name, m, re))
@@ -107,7 +107,7 @@ bool parseBpmFromName(const std::string& name, double& outBpm) {
     return outBpm > 20.0 && outBpm < 400.0;
 }
 
-std::string stripBpmSuffix(const std::string& name) {
+std::string stripBPMSuffix(const std::string& name) {
     static const std::regex tempoSuffix(R"([\s_-]*\d{2,3}(?:\.\d+)?[\s_-]*bpm\s*$)", std::regex::icase);
     std::string stripped = std::regex_replace(name, tempoSuffix, "");
     while (!stripped.empty() &&

@@ -44,10 +44,14 @@ enum class IoPressureLevel {
     Critical,
 };
 
+using IOPressureLevel = IoPressureLevel;
+
 /** Below this fraction of ring capacity, stop starting resident loads. */
 inline constexpr double kIoTightFraction = 0.30;
+inline constexpr double kIOMinTightFraction = kIoTightFraction;
 /** Below this, abandon whatever bulk read is in flight. */
 inline constexpr double kIoCriticalFraction = 0.10;
+inline constexpr double kIOMinCriticalFraction = kIoCriticalFraction;
 
 /**
  * `minRingFraction` is the emptiest non-resident ring in the playing song, as

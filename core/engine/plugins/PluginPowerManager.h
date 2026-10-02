@@ -272,6 +272,7 @@ struct PluginPowerStats {
     size_t quiescentCount = 0;
     size_t suspendedCount = 0;
     size_t parkedCount = 0;
+    float estimatedDSPSavingsPercent = 0.0f;
     float estimatedDspSavingsPercent = 0.0f;
 };
 
@@ -334,8 +335,9 @@ public:
         }
         if (s.totalSlots > 0) {
             const size_t saved = s.suspendedCount + s.parkedCount;
-            s.estimatedDspSavingsPercent =
+            s.estimatedDSPSavingsPercent =
                 (static_cast<float>(saved) / static_cast<float>(s.totalSlots)) * 100.0f;
+            s.estimatedDspSavingsPercent = s.estimatedDSPSavingsPercent;
         }
         return s;
     }

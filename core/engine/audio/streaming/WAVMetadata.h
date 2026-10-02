@@ -31,13 +31,19 @@ inline bool extractTempoFromWavFile(const std::string& filesystemPath, double& o
 // arbitrary name (folder name, file name). Case-insensitive, requires the
 // number to be immediately followed by "bpm" (ignoring whitespace/
 // underscores). Returns false if no such token is found.
-bool parseBpmFromName(const std::string& name, double& outBpm);
+bool parseBPMFromName(const std::string& name, double& outBPM);
+inline bool parseBpmFromName(const std::string& name, double& outBpm) {
+    return parseBPMFromName(name, outBpm);
+}
 
 // Strips a trailing tempo token ("_120BPM", " 120 bpm", etc, case-insensitive)
 // and surrounding separator characters from a name -- used to clean up a
 // stem filename ("NVRLND_BASS_120BPM" -> "NVRLND_BASS") for use as a track
 // display name. Returns the input unchanged if there's nothing to strip, and
 // never returns an empty string (falls back to the original input).
-std::string stripBpmSuffix(const std::string& name);
+std::string stripBPMSuffix(const std::string& name);
+inline std::string stripBpmSuffix(const std::string& name) {
+    return stripBPMSuffix(name);
+}
 
 } // namespace resostage
