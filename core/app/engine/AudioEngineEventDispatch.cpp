@@ -63,20 +63,20 @@ void AudioEngine::dispatchEvent(const TimelineEvent& ev, uint64_t targetHostTime
             break;
         }
         case EventType::Http: {
-            HttpTriggerCommand cmd;
+            HTTPTriggerCommand cmd;
             cmd.url = ev.httpUrl.value_or("");
             cmd.method = ev.httpMethod;
             cmd.body = ev.httpBody.value_or("");
             cmd.targetHostTimeNanos = targetHostTimeNanos;
-            eventDispatcher.enqueueHttp(cmd);
+            eventDispatcher.enqueueHTTP(cmd);
             break;
         }
         case EventType::Dmx: {
-            DmxTriggerCommand cmd;
+            DMXTriggerCommand cmd;
             cmd.universe = ev.dmxUniverse;
             cmd.data = ev.dmxData;
             cmd.targetHostTimeNanos = targetHostTimeNanos;
-            eventDispatcher.enqueueDmx(cmd);
+            eventDispatcher.enqueueDMX(cmd);
             break;
         }
     }

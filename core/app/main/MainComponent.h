@@ -15,7 +15,7 @@
 #include "midi/CoreMidiInputListener.h"
 #include "server/WebServer.h"
 #include "ipc/IpcServer.h"
-#include "network/UdpDiscovery.h"
+#include "network/UDPDiscovery.h"
 #include "plugins/PluginCatalogService.h"
 
 #include <chrono>
@@ -376,7 +376,7 @@ private:
     std::vector<ResolvedFixtureOutput> lightingPreviewResumeFrom;
     std::vector<ResolvedFixtureOutput> lightingPreviewLastFrame;
 
-    UdpDiscovery udpDiscovery;
+    UDPDiscovery udpDiscovery;
     std::string bindAddress_ = "0.0.0.0";
     double lastTogglePlaybackTime_{0.0};
 

@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-#include "WavStreamDecoder.h"
+#include "WAVStreamDecoder.h"
 
 #include <algorithm>
 #include <cstring>
@@ -14,7 +14,7 @@ namespace resostage {
 
 namespace {
 
-bool readExact(const WavStreamDecoder::ReadFn& read, void* buf, size_t size) {
+bool readExact(const WAVStreamDecoder::ReadFn& read, void* buf, size_t size) {
     uint8_t* p = static_cast<uint8_t*>(buf);
     size_t total = 0;
     while (total < size) {
@@ -40,7 +40,7 @@ uint64_t readU64LE(const uint8_t* p) {
         | (static_cast<uint64_t>(readU32LE(p + 4)) << 32);
 }
 
-bool skipBytes(const WavStreamDecoder::ReadFn& read, uint64_t count) {
+bool skipBytes(const WAVStreamDecoder::ReadFn& read, uint64_t count) {
     uint8_t discard[256];
     while (count > 0) {
         const size_t chunk = static_cast<size_t>(std::min<uint64_t>(count, sizeof(discard)));
@@ -53,7 +53,7 @@ bool skipBytes(const WavStreamDecoder::ReadFn& read, uint64_t count) {
 
 } // namespace
 
-bool WavStreamDecoder::parseHeader(const ReadFn& read, std::string& error) {
+bool WAVStreamDecoder::parseHeader(const ReadFn& read, std::string& error) {
     channels = 0;
     sampleRateHz = 0.0;
     dataChunkBytesTotal = dataChunkBytesRemaining = 0;
@@ -155,7 +155,7 @@ bool WavStreamDecoder::parseHeader(const ReadFn& read, std::string& error) {
     }
 }
 
-int64_t WavStreamDecoder::decodeFrames(const ReadFn& read, float* const* outChannels, int64_t maxFrames) {
+int64_t WAVStreamDecoder::decodeFrames(const ReadFn& read, float* const* outChannels, int64_t maxFrames) {
     if (dataChunkBytesRemaining == 0 || maxFrames <= 0)
         return 0;
 

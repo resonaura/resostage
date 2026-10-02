@@ -675,7 +675,7 @@ TEST_CASE("jsonEscapeString escapes control characters") {
 
 TEST_CASE("ProjectLoader stream-copies portable video resources and preserves metadata on failure") {
     namespace fs = std::filesystem;
-    const fs::path testRoot = fs::temp_directory_path() / ("resostage-media-" + generateUuidV7());
+    const fs::path testRoot = fs::temp_directory_path() / ("resostage-media-" + generateUUIDv7());
     struct Cleanup { fs::path path; ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); } } cleanup{testRoot};
     fs::create_directories(testRoot);
     const fs::path source = testRoot / "original.mp4";
@@ -684,7 +684,7 @@ TEST_CASE("ProjectLoader stream-copies portable video resources and preserves me
     ProjectLoader loader;
     loader.newProject("Media Project");
     Region region;
-    region.id = generateUuidV7();
+    region.id = generateUUIDv7();
     region.trackId = loader.project().tracks[0].id;
     region.source.file = "Audio/prepared.wav";
     region.source.videoFile = "Video/original.mp4";
@@ -718,7 +718,7 @@ TEST_CASE("ProjectLoader stream-copies portable video resources and preserves me
 
 TEST_CASE("ProjectLoader rejects escaping extra assets and streaming paths") {
     namespace fs = std::filesystem;
-    const fs::path testRoot = fs::temp_directory_path() / ("resostage-media-paths-" + generateUuidV7());
+    const fs::path testRoot = fs::temp_directory_path() / ("resostage-media-paths-" + generateUUIDv7());
     struct Cleanup { fs::path path; ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); } } cleanup{testRoot};
     ProjectLoader loader;
     loader.newProject("Confined");

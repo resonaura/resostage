@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-#include "OfflineWavWriter.h"
+#include "OfflineWAVWriter.h"
 #include "OfflineOutputFile.h"
 #include "project/Uuid.h"
 
@@ -24,13 +24,13 @@ float dbToGain(double db) {
 
 } // namespace
 
-WavWriter::~WavWriter() { abort(); }
+WAVWriter::~WAVWriter() { abort(); }
 
-bool WavWriter::open(const std::string& path, int sampleRate, int bitDepth,
+bool WAVWriter::open(const std::string& path, int sampleRate, int bitDepth,
                      RenderDither dither, RenderNormalization normalization,
                      double ceilingDb, std::string& error) {
     finalPath = path;
-    const std::string uniqueSuffix = "-" + generateUuidV7();
+    const std::string uniqueSuffix = "-" + generateUUIDv7();
     partPath = path + ".resostage-part" + uniqueSuffix;
     rawPath = path + ".resostage-float-part" + uniqueSuffix;
     sampleRate_ = sampleRate;
@@ -59,7 +59,7 @@ bool WavWriter::open(const std::string& path, int sampleRate, int bitDepth,
     return true;
 }
 
-bool WavWriter::write(const float* left, const float* right, int frames) {
+bool WAVWriter::write(const float* left, const float* right, int frames) {
     if (file == nullptr || frames <= 0) return false;
     for (int i = 0; i < frames; ++i)
         peak = std::max(peak, std::max(std::abs(left[i]), std::abs(right[i])));
@@ -75,7 +75,7 @@ bool WavWriter::write(const float* left, const float* right, int frames) {
         == floatScratch.size();
 }
 
-bool WavWriter::finish(std::string& error) {
+bool WAVWriter::finish(std::string& error) {
     if (file == nullptr) { error = "Render writer is not open"; return false; }
     if (normalization_ == RenderNormalization::Off) {
         if (!finalizeWavFile()) { error = "Failed to finalize output WAV"; return false; }
@@ -138,7 +138,7 @@ bool WavWriter::finish(std::string& error) {
     return true;
 }
 
-void WavWriter::abort() {
+void WAVWriter::abort() {
     if (file != nullptr) {
         std::fclose(file);
         file = nullptr;
@@ -150,19 +150,19 @@ void WavWriter::abort() {
     rawCreated = false;
 }
 
-bool WavWriter::writeEmptyHeader() {
+bool WAVWriter::writeEmptyHeader() {
     uint8_t empty[44]{};
     return std::fwrite(empty, 1, sizeof(empty), file) == sizeof(empty);
 }
 
-float WavWriter::randomUnit() {
+float WAVWriter::randomUnit() {
     randomState ^= randomState << 13u;
     randomState ^= randomState >> 17u;
     randomState ^= randomState << 5u;
     return static_cast<float>(randomState >> 8u) * (1.0f / 16777216.0f);
 }
 
-bool WavWriter::writeEncoded(const float* left, const float* right, int frames, float gain) {
+bool WAVWriter::writeEncoded(const float* left, const float* right, int frames, float gain) {
     const int bytes = bitDepth_ / 8;
     scratch.resize(static_cast<size_t>(frames * 2 * bytes));
     uint8_t* p = scratch.data();
@@ -200,7 +200,7 @@ bool WavWriter::writeEncoded(const float* left, const float* right, int frames, 
     return std::fwrite(scratch.data(), 1, n, file) == n;
 }
 
-bool WavWriter::finalizeWavFile() {
+bool WAVWriter::finalizeWavFile() {
     if (file == nullptr) return true;
     const uint16_t format = bitDepth_ == 32 ? 3 : 1;
     const uint16_t channels = 2;

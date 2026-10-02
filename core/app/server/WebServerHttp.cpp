@@ -61,7 +61,7 @@ std::string queryParam(const char* queryArgs, const char* key) {
     return {};
 }
 
-int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
+int writeHTTPResponse(struct lws* wsi, int status, const char* contentType,
                       const char* body, size_t bodyLen,
                       const char* contentDisposition) {
     uint8_t buf[LWS_PRE + 2048];
@@ -132,21 +132,21 @@ int writeJsonOk(struct lws* wsi) {
         (void)glz::write_json(wire::WOkPayload{}, s);
         return s;
     }();
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", kOk.data(), kOk.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", kOk.data(), kOk.size());
 }
 
 int writeJsonError(struct lws* wsi, int status, const std::string& error) {
     wire::WErrorPayload payload{error};
     std::string s;
     (void)glz::write_json(payload, s);
-    return writeHttpResponse(wsi, status, "application/json", s.data(), s.size());
+    return writeHTTPResponse(wsi, status, "application/json", s.data(), s.size());
 }
 
 int writeJsonEnabled(struct lws* wsi, bool enabled) {
     wire::WEnabledPayload payload{enabled};
     std::string s;
     (void)glz::write_json(payload, s);
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", s.data(), s.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", s.data(), s.size());
 }
 
 } // namespace resostage::webserver_http

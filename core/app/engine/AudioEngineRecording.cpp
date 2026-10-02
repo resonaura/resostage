@@ -239,7 +239,7 @@ void AudioEngine::stopRecording() {
         if (rec.recordedFrames <= 0)
             continue;
         Region r;
-        r.id = generateUuidV7();
+        r.id = generateUUIDv7();
         r.trackId = rec.trackId;
         r.startSeconds = recordStartSeconds;
         r.durationSeconds = static_cast<double>(rec.recordedFrames) / rec.sampleRate;
@@ -329,7 +329,7 @@ void AudioEngine::stopRecording() {
             } else {
                 // Outside existing region: create new distinct region (Logic Pro standard)
                 MidiRegion mr;
-                mr.id = generateUuidV7();
+                mr.id = generateUUIDv7();
                 mr.trackId = session.trackId;
                 mr.name = "Recorded MIDI";
                 mr.startBeats = recordStartBeats;

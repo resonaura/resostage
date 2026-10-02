@@ -5,7 +5,7 @@
  */
 
 #include "PeakOverview.h"
-#include "audio/streaming/WavStreamDecoder.h"
+#include "audio/streaming/WAVStreamDecoder.h"
 
 #include <algorithm>
 #include <cmath>
@@ -81,14 +81,14 @@ std::vector<int> resolveLevelBinCounts(int64_t totalFrames) {
     return counts;
 }
 
-bool decodePyramidFromReader(const WavStreamDecoder::ReadFn& read, double& durationSeconds, int& numChannels,
+bool decodePyramidFromReader(const WAVStreamDecoder::ReadFn& read, double& durationSeconds, int& numChannels,
                           std::vector<PeakLevel>& levels, std::string& error,
                           const std::atomic<bool>* cancel = nullptr) {
     durationSeconds = 0.0;
     numChannels = 0;
     levels.clear();
 
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     if (!decoder.parseHeader(read, error))
         return false;
 
@@ -230,7 +230,7 @@ bool PeakOverview::build(const ProjectLoader& loader, const std::string& archive
     auto cursor = loader.openStream(archivePath, error);
     if (!cursor.isValid())
         return false;
-    const WavStreamDecoder::ReadFn read = [&cursor](void* buffer, size_t count) {
+    const WAVStreamDecoder::ReadFn read = [&cursor](void* buffer, size_t count) {
         return cursor.read(buffer, count);
     };
     return decodePyramidFromReader(read, durationSeconds, numChannels, levels, error);
@@ -242,7 +242,7 @@ bool PeakOverview::buildFromBuffer(const uint8_t* data, size_t size, std::string
     numChannels = 0;
 
     size_t readPos = 0;
-    const WavStreamDecoder::ReadFn read = [data, size, &readPos](void* buffer, size_t count) {
+    const WAVStreamDecoder::ReadFn read = [data, size, &readPos](void* buffer, size_t count) {
         const size_t copied = std::min(count, size - readPos);
         if (copied != 0) {
             std::memcpy(buffer, data + readPos, copied);
@@ -268,7 +268,7 @@ bool PeakOverview::buildFromFile(const std::string& path, std::string& error,
         error = "Could not open imported WAV for peak generation: " + path;
         return false;
     }
-    const WavStreamDecoder::ReadFn read = [file](void* buffer, size_t count) {
+    const WAVStreamDecoder::ReadFn read = [file](void* buffer, size_t count) {
         return std::fread(buffer, 1, count, file);
     };
     const bool ok = decodePyramidFromReader(read, durationSeconds, numChannels, levels, error, cancel);

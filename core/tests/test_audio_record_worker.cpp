@@ -379,7 +379,7 @@ TEST_CASE("Song auto-extension extends endSeconds to bar boundary when recording
 namespace {
 struct RecordingTestDirectory {
     std::filesystem::path path = std::filesystem::temp_directory_path()
-        / ("resostage-recording-integrity-" + generateUuidV7());
+        / ("resostage-recording-integrity-" + generateUUIDv7());
 
     RecordingTestDirectory() { std::filesystem::create_directories(path); }
     ~RecordingTestDirectory() {

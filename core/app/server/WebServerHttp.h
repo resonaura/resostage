@@ -15,13 +15,13 @@ namespace resostage::webserver_http {
 
 // Shared only by the WebServer HTTP implementation translation units.
 std::string queryParam(const char* queryArgs, const char* key);
-int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
+int writeHTTPResponse(struct lws* wsi, int status, const char* contentType,
                       const char* body, std::size_t bodyLen,
                       const char* contentDisposition = nullptr);
-inline int writeHTTPResponse(struct lws* wsi, int status, const char* contentType,
+inline int writeHttpResponse(struct lws* wsi, int status, const char* contentType,
                              const char* body, std::size_t bodyLen,
                              const char* contentDisposition = nullptr) {
-    return writeHttpResponse(wsi, status, contentType, body, bodyLen, contentDisposition);
+    return writeHTTPResponse(wsi, status, contentType, body, bodyLen, contentDisposition);
 }
 int writeJsonOk(struct lws* wsi);
 int writeJsonError(struct lws* wsi, int status, const std::string& error);

@@ -6,7 +6,7 @@
 
 #include "doctest.h"
 
-#include "audio/streaming/WavMetadata.h"
+#include "audio/streaming/WAVMetadata.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -112,40 +112,40 @@ std::string writeTempFile(const std::vector<uint8_t>& bytes, const char* suffix)
 
 } // namespace
 
-TEST_CASE("extractTempoFromWavFile finds a cue/LIST/adtl/labl 'Tempo: N' marker") {
+TEST_CASE("extractTempoFromWAVFile finds a cue/LIST/adtl/labl 'Tempo: N' marker") {
     const std::string label = "Tempo: 120.0";
     const auto bytes = buildWavWithOptionalTempoLabel(&label);
     const std::string path = writeTempFile(bytes, "with_tempo");
 
     double bpm = 0.0;
-    REQUIRE(extractTempoFromWavFile(path, bpm));
+    REQUIRE(extractTempoFromWAVFile(path, bpm));
     CHECK(bpm == doctest::Approx(120.0));
 
     std::remove(path.c_str());
 }
 
-TEST_CASE("extractTempoFromWavFile returns false when no tempo label is present") {
+TEST_CASE("extractTempoFromWAVFile returns false when no tempo label is present") {
     const auto bytes = buildWavWithOptionalTempoLabel(nullptr);
     const std::string path = writeTempFile(bytes, "no_tempo");
 
     double bpm = 0.0;
-    CHECK_FALSE(extractTempoFromWavFile(path, bpm));
+    CHECK_FALSE(extractTempoFromWAVFile(path, bpm));
 
     std::remove(path.c_str());
 }
 
-TEST_CASE("extractTempoFromWavFile returns false for a nonexistent file") {
+TEST_CASE("extractTempoFromWAVFile returns false for a nonexistent file") {
     double bpm = 0.0;
-    CHECK_FALSE(extractTempoFromWavFile("/nonexistent/path/does_not_exist.wav", bpm));
+    CHECK_FALSE(extractTempoFromWAVFile("/nonexistent/path/does_not_exist.wav", bpm));
 }
 
-TEST_CASE("extractTempoFromWavFile handles a label that isn't a tempo marker") {
+TEST_CASE("extractTempoFromWAVFile handles a label that isn't a tempo marker") {
     const std::string label = "Verse start";
     const auto bytes = buildWavWithOptionalTempoLabel(&label);
     const std::string path = writeTempFile(bytes, "other_label");
 
     double bpm = 0.0;
-    CHECK_FALSE(extractTempoFromWavFile(path, bpm));
+    CHECK_FALSE(extractTempoFromWAVFile(path, bpm));
 
     std::remove(path.c_str());
 }

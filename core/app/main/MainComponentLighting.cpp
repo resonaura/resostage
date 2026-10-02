@@ -505,7 +505,7 @@ void MainComponent::lightingCueAdd(const std::string& json) {
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
     LightCue cue;
-    cue.id = generateUuidV7();
+    cue.id = generateUUIDv7();
     cue.trackId = trackId;
     double startSeconds = 0.0;
     getDouble(doc, "startSeconds", startSeconds);

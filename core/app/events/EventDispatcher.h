@@ -32,21 +32,21 @@ namespace resostage {
  * possible", which is what a manual or on-load trigger wants. See
  * engine/timing/OutputLatency.h.
  */
-struct HttpTriggerCommand {
+struct HTTPTriggerCommand {
     std::string url;
     std::string method = "POST";
     std::string body;
     uint64_t targetHostTimeNanos = 0;
 };
-using HTTPTriggerCommand = HttpTriggerCommand;
+using HttpTriggerCommand = HTTPTriggerCommand;
 
-struct DmxTriggerCommand {
+struct DMXTriggerCommand {
     int universe = 0;
     std::vector<uint8_t> data; // up to 512 bytes, per DMX512
-    /** See HttpTriggerCommand::targetHostTimeNanos. */
+    /** See HTTPTriggerCommand::targetHostTimeNanos. */
     uint64_t targetHostTimeNanos = 0;
 };
-using DMXTriggerCommand = DmxTriggerCommand;
+using DmxTriggerCommand = DMXTriggerCommand;
 
 // Fires HTTP and DMX (Art-Net UDP) trigger commands off the audio thread, on
 // a dedicated background worker thread, so a slow or unreachable target
@@ -74,10 +74,10 @@ public:
 
     // Lock-free: safe to call from the audio thread. Never blocks. Returns
     // false if the queue is momentarily full (command dropped).
-    bool enqueueHttp(const HttpTriggerCommand& cmd);
-    bool enqueueDmx(const DmxTriggerCommand& cmd);
-    bool enqueueHTTP(const HTTPTriggerCommand& cmd) { return enqueueHttp(cmd); }
-    bool enqueueDMX(const DMXTriggerCommand& cmd) { return enqueueDmx(cmd); }
+    bool enqueueHTTP(const HTTPTriggerCommand& cmd);
+    bool enqueueDMX(const DMXTriggerCommand& cmd);
+    bool enqueueHttp(const HttpTriggerCommand& cmd) { return enqueueHTTP(cmd); }
+    bool enqueueDmx(const DmxTriggerCommand& cmd) { return enqueueDMX(cmd); }
 
     // Where ArtDMX UDP packets are sent; defaults to the local broadcast
     // address so any Art-Net node on the subnet picks them up.
@@ -85,14 +85,14 @@ public:
 
 private:
     void workerThreadLoop();
-    void sendHttp(const HttpTriggerCommand& cmd);
-    void sendDmx(const DmxTriggerCommand& cmd);
-    void sendHTTP(const HTTPTriggerCommand& cmd) { sendHttp(cmd); }
-    void sendDMX(const DMXTriggerCommand& cmd) { sendDmx(cmd); }
+    void sendHTTP(const HTTPTriggerCommand& cmd);
+    void sendDMX(const DMXTriggerCommand& cmd);
+    void sendHttp(const HttpTriggerCommand& cmd) { sendHTTP(cmd); }
+    void sendDmx(const DmxTriggerCommand& cmd) { sendDMX(cmd); }
 
-    moodycamel::ReaderWriterQueue<HttpTriggerCommand> httpQueue{256};
+    moodycamel::ReaderWriterQueue<HTTPTriggerCommand> httpQueue{256};
     // 1024 slots: LightEngine sends ~44 packets/s × N universes continuously.
-    moodycamel::ReaderWriterQueue<DmxTriggerCommand> dmxQueue{1024};
+    moodycamel::ReaderWriterQueue<DMXTriggerCommand> dmxQueue{1024};
     std::thread worker;
     std::atomic<bool> running{false};
 
@@ -121,7 +121,7 @@ private:
      * 0 "disabled" value. Nodes use it to discard out-of-order/duplicate UDP
      * frames on a busy subnet; a dedicated counter keeps universes from
      * interleaving and lets each advance independently. Written only by the
-     * worker thread, so no atomics/lock needed -- sendDmx() runs here too.
+     * worker thread, so no atomics/lock needed -- sendDMX() runs here too.
      */
     std::map<int, uint8_t> artNetSequencePerUniverse;
 };

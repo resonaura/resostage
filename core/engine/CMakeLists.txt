@@ -10,8 +10,8 @@ add_library(resostage_engine STATIC
   audio/graph/MixRenderer.cpp
   audio/metering/Metering.cpp
   audio/dsp/SincInterpolator.cpp
-  audio/streaming/WavStreamDecoder.cpp
-  audio/streaming/WavMetadata.cpp
+  audio/streaming/WAVStreamDecoder.cpp
+  audio/streaming/WAVMetadata.cpp
   audio/streaming/AudioRingBuffer.cpp
   audio/recording/AudioRecordWorker.cpp
   audio/streaming/StreamingTrackBuffer.cpp

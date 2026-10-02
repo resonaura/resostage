@@ -463,10 +463,10 @@ void LightEngine::threadLoop() {
                 continue; // this universe isn't due for a resend yet
             lastSentPerUniverse[uni] = now;
 
-            DmxTriggerCommand cmd;
+            DMXTriggerCommand cmd;
             cmd.universe = uni;
             cmd.data     = std::move(data);
-            dispatch_->enqueueDmx(cmd);
+            dispatch_->enqueueDMX(cmd);
         }
     }
 
@@ -482,10 +482,10 @@ void LightEngine::threadLoop() {
         for (const auto& a : channelMap)
             universes.insert(a.universe);
         for (int uni : universes) {
-            DmxTriggerCommand cmd;
+            DMXTriggerCommand cmd;
             cmd.universe = uni;
             cmd.data.assign(512, 0);
-            dispatch_->enqueueDmx(cmd);
+            dispatch_->enqueueDMX(cmd);
         }
     }
 }

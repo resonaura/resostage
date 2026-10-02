@@ -426,7 +426,7 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     if (isHistory) {
         wire::WHistoryAccepted accepted{true, historyRequestId, stateSessionId_};
         const auto json = glz::write_json(accepted).value_or("{}");
-        webserver_http::writeHttpResponse(wsi, HTTP_STATUS_OK,
+        webserver_http::writeHTTPResponse(wsi, HTTP_STATUS_OK,
             "application/json", json.data(), json.size());
     } else {
         writeJsonOk(wsi);

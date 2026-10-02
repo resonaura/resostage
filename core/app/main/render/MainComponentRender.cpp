@@ -311,7 +311,7 @@ void MainComponent::startAudioRender(const std::string& json) {
             target.outputPath = finalPath;
         } else {
             target.outputPath = exportDir.getChildFile(
-                ".resostage-render-" + juce::String(generateUuidV7()) + ".wav")
+                ".resostage-render-" + juce::String(generateUUIDv7()) + ".wav")
                 .getFullPathName().toStdString();
         }
         renderStagePaths.push_back(target.outputPath);
@@ -379,7 +379,7 @@ void MainComponent::startAudioRender(const std::string& json) {
             for (size_t i = 0; i < result.outputPaths.size(); ++i) {
                 const std::string& stagedWav = result.outputPaths[i];
                 const std::string& finalPath = finalOutputPaths[i];
-                const std::string partialPath = finalPath + ".resostage-part-" + generateUuidV7();
+                const std::string partialPath = finalPath + ".resostage-part-" + generateUUIDv7();
                 std::vector<std::string> arguments = {
                     "-nostdin", "-hide_banner", "-loglevel", "error", "-n", "-threads", "2",
                     "-i", stagedWav, "-map", "0:a:0", "-vn",

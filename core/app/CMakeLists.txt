@@ -97,7 +97,7 @@ target_sources(ResoStage PRIVATE
   engine/AudioEngineTransportControls.cpp
   engine/OfflineMidiEvents.cpp
   engine/OfflineRenderer.cpp
-  engine/OfflineWavWriter.cpp
+  engine/OfflineWAVWriter.cpp
   light/LightEngine.cpp
   light/LightHardwareServer.cpp
   events/EventDispatcher.cpp
@@ -121,7 +121,7 @@ target_sources(ResoStage PRIVATE
   server/WebServerResources.cpp
   server/WebServerTelemetry.cpp
   server/WebServerTelemetryBinary.cpp
-  network/UdpDiscovery.cpp
+  network/UDPDiscovery.cpp
 )
 
 if(APPLE)

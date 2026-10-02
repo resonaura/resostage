@@ -67,7 +67,7 @@ bool AudioRecordWorker::prepareRecording(const std::string& outputDirectory,
 
     for (const auto& req : requestedSessions) {
         auto sess = std::make_unique<TrackAudioRecordSession>();
-        sess->recordingId = req.recordingId.empty() ? ("rec_" + generateUuidV7()) : req.recordingId;
+        sess->recordingId = req.recordingId.empty() ? ("rec_" + generateUUIDv7()) : req.recordingId;
         sess->trackId = req.trackId;
         sess->filename = req.filename;
         const std::filesystem::path filename(std::u8string(req.filename.begin(), req.filename.end()));

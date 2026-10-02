@@ -25,13 +25,13 @@ struct DiscoveredDevice {
     double lastSeenSeconds = 0.0;
 };
 
-class UdpDiscovery final : private juce::Thread {
+class UDPDiscovery final : private juce::Thread {
 public:
     static constexpr uint16_t kDiscoveryPort = 28991;
     static constexpr const char* kProtocolVersion = "1.0.0";
 
-    UdpDiscovery();
-    ~UdpDiscovery() override;
+    UDPDiscovery();
+    ~UDPDiscovery() override;
 
     void start(uint16_t webPort, bool enableDiscovery, const std::string& bindAddress = "0.0.0.0");
     void stop();
@@ -55,10 +55,10 @@ private:
 
     std::unique_ptr<juce::DatagramSocket> socket;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UdpDiscovery)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(UDPDiscovery)
 };
 
 // Canonical acronym spelling alias
-using UDPDiscovery = UdpDiscovery;
+using UdpDiscovery = UDPDiscovery;
 
 } // namespace resostage

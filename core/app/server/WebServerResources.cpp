@@ -7,8 +7,8 @@
 #include "WebServer.h"
 #include "WebServerHttp.h"
 
-#include "audio/streaming/WavStreamDecoder.h"
-#include "network/UdpDiscovery.h"
+#include "audio/streaming/WAVStreamDecoder.h"
+#include "network/UDPDiscovery.h"
 #include "project/ProjectLoader.h"
 #include "server/WireTypes.h"
 
@@ -30,7 +30,7 @@
 namespace resostage {
 using namespace wire;
 using webserver_http::queryParam;
-using webserver_http::writeHttpResponse;
+using webserver_http::writeHTTPResponse;
 using webserver_http::writeJsonEnabled;
 using webserver_http::writeJsonError;
 
@@ -83,7 +83,7 @@ int WebServer::serveStatic(struct lws* wsi, const char* path) {
 
     // Refuse anything that tries to escape the web root.
     if (p.find("..") != std::string_view::npos)
-        return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
+        return writeHTTPResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
 
     const auto tryServe = [&](const std::string& root) -> int {
         std::string filePath = root;
@@ -97,7 +97,7 @@ int WebServer::serveStatic(struct lws* wsi, const char* path) {
         data << in.rdbuf();
         const std::string body = data.str();
         const std::string mime = mimeTypeForPath(filePath);
-        return writeHttpResponse(wsi, HTTP_STATUS_OK, mime.c_str(), body.c_str(), body.size());
+        return writeHTTPResponse(wsi, HTTP_STATUS_OK, mime.c_str(), body.c_str(), body.size());
     };
 
     for (const auto& root : webRoots_) {
@@ -126,7 +126,7 @@ int WebServer::serveStatic(struct lws* wsi, const char* path) {
             std::ostringstream data;
             data << in.rdbuf();
             const std::string body = data.str();
-            return writeHttpResponse(wsi, HTTP_STATUS_OK, "text/html", body.c_str(), body.size());
+            return writeHTTPResponse(wsi, HTTP_STATUS_OK, "text/html", body.c_str(), body.size());
         };
         for (const auto& root : webRoots_) {
             const int r = tryIndex(root);
@@ -134,7 +134,7 @@ int WebServer::serveStatic(struct lws* wsi, const char* path) {
                 return r;
         }
     }
-    return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
+    return writeHTTPResponse(wsi, HTTP_STATUS_NOT_FOUND, "text/plain", "not found", 9);
 }
 
 void WebServer::addWebRoot(const std::string& root) {
@@ -159,7 +159,7 @@ int WebServer::servePeaks(struct lws* wsi) {
         std::lock_guard<std::mutex> lock(peaksMutex);
         json = peaksJson;
     }
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 void WebServer::publishAllPeaks(std::string json) {
@@ -173,12 +173,12 @@ int WebServer::serveAllPeaks(struct lws* wsi) {
         std::lock_guard<std::mutex> lock(allPeaksMutex);
         json = allPeaksJson;
     }
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 int WebServer::serveUiMenu(struct lws* wsi) {
     const std::string json = buildMenuModelJson();
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 int WebServer::serveDiscoveredDevices(struct lws* wsi) {
@@ -199,7 +199,7 @@ int WebServer::serveDiscoveredDevices(struct lws* wsi) {
     }
     std::string json;
     (void)glz::write_json(items, json);
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
 }
 
 int WebServer::serveDiscoveryStatus(struct lws* wsi) {
@@ -246,7 +246,7 @@ int WebServer::serveWaveformRaw(struct lws* wsi, const char* queryArgs) {
         return writeJsonError(wsi, HTTP_STATUS_NOT_FOUND, "file not found");
 
     auto readFn = [&](void* buf, size_t n) -> size_t { return cursor.read(buf, n); };
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     if (!decoder.parseHeader(readFn, error) || decoder.numChannels() <= 0 || decoder.sampleRate() <= 0.0)
         return writeJsonError(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "bad wav header");
 
@@ -266,7 +266,7 @@ int WebServer::serveWaveformRaw(struct lws* wsi, const char* queryArgs) {
         wire::WWaveformRawPayload emptyPayload{0.0, 0.0, {}};
         std::string json;
         (void)glz::write_json(emptyPayload, json);
-        return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
+        return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
     }
 
     // Audio entries are stored uncompressed (MZ_NO_COMPRESSION, see
@@ -309,7 +309,7 @@ int WebServer::serveWaveformRaw(struct lws* wsi, const char* queryArgs) {
     }
     std::string json;
     (void)glz::write_json(wire, json);
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 int WebServer::serveExportStatus(struct lws* wsi) {
@@ -325,7 +325,7 @@ int WebServer::serveExportStatus(struct lws* wsi) {
     wire.fileName = std::move(name);
     std::string json;
     (void)glz::write_json(wire, json);
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 int WebServer::serveAudioRenderStatus(struct lws* wsi) {
@@ -350,7 +350,7 @@ int WebServer::serveAudioRenderStatus(struct lws* wsi) {
     wire.error = std::move(status.error);
     std::string json;
     (void)glz::write_json(wire, json);
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 int WebServer::serveTrackImportStatus(struct lws* wsi, const std::string& requestId) {
@@ -366,14 +366,14 @@ int WebServer::serveTrackImportStatus(struct lws* wsi, const std::string& reques
     }
     std::string json;
     (void)glz::write_json(result, json);
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
 }
 
 int WebServer::servePluginCatalog(struct lws* wsi) {
     const std::string json = pluginCatalogProvider
         ? pluginCatalogProvider()
         : "{\"scan\":{\"state\":\"unavailable\",\"progress\":0,\"format\":\"\",\"currentPlugin\":\"\",\"error\":\"Plug-in catalog is unavailable\"},\"catalog\":{\"plugins\":[],\"blacklist\":[]}}";
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.c_str(), json.size());
 }
 
 int WebServer::servePluginParameters(struct lws* wsi, const char* queryArgs) {
@@ -383,7 +383,7 @@ int WebServer::servePluginParameters(struct lws* wsi, const char* queryArgs) {
     const std::string json = pluginParametersProvider
         ? pluginParametersProvider(slotId)
         : "{\"slotId\":\"\",\"parameters\":[]}";
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
                              json.c_str(), json.size());
 }
 
@@ -397,14 +397,14 @@ int WebServer::serveExportDownload(struct lws* wsi) {
         name = exportFileName;
     }
     if (!ready) {
-        return writeHttpResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
+        return writeHTTPResponse(wsi, HTTP_STATUS_NOT_FOUND, "application/json",
                                  "{\"error\":\"not ready\"}", 21);
     }
 
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         failExport();
-        return writeHttpResponse(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "application/json",
+        return writeHTTPResponse(wsi, HTTP_STATUS_INTERNAL_SERVER_ERROR, "application/json",
                                  "{\"error\":\"missing file\"}", 24);
     }
     std::vector<char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
@@ -416,7 +416,7 @@ int WebServer::serveExportDownload(struct lws* wsi) {
     failExport();
 
     const std::string disposition = "attachment; filename=\"" + name + "\"";
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/zip", bytes.data(), bytes.size(),
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/zip", bytes.data(), bytes.size(),
                              disposition.c_str());
 }
 
@@ -467,7 +467,7 @@ int WebServer::serveLiveRecordingPeaks(struct lws* wsi, const char* uri, const c
 
     std::string json;
     (void)glz::write_json(resp, json);
-    return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json", json.data(), json.size());
 }
 
 } // namespace resostage

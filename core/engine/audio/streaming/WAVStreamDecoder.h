@@ -26,7 +26,7 @@ namespace resostage {
 // WAVE_FORMAT_EXTENSIBLE sub-format quirks, compressed WAV codecs, or
 // non-canonical chunk ordering (e.g. 'data' before 'fmt ') -- a documented
 // limitation, not needed for exported DAW stems.
-class WavStreamDecoder {
+class WAVStreamDecoder {
 public:
     using ReadFn = std::function<size_t(void* buf, size_t bufSize)>; // returns bytes read; 0 = EOF
 
@@ -62,6 +62,6 @@ private:
 };
 
 // Canonical acronym spelling alias
-using WAVStreamDecoder = WavStreamDecoder;
+using WavStreamDecoder = WAVStreamDecoder;
 
 } // namespace resostage

@@ -5,7 +5,7 @@
  */
 
 #include "doctest.h"
-#include "network/UdpDiscovery.h"
+#include "network/UDPDiscovery.h"
 #include "server/WireTypes.h"
 #include "glaze/glaze.hpp"
 
@@ -13,13 +13,13 @@
 
 using namespace resostage;
 
-TEST_SUITE("UdpDiscovery") {
+TEST_SUITE("UDPDiscovery") {
 
-TEST_CASE("UdpDiscovery Constants and Instantiation") {
-    CHECK(UdpDiscovery::kDiscoveryPort == 28991);
-    CHECK(std::string(UdpDiscovery::kProtocolVersion) == "1.0.0");
+TEST_CASE("UDPDiscovery Constants and Instantiation") {
+    CHECK(UDPDiscovery::kDiscoveryPort == 28991);
+    CHECK(std::string(UDPDiscovery::kProtocolVersion) == "1.0.0");
 
-    UdpDiscovery discovery;
+    UDPDiscovery discovery;
     CHECK(discovery.isDiscoveryEnabled());
 
     discovery.setDiscoveryEnabled(false);
@@ -29,8 +29,8 @@ TEST_CASE("UdpDiscovery Constants and Instantiation") {
     CHECK(discovery.isDiscoveryEnabled());
 }
 
-TEST_CASE("UdpDiscovery Start and Stop Lifecycle") {
-    UdpDiscovery discovery;
+TEST_CASE("UDPDiscovery Start and Stop Lifecycle") {
+    UDPDiscovery discovery;
     
     // Start discovery listening
     discovery.start(2899, true, "0.0.0.0");
@@ -43,8 +43,8 @@ TEST_CASE("UdpDiscovery Start and Stop Lifecycle") {
     discovery.stop();
 }
 
-TEST_CASE("UdpDiscovery JSON Payload Parsing and Deduplication") {
-    UdpDiscovery discovery;
+TEST_CASE("UDPDiscovery JSON Payload Parsing and Deduplication") {
+    UDPDiscovery discovery;
 
     wire::WDiscoveryAnnouncement announcement;
     announcement.type = "RESOSTAGE_DISCOVERY";

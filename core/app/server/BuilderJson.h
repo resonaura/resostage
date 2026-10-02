@@ -174,11 +174,11 @@ inline EventType eventTypeFromWebString(const std::string& s) {
 inline std::string makeUniqueId(const std::string& prefix, const std::vector<std::string>& used) {
     (void)prefix; // kept so call sites still read as "an id for a <thing>"
     for (int attempt = 0; attempt < 8; ++attempt) {
-        std::string id = generateUuidV7();
+        std::string id = generateUUIDv7();
         if (std::find(used.begin(), used.end(), id) == used.end())
             return id;
     }
-    return generateUuidV7();
+    return generateUUIDv7();
 }
 
 } // namespace resostage::builder_json

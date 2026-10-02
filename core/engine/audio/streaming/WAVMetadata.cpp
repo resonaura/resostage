@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-#include "WavMetadata.h"
+#include "WAVMetadata.h"
 
 #include <cstdint>
 #include <cstring>
@@ -36,7 +36,7 @@ bool parseTempoFromLabel(const std::string& label, double& outBpm) {
 
 } // namespace
 
-bool extractTempoFromWavFile(const std::string& filesystemPath, double& outBpm) {
+bool extractTempoFromWAVFile(const std::string& filesystemPath, double& outBpm) {
     std::ifstream f(filesystemPath, std::ios::binary);
     if (!f)
         return false;

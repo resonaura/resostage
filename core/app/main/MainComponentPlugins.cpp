@@ -237,7 +237,7 @@ void MainComponent::pluginSlotAdd(const std::string& json) {
 
     engine.projectHistoryBeginEdit("", replaceExistingInstrument ? "Replace instrument" : "Add plug-in");
     PluginSlot slot;
-    slot.id = generateUuidV7();
+    slot.id = generateUUIDv7();
     slot.plugin = *plugin;
     if (replaceExistingInstrument) {
         closePluginEditor(chain->front().id);

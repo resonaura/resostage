@@ -44,7 +44,7 @@ inline RecordingFilePlan makeRecordingFilePlan(std::string_view timestamp,
     }
     if (safeLabel.empty()) safeLabel = "Audio";
 
-    const std::string sessionId = generateUuidV7();
+    const std::string sessionId = generateUUIDv7();
     return {"rec_" + sessionId,
             "Take_" + std::string(timestamp) + "_" + safeLabel + "_" + sessionId + ".wav"};
 }

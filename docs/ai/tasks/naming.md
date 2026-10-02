@@ -28,17 +28,21 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
 - `core/engine/project/Uuid.h`: canonical RFC 9562 `generateUUIDv7()` with the
   backward-compatible `generateUuidV7()` alias. There is no separate `UUID.h`
   wrapper in the current inventory.
-- `core/engine/audio/streaming/WavStreamDecoder.h` and `WavMetadata.h`: canonical
-  `WAVStreamDecoder` type alias and `extractTempoFromWAVFile()` forwarding helper;
-  the legacy filenames remain. No case-only forwarding headers are present.
-- `core/app/engine/OfflineWavWriter.h`: canonical `WAVWriter` type alias in the
-  existing header; the filename remains unchanged.
+- `core/engine/audio/streaming/WAVStreamDecoder.{h,cpp}` and
+  `WAVMetadata.{h,cpp}` now use canonical filenames and symbols. The legacy
+  `WavStreamDecoder` type and `extractTempoFromWavFile()` spellings remain as
+  source-compatibility aliases/wrappers.
+- `core/app/engine/OfflineWAVWriter.{h,cpp}` now uses canonical filenames and
+  `WAVWriter`; `WavWriter` remains as a source-compatibility alias.
 - `AudioRecordWorker`: canonicalized internal header writer `writeWAVHeader()`.
-- `core/app/network/UdpDiscovery.h`: canonical `UDPDiscovery` alias in the
-  existing header, without a separate case-only wrapper.
+- `core/app/network/UDPDiscovery.{h,cpp}` now uses canonical filenames and
+  `UDPDiscovery`; `UdpDiscovery` remains as a source-compatibility alias.
 - `EventDispatcher.h`: canonical `HTTPTriggerCommand`, `DMXTriggerCommand`, `enqueueHTTP()`, `sendHTTP()`, `enqueueDMX()`, `sendDMX()`.
-- `core/app/server/WebServerHttp.h`: canonical `writeHTTPResponse()` forwarding
-  helper in the legacy header; no separate `WebServerHTTP.h` exists.
+- `core/app/server/WebServerHttp.h`: internal callers use canonical
+  `writeHTTPResponse()`; the old `writeHttpResponse()` spelling remains as a
+  compatibility wrapper. No separate case-only `WebServerHTTP.h` exists.
+- `EventDispatcher` internal callers use canonical HTTP/DMX type and method
+  spellings; legacy spellings remain as compatibility wrappers/aliases.
 - Invariants preserved:
   - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
   - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
@@ -46,7 +50,10 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
     macOS/Windows file systems. A future rename needs a two-step Git move and
     reference-aware updates, not ambiguous duplicate paths.
 
-Remaining: inventory all internal identifiers/callers, choose actual canonical
-filenames where safe, migrate internal usages away from transitional aliases,
-and run the full cross-language build/resolution matrix. Preserve external
-wire/persisted/JUCE spellings unless a deliberate compatibility change is made.
+The WAV/UDP/HTTP/DMX cleanup and references were built and the native test target
+passed on 2026-10-01. Remaining: continue the repository-wide inventory of
+acronym identifiers and filenames, migrate any remaining internal uses away
+from transitional aliases, and run UI/Electron/script plus supported platform
+build and resolution checks. Preserve external wire/persisted/JUCE spellings
+unless a deliberate compatibility change is made. Do not mark this task done
+until that inventory and verification are complete.

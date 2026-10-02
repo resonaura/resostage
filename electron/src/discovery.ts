@@ -14,7 +14,7 @@
 //
 // Self-announcements are filtered using the host's own addresses, because a
 // machine that is ALSO broadcasting (it is itself a ResoStage node) would
-// otherwise list itself. The backend's C++ UdpDiscovery filters the same way.
+// otherwise list itself. The backend's C++ UDPDiscovery filters the same way.
 
 export interface DiscoveredDevice {
   name: string;

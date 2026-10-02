@@ -18,7 +18,7 @@
 namespace resostage {
 
 // Reads a .rsnraset directory container (project.json + /Audio/*.wav) and parses its
-// metadata. WAV *format* decoding is done by WavStreamDecoder (portable, JUCE-free)
+// metadata. WAV *format* decoding is done by WAVStreamDecoder (portable, JUCE-free)
 // fed from a StreamCursor obtained here.
 class ProjectLoader {
 public:

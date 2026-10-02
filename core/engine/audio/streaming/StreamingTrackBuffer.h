@@ -8,7 +8,7 @@
 
 #include "../project/ProjectLoader.h"
 #include "AudioRingBuffer.h"
-#include "WavStreamDecoder.h"
+#include "WAVStreamDecoder.h"
 
 #include <atomic>
 #include <functional>
@@ -227,7 +227,7 @@ private:
                                  const std::function<bool()>& shouldAbort) const;
 
     ProjectLoader::StreamCursor cursor;
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     AudioRingBuffer ring;
 
     // Serializes open/refill/hardSeek/commit-resident against each other.

@@ -6,13 +6,13 @@
 
 #include "OfflineRenderer.h"
 #include "OfflineMidiEvents.h"
-#include "OfflineWavWriter.h"
+#include "OfflineWAVWriter.h"
 #include "OfflineOutputFile.h"
 
 #include "audio/dsp/ClickGenerator.h"
 #include "audio/graph/MixGraph.h"
 #include "audio/graph/MixRenderer.h"
-#include "audio/streaming/WavStreamDecoder.h"
+#include "audio/streaming/WAVStreamDecoder.h"
 #include "automation/AutomationEvaluator.h"
 #include "project/ProjectLoader.h"
 #include "project/MidiRegionLoop.h"
@@ -35,7 +35,7 @@
 namespace resostage {
 using offline_detail::OfflineMidiEvent;
 using offline_detail::buildOfflineMidiEvents;
-using offline_detail::WavWriter;
+using offline_detail::WAVWriter;
 
 namespace {
 
@@ -156,7 +156,7 @@ private:
     }
 
     ProjectLoader::StreamCursor cursor;
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     int64_t dataOffset = -1;
     int64_t cacheStart = -1;
     int64_t cacheCount = 0;
@@ -274,12 +274,12 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         if (!loader.open(projectPath, openError)) { result.error = openError; return result; }
     }
     std::error_code ec;
-    std::vector<std::unique_ptr<WavWriter>> writers;
+    std::vector<std::unique_ptr<WAVWriter>> writers;
     writers.reserve(targets.size());
     for (const auto& target : targets) {
         std::filesystem::create_directories(
             offline_detail::outputFilePath(target.outputPath).parent_path(), ec);
-        auto writer = std::make_unique<WavWriter>();
+        auto writer = std::make_unique<WAVWriter>();
         if (!writer->open(target.outputPath, request.sampleRate, request.bitDepth,
                           request.dither, request.normalization,
                           request.normalizationCeilingDb, result.error)) {

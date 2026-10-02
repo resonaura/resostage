@@ -16,9 +16,9 @@
 namespace resostage::offline_detail {
 
 /** Streaming WAV writer used by the offline renderer's finalization pass. */
-class WavWriter {
+class WAVWriter {
 public:
-    ~WavWriter();
+    ~WAVWriter();
 
     bool open(const std::string& path, int sampleRate, int bitDepth,
               RenderDither dither, RenderNormalization normalization,
@@ -54,6 +54,6 @@ private:
 };
 
 // Canonical acronym spelling alias
-using WAVWriter = WavWriter;
+using WavWriter = WAVWriter;
 
 } // namespace resostage::offline_detail

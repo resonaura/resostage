@@ -6,7 +6,7 @@
 
 #include "doctest.h"
 
-#include "audio/streaming/WavStreamDecoder.h"
+#include "audio/streaming/WAVStreamDecoder.h"
 
 #include <cmath>
 #include <cstddef>
@@ -100,26 +100,26 @@ struct ChunkedReader {
     }
 };
 
-// WavStreamDecoder::ReadFn is a std::function; passing a stateful callable
+// WAVStreamDecoder::ReadFn is a std::function; passing a stateful callable
 // (like ChunkedReader) directly at each call site would implicitly convert
 // -- i.e. COPY -- it into a fresh std::function every time, silently
 // resetting `pos` between parseHeader()/decodeFrames() calls. Wrap it once
 // in a reference-capturing lambda so all calls share the same cursor state
 // (this is exactly how the real StreamCursor-backed usage in
 // StreamingTrackBuffer shares state, by capturing `this` instead of copying).
-WavStreamDecoder::ReadFn asReadFn(ChunkedReader& reader) {
+WAVStreamDecoder::ReadFn asReadFn(ChunkedReader& reader) {
     return [&reader](void* buf, size_t bufSize) { return reader(buf, bufSize); };
 }
 
 } // namespace
 
-TEST_CASE("WavStreamDecoder parses 16-bit PCM header and decodes matching samples") {
+TEST_CASE("WAVStreamDecoder parses 16-bit PCM header and decodes matching samples") {
     const int frames = 1000;
     auto wav = makeWav(2, 48000.0, frames, 16, false, 440.0, 0.5f);
     ChunkedReader reader{wav, 0, 7}; // deliberately awkward chunk size
     auto readFn = asReadFn(reader);
 
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     std::string error;
     REQUIRE(decoder.parseHeader(readFn, error));
     CHECK(decoder.numChannels() == 2);
@@ -141,7 +141,7 @@ TEST_CASE("WavStreamDecoder parses 16-bit PCM header and decodes matching sample
     CHECK(decoder.decodeFrames(readFn, channels, frames) == 0);
 }
 
-TEST_CASE("WavStreamDecoder reads RF64 data sizes beyond the RIFF limit without allocating the source") {
+TEST_CASE("WAVStreamDecoder reads RF64 data sizes beyond the RIFF limit without allocating the source") {
     auto wav = makeWav(1, 48000.0, 3, 32, true);
     std::memcpy(wav.data(), "RF64", 4);
     std::fill(wav.begin() + 4, wav.begin() + 8, 0xff);
@@ -158,7 +158,7 @@ TEST_CASE("WavStreamDecoder reads RF64 data sizes beyond the RIFF limit without 
     wav.insert(wav.begin() + 12, ds64.begin(), ds64.end());
     ChunkedReader reader{wav, 0, 7};
     auto read = asReadFn(reader);
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     std::string error;
     REQUIRE(decoder.parseHeader(read, error));
     CHECK(decoder.totalFrames() == static_cast<int64_t>(dataBytes / 4));
@@ -168,25 +168,25 @@ TEST_CASE("WavStreamDecoder reads RF64 data sizes beyond the RIFF limit without 
     CHECK(samples[1] != 0.0f);
 }
 
-TEST_CASE("WavStreamDecoder rejects RF64 without ds64") {
+TEST_CASE("WAVStreamDecoder rejects RF64 without ds64") {
     auto wav = makeWav(1, 48000.0, 3, 16, false);
     std::memcpy(wav.data(), "RF64", 4);
     std::fill(wav.begin() + 40, wav.begin() + 44, 0xff);
     ChunkedReader reader{wav, 0, 4096};
     auto read = asReadFn(reader);
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     std::string error;
     CHECK_FALSE(decoder.parseHeader(read, error));
     CHECK(error.find("ds64") != std::string::npos);
 }
 
-TEST_CASE("WavStreamDecoder handles 24-bit PCM") {
+TEST_CASE("WAVStreamDecoder handles 24-bit PCM") {
     const int frames = 500;
     auto wav = makeWav(1, 44100.0, frames, 24, false, 220.0, 0.8f);
     ChunkedReader reader{wav, 0, 4096};
     auto readFn = asReadFn(reader);
 
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     std::string error;
     REQUIRE(decoder.parseHeader(readFn, error));
     CHECK(decoder.numChannels() == 1);
@@ -202,13 +202,13 @@ TEST_CASE("WavStreamDecoder handles 24-bit PCM") {
     }
 }
 
-TEST_CASE("WavStreamDecoder handles 32-bit IEEE float") {
+TEST_CASE("WAVStreamDecoder handles 32-bit IEEE float") {
     const int frames = 300;
     auto wav = makeWav(1, 48000.0, frames, 32, true, 660.0, 0.9f);
     ChunkedReader reader{wav, 0, 4096};
     auto readFn = asReadFn(reader);
 
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     std::string error;
     REQUIRE(decoder.parseHeader(readFn, error));
 
@@ -222,13 +222,13 @@ TEST_CASE("WavStreamDecoder handles 32-bit IEEE float") {
     }
 }
 
-TEST_CASE("WavStreamDecoder decodeFrames respects maxFrames across multiple calls") {
+TEST_CASE("WAVStreamDecoder decodeFrames respects maxFrames across multiple calls") {
     const int frames = 1000;
     auto wav = makeWav(1, 48000.0, frames, 16, false);
     ChunkedReader reader{wav, 0, 4096};
     auto readFn = asReadFn(reader);
 
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     std::string error;
     REQUIRE(decoder.parseHeader(readFn, error));
 
@@ -245,11 +245,11 @@ TEST_CASE("WavStreamDecoder decodeFrames respects maxFrames across multiple call
     CHECK(totalDecoded == frames);
 }
 
-TEST_CASE("WavStreamDecoder rejects a non-RIFF buffer") {
+TEST_CASE("WAVStreamDecoder rejects a non-RIFF buffer") {
     std::vector<uint8_t> garbage = {'n', 'o', 't', 'a', 'w', 'a', 'v', 'x', 'x', 'x', 'x', 'x'};
     ChunkedReader reader{garbage, 0, 4096};
     auto readFn = asReadFn(reader);
-    WavStreamDecoder decoder;
+    WAVStreamDecoder decoder;
     std::string error;
     CHECK_FALSE(decoder.parseHeader(readFn, error));
     CHECK_FALSE(error.empty());

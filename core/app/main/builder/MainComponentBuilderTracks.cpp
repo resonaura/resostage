@@ -334,14 +334,14 @@ void MainComponent::builderTrackDuplicate(const std::string& json) {
     duplicate.inputMonitoring = false;
     std::vector<std::pair<std::string, std::string>> pluginIdRemap;
     for (auto& slot : duplicate.plugins) {
-        const std::string newId = generateUuidV7();
+        const std::string newId = generateUUIDv7();
         pluginIdRemap.emplace_back(slot.id, newId);
         slot.id = newId;
     }
     const auto remapAutomationTarget = [&](AutomationLane& lane,
                                            const std::string& oldRegionId = {},
                                            const std::string& newRegionId = {}) {
-        lane.id = generateUuidV7();
+        lane.id = generateUUIDv7();
         if (lane.target.entityId == original.id)
             lane.target.entityId = duplicate.id;
         else if (!oldRegionId.empty() && lane.target.entityId == oldRegionId)

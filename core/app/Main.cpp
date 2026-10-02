@@ -18,7 +18,7 @@
 #endif
 
 #include "config/CliParser.h"
-#include "network/UdpDiscovery.h"
+#include "network/UDPDiscovery.h"
 #include "MainComponent.h"
 #include "platform/ProcessPriority.h"
 #include "platform/PlatformShellMode.h"
@@ -111,10 +111,10 @@ public:
             std::printf("========================================\n");
             std::printf("  ResoStage LAN Discovery Scanner\n");
             std::printf("========================================\n\n");
-            std::printf("Listening for UDP announcements on port %d for 3 seconds...\n", UdpDiscovery::kDiscoveryPort);
+            std::printf("Listening for UDP announcements on port %d for 3 seconds...\n", UDPDiscovery::kDiscoveryPort);
             std::fflush(stdout);
 
-            UdpDiscovery discovery;
+            UDPDiscovery discovery;
             discovery.start(2899, true);
 
             // Wait 3 seconds for beacons

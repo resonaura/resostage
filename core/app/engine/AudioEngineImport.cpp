@@ -14,7 +14,7 @@
 #include "../media/FFmpegProcess.h"
 
 #include "audio/peaks/PeakCache.h"
-#include "audio/streaming/WavMetadata.h"
+#include "audio/streaming/WAVMetadata.h"
 #include "project/Uuid.h"
 
 #include <algorithm>
@@ -132,7 +132,7 @@ void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, co
     std::string archiveTrackId = track->id;
     for (char& ch : archiveTrackId)
         if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '_') ch = '_';
-    const std::string regionId = generateUuidV7();
+    const std::string regionId = generateUUIDv7();
     const std::string entry = "Audio/" + archiveTrackId + "_" + regionId + ".wav";
     const std::string videoEntry = hasOriginalVideo
         ? "Video/" + archiveTrackId + "_" + regionId + "_" + safeMediaName(base)
@@ -439,7 +439,7 @@ bool AudioEngine::scanFolderForImport(const std::string& folderPath, std::vector
 
     outDetectedBpm = 0.0;
     for (const auto& wavPath : outWavPaths) {
-        if (extractTempoFromWavFile(wavPath, outDetectedBpm))
+        if (extractTempoFromWAVFile(wavPath, outDetectedBpm))
             break;
     }
     if (outDetectedBpm <= 0.0)
@@ -585,7 +585,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
                 break;
             }
             const std::string base = pathToUTF8(srcPath.filename());
-            const std::string entry = "Audio/" + generateUuidV7() + "_" + safeMediaName(base);
+            const std::string entry = "Audio/" + generateUUIDv7() + "_" + safeMediaName(base);
 
             PeakOverview overview;
             std::string peakError;
@@ -627,7 +627,7 @@ void AudioEngine::importSongFromFolderAsync(const std::string& folderPath, const
             }
 
             Region reg;
-            reg.id = generateUuidV7();
+            reg.id = generateUUIDv7();
             reg.trackId = trackId;
             reg.source.file = entry;
             reg.durationSeconds = durationSeconds;

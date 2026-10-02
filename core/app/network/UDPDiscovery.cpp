@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-#include "UdpDiscovery.h"
+#include "UDPDiscovery.h"
 #include "server/WireTypes.h"
 
 #if JUCE_WINDOWS
@@ -120,13 +120,13 @@ std::vector<std::string> getBroadcastAddresses() {
 
 } // namespace
 
-UdpDiscovery::UdpDiscovery() : juce::Thread("ResoStageUdpDiscovery") {}
+UDPDiscovery::UDPDiscovery() : juce::Thread("ResoStageUDPDiscovery") {}
 
-UdpDiscovery::~UdpDiscovery() {
+UDPDiscovery::~UDPDiscovery() {
     stop();
 }
 
-void UdpDiscovery::start(uint16_t port, bool enableDiscovery, const std::string& bindAddr) {
+void UDPDiscovery::start(uint16_t port, bool enableDiscovery, const std::string& bindAddr) {
     webPort = port;
     bindAddress = bindAddr;
     discoveryEnabled.store(enableDiscovery);
@@ -150,7 +150,7 @@ void UdpDiscovery::start(uint16_t port, bool enableDiscovery, const std::string&
     startThread(juce::Thread::Priority::normal);
 }
 
-void UdpDiscovery::stop() {
+void UDPDiscovery::stop() {
     isRunning.store(false);
     if (isThreadRunning()) {
         stopThread(1000);
@@ -158,12 +158,12 @@ void UdpDiscovery::stop() {
     socket = nullptr;
 }
 
-void UdpDiscovery::setDiscoveryEnabled(bool enabled, const std::string& bindAddr) {
+void UDPDiscovery::setDiscoveryEnabled(bool enabled, const std::string& bindAddr) {
     discoveryEnabled.store(enabled);
     bindAddress = bindAddr;
 }
 
-std::vector<DiscoveredDevice> UdpDiscovery::getDiscoveredDevices() {
+std::vector<DiscoveredDevice> UDPDiscovery::getDiscoveredDevices() {
     std::lock_guard<std::mutex> lock(devicesMutex);
     double now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
 
@@ -178,7 +178,7 @@ std::vector<DiscoveredDevice> UdpDiscovery::getDiscoveredDevices() {
     return devices;
 }
 
-void UdpDiscovery::sendAnnounce() {
+void UDPDiscovery::sendAnnounce() {
     if (!socket || !discoveryEnabled.load()) return;
 
     int sockHandle = socket->getRawSocketHandle();
@@ -217,7 +217,7 @@ void UdpDiscovery::sendAnnounce() {
     }
 }
 
-void UdpDiscovery::parseIncomingDatagram(const char* data, int size, const juce::String& senderIp) {
+void UDPDiscovery::parseIncomingDatagram(const char* data, int size, const juce::String& senderIp) {
     if (size <= 0 || data == nullptr) return;
 
     wire::WDiscoveryAnnouncement announcement;
@@ -262,7 +262,7 @@ void UdpDiscovery::parseIncomingDatagram(const char* data, int size, const juce:
     }
 }
 
-void UdpDiscovery::run() {
+void UDPDiscovery::run() {
     char buffer[2048];
 
     // Send immediate initial announcement on thread start

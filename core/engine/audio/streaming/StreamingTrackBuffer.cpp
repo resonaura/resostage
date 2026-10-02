@@ -143,7 +143,7 @@ bool StreamingTrackBuffer::decodeWindowSideChannel(int64_t deviceStart, int64_t 
     if (!sideCursor.isValid())
         return false;
 
-    WavStreamDecoder sideDec;
+    WAVStreamDecoder sideDec;
     auto readFn = [&sideCursor](void* buf, size_t bufSize) { return sideCursor.read(buf, bufSize); };
     if (!sideDec.parseHeader(readFn, error))
         return false;

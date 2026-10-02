@@ -54,7 +54,7 @@ void writeWAV(const std::filesystem::path& path, int16_t sample) {
 
 struct BatchFixture {
     std::filesystem::path directory = std::filesystem::temp_directory_path()
-        / ("resostage-wav-batch-" + generateUuidV7());
+        / ("resostage-wav-batch-" + generateUUIDv7());
     std::filesystem::path package = directory / "Test.rsnraset";
     ProjectLoader loader;
 
@@ -98,7 +98,7 @@ TEST_CASE("WAV stem batch streams colliding names and commits a private snapshot
     const auto oldBytes = readFile(old);
 
     Region trimmed;
-    trimmed.id = generateUuidV7();
+    trimmed.id = generateUUIDv7();
     trimmed.trackId = fixture.loader.project().tracks[0].id;
     trimmed.startSeconds = 0.25;
     trimmed.durationSeconds = 0.5;

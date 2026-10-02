@@ -22,7 +22,7 @@ namespace resostage {
 
 namespace {
 
-/** See sendHttp: bounds the damage from an unreachable target. */
+/** See sendHTTP: bounds the damage from an unreachable target. */
 constexpr int kHttpConnectTimeoutMs = 2000;
 
 bool parseHttpUrl(const std::string& url, std::string& host, std::string& port, std::string& path) {
@@ -128,15 +128,15 @@ void EventDispatcher::stop() {
         worker.join();
 }
 
-bool EventDispatcher::enqueueHttp(const HttpTriggerCommand& cmd) {
+bool EventDispatcher::enqueueHTTP(const HTTPTriggerCommand& cmd) {
     return httpQueue.try_enqueue(cmd);
 }
 
-bool EventDispatcher::enqueueDmx(const DmxTriggerCommand& cmd) {
+bool EventDispatcher::enqueueDMX(const DMXTriggerCommand& cmd) {
     return dmxQueue.try_enqueue(cmd);
 }
 
-void EventDispatcher::sendHttp(const HttpTriggerCommand& cmd) {
+void EventDispatcher::sendHTTP(const HTTPTriggerCommand& cmd) {
     std::string host, port, path;
     if (!parseHttpUrl(cmd.url, host, port, path))
         return;
@@ -163,7 +163,7 @@ void EventDispatcher::sendHttp(const HttpTriggerCommand& cmd) {
     socket.write(requestStr.data(), static_cast<int>(requestStr.size()));
 }
 
-void EventDispatcher::sendDmx(const DmxTriggerCommand& cmd) {
+void EventDispatcher::sendDMX(const DMXTriggerCommand& cmd) {
     if (dmxSocket == nullptr)
         return;
 
@@ -199,8 +199,8 @@ void EventDispatcher::workerThreadLoop() {
     // chronological order because the audio thread emits them that way, so the
     // front is always the next one due and a linear scan never has anything to
     // scan past.
-    std::vector<HttpTriggerCommand> pendingHttp;
-    std::vector<DmxTriggerCommand> pendingDmx;
+    std::vector<HTTPTriggerCommand> pendingHttp;
+    std::vector<DMXTriggerCommand> pendingDmx;
 
     // The SAME clock the audio thread stamped these with. A target time is
     // meaningless against a different epoch, and "close enough on this
@@ -212,21 +212,21 @@ void EventDispatcher::workerThreadLoop() {
         bool didWork = false;
         const uint64_t now = clock.nowNanos();
 
-        HttpTriggerCommand httpCmd;
+        HTTPTriggerCommand httpCmd;
         while (httpQueue.try_dequeue(httpCmd)) {
             if (httpCmd.targetHostTimeNanos > now)
                 pendingHttp.push_back(std::move(httpCmd));
             else
-                sendHttp(httpCmd);
+                sendHTTP(httpCmd);
             didWork = true;
         }
 
-        DmxTriggerCommand dmxCmd;
+        DMXTriggerCommand dmxCmd;
         while (dmxQueue.try_dequeue(dmxCmd)) {
             if (dmxCmd.targetHostTimeNanos > now)
                 pendingDmx.push_back(std::move(dmxCmd));
             else
-                sendDmx(dmxCmd);
+                sendDMX(dmxCmd);
             didWork = true;
         }
 
@@ -236,9 +236,9 @@ void EventDispatcher::workerThreadLoop() {
         // Compaction lives in engine/events/DueQueue.h, tested against a
         // clock you can control -- the in-place version this replaced moved an
         // element onto itself and silently emptied the payload it was holding.
-        if (drainDue(pendingHttp, now, [this](const HttpTriggerCommand& c) { sendHttp(c); }) > 0)
+        if (drainDue(pendingHttp, now, [this](const HTTPTriggerCommand& c) { sendHTTP(c); }) > 0)
             didWork = true;
-        if (drainDue(pendingDmx, now, [this](const DmxTriggerCommand& c) { sendDmx(c); }) > 0)
+        if (drainDue(pendingDmx, now, [this](const DMXTriggerCommand& c) { sendDMX(c); }) > 0)
             didWork = true;
 
         // Sleep only when there is nothing at all to do. With something

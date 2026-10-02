@@ -101,7 +101,7 @@ bool writeWAVStemBatch(ProjectLoader& loader, const Project& before,
                 return false;
             }
             const double duration = overview.durationSeconds;
-            const std::string entry = "Audio/" + generateUuidV7() + ".wav";
+            const std::string entry = "Audio/" + generateUUIDv7() + ".wav";
             ProjectLoader::ExtraFile audio;
             audio.archivePath = entry;
             audio.sourcePath = item.filesystemPath;
@@ -114,7 +114,7 @@ bool writeWAVStemBatch(ProjectLoader& loader, const Project& before,
                 [&trackId](const Region& candidate) { return candidate.trackId == trackId; });
             if (region == song.regions.end()) {
                 Region imported;
-                imported.id = generateUuidV7();
+                imported.id = generateUUIDv7();
                 imported.trackId = trackId;
                 imported.durationSeconds = duration;
                 song.regions.push_back(std::move(imported));

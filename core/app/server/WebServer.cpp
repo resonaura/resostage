@@ -6,7 +6,7 @@
 
 #include "WebServer.h"
 
-#include "network/UdpDiscovery.h"
+#include "network/UDPDiscovery.h"
 #include "project/ProjectJson.h"
 #include "events/MidiNoteActivity.h"
 #include "server/WireTypes.h"
@@ -35,7 +35,7 @@
 namespace resostage {
 
 using namespace wire;
-using webserver_http::writeHttpResponse;
+using webserver_http::writeHTTPResponse;
 using webserver_http::writeJsonEnabled;
 using webserver_http::writeJsonError;
 using webserver_http::writeJsonOk;
@@ -184,7 +184,7 @@ std::string sanitizeUploadFileName(const std::string& name) {
 // (this doesn't come up in production, where the SPA is served from the
 // same origin as the API and no preflight is ever issued).
 int writeCorsPreflightResponse(struct lws* wsi) {
-    // Same size as writeHttpResponse's buffer -- the security-best-practices
+    // Same size as writeHTTPResponse's buffer -- the security-best-practices
     // headers lws_add_http_common_headers() injects (CSP, X-Frame-Options,
     // etc., see LWS_SERVER_OPTION_HTTP_HEADERS_SECURITY_BEST_PRACTICES_ENFORCE
     // below) eat a few hundred bytes on their own, so anything smaller
@@ -368,7 +368,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         const std::string json = frame && !frame->empty()
                             ? *frame
                             : server->buildStateJson("all");
-                        return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
+                        return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
                                                  json.c_str(), json.size());
                     }
                     if (std::strcmp(uri, "/api/v1/project/export-status") == 0)
@@ -406,7 +406,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         return server->serveDiscoveryStatus(wsi);
                     if (std::strcmp(uri, "/api/v1/audio/mixgraph") == 0) {
                         const std::string json = server->buildStateJson("mixgraph");
-                        return writeHttpResponse(wsi, HTTP_STATUS_OK, "application/json",
+                        return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
                                                  json.c_str(), json.size());
                     }
                     return writeJsonError(wsi, HTTP_STATUS_NOT_FOUND, "not found");

@@ -265,7 +265,7 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
             error = "Failed to create extra asset directory: " + ec.message();
             return false;
         }
-        const fs::path staged = extraDest.parent_path() / (".resostage-asset-" + generateUuidV7() + ".part");
+        const fs::path staged = extraDest.parent_path() / (".resostage-asset-" + generateUUIDv7() + ".part");
         struct PartialCleanup {
             fs::path path;
             ~PartialCleanup() { std::error_code ignored; fs::remove(path, ignored); }
@@ -349,7 +349,7 @@ bool ProjectLoader::saveAsWithExtras(const std::string& path,
         return false;
     }
     fs::path jsonPath = dest / kProjectDataFileName;
-    const fs::path stagedJson = dest / (".resostage-project-" + generateUuidV7() + ".part");
+    const fs::path stagedJson = dest / (".resostage-project-" + generateUUIDv7() + ".part");
     std::ofstream jsonFile(stagedJson, std::ios::binary);
     if (!jsonFile.is_open()) {
         error = "Failed to write " + std::string(kProjectDataFileName) + " into " + jsonPath.string();
