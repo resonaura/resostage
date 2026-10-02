@@ -230,4 +230,42 @@ describe("automation pointer ownership and history", () => {
     expect(result.activePoints).toEqual(reopened.points);
     expect(result.isPending).toBe(false);
   });
+
+  it("sets selected points value clamped to min/max and leaves unselected points untouched", async () => {
+    act(() => result.setSelectedIndices(new Set([1])));
+    act(() => result.setSelectedPointsValue(0.75));
+    await act(async () => {});
+    expect(builder.automationPointsReplace).toHaveBeenCalledWith(expect.objectContaining({
+      points: [
+        lane.points[0],
+        { timeBeats: 4, value: 0.75, curve: 0 },
+        lane.points[2],
+      ],
+      gestureId: expect.any(String),
+    }));
+  });
+
+  it("clamps out-of-range value to target boundaries when setting point value", async () => {
+    act(() => result.setSelectedIndices(new Set([0])));
+    act(() => result.setSelectedPointsValue(99.9));
+    await act(async () => {});
+    expect(builder.automationPointsReplace).toHaveBeenCalledWith(expect.objectContaining({
+      points: [
+        { timeBeats: 0, value: 1.0, curve: 0 },
+        lane.points[1],
+        lane.points[2],
+      ],
+    }));
+  });
+
+  it("invokes onEditPointValue callback when double-clicking an existing point", async () => {
+    const onEditPointValue = vi.fn();
+    render({ onEditPointValue });
+    // Point 1 is at timeBeats=4 (px = 4 / 2 * 100 = 200), value=0.4 (py = (1 - 0.4) * 100 = 60)
+    await pointer("pointerdown", 200, 60);
+    await pointer("pointerup", 200, 60);
+    await pointer("pointerdown", 200, 60);
+    expect(onEditPointValue).toHaveBeenCalledWith(1, lane.points[1], 200, 60);
+    expect(result.selectedIndices).toEqual(new Set([1]));
+  });
 });

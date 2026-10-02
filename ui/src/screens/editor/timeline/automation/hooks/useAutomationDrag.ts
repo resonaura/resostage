@@ -41,7 +41,7 @@ const MAX_STROKE_POINTS = 4096;
  */
 export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
   snapToGrid = true, snapStepBeats = 0.25, tool = "pointer", readOnly = false,
-  targetOption, resetKey }: {
+  targetOption, resetKey, onEditPointValue }: {
   songIndex: number;
   lane: AutomationLaneRow;
   bpm: number;
@@ -54,6 +54,7 @@ export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
   targetOption?: AutomationTargetOption;
   /** Core project epoch/name identity, independent of reusable lane IDs. */
   resetKey?: string;
+  onEditPointValue?: (pointIndex: number, point: AutomationPointViewModel, x: number, y: number) => void;
 }) {
   const commit = useAutomationCommit(songIndex, lane, readOnly, resetKey);
   const { draftPoints, setDraftPoints, pendingRef, commitPoints, setError } = commit;
@@ -130,6 +131,15 @@ export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
     if (readOnly || pendingRef.current) return;
     void commitOperation(setAutomationSelectionCurve(activePoints, selectedIndices, curve));
   };
+  const setSelectedPointsValue = (value: number) => {
+    if (readOnly || pendingRef.current || selectedIndices.size === 0) return;
+    const clamped = Math.max(minValue, Math.min(maxValue, value));
+    const updated = activePoints.map((point, index) => {
+      if (!selectedIndices.has(index)) return point;
+      return { ...point, value: clamped };
+    });
+    void commitOperation(updated);
+  };
   const selectAllPoints = () => setSelectedIndices(new Set(activePoints.map((_, index) => index)));
   const clearSelection = () => setSelectedIndices(new Set());
 
@@ -149,12 +159,19 @@ export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
       && Math.hypot(x - lastClick.current.x, y - lastClick.current.y) < 8;
     lastClick.current = { time: now, x, y };
 
-    if ((tool === "eraser" || event.altKey || double) && hit.type === "point") {
+    if ((tool === "eraser" || event.altKey) && hit.type === "point") {
       void commitOperation(removeAutomationPoints(activePoints, [hit.pointIndex]));
       setSelectedIndices(new Set());
       return;
     }
     if (tool === "eraser") return;
+    if (double && hit.type === "point") {
+      setSelectedIndices(new Set([hit.pointIndex]));
+      if (onEditPointValue) {
+        onEditPointValue(hit.pointIndex, hit.point, x, y);
+      }
+      return;
+    }
     if (double) {
       const inserted = insertAutomationPoint(activePoints, snap(pixelToBeat(x, bpm, pxPerSec)),
         pixelToValue(y, laneHeight, minValue, maxValue));
@@ -305,6 +322,6 @@ export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
   return { activePoints, draftPoints, selectedIndices, setSelectedIndices, hoverInfo, marqueeRect,
     onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onContextMenu,
     onPointerLeave: () => { if (!sessionRef.current) setHoverInfo(null); },
-    deleteSelectedPoints, smoothSelectedPoints, setSelectedCurve, selectAllPoints, clearSelection,
+    deleteSelectedPoints, smoothSelectedPoints, setSelectedCurve, setSelectedPointsValue, selectAllPoints, clearSelection,
     isPending: commit.isPending, error: commit.error, selectionCount: selectedIndices.size };
 }

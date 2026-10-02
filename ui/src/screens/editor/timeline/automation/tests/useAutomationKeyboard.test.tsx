@@ -19,6 +19,7 @@ describe("useAutomationKeyboard", () => {
   const deleteSelectedPoints = vi.fn();
   const selectAllPoints = vi.fn();
   const clearSelection = vi.fn();
+  const onEditValue = vi.fn();
 
   function KeyboardHarness({
     id = "lane-1",
@@ -32,6 +33,7 @@ describe("useAutomationKeyboard", () => {
       deleteSelectedPoints,
       selectAllPoints,
       clearSelection,
+      onEditValue,
     });
     return createElement("div", {
       ref: surfaceRef,
@@ -126,5 +128,33 @@ describe("useAutomationKeyboard", () => {
       new KeyboardEvent("keydown", { key: "Delete", code: "Delete", bubbles: true }),
     );
     expect(deleteSelectedPoints).not.toHaveBeenCalled();
+  });
+
+  it("triggers onEditValue on Enter and NumpadEnter when surface is focused", () => {
+    act(() => {
+      root.render(createElement(KeyboardHarness, { id: "lane-test" }));
+    });
+
+    const surface = container.querySelector<HTMLDivElement>("#automation-surface")!;
+    expect(surface).not.toBeNull();
+
+    // Not focused -> should not trigger
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }),
+    );
+    expect(onEditValue).not.toHaveBeenCalled();
+
+    // Focused -> Enter triggers onEditValue
+    surface.focus();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }),
+    );
+    expect(onEditValue).toHaveBeenCalledTimes(1);
+
+    // NumpadEnter also triggers onEditValue
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", code: "NumpadEnter", bubbles: true }),
+    );
+    expect(onEditValue).toHaveBeenCalledTimes(2);
   });
 });

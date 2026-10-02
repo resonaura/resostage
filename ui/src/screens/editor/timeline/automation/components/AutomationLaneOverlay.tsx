@@ -53,6 +53,7 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
   scrollLeft?: number;
   viewportWidth?: number;
 }) {
+  const [valueInput, setValueInput] = useState<{ x: number; y: number; initialValue: number } | null>(null);
   const {
     activePoints,
     selectedIndices,
@@ -67,6 +68,7 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     deleteSelectedPoints,
     smoothSelectedPoints,
     setSelectedCurve,
+    setSelectedPointsValue,
     selectAllPoints,
     clearSelection,
     selectionCount,
@@ -83,14 +85,32 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     tool,
     readOnly,
     targetOption,
+    onEditPointValue: (_idx, point, x, y) => {
+      setValueInput({ x, y, initialValue: point.value });
+    },
   });
 
   const surface = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const commandId = `${songIndex}.${lane.id}`;
-  useAutomationKeyboard(commandId, surface, readOnly, { deleteSelectedPoints, selectAllPoints, clearSelection });
   const minValue = targetOption?.minValue ?? lane.target.minValue;
   const maxValue = targetOption?.maxValue ?? lane.target.maxValue;
+  const handleEditValue = () => {
+    if (selectedIndices.size === 0 || readOnly || isPending) return;
+    const idx = Array.from(selectedIndices)[0];
+    const pt = idx !== undefined ? activePoints[idx] : null;
+    if (pt) {
+      const px = beatToPixel(pt.timeBeats, bpm, pxPerSec);
+      const py = valueToPixel(pt.value, heightPx, minValue, maxValue);
+      setValueInput({ x: px, y: py, initialValue: pt.value });
+    }
+  };
+  useAutomationKeyboard(commandId, surface, readOnly, {
+    deleteSelectedPoints,
+    selectAllPoints,
+    clearSelection,
+    onEditValue: handleEditValue,
+  });
   const pointIndices = useMemo(() => new Map(activePoints.map((point, index) => [point, index])), [activePoints]);
 
   // LOD decimation for path and point rendering across long timelines
@@ -272,6 +292,9 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
       {(error || isPending) && <div className={`pointer-events-none absolute top-1 left-2 text-[10px] ${error ? "text-danger" : "text-muted"}`}
         role={error ? "alert" : "status"}>{error ?? "Saving automation…"}</div>}
       {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+        <ContextMenuItem disabled={selectionCount === 0 || isPending}
+          onClick={() => { handleEditValue(); setMenu(null); }}>Set exact value…</ContextMenuItem>
+        <ContextMenuDivider />
         <ContextMenuItem disabled={selectionCount === 0 || isPending} danger shortcutCommand={`automation.${commandId}.delete`}
           onClick={() => { deleteSelectedPoints(); setMenu(null); }}>Delete points</ContextMenuItem>
         <ContextMenuItem disabled={selectionCount < 3 || isPending}
@@ -287,6 +310,54 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
         <ContextMenuItem shortcutCommand={`automation.${commandId}.select-all`}
           onClick={() => { selectAllPoints(); setMenu(null); }}>Select all points</ContextMenuItem>
       </ContextMenu>}
+
+      {valueInput && (
+        <div
+          className="absolute z-40 flex items-center gap-1.5 rounded-md border border-default/60 bg-surface/95 px-2 py-1 shadow-lg backdrop-blur-sm"
+          style={{
+            left: Math.max(8, Math.min(widthPx - 140, valueInput.x - 30)),
+            top: Math.max(4, Math.min(heightPx - 32, valueInput.y - 14)),
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            ref={(input) => input?.focus()}
+            type="number"
+            data-testid="automation-exact-value-input"
+            aria-label="Set exact automation value"
+            step={targetOption?.domain === "strip" && targetOption.parameterId === "faderGainDb" ? 0.1 : 0.01}
+            min={minValue}
+            max={maxValue}
+            defaultValue={Number(valueInput.initialValue.toFixed(3))}
+            className="w-20 rounded bg-background px-1.5 py-0.5 text-xs font-mono text-foreground border border-default focus:border-accent focus:outline-none"
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Enter") {
+                const val = parseFloat((e.target as HTMLInputElement).value);
+                if (Number.isFinite(val)) {
+                  setSelectedPointsValue(val);
+                }
+                setValueInput(null);
+                surface.current?.focus({ preventScroll: true });
+              } else if (e.key === "Escape") {
+                setValueInput(null);
+                surface.current?.focus({ preventScroll: true });
+              }
+            }}
+            onBlur={(e) => {
+              const val = parseFloat(e.target.value);
+              if (Number.isFinite(val) && val !== valueInput.initialValue) {
+                setSelectedPointsValue(val);
+              }
+              setValueInput(null);
+            }}
+          />
+          {targetOption?.unit && (
+            <span className="text-[10px] text-muted font-mono">{targetOption.unit}</span>
+          )}
+        </div>
+      )}
 
       {/* Marquee Selection Rectangle */}
       {marqueeRect && (

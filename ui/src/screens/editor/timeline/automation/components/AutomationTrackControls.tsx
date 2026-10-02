@@ -45,18 +45,28 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
     catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
     finally { setPending(false); }
   };
+  const isTargetAutomated = Boolean(target && lanes.some((lane) => matchesAutomationTarget(target, lane.target)));
+  const nextUnautomatedTarget = targets.find((t) => !t.disabledReason && !lanes.some((l) => matchesAutomationTarget(t, l.target)));
   const add = () => {
-    if (!target || target.disabledReason) return;
-    const existing = lanes.find((lane) => matchesAutomationTarget(target, lane.target));
+    const targetToAdd = isTargetAutomated ? nextUnautomatedTarget : target;
+    if (!targetToAdd || targetToAdd.disabledReason) return;
+    const existing = lanes.find((lane) => matchesAutomationTarget(targetToAdd, lane.target));
     if (existing) { onSelectLane(existing.id); return; }
-    void run(() => builder.automationLaneAdd({ songIndex, domain: target.domain,
-      entityId: target.entityId, parameterId: target.parameterId,
-      valueType: target.valueType, defaultValue: target.defaultValue,
-      minValue: target.minValue, maxValue: target.maxValue, scope: "track",
+    void run(() => builder.automationLaneAdd({ songIndex, domain: targetToAdd.domain,
+      entityId: targetToAdd.entityId, parameterId: targetToAdd.parameterId,
+      valueType: targetToAdd.valueType, defaultValue: targetToAdd.defaultValue,
+      minValue: targetToAdd.minValue, maxValue: targetToAdd.maxValue, scope: "track",
       writeMode: "read", points: [] }));
-    onSelectLane(target.id);
+    onSelectLane(targetToAdd.id);
   };
   const disabled = readOnly || pending;
+  const canAdd = !disabled && Boolean(
+    (!isTargetAutomated && target && !target.disabledReason) ||
+    (isTargetAutomated && nextUnautomatedTarget)
+  );
+  const addTooltip = isTargetAutomated
+    ? (nextUnautomatedTarget ? `Add lane for ${nextUnautomatedTarget.label}` : "All track parameters are already automated")
+    : (target?.disabledReason ?? `Add automation for ${target?.label ?? "selected parameter"}`);
   return (
     <div className="flex h-7 min-w-0 items-center gap-1 px-1.5 text-xs"
       onPointerDown={(event) => event.stopPropagation()}
@@ -70,11 +80,17 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
       <Select size="xs" variant="secondary" className="min-w-0 flex-1" aria-label="Automation parameter"
         title={error ?? target?.disabledReason ?? "Automation parameter"}
         value={target?.id} isDisabled={disabled}
-        options={groups.flatMap((group) => group.targets.map((option) => ({
-          id: option.id, label: option.label, textValue: option.label, section: group.categoryLabel,
-          // Existing unbound data stays selectable and recoverable.
-          isDisabled: Boolean(option.disabledReason) && !lanes.some((lane) => matchesAutomationTarget(option, lane.target)),
-        })))}
+        options={groups.flatMap((group) => group.targets.map((option) => {
+          const isAutomated = lanes.some((lane) => matchesAutomationTarget(option, lane.target));
+          return {
+            id: option.id,
+            label: isAutomated ? `${option.label} •` : option.label,
+            textValue: isAutomated ? `${option.label} •` : option.label,
+            section: group.categoryLabel,
+            // Existing unbound data stays selectable and recoverable.
+            isDisabled: Boolean(option.disabledReason) && !isAutomated,
+          };
+        }))}
         onChange={(id) => {
           const selected = targets.find((option) => option.id === id);
           const existing = selected && lanes.find((lane) => matchesAutomationTarget(selected, lane.target));
@@ -87,9 +103,9 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
         title="Read playback; live Touch/Latch/Write recording is not available yet"
         onChange={(writeMode) => activeLane && void run(() => builder.automationLaneUpdate({ songIndex,
           laneId: activeLane.id, writeMode: writeMode as AutomationLaneRow["writeMode"] }))} />
-      <Tooltip content={target?.disabledReason ?? "Add automation for selected parameter"}><Button isIconOnly size="sm" variant="ghost" className="h-5.5 min-w-5.5 w-5.5 shrink-0"
+      <Tooltip content={addTooltip}><Button isIconOnly size="sm" variant="ghost" className="h-5.5 min-w-5.5 w-5.5 shrink-0"
         aria-label="Add automation"
-        isDisabled={disabled || !target || Boolean(target.disabledReason) || Boolean(activeLane)} onPress={add}><Plus size={12} /></Button></Tooltip>
+        isDisabled={!canAdd} onPress={add}><Plus size={12} /></Button></Tooltip>
       {activeLane && <Tooltip content="Remove automation lane"><Button isIconOnly size="sm" variant="ghost" className="h-5.5 min-w-5.5 w-5.5 shrink-0"
         aria-label="Remove automation" isDisabled={disabled}
         onPress={() => onRemoveLane ? onRemoveLane(activeLane.id)

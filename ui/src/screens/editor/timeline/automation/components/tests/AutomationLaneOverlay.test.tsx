@@ -206,8 +206,69 @@ describe("AutomationLaneOverlay", () => {
       }));
     });
 
+    expect(document.body.textContent).toContain("Set exact value…");
     expect(document.body.textContent).toContain("Delete points");
     expect(document.body.textContent).toContain("Smooth selection");
     expect(document.body.textContent).toContain("Select all points");
+  });
+
+  it("opens inline numeric input popover when choosing Set exact value, and commits value on Enter", async () => {
+    act(() => {
+      root.render(
+        createElement(AutomationLaneOverlay, {
+          songIndex: 0,
+          lane: mockLane,
+          bpm: 120,
+          pxPerSec: 100,
+          widthPx: 800,
+          heightPx: 100,
+          readOnly: false,
+        }),
+      );
+    });
+
+    const surface = container.querySelector("div[aria-label='Automation lane']") as HTMLDivElement;
+    expect(surface).not.toBeNull();
+
+    // Select point 0 (at x=0, y=valueToPixel(0, 100, -60, 12)) via pointerdown + pointerup
+    // Point 0 is at timeBeats=0 (px=0), value=0 dB (py = 100 * (1 - (0 - (-60)) / 72) = 100 * 12/72 = 16.67)
+    await act(async () => {
+      const down = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, clientX: 0, clientY: 17, button: 0 });
+      Object.defineProperty(down, "pointerId", { value: 1 });
+      surface.dispatchEvent(down);
+      const up = new MouseEvent("pointerup", { bubbles: true, cancelable: true, clientX: 0, clientY: 17, button: 0 });
+      Object.defineProperty(up, "pointerId", { value: 1 });
+      surface.dispatchEvent(up);
+    });
+
+    // Right-click to open context menu on the selected point
+    await act(async () => {
+      surface.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 0,
+        clientY: 17,
+      }));
+    });
+
+    const setExactBtn = Array.from(document.body.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("Set exact value"));
+    expect(setExactBtn).toBeDefined();
+
+    await act(async () => {
+      setExactBtn?.click();
+    });
+
+    const exactInput = container.querySelector("input[data-testid='automation-exact-value-input']") as HTMLInputElement;
+    expect(exactInput).not.toBeNull();
+
+    // Change input value to -3.5 and press Enter
+    await act(async () => {
+      exactInput.value = "-3.5";
+      exactInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+
+    // Verify popover closed
+    expect(container.querySelector("input[data-testid='automation-exact-value-input']")).toBeNull();
   });
 });

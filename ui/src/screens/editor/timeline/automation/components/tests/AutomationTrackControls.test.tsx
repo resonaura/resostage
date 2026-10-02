@@ -309,5 +309,62 @@ describe("AutomationTrackControls", () => {
     expect(onRemoveLane).toHaveBeenCalledWith("lane-1");
     expect(builder.automationLaneRemove).not.toHaveBeenCalled();
   });
+
+  it("marks already automated parameters with a bullet in the select options", () => {
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [mockLane],
+          activeLaneId: "lane-1",
+          onSelectLane: vi.fn(),
+        }),
+      );
+    });
+
+    const select = container.querySelector("select");
+    expect(select).not.toBeNull();
+    const options = Array.from(select!.querySelectorAll("option"));
+    const faderOption = options.find((o) => o.value === "strip:track-1:gain");
+    const panOption = options.find((o) => o.value === "strip:track-1:pan");
+
+    expect(faderOption?.textContent).toContain("•");
+    expect(panOption?.textContent).not.toContain("•");
+  });
+
+  it("adds the next available unautomated parameter when clicking + while an automated parameter is selected", async () => {
+    const onSelectLane = vi.fn();
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [mockLane], // Fader Gain is already automated
+          activeLaneId: "lane-1",
+          onSelectLane,
+        }),
+      );
+    });
+
+    const addBtn = container.querySelector("button[aria-label='Add automation']") as HTMLButtonElement;
+    expect(addBtn).not.toBeNull();
+    expect(addBtn.disabled).toBe(false);
+
+    await act(async () => {
+      addBtn.click();
+    });
+
+    // Should add Pan (the next unautomated strip parameter)
+    expect(builder.automationLaneAdd).toHaveBeenCalledWith(expect.objectContaining({
+      songIndex: 0,
+      domain: "strip",
+      entityId: "track-1",
+      parameterId: "pan",
+      valueType: "floatNormalized",
+      points: [],
+    }));
+    expect(onSelectLane).toHaveBeenCalledWith("strip:track-1:pan");
+  });
 });
 
