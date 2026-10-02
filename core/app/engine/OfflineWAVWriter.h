@@ -31,7 +31,8 @@ private:
     bool writeEmptyHeader();
     float randomUnit();
     bool writeEncoded(const float* left, const float* right, int frames, float gain);
-    bool finalizeWavFile();
+    bool finalizeWAVFile();
+    bool finalizeWavFile() { return finalizeWAVFile(); }
 
     FILE* file = nullptr;
     int sampleRate_ = 48000;

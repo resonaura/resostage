@@ -108,7 +108,7 @@ private:
     size_t cursor = 0;
 };
 
-class WavSource {
+class WAVSource {
 public:
     bool open(const ProjectLoader& loader, const std::string& path, std::string& error) {
         cursor = loader.openStream(path, error);
@@ -171,9 +171,11 @@ private:
     std::vector<std::vector<float>> cache;
 };
 
+using WavSource = WAVSource;
+
 struct RegionReader {
     const Region* region = nullptr;
-    std::unique_ptr<WavSource> source;
+    std::unique_ptr<WAVSource> source;
     signalsmith::stretch::SignalsmithStretch<float> pitch;
     bool pitchReady = false;
 
@@ -353,7 +355,7 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                 continue;
             RegionReader rr;
             rr.region = &region;
-            rr.source = std::make_unique<WavSource>();
+            rr.source = std::make_unique<WAVSource>();
             if (!rr.source->open(loader, region.source.file, result.error)) {
                 return fail(result.error);
             }

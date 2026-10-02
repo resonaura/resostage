@@ -78,7 +78,7 @@ bool WAVWriter::write(const float* left, const float* right, int frames) {
 bool WAVWriter::finish(std::string& error) {
     if (file == nullptr) { error = "Render writer is not open"; return false; }
     if (normalization_ == RenderNormalization::Off) {
-        if (!finalizeWavFile()) { error = "Failed to finalize output WAV"; return false; }
+        if (!finalizeWAVFile()) { error = "Failed to finalize output WAV"; return false; }
     } else {
         if (std::fclose(file) != 0) { file = nullptr; error = "Failed to close normalization pass"; return false; }
         file = nullptr;
@@ -117,7 +117,7 @@ bool WAVWriter::finish(std::string& error) {
         }
         const bool rawOk = std::ferror(raw) == 0;
         std::fclose(raw);
-        if (!rawOk || !finalizeWavFile()) {
+        if (!rawOk || !finalizeWAVFile()) {
             error = "Failed to finalize normalized WAV";
             return false;
         }
@@ -200,7 +200,7 @@ bool WAVWriter::writeEncoded(const float* left, const float* right, int frames, 
     return std::fwrite(scratch.data(), 1, n, file) == n;
 }
 
-bool WAVWriter::finalizeWavFile() {
+bool WAVWriter::finalizeWAVFile() {
     if (file == nullptr) return true;
     const uint16_t format = bitDepth_ == 32 ? 3 : 1;
     const uint16_t channels = 2;
