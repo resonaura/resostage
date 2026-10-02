@@ -1051,6 +1051,7 @@ struct WebUiState {
         bool virtualMidiPortEnabled = false;
         std::string uiRenderEngine = "wkwebview";
         std::string theme = "default";
+        std::string renderOutputDirectory;
         int countInBars = 1;
         int countInPreferredBars = 1;
         struct Keybinding {

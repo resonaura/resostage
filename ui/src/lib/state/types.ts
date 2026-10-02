@@ -828,6 +828,8 @@ export interface RecentProjectEntry {
 }
 
 export interface SettingsState {
+  /** Device-local last accepted audio render folder; empty uses Exports. */
+  renderOutputDirectory?: string;
   currentOutputDevice: string;
   outputDevices: string[];
   currentInputDevice?: string;

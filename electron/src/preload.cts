@@ -73,6 +73,10 @@ contextBridge.exposeInMainWorld("resostageElectron", {
     headers?: Record<string, string>;
     body?: string | null;
   }) => ipcRenderer.invoke("http:proxy", req),
+  /** Native folder selection for local-Core audio exports; remote destinations
+   * belong to the playback machine and must be entered there explicitly. */
+  chooseAudioRenderDirectory: (defaultPath?: string): Promise<string | null> =>
+    ipcRenderer.invoke("render:choose-output-directory", defaultPath),
   /** Floating Musical Typing / Virtual MIDI keyboard window management */
   toggleKeyboardWindow: () => ipcRenderer.invoke("keyboard-window:toggle"),
   openKeyboardWindow: () => ipcRenderer.invoke("keyboard-window:open"),

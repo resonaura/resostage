@@ -45,6 +45,8 @@ private:
     std::string finalPath;
     std::string partPath;
     std::string rawPath;
+    bool partCreated = false;
+    bool rawCreated = false;
     std::vector<uint8_t> scratch;
     std::vector<float> floatScratch;
     std::vector<float> planarL;

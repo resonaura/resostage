@@ -11,6 +11,7 @@
 
 #include "MainComponent.h"
 #include "engine/AudioEngineInternal.h"
+#include "engine/OfflineOutputFile.h"
 #include "media/FFmpegProcess.h"
 #include "plugins/PluginPaths.h"
 #include "plugins/PluginProcessorBank.h"
@@ -19,62 +20,15 @@
 #include "server/BuilderJson.h"
 
 #include <algorithm>
-#include <cerrno>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
 #include <vector>
 
-#if JUCE_WINDOWS
-#include <windows.h>
-#elif JUCE_LINUX
-#include <fcntl.h>
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
-
 namespace resostage {
 
 namespace {
-bool publishEncodedFile(const std::string& partial, const std::string& destination,
-                        std::error_code& error) {
-    // Exclusive rename works on ordinary/removable filesystems without
-    // hard-link support, and prevents a racing export from overwriting data.
-#if JUCE_MAC
-    if (renamex_np(partial.c_str(), destination.c_str(), RENAME_EXCL) == 0) {
-        error.clear();
-        return true;
-    }
-    error = std::error_code(errno, std::generic_category());
-#elif JUCE_WINDOWS
-    const std::filesystem::path sourcePath(std::u8string(partial.begin(), partial.end()));
-    const std::filesystem::path destinationPath(std::u8string(destination.begin(), destination.end()));
-    if (MoveFileExW(sourcePath.c_str(), destinationPath.c_str(), MOVEFILE_WRITE_THROUGH) != 0) {
-        error.clear();
-        return true;
-    }
-    error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
-#elif JUCE_LINUX && defined(SYS_renameat2)
-    constexpr unsigned kRenameNoReplace = 1;
-    if (syscall(SYS_renameat2, AT_FDCWD, partial.c_str(), AT_FDCWD,
-                destination.c_str(), kRenameNoReplace) == 0) {
-        error.clear();
-        return true;
-    }
-    error = std::error_code(errno, std::generic_category());
-#else
-    std::filesystem::create_hard_link(partial, destination, error);
-    if (!error) {
-        std::filesystem::remove(partial, error);
-        error.clear();
-        return true;
-    }
-#endif
-    return false;
-}
-
 class OfflinePluginSession final : public OfflineProcessorSession {
 public:
     OfflinePluginSession(std::shared_ptr<PluginProcessorBank> bankIn,
@@ -179,6 +133,14 @@ void MainComponent::startAudioRender(const std::string& json) {
     std::string dither = "none";
     std::string outputFormat = "wav";
     std::string normalization = "off";
+    std::string outputDirectory;
+    const bool hasOutputDirectory = doc.contains("outputDirectory");
+    if (hasOutputDirectory
+        && !builder_json::getString(doc, "outputDirectory", outputDirectory)) {
+        audioRenderRunning.store(false, std::memory_order_release);
+        webServer.failAudioRender("Output directory must be an absolute folder path on the Core machine");
+        return;
+    }
     int songIndex = static_cast<int>(engine.currentSongIndex());
     int sampleRate = static_cast<int>(std::lround(std::max(8000.0, engine.project().sampleRate)));
     int bitDepth = 24;
@@ -271,14 +233,42 @@ void MainComponent::startAudioRender(const std::string& json) {
     if (engine.projectPath().empty())
         exportDir = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                         .getChildFile("ResoStage Exports");
-    exportDir.createDirectory();
+    if (!outputDirectory.empty()) {
+        if (outputDirectory.find('\0') != std::string::npos
+            || !juce::File::isAbsolutePath(outputDirectory)) {
+            audioRenderRunning.store(false, std::memory_order_release);
+            webServer.failAudioRender("Output directory must be an absolute folder path on the Core machine");
+            return;
+        }
+        exportDir = juce::File(juce::String::fromUTF8(outputDirectory.c_str()));
+        if (!exportDir.isDirectory()) {
+            audioRenderRunning.store(false, std::memory_order_release);
+            webServer.failAudioRender("Output directory does not exist or is not a folder on the Core machine: "
+                + outputDirectory);
+            return;
+        }
+    } else {
+        const auto directoryResult = exportDir.createDirectory();
+        if (directoryResult.failed()) {
+            audioRenderRunning.store(false, std::memory_order_release);
+            webServer.failAudioRender("Cannot create the output directory: "
+                + directoryResult.getErrorMessage().toStdString());
+            return;
+        }
+    }
+    if (!exportDir.hasWriteAccess()) {
+        audioRenderRunning.store(false, std::memory_order_release);
+        webServer.failAudioRender("Output directory is not writable on the Core machine: "
+            + exportDir.getFullPathName().toStdString());
+        return;
+    }
 
     const juce::String projectToken = juce::String(liveProject.name).isNotEmpty()
         ? juce::String(liveProject.name) : juce::String("Project");
     juce::String songToken = "Project";
     if (request.songIndex >= 0 && request.songIndex < static_cast<int>(liveProject.songs.size()))
         songToken = juce::String(liveProject.songs[static_cast<size_t>(request.songIndex)].name);
-    std::vector<std::string> plannedOutputPaths;
+    std::vector<std::string> plannedOutputPathKeys;
     std::vector<std::string> finalOutputPaths;
     std::vector<std::string> renderStagePaths;
     const juce::String outputExtension = outputFormat == "aiff" ? ".aiff"
@@ -309,13 +299,14 @@ void MainComponent::startAudioRender(const std::string& json) {
         juce::File output = exportDir.getChildFile(safeName + outputExtension);
         int copy = 2;
         while (output.exists()
-               || std::find(plannedOutputPaths.begin(), plannedOutputPaths.end(),
-                            output.getFullPathName().toStdString()) != plannedOutputPaths.end()) {
+               || std::find(plannedOutputPathKeys.begin(), plannedOutputPathKeys.end(),
+                            output.getFullPathName().toLowerCase().toStdString()) != plannedOutputPathKeys.end()) {
             output = exportDir.getChildFile(safeName + " " + juce::String(copy++) + outputExtension);
         }
         const std::string finalPath = output.getFullPathName().toStdString();
         finalOutputPaths.push_back(finalPath);
-        plannedOutputPaths.push_back(finalPath);
+        // Keep multi-stem names distinct on case-insensitive destination volumes.
+        plannedOutputPathKeys.push_back(output.getFullPathName().toLowerCase().toStdString());
         if (outputFormat == "wav") {
             target.outputPath = finalPath;
         } else {
@@ -337,6 +328,14 @@ void MainComponent::startAudioRender(const std::string& json) {
 
     const Project projectSnapshot = engine.project();
     const std::string projectPath = engine.projectPath();
+    if (hasOutputDirectory) {
+        const std::string selectedDirectory = outputDirectory.empty()
+            ? std::string{} : exportDir.getFullPathName().toStdString();
+        if (appSettings.renderOutputDirectory != selectedDirectory) {
+            appSettings.renderOutputDirectory = selectedDirectory;
+            saveAppSettingsToDisk();
+        }
+    }
     cancelAudioRender.store(false, std::memory_order_release);
     setStatus("Rendering audio in background…");
     const juce::Component::SafePointer<MainComponent> safeThis(this);
@@ -382,7 +381,7 @@ void MainComponent::startAudioRender(const std::string& json) {
                 const std::string& finalPath = finalOutputPaths[i];
                 const std::string partialPath = finalPath + ".resostage-part-" + generateUuidV7();
                 std::vector<std::string> arguments = {
-                    "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-threads", "2",
+                    "-nostdin", "-hide_banner", "-loglevel", "error", "-n", "-threads", "2",
                     "-i", stagedWav, "-map", "0:a:0", "-vn",
                 };
                 std::string muxer;
@@ -438,28 +437,30 @@ void MainComponent::startAudioRender(const std::string& json) {
                 const bool encoded = media::runFFmpeg(arguments, ffmpegError, &cancelAudioRender);
                 std::error_code ec;
                 if (!encoded) {
-                    std::filesystem::remove(partialPath, ec);
+                    std::filesystem::remove(offline_detail::outputFilePath(partialPath), ec);
                     conversionError = ffmpegError;
                     break;
                 }
                 if (cancelAudioRender.load(std::memory_order_acquire)) {
-                    std::filesystem::remove(partialPath, ec);
+                    std::filesystem::remove(offline_detail::outputFilePath(partialPath), ec);
                     conversionError = "Audio render cancelled";
                     break;
                 }
-                if (!publishEncodedFile(partialPath, finalPath, ec)) {
+                if (!offline_detail::publishOutputFile(partialPath, finalPath, ec)) {
                     const std::string publishError = ec.message();
-                    std::filesystem::remove(partialPath, ec);
+                    std::filesystem::remove(offline_detail::outputFilePath(partialPath), ec);
                     conversionError = "Could not finalize exported audio without replacing an existing file: " + publishError;
                     break;
                 }
                 committedOutputs.push_back(finalPath);
-                std::filesystem::remove(stagedWav, ec);
+                std::filesystem::remove(offline_detail::outputFilePath(stagedWav), ec);
             }
             if (!conversionError.empty()) {
                 std::error_code ec;
-                for (const auto& path : committedOutputs) std::filesystem::remove(path, ec);
-                for (const auto& path : renderStagePaths) std::filesystem::remove(path, ec);
+                for (const auto& path : committedOutputs)
+                    std::filesystem::remove(offline_detail::outputFilePath(path), ec);
+                for (const auto& path : renderStagePaths)
+                    std::filesystem::remove(offline_detail::outputFilePath(path), ec);
                 result.ok = false;
                 result.error = std::move(conversionError);
             } else {

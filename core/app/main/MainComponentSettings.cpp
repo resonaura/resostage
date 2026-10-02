@@ -74,6 +74,7 @@ void MainComponent::populateSettingsState(WebUiState::SettingsRow& out) {
 
     out.uiRenderEngine = appSettings.uiRenderEngine;
     out.theme = appSettings.theme;
+    out.renderOutputDirectory = appSettings.renderOutputDirectory;
     out.countInBars = appSettings.countInBars;
     out.countInPreferredBars = appSettings.countInPreferredBars;
 

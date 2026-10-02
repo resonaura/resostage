@@ -7,6 +7,7 @@
 #include "OfflineRenderer.h"
 #include "OfflineMidiEvents.h"
 #include "OfflineWavWriter.h"
+#include "OfflineOutputFile.h"
 
 #include "audio/dsp/ClickGenerator.h"
 #include "audio/graph/MixGraph.h"
@@ -277,7 +278,7 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
     writers.reserve(targets.size());
     for (const auto& target : targets) {
         std::filesystem::create_directories(
-            std::filesystem::path(target.outputPath).parent_path(), ec);
+            offline_detail::outputFilePath(target.outputPath).parent_path(), ec);
         auto writer = std::make_unique<WavWriter>();
         if (!writer->open(target.outputPath, request.sampleRate, request.bitDepth,
                           request.dither, request.normalization,
@@ -768,7 +769,8 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
     std::vector<std::string> committedPaths;
     for (size_t i = 0; i < writers.size(); ++i) {
         if (!writers[i]->finish(result.error)) {
-            for (const auto& path : committedPaths) std::filesystem::remove(path, ec);
+            for (const auto& path : committedPaths)
+                std::filesystem::remove(offline_detail::outputFilePath(path), ec);
             return fail(result.error);
         }
         committedPaths.push_back(targets[i].outputPath);

@@ -67,6 +67,7 @@ import {
   type DiscoveredDevice,
 } from "@/discovery.js";
 import { UdpTelemetryTracker } from "@/udpTelemetry.js";
+import { chooseAudioRenderDirectory } from "@/audioRenderDirectory.js";
 import {
   createPlatformAdapter,
   type PlatformAdapter,
@@ -2309,6 +2310,23 @@ ipcMain.handle("keyboard-window:toggle", () => {
     keyboardWindow !== null &&
     !keyboardWindow.isDestroyed() &&
     keyboardWindow.isVisible()
+  );
+});
+
+ipcMain.handle("render:choose-output-directory", async (_event, defaultPath: unknown) => {
+  return chooseAudioRenderDirectory(
+    defaultPath,
+    () => ({ remote: isRemoteSession, backend: currentBackendUrl() }),
+    async (initialPath) => {
+      if (!mainWindow || mainWindow.isDestroyed())
+        throw new Error("The application window is unavailable.");
+      return dialog.showOpenDialog(mainWindow, {
+        title: "Choose Audio Export Destination",
+        buttonLabel: "Choose Folder",
+        defaultPath: initialPath,
+        properties: ["openDirectory", "createDirectory"],
+      });
+    },
   );
 });
 

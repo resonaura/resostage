@@ -267,6 +267,8 @@ export interface AudioRenderOptions {
   normalizationCeilingDb: number;
   trimOutputLatency: boolean;
   fileNamePattern: string;
+  /** Absolute folder on Core; empty selects the standard Exports folder. */
+  outputDirectory?: string;
 }
 
 export interface AudioRenderStatus {

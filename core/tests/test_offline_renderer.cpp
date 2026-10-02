@@ -595,3 +595,72 @@ TEST_CASE("OfflineRenderer never overwrites an existing destination") {
     std::error_code ignored;
     std::filesystem::remove(path, ignored);
 }
+
+TEST_CASE("OfflineRenderer rolls back published stems when a destination appears during rendering") {
+    Project project;
+    project.click.enabled = true;
+    project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.01});
+    const auto firstPath = temporaryWAVPath("-race-first");
+    const auto secondPath = temporaryWAVPath("-race-second");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.targets = {
+        {RenderTargetKind::Click, {}, firstPath.string()},
+        {RenderTargetKind::Master, {}, secondPath.string()},
+    };
+    bool introducedDestination = false;
+    const auto result = OfflineRenderer{}.render(project, {}, request,
+        [&](const OfflineRenderProgress& progress) {
+            if (progress.phase == "finalizing" && !introducedDestination) {
+                std::ofstream otherExport(secondPath, std::ios::binary);
+                otherExport << "keep-concurrent-export";
+                introducedDestination = true;
+            }
+        });
+    CHECK(introducedDestination);
+    CHECK_FALSE(result.ok);
+    CHECK_FALSE(std::filesystem::exists(firstPath));
+    std::ifstream otherExport(secondPath, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(otherExport)), {});
+    CHECK(contents == "keep-concurrent-export");
+    std::error_code ignored;
+    std::filesystem::remove(firstPath, ignored);
+    std::filesystem::remove(secondPath, ignored);
+}
+
+TEST_CASE("OfflineRenderer writes and cancels custom Unicode destinations without leaving temporary files") {
+    const auto directory = temporaryWAVPath("-custom-directory").parent_path()
+        / (temporaryWAVPath().stem().string() + "-exports")
+        / std::filesystem::path(u8"Київ 音楽 exports");
+    REQUIRE(std::filesystem::create_directories(directory));
+    Project project;
+    project.click.enabled = true;
+    project.songs.push_back(SongDef{.id = "meta::song:1", .name = "Short", .endSeconds = 0.05});
+    for (const auto normalization : {RenderNormalization::Off, RenderNormalization::Peak}) {
+        const auto output = directory / (normalization == RenderNormalization::Off ? "plain.wav" : "normalized.wav");
+        const auto utf8Path = output.u8string();
+        OfflineRenderRequest request;
+        request.songIndex = 0;
+        request.targetKind = RenderTargetKind::Click;
+        request.normalization = normalization;
+        request.outputPath.assign(utf8Path.begin(), utf8Path.end());
+        const auto result = OfflineRenderer{}.render(project, {}, request);
+        CHECK(result.ok);
+        CHECK(std::filesystem::exists(output));
+        std::error_code ignored;
+        std::filesystem::remove(output, ignored);
+    }
+    const auto cancelledOutput = directory / "cancelled.wav";
+    const auto utf8Path = cancelledOutput.u8string();
+    OfflineRenderRequest cancelledRequest;
+    cancelledRequest.songIndex = 0;
+    cancelledRequest.targetKind = RenderTargetKind::Click;
+    cancelledRequest.outputPath.assign(utf8Path.begin(), utf8Path.end());
+    std::atomic<bool> cancelled{false};
+    const auto cancelledResult = OfflineRenderer{}.render(project, {}, cancelledRequest,
+        [&](const OfflineRenderProgress&) { cancelled.store(true); }, &cancelled);
+    CHECK_FALSE(cancelledResult.ok);
+    CHECK(std::filesystem::is_empty(directory));
+    std::error_code ignored;
+    std::filesystem::remove_all(directory.parent_path(), ignored);
+}

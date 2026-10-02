@@ -63,6 +63,7 @@ struct WAppSettings {
     bool virtualMidiPortEnabled = false;
     std::string uiRenderEngine = "browser";
     std::string theme = "default";
+    std::string renderOutputDirectory;
     std::vector<int> activeOutputChannels;
     std::vector<int> activeInputChannels;
     std::unordered_map<std::string, std::string> keybindings;
@@ -834,6 +835,7 @@ struct WSettingsTelemetry {
     std::optional<bool> virtualMidiPortEnabled;
     std::optional<std::string> uiRenderEngine;
     std::optional<std::string> theme;
+    std::optional<std::string> renderOutputDirectory;
     std::optional<int> countInBars;
     std::optional<int> countInPreferredBars;
 

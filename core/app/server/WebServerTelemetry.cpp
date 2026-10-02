@@ -802,6 +802,7 @@ std::string WebServer::buildStateJson(const char* view) const {
     }
 
     wire.settings.midiLearnAction = s.midiLearnAction;
+    wire.settings.renderOutputDirectory = s.renderOutputDirectory;
         wire.settings.countInBars = s.countInBars;
         wire.settings.countInPreferredBars = s.countInPreferredBars;
 

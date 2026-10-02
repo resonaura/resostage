@@ -94,6 +94,10 @@ struct AppSettings {
     // Active UI theme name ("default", "sunset", "forest", "purple", "pinky", "sky", "blue", "mono").
     std::string theme = "default";
 
+    // Last explicitly selected render folder on this Core machine. Empty
+    // keeps the project-adjacent/Documents default; never portable project data.
+    std::string renderOutputDirectory;
+
     // Most-recent-first, capped at kMaxRecentProjects (see RecentProjects.h).
     std::vector<RecentProjectEntry> recentProjects;
 };

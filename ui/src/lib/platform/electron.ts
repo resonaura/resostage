@@ -20,6 +20,8 @@ declare global {
         port: number,
       ) => Promise<{ ok: boolean; url?: string; error?: string }>;
       disconnectRemote?: () => Promise<boolean | { ok: boolean; url?: string }>;
+      /** Available only while connected to a local Core. Cancel returns null. */
+      chooseAudioRenderDirectory?: (defaultPath?: string) => Promise<string | null>;
       getRemoteStatus?: () => Promise<{
         isRemoteMode: boolean;
         activeRemoteHost?: string | null;

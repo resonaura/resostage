@@ -14,6 +14,8 @@ import type { AudioRenderOptions } from "@/lib/state/api";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal, Select, Switch } from "@/components/ui";
 import { useAudioRenderJob } from "@/transfer/render/hooks/useAudioRenderJob";
+import { useRenderDestination } from "@/transfer/render/hooks/useRenderDestination";
+import { RenderDestinationFields } from "@/transfer/render/components/RenderDestinationFields";
 import { RenderFormatFields } from "@/transfer/render/components/RenderFormatFields";
 import { RenderFormatLabel } from "@/transfer/render/components/RenderFormatLabel";
 import {
@@ -97,6 +99,7 @@ export function RenderAudioDialog({
     cancel,
   } = useAudioRenderJob(open, requestId, state.songIndex);
   const appliedRequestId = useRef(-1);
+  const destination = useRenderDestination(open, requestId, state.settings.renderOutputDirectory);
 
   const outputs = useMemo<RenderOutputChoice[]>(
     () => [
@@ -228,6 +231,7 @@ export function RenderAudioDialog({
   };
 
   const start = async () => {
+    if (destination.choosing) return;
     clearError();
     if (selectedOutputs.length === 0) {
       setError("Select at least one output.");
@@ -255,6 +259,7 @@ export function RenderAudioDialog({
       normalizationCeilingDb: Number(normalizationCeilingDb),
       trimOutputLatency,
       fileNamePattern: fileNamePattern.trim() || "{project}_{song}_{stem}",
+      outputDirectory: destination.directory,
     };
     await startRender(options);
   };
@@ -318,6 +323,9 @@ export function RenderAudioDialog({
                     </Button>
                   </div>
                 </Section>
+
+                <RenderDestinationFields {...destination} disabled={rendering}
+                  onChange={destination.setDirectory} onBrowse={destination.chooseDirectory} />
 
                 <Section title="Range">
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -566,7 +574,9 @@ export function RenderAudioDialog({
                   label="Estimated size"
                   value={formatBytes(estimatedBytes)}
                 />
-                <SummaryRow label="Destination" value="Core Exports folder" />
+                <SummaryRow label="Destination" value={<span className="break-all">
+                  {destination.directory || "Core Exports folder"}
+                </span>} />
                 <div className="rounded-lg border border-default/20 bg-surface/60 p-3 text-[10px] leading-relaxed text-foreground/55">
                   Rendering runs on the Core in the background and does not stop
                   the live transport. In a remote session, output paths belong
@@ -597,6 +607,7 @@ export function RenderAudioDialog({
                 tone="accent-soft"
                 isDisabled={
                   rendering ||
+                  destination.choosing ||
                   state.songs.length === 0 ||
                   selectedOutputs.length === 0
                 }

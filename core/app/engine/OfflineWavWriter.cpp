@@ -5,6 +5,8 @@
  */
 
 #include "OfflineWavWriter.h"
+#include "OfflineOutputFile.h"
+#include "project/Uuid.h"
 
 #include <algorithm>
 #include <cmath>
@@ -28,26 +30,27 @@ bool WavWriter::open(const std::string& path, int sampleRate, int bitDepth,
                      RenderDither dither, RenderNormalization normalization,
                      double ceilingDb, std::string& error) {
     finalPath = path;
-    partPath = path + ".resostage-part";
-    rawPath = path + ".resostage-float-part";
+    const std::string uniqueSuffix = "-" + generateUuidV7();
+    partPath = path + ".resostage-part" + uniqueSuffix;
+    rawPath = path + ".resostage-float-part" + uniqueSuffix;
     sampleRate_ = sampleRate;
     bitDepth_ = bitDepth;
     dither_ = dither;
     normalization_ = normalization;
     ceilingLinear = dbToGain(std::clamp(ceilingDb, -12.0, 0.0));
     std::error_code ignored;
-    if (std::filesystem::exists(finalPath, ignored)) {
+    if (std::filesystem::exists(outputFilePath(finalPath), ignored)) {
         error = "Output file already exists: " + finalPath;
         return false;
     }
-    std::filesystem::remove(partPath, ignored);
-    std::filesystem::remove(rawPath, ignored);
-    file = std::fopen((normalization_ == RenderNormalization::Off
-                          ? partPath : rawPath).c_str(), "wb");
+    file = openOutputFile(normalization_ == RenderNormalization::Off
+                              ? partPath : rawPath, "wbx");
     if (file == nullptr) {
         error = "Cannot create output file: " + path;
         return false;
     }
+    partCreated = normalization_ == RenderNormalization::Off;
+    rawCreated = normalization_ != RenderNormalization::Off;
     if (normalization_ == RenderNormalization::Off && !writeEmptyHeader()) {
         error = "Cannot write WAV header: " + path;
         abort();
@@ -79,8 +82,9 @@ bool WavWriter::finish(std::string& error) {
     } else {
         if (std::fclose(file) != 0) { file = nullptr; error = "Failed to close normalization pass"; return false; }
         file = nullptr;
-        FILE* raw = std::fopen(rawPath.c_str(), "rb");
-        file = std::fopen(partPath.c_str(), "wb");
+        FILE* raw = openOutputFile(rawPath, "rb");
+        file = openOutputFile(partPath, "wbx");
+        partCreated = file != nullptr;
         if (raw == nullptr || file == nullptr || !writeEmptyHeader()) {
             if (raw != nullptr) std::fclose(raw);
             error = "Cannot start normalized WAV finalization";
@@ -118,15 +122,16 @@ bool WavWriter::finish(std::string& error) {
             return false;
         }
         std::error_code ignored;
-        std::filesystem::remove(rawPath, ignored);
+        std::filesystem::remove(outputFilePath(rawPath), ignored);
+        rawCreated = false;
     }
 
     std::error_code ec;
-    std::filesystem::rename(partPath, finalPath, ec);
-    if (ec) {
+    if (!publishOutputFile(partPath, finalPath, ec)) {
         error = "Cannot publish rendered WAV: " + ec.message();
         return false;
     }
+    partCreated = false;
     finalPath.clear();
     partPath.clear();
     rawPath.clear();
@@ -139,8 +144,10 @@ void WavWriter::abort() {
         file = nullptr;
     }
     std::error_code ignored;
-    if (!partPath.empty()) std::filesystem::remove(partPath, ignored);
-    if (!rawPath.empty()) std::filesystem::remove(rawPath, ignored);
+    if (partCreated) std::filesystem::remove(outputFilePath(partPath), ignored);
+    if (rawCreated) std::filesystem::remove(outputFilePath(rawPath), ignored);
+    partCreated = false;
+    rawCreated = false;
 }
 
 bool WavWriter::writeEmptyHeader() {

@@ -84,6 +84,9 @@ AppSettings loadAppSettings() {
     if (!wire.theme.empty()) {
         settings.theme = std::move(wire.theme);
     }
+    if (wire.renderOutputDirectory.find('\0') == std::string::npos
+        && juce::File::isAbsolutePath(wire.renderOutputDirectory))
+        settings.renderOutputDirectory = std::move(wire.renderOutputDirectory);
 
     settings.activeOutputChannels = std::move(wire.activeOutputChannels);
     settings.activeInputChannels = std::move(wire.activeInputChannels);
@@ -157,6 +160,7 @@ bool saveAppSettings(const AppSettings& settings, std::string& error) {
     wire.virtualMidiPortEnabled = settings.virtualMidiPortEnabled;
     wire.uiRenderEngine = settings.uiRenderEngine;
     wire.theme = settings.theme;
+    wire.renderOutputDirectory = settings.renderOutputDirectory;
     wire.activeOutputChannels = settings.activeOutputChannels;
     wire.activeInputChannels = settings.activeInputChannels;
     for (const auto& [name, profile] : settings.deviceProfiles) {
