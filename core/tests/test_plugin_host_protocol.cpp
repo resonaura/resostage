@@ -117,6 +117,45 @@ TEST_CASE("plug-in host shared frames have a validated versioned ABI") {
     CHECK_FALSE(validate(area, 41, 512));
 }
 
+TEST_CASE("plug-in host command completion releases the mailbox before Core reuses it") {
+    auto area = std::make_unique<SharedArea>();
+    constexpr uint64_t requests = 20000;
+    std::atomic<bool> invalidCommand{false};
+    std::atomic<bool> stop{false};
+    std::thread helper([&] {
+        uint64_t completed = 0;
+        while (!stop.load(std::memory_order_acquire) && completed < requests) {
+            const auto request = area->commandRequest.load(std::memory_order_acquire);
+            if (request == completed) { std::this_thread::yield(); continue; }
+            const auto expected = request % 2 == 0 ? HostCommand::CloseEditor : HostCommand::OpenEditor;
+            if (area->command.load(std::memory_order_relaxed) != static_cast<uint32_t>(expected))
+                invalidCommand.store(true, std::memory_order_relaxed);
+            completeCommand(*area, request, true);
+            completed = request;
+        }
+    });
+    // Two non-realtime command owners reuse the single mailbox immediately.
+    // Bound the diagnostic wait so a regression cannot hang the test suite.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    uint64_t completed = 0;
+    for (uint64_t request = 1; request <= requests; ++request) {
+        const auto command = request % 2 == 0 ? HostCommand::CloseEditor : HostCommand::OpenEditor;
+        area->command.store(static_cast<uint32_t>(command), std::memory_order_relaxed);
+        area->commandRequest.store(request, std::memory_order_release);
+        while (area->commandComplete.load(std::memory_order_acquire) != request
+               && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::yield();
+        if (area->commandComplete.load(std::memory_order_acquire) != request) break;
+        completed = request;
+        CHECK(area->commandResult.load(std::memory_order_relaxed) == 1);
+    }
+    stop.store(true, std::memory_order_release);
+    helper.join();
+    CHECK(completed == requests);
+    CHECK_FALSE(invalidCommand.load(std::memory_order_relaxed));
+    CHECK(area->command.load(std::memory_order_relaxed) == static_cast<uint32_t>(HostCommand::None));
+}
+
 TEST_CASE("plug-in host never replays output that missed its deadline") {
     CHECK(outputCursorAfterDeadlineMiss(12, 12) == 13);
     CHECK(12 < outputCursorAfterDeadlineMiss(12, 12));
@@ -450,7 +489,7 @@ TEST_CASE("deferred MIDI overflow clears ambiguous history and replays channel p
     CHECK(allSoundOffCount == 16);
 }
 
-TEST_CASE("dense sustain-release and panic traffic during deferred MIDI state capture preserves acoustic continuity") {
+TEST_CASE("dense sustain-release and panic traffic during deferred MIDI state capture preserves packets and panic recovery") {
     PluginMIDIDeferredQueue deferred;
     PluginMIDIBuffer input;
 

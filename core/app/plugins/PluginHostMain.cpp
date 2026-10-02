@@ -214,12 +214,7 @@ private:
             if (command == resostage::plugin_host::HostCommand::OpenEditor
                 || command == resostage::plugin_host::HostCommand::CloseEditor
                 || command == resostage::plugin_host::HostCommand::CloseAllEditors) {
-                area.commandResult.store(succeeded ? 1u : 0u,
-                                         std::memory_order_relaxed);
-                area.commandComplete.store(request, std::memory_order_release);
-                area.command.store(
-                    static_cast<uint32_t>(resostage::plugin_host::HostCommand::None),
-                    std::memory_order_release);
+                resostage::plugin_host::completeCommand(area, request, succeeded);
             }
         }
 
@@ -424,12 +419,7 @@ private:
                         && runtime->captureStateFiles(commandError);
                     if (!commandError.empty())
                         std::cerr << commandError << '\n';
-                    area.commandResult.store(succeeded ? 1u : 0u,
-                                             std::memory_order_relaxed);
-                    area.commandComplete.store(request, std::memory_order_release);
-                    area.command.store(
-                        static_cast<uint32_t>(resostage::plugin_host::HostCommand::None),
-                        std::memory_order_release);
+                    resostage::plugin_host::completeCommand(area, request, succeeded);
                 } else if (command == resostage::plugin_host::HostCommand::OpenEditor
                            || command == resostage::plugin_host::HostCommand::CloseEditor
                            || command == resostage::plugin_host::HostCommand::CloseAllEditors) {

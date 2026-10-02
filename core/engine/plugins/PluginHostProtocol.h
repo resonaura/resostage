@@ -350,6 +350,19 @@ inline bool tryDequeueControl(SharedArea& area,
     return false;
 }
 
+/** Helper command owner only (message thread for editors, control worker for
+ * capture). Clear the old mailbox before publishing completion: Core may reuse
+ * it immediately after its acquire-load of commandComplete. A later None store
+ * would overwrite the next command even though its request was accepted.
+ */
+inline void completeCommand(SharedArea& area, uint64_t request,
+                            bool succeeded) noexcept {
+    area.commandResult.store(succeeded ? 1u : 0u, std::memory_order_relaxed);
+    area.command.store(static_cast<uint32_t>(HostCommand::None),
+                       std::memory_order_relaxed);
+    area.commandComplete.store(request, std::memory_order_release);
+}
+
 inline bool validate(const SharedArea& area, uint64_t expectedGeneration,
                      uint32_t maximumBlockSamples,
                      double sampleRate = 48000.0) noexcept {
