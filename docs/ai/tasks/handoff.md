@@ -153,7 +153,8 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   `editor-state.mjs` passed audio/MIDI region CRUD, structural cycle/section/
   event/bus/song edits, concurrent exact ACKs, 257-edit result-ring eviction,
   playback-revision checks, active-playback Undo/Redo, stale upload/edit,
-  stale destructive New Project rejection, 413, and save/reopen. Focused UI
+  stale destructive New Project rejection, Core-session rejection after
+  restart with request-ID reuse, 413, and save/reopen. Focused UI
   tests prove an expired result triggers one refetch, stays unknown and is not
   resent, and fire-and-forget rejection is surfaced without retry. No full
   Electron run, acoustic/vendor proof, injected snapshot

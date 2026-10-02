@@ -445,9 +445,17 @@ export async function verifyEditorState(coreExecutable, inspect) {
       if (attempt === 99) throw new Error("Project save did not persist edited collections");
       await sleep(50);
     }
+    const preRestartIdentity = {
+      stateSessionId: commandState.stateSessionId,
+      projectEpoch: commandState.projectEpoch,
+    };
+    const firstEditorRequestId = initialMidiEdit.accepted.requestId;
     await stopCore();
     await startCore();
     state = await request("/api/v1/state");
+    commandState = state;
+    assert.notEqual(state.stateSessionId, preRestartIdentity.stateSessionId,
+      "a Core restart must create a new command identity namespace");
     assert.equal(getRegion(state).notes.length, notes.length);
     assert.ok(getRegion(state).notes.every((note) => note.durationBeats === 0.5 && note.startBeats % 0.5 === 0));
     assert.equal(state.songs[0].automationLanes[0].points.length, points.length);
@@ -460,6 +468,33 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(state.songs[0].automationLanes[3].points.length, 2);
     assert.equal(state.songs[0].automationLanes[4].target.parameterId, "send:0");
     assert.equal(state.songs[0].automationLanes[4].points.length, 2);
+
+    const revisionBeforeStaleRestartEdit = state.stateRevision;
+    const nameBeforeStaleRestartEdit = getRegion(state).name;
+    const staleRestartEdit = await fetch(origin + "/api/v1/builder/midi-region/update", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-ResoStage-Session": preRestartIdentity.stateSessionId,
+        "X-ResoStage-Project-Epoch": String(preRestartIdentity.projectEpoch),
+      },
+      body: JSON.stringify({ songIndex: 0, regionId, name: "Stale Core session command" }),
+      signal: AbortSignal.timeout(8000),
+    });
+    assert.equal(staleRestartEdit.status, 409,
+      "a command from a dead Core session must be rejected before admission");
+    state = await request("/api/v1/state");
+    commandState = state;
+    assert.equal(state.stateRevision, revisionBeforeStaleRestartEdit,
+      "stale Core-session commands cannot mutate the reopened project");
+    assert.equal(getRegion(state).name, nameBeforeStaleRestartEdit);
+
+    const reusedIdEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", {
+      songIndex: 0, regionId, name: "New Core session command",
+    });
+    assert.equal(reusedIdEdit.accepted.requestId, firstEditorRequestId,
+      "request IDs may be reused after restart only within the new session namespace");
+    assert.equal(getRegion(reusedIdEdit.state).name, "New Core session command");
     if (inspect) await inspect(origin);
 
     const oldIdentity = {
@@ -532,7 +567,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "stale project edits must not create a history revision");
     assert.equal(staleEdit.state.songs[0].midiRegions[0].name, fencedRegion.name,
       "stale project edits must not mutate entities with reused/indexed targets");
-    console.log("PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction, audio/MIDI region CRUD, structural song/bus/event/section/cycle results, project-epoch fences for editor/media uploads, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
+    console.log("PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction, audio/MIDI region CRUD, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.

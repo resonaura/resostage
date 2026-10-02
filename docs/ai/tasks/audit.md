@@ -203,7 +203,8 @@ core/build --output-on-failure` passed 1/1 native targets. The real-Core
 `editor-state.mjs` harness passed audio/MIDI region CRUD, song/bus/event/section/
 cycle structural outcomes, concurrent request IDs, 257-edit result-ring
 eviction, playback graph revision checks, project-epoch fences, active-playback
-Undo/Redo, import/stale edit/reopen and 413 cases. Focused UI tests confirm an
+Undo/Redo, import/stale edit/reopen, Core restart/session fencing with numeric
+request-ID reuse, and 413 cases. Focused UI tests confirm an
 expired exact result triggers one refetch, remains unknown and is not retried,
 and fire-and-forget command failures are surfaced in the shell without retry.
 This is state/protocol evidence, not audible continuity or vendor/hardware
