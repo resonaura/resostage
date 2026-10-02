@@ -54,6 +54,7 @@ add_executable(resostage_engine_tests
   test_offline_renderer.cpp
   test_automation_envelope.cpp
   test_automation_framework.cpp
+  test_strip_automation.cpp
   test_envelope_follower.cpp
   test_plugin_hardening.cpp
   test_plugin_performance.cpp

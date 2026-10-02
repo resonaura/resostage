@@ -41,11 +41,14 @@
 #include "../project/ProjectSchema.h"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace resostage {
+
+class StripAutomationPlan;
 
 // Which strips silence each other when one of them is soloed. Solo is always
 // scoped to a group: soloing a track must not mute the aux sends carrying it
@@ -150,6 +153,10 @@ struct OutputLaneConfig {
 struct MixGraph {
     std::vector<MixStrip> strips;
     std::vector<MixEdge> edges;
+
+    // Prepared strip-index bindings and owned envelope data share this
+    // publication's retirement lifetime, never mutable project vectors.
+    std::shared_ptr<const StripAutomationPlan> stripAutomation;
 
     // Stable across gain/pan/mute/routing-only republishes, but changes when
     // processable strip indices or an insert chain changes. The audio callback

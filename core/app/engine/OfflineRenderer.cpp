@@ -14,6 +14,7 @@
 #include "audio/graph/MixRenderer.h"
 #include "audio/streaming/WAVStreamDecoder.h"
 #include "automation/AutomationEvaluator.h"
+#include "automation/StripAutomationPlan.h"
 #include "project/ProjectLoader.h"
 #include "project/MidiRegionLoop.h"
 #include "plugins/PluginParameterBinding.h"
@@ -327,6 +328,7 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
 
     double completedSeconds = 0.0;
     int64_t processedWorkFrames = 0;
+    std::shared_ptr<const StripAutomationPlan> preparedStripAutomation;
     for (size_t selection = 0; selection < songIndices.size(); ++selection) {
         if (cancel != nullptr && cancel->load(std::memory_order_relaxed)) {
             return fail("Render cancelled");
@@ -387,7 +389,15 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
             std::clamp(request.tailThresholdDb, -144.0, -24.0));
         OutputLaneConfig outputs;
         outputs.totalChannels = 2;
-        const MixGraph graph = buildMixGraph(project, outputs);
+        MixGraph graph = buildMixGraph(project, outputs);
+        if (preparedStripAutomation == nullptr) {
+            preparedStripAutomation = StripAutomationPlan::prepare(project, graph, result.error);
+            if (preparedStripAutomation == nullptr)
+                return fail(result.error.empty() ? "Unable to prepare strip automation" : result.error);
+        }
+        // Song renders use independent DSP sessions, but their immutable
+        // project/strip bindings are identical and need only one preparation.
+        graph.stripAutomation = preparedStripAutomation;
         std::vector<uint32_t> selectedStrips;
         selectedStrips.reserve(targets.size());
         for (const auto& target : targets) {
@@ -512,6 +522,9 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                 : count;
             const int writeCount = recordPass ? count - writeOffset : 0;
             mixer.beginBlock(graph, count);
+            graph.stripAutomation->apply(
+                static_cast<size_t>(songIndices[selection]),
+                tempoMap.samplesToBeats(sourceFrameBase, request.sampleRate), mixer);
 
             for (uint32_t ti = 0; ti < project.tracks.size() && contentCount > 0; ++ti) {
                 float* trackL = mixer.sourceChannel(ti, 0);

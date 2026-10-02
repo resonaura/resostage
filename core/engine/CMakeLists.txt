@@ -24,6 +24,7 @@ add_library(resostage_engine STATIC
   audio/dsp/AutomationEnvelope.cpp
   audio/dsp/EnvelopeFollower.cpp
   automation/AutomationEvaluator.cpp
+  automation/StripAutomationPlan.cpp
   automation/RamerDouglasPeucker.cpp
   automation/AutomationRecorder.cpp
   plugins/PluginPowerManager.cpp

@@ -18,6 +18,7 @@
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "automation/StripAutomationPlan.h"
 #include "project/ProjectJson.h"
 #include "project/RouteId.h"
 
@@ -262,6 +263,23 @@ void AudioEngine::publishRoutingSnapshot() {
 
     auto mutableGraph = std::make_shared<MixGraph>(buildMixGraph(loader.project(), outputs));
     mutableGraph->projectEpoch = projectEpoch.load(std::memory_order_acquire);
+    const bool prepareAutomation = needsActivityPreparation(
+        songActivityDirty, publishedGraph.get(), *mutableGraph);
+    if (!prepareAutomation && publishedGraph != nullptr) {
+        // Manual coefficient changes do not copy envelopes or rebind IDs.
+        mutableGraph->stripAutomation = publishedGraph->stripAutomation;
+    } else if (projectLoaded) {
+        std::string error;
+        try {
+            mutableGraph->stripAutomation = StripAutomationPlan::prepare(
+                loader.project(), *mutableGraph, error);
+        } catch (const std::bad_alloc&) {
+            error = "Strip automation preparation ran out of memory";
+        }
+        if (!error.empty())
+            juce::Logger::writeToLog(juce::String(error)
+                + "; retaining manual gain/pan coefficients");
+    }
     std::shared_ptr<const MixGraph> graph = std::move(mutableGraph);
     const uint32_t clickStrip = graph->find("audio::click");
     std::vector<LoadedBus> rows = buildBusRows(*graph);

@@ -21,6 +21,7 @@
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "automation/StripAutomationPlan.h"
 #include "timing/CycleMath.h"
 
 #include <algorithm>
@@ -1680,6 +1681,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
     }
 
     mixRenderer.beginBlock(graph, numSamples);
+    if (isPlaying && graph.stripAutomation != nullptr && currentSong < proj.songs.size()) {
+        const auto tempoMap = std::atomic_load_explicit(&activeTempoMap, std::memory_order_acquire);
+        const double segmentBeat = tempoMap != nullptr
+            ? tempoMap->samplesToBeats(playheadSample, currentSampleRate)
+            : (static_cast<double>(playheadSample) / currentSampleRate)
+                * proj.songs[currentSong].bpm / 60.0;
+        graph.stripAutomation->apply(currentSong, segmentBeat, mixRenderer);
+    }
 
     // Hand each track's decoded block to its strip. Strip index == track
     // index by construction: buildMixGraph() lays the project's tracks out

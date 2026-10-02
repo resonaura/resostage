@@ -29,6 +29,7 @@ void MixRenderer::prepare(double sampleRate, int maxBlockSize, size_t maxStrips,
     edgeDelayScratch.assign(static_cast<size_t>(maxBlock) * 2, 0.0f);
     stripLevels.assign(stripCapacity, StripLevels{});
     stripSmoothers.assign(stripCapacity, Smoother{});
+    automationOverrides.assign(stripCapacity, AutomationOverride{});
     edgeSmoothers.assign(edgeCapacity, -1.0f);
 }
 
@@ -89,9 +90,28 @@ void MixRenderer::beginBlock(const MixGraph& graph, int numSamples) {
         return;
     const size_t span = static_cast<size_t>(std::min(numSamples, maxBlock));
     for (uint32_t s = 0; s < graph.strips.size(); ++s) {
+        automationOverrides[s].gainActive = false;
+        automationOverrides[s].panActive = false;
         std::fill_n(preRow(s, 0), span, 0.0f);
         std::fill_n(preRow(s, 1), span, 0.0f);
     }
+}
+
+void MixRenderer::setAutomationGain(uint32_t stripIndex, float gainLinear) noexcept {
+    if (stripIndex >= automationOverrides.size()
+        || !std::isfinite(gainLinear) || gainLinear < 0.0f)
+        return;
+    auto& value = automationOverrides[stripIndex];
+    value.gainLinear = gainLinear;
+    value.gainActive = true;
+}
+
+void MixRenderer::setAutomationPan(uint32_t stripIndex, float pan) noexcept {
+    if (stripIndex >= automationOverrides.size() || !std::isfinite(pan))
+        return;
+    auto& value = automationOverrides[stripIndex];
+    value.pan = std::clamp(pan, -1.0f, 1.0f);
+    value.panActive = true;
 }
 
 float* MixRenderer::sourceChannel(uint32_t stripIndex, int channel) {
@@ -294,9 +314,12 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
 
         float targetL = 0.0f;
         float targetR = 0.0f;
-        mix_math::panGains(strip.gainLinear, strip.pan, targetL, targetR,
+        const auto& automation = automationOverrides[s];
+        const float stripGain = automation.gainActive ? automation.gainLinear : strip.gainLinear;
+        const float stripPan = automation.panActive ? automation.pan : strip.pan;
+        mix_math::panGains(stripGain, stripPan, targetL, targetR,
                            strip.panLaw);
-        const float targetFader = strip.gainLinear;
+        const float targetFader = stripGain;
         const float targetMono = strip.channels == 1 ? 1.0f : 0.0f;
 
         // Where a one-channel strip's single signal comes from. A source

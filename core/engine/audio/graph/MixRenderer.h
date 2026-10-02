@@ -106,6 +106,12 @@ public:
     // any source audio.
     void beginBlock(const MixGraph& graph, int numSamples);
 
+    // Optional block/segment coefficients from a pre-bound automation plan.
+    // beginBlock clears these intents; process uses the usual fader/pan law
+    // and 10 ms glide. They never mutate the immutable graph or manual state.
+    void setAutomationGain(uint32_t stripIndex, float gainLinear) noexcept;
+    void setAutomationPan(uint32_t stripIndex, float pan) noexcept;
+
     // Audio thread. Where the caller writes a source strip's decoded audio.
     // Always 2 channels: a stereo source writes both, a mono file writes the
     // same samples to each. Returns nullptr for an out-of-capacity strip.
@@ -137,6 +143,12 @@ public:
     void resetSmoothing();
 
 private:
+    struct AutomationOverride {
+        float gainLinear = 1.0f;
+        float pan = 0.0f;
+        bool gainActive = false;
+        bool panActive = false;
+    };
     struct Smoother {
         float gainL = 1.0f;
         float gainR = 1.0f;
@@ -166,6 +178,7 @@ private:
     std::vector<float> edgeDelayScratch;
     std::vector<StripLevels> stripLevels;
     std::vector<Smoother> stripSmoothers;
+    std::vector<AutomationOverride> automationOverrides;
     // Glide state for edge gains, keyed by edge index. Rebuilt implicitly
     // whenever the edge count changes; -1 means "not primed yet".
     std::vector<float> edgeSmoothers;
