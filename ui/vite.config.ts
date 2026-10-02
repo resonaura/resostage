@@ -140,10 +140,4 @@ export default defineConfig({
       },
     },
   },
-  test: {
-    pool: 'threads',
-    maxWorkers: 3,
-    testTimeout: 30000,
-    hookTimeout: 30000,
-  },
 })

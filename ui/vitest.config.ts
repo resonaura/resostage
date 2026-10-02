@@ -21,5 +21,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.{ts,tsx}"],
+    // Vitest loads this file instead of vite.config.ts. Keep test workers
+    // bounded here so DOM tests cannot exhaust an 8 GiB development host.
+    pool: "threads",
+    maxWorkers: 3,
+    testTimeout: 30000,
+    hookTimeout: 30000,
   },
 });
