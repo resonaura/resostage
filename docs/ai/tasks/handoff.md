@@ -22,6 +22,12 @@ Additional critical issues:
 4. State updates must distinguish command admission, authoritative application,
    optimistic drafts and latest-wins telemetry. Do not migrate transport merely
    to hide consistency bugs.
+5. **Live editing is mandatory:** notes, regions, automation and supported controls
+   must be updatable while transport is playing. No Stop/Play requirement, clock
+   reset, message-thread seek or restart of healthy plug-in chains. Prepare edits
+   outside audio and atomically publish complete compatible snapshots at a block
+   boundary. Define what happens to notes already sounding and let the playhead
+   continue. Test real playback, not only stopped-state visuals/save persistence.
 
 ## Verified root causes and committed fixes
 
@@ -91,6 +97,10 @@ folders. Commit each finished block; do not push.
    Safe mute needs edge-audibility/smoothing semantics; sends need bound edge
    slots. Live Touch/Latch/Write recording is not integrated just because a
    primitive TouchSession or write-mode enum exists.
+   Live-edit acceptance must cover drawing/moving/deleting notes and automation
+   during playback, cycle wraps, seeks, dense projects and Undo/Redo: new data
+   reaches the engine promptly without partial state, position jumps, stuck
+   voices, healthy-helper restart or blocking/allocation in the audio callback.
 5. Audit pending draft timeout/error recovery, project epochs and stale snapshots.
    A whole-project migration is not finished by fixing one merge helper.
    Record remaining revision/request-ID/application acknowledgement work explicitly.

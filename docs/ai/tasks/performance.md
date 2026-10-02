@@ -72,6 +72,14 @@ evidence for the whole callback before claiming dropout elimination.
 
 ## Acceptance and measurements
 
+User requirement added2026-10-01: edits must be supported during active playback,
+including MIDI notes/regions, automation and supported controls. Prepare work
+off audio; publish complete compatible snapshots without Stop/Play, clock reset,
+transport seek or healthy-helper restart. Acceptance must measure edit latency,
+callback deadlines, held/live-note ownership and audible continuity while drawing,
+deleting, quantizing and undoing edits under a dense project/cycle. Saving correctly
+while stopped does not satisfy this requirement.
+
 Build optimized `RelWithDebInfo` with bounded job count (`-j2` on this 8 GiB Mac).
 Run full native suite idle after builds, report vendor fixture skips honestly.
 Record callback p50/p95/p99/max, hardware underruns, helper miss rate/CPU, meter

@@ -40,6 +40,10 @@ remains preserved. Inspect working tree and run tests before considering complet
    behavior before enabling targets. Mute/send remain explicitly unavailable until
    safe audibility/edge-gain behavior exists. Do not toggle immutable edge.active
    from audio or casually bypass existing mute/solo/pan-law/PDC.
+   **Editing while playing is required**, not optional follow-up: newly committed
+   points/curves/notes/regions must replace prepared data at a safe block boundary
+   without stopping/rewinding transport or restarting a healthy vendor instance.
+   Account for already-sounding notes, concurrent live input and loop boundaries.
 2. Complete component/gesture tests and actual HTTP persistence/history acceptance.
    Selected automation points must delete instead of selected regions; all gestures
    claim pointer ownership. Empty current-value baseline is not selectable. Changing
@@ -73,3 +77,6 @@ remains preserved. Inspect working tree and run tests before considering complet
   malformed/oversized/queue rejection, project replacement and delayed-echo checks.
 - Need saved-state real AU/VST3 playback/render tests at multiple block sizes.
   Current vendor control bridge is block-rate, not sample-accurate.
+- Need uninterrupted-playback edit tests (including Undo/Redo), confirming prompt
+  authoritative application, stable sample clock, no partial snapshots/stuck
+  voices/helper restarts and no waits/allocations on the callback.
