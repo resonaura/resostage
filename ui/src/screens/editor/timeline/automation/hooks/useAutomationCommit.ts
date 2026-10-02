@@ -12,13 +12,18 @@ import { automationPointsEqual } from "@/screens/editor/timeline/automation/logi
 import type { AutomationPointViewModel } from "@/screens/editor/timeline/automation/logic/types";
 
 /** Local drafts survive command admission until the matching Core snapshot arrives. */
-export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, readOnly: boolean) {
+export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, readOnly: boolean,
+  resetKey?: string) {
   const [draftPoints, setDraftPoints] = useState<AutomationPointViewModel[] | null>(null);
   const [isPending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(false);
   const generation = useRef(0);
   const mounted = useRef(true);
+  const identity = `${resetKey ?? ""}\u0000${songIndex}\u0000${lane.id}\u0000${readOnly}`;
+  const identityRef = useRef(identity);
+  identityRef.current = identity;
+  const stateIdentity = useRef(identity);
   const expected = useRef<AutomationPointViewModel[] | null>(null);
   const laneRef = useRef(lane);
   laneRef.current = lane;
@@ -32,6 +37,7 @@ export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, 
     ++generation.current;
     clearTimer();
     expected.current = null;
+    stateIdentity.current = identityRef.current;
     pendingRef.current = false;
     setPending(false);
     setDraftPoints(null);
@@ -47,11 +53,16 @@ export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, 
     mounted.current = true;
     return dispose;
   }, [dispose]);
-  useEffect(reset, [songIndex, lane.id, readOnly, reset]);
+  useEffect(reset, [identity, reset]);
   useEffect(() => subscribeHistoryBoundary(reset), [reset]);
   useEffect(() => {
-    if (expected.current && automationPointsEqual(lane.points, expected.current)) reset();
-  }, [lane.points, reset]);
+    if (stateIdentity.current === identity && expected.current
+      && automationPointsEqual(lane.points, expected.current)) reset();
+  }, [identity, lane.points, reset]);
+  const setOwnedDraft = useCallback((points: AutomationPointViewModel[] | null) => {
+    stateIdentity.current = identity;
+    setDraftPoints(points);
+  }, [identity]);
 
   const commitPoints = useCallback(async (
     points: AutomationPointViewModel[],
@@ -63,6 +74,7 @@ export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, 
       return;
     }
     const token = ++generation.current;
+    stateIdentity.current = identity;
     pendingRef.current = true;
     expected.current = points;
     setPending(true);
@@ -71,7 +83,7 @@ export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, 
     // Bound both command admission and subsequent structural confirmation.
     // A late response cannot revive a draft invalidated by history or timeout.
     timer.current = setTimeout(() => {
-      if (!mounted.current || generation.current !== token) return;
+      if (!mounted.current || generation.current !== token || identityRef.current !== identity) return;
       ++generation.current;
       clearTimer();
       pendingRef.current = false;
@@ -88,7 +100,7 @@ export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, 
       } else {
         await builder.automationPointsReplace({ songIndex, laneId: lane.id, points, gestureId });
       }
-      if (!mounted.current || generation.current !== token) return;
+      if (!mounted.current || generation.current !== token || identityRef.current !== identity) return;
       if (automationPointsEqual(laneRef.current.points, points)) {
         reset();
         return;
@@ -96,11 +108,14 @@ export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, 
       // HTTP acknowledges admission, not execution. Keep the draft until the
       // matching structural snapshot arrives or the bounded timer expires.
     } catch (cause) {
-      if (!mounted.current || generation.current !== token) return;
+      if (!mounted.current || generation.current !== token || identityRef.current !== identity) return;
       reset();
       setError(cause instanceof Error ? cause.message : "Automation edit failed. Please retry.");
     }
-  }, [clearTimer, lane.id, lane.scope, lane.target, readOnly, reset, songIndex]);
+  }, [clearTimer, identity, lane.id, lane.scope, lane.target, readOnly, reset, songIndex]);
 
-  return { draftPoints, setDraftPoints, isPending, pendingRef, error, setError, commitPoints };
+  const belongsToView = stateIdentity.current === identity;
+  return { draftPoints: belongsToView ? draftPoints : null, setDraftPoints: setOwnedDraft,
+    isPending: belongsToView && isPending, pendingRef, error: belongsToView ? error : null,
+    setError, commitPoints };
 }

@@ -5,6 +5,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { MEDIA_FILE_ACCEPT } from "@/transfer/audio/logic/mediaFormats";
 import type {
   AllPeaksResponse,
@@ -14,8 +15,10 @@ import type {
   TrackRow,
   WebUiState,
   AutomationLaneRow,
+  PluginParameterList,
 } from "@/lib/state/types";
 import { AutomationLaneOverlay } from "@/screens/editor/timeline/automation/components/AutomationLaneOverlay";
+import { getAutomationLanesForTrack, getTrackAutomationTargets, matchesAutomationTarget } from "@/screens/editor/timeline/automation/logic/automationTargets";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { AudioRegionBlock } from "@/screens/editor/timeline/regions/components/AudioRegionBlock";
 import { MidiRegionBlock } from "@/screens/editor/timeline/regions/components/MidiRegionBlock";
@@ -68,6 +71,7 @@ export function AudioTrackLanes({
   snapToGrid = true,
   showAutomation = false,
   activeAutomationLaneIds,
+  automationParameters,
   selectRegion,
   startRegionDrag,
   writeGeomDraft,
@@ -97,6 +101,7 @@ export function AudioTrackLanes({
   snapToGrid?: boolean;
   showAutomation?: boolean;
   activeAutomationLaneIds?: Record<string, string>;
+  automationParameters?: Readonly<Record<string, PluginParameterList>>;
   /** Live geometry for a region mid-gesture; see useRegionDrag. */
   writeGeomDraft: (key: RegionSelKey, geom: RegionGeom) => void;
   selectRegion: (
@@ -281,15 +286,20 @@ export function AudioTrackLanes({
               const peakEntryFor = (r: RegionRow) =>
                 peakLookupPerSong[i]?.forRegion(r, track?.id);
 
-              const trackLanes = (song.automationLanes ?? []).filter(
-                (l) => l.target.entityId === track?.id || l.target.entityId === row.name,
-              );
+              const trackLanes = track ? getAutomationLanesForTrack(track, song.automationLanes ?? []) : [];
+              const targets = track ? getTrackAutomationTargets(track, state.busses, trackLanes, automationParameters)
+                .flatMap((group) => group.targets) : [];
               const activeLaneId = track ? activeAutomationLaneIds?.[track.id] : undefined;
+              const chosenTarget = targets.find((target) => target.id === activeLaneId);
               const activeLane: AutomationLaneRow =
                 trackLanes.find((l) => l.id === activeLaneId) ??
-                trackLanes[0] ?? {
-                  id: `temp:${track?.id ?? row.name}:gain`,
-                  target: {
+                (chosenTarget ? trackLanes.find((lane) => matchesAutomationTarget(chosenTarget, lane.target)) : trackLanes[0]) ?? {
+                  id: `temp:${chosenTarget?.id ?? `${track?.id ?? row.name}:gain`}`,
+                  target: chosenTarget ? {
+                    domain: chosenTarget.domain, entityId: chosenTarget.entityId,
+                    parameterId: chosenTarget.parameterId, valueType: chosenTarget.valueType,
+                    defaultValue: chosenTarget.defaultValue, minValue: chosenTarget.minValue, maxValue: chosenTarget.maxValue,
+                  } : {
                     domain: "strip",
                     entityId: track?.id ?? row.name,
                     parameterId: "faderGainDb",
@@ -302,18 +312,9 @@ export function AudioTrackLanes({
                   writeMode: "read",
                   enabled: true,
                   muted: false,
-                  points: [
-                    { timeBeats: 0, value: 0, curve: 0 },
-                    {
-                      timeBeats: Math.max(
-                        4,
-                        (song.bpm > 0 ? song.bpm : 120) * (segDuration / 60),
-                      ),
-                      value: 0,
-                      curve: 0,
-                    },
-                  ],
+                  points: [],
                 };
+              const targetOption = targets.find((target) => matchesAutomationTarget(target, activeLane.target));
 
               // Adjacent overlapping pairs on this lane. Computed once and
               // used twice: the blocks need it to suppress the fade triangle
@@ -527,8 +528,12 @@ export function AudioTrackLanes({
                       writeGeomDraft={writeGeomDraft}
                     />
                   ))}
+                  <AnimatePresence>
                   {showAutomation && (
+                    <motion.div className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
                     <AutomationLaneOverlay
+                      resetKey={`${state.projectName}:${state.pluginLoading?.epoch ?? 0}`}
                       songIndex={i}
                       lane={activeLane}
                       bpm={song.bpm > 0 ? song.bpm : 120}
@@ -538,11 +543,15 @@ export function AudioTrackLanes({
                       color={row.color}
                       snapToGrid={snapToGrid}
                       tool={tool}
-                      readOnly={readOnly}
+                      readOnly={readOnly || (activeLane.id.startsWith("temp:") && Boolean(targetOption?.disabledReason))}
+                      targetOption={targetOption}
+                      currentValue={targetOption?.currentValue ?? activeLane.target.defaultValue}
                       scrollLeft={Math.max(0, scrollState.scrollLeft - segStart)}
                       viewportWidth={scrollState.viewportWidth}
                     />
+                    </motion.div>
                   )}
+                  </AnimatePresence>
                 </div>
               );
             })}

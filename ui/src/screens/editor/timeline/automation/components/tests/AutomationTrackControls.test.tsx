@@ -75,7 +75,7 @@ describe("AutomationTrackControls", () => {
     container.remove();
   });
 
-  it("renders target select, write mode badge, and power toggle with tabIndex=-1", () => {
+  it("renders target select, write mode selector, and power toggle with tabIndex=-1", () => {
     act(() => {
       root.render(
         createElement(AutomationTrackControls, {
@@ -92,17 +92,19 @@ describe("AutomationTrackControls", () => {
     expect(select).not.toBeNull();
     expect(select?.getAttribute("tabindex")).toBe("-1");
 
-    const buttons = container.querySelectorAll("button");
+    const buttons = container.querySelectorAll("button[aria-label]");
     expect(buttons.length).toBeGreaterThanOrEqual(2);
     buttons.forEach((btn) => {
-      expect(btn.getAttribute("tabindex")).toBe("-1");
+      if (!btn.disabled) {
+        expect(btn.getAttribute("tabindex")).toBe("-1");
+      }
     });
 
     // Write mode text should be Read
     expect(container.textContent).toContain("Read");
   });
 
-  it("cycles write mode when clicking write mode badge", async () => {
+  it("displays write mode selector showing Read with other modes reserved for future live write", () => {
     act(() => {
       root.render(
         createElement(AutomationTrackControls, {
@@ -115,20 +117,9 @@ describe("AutomationTrackControls", () => {
       );
     });
 
-    const writeModeBtn = Array.from(container.querySelectorAll("button")).find(
-      (b) => b.textContent?.trim() === "Read",
-    );
-    expect(writeModeBtn).toBeDefined();
-
-    await act(async () => {
-      writeModeBtn?.click();
-    });
-
-    expect(builder.automationLaneUpdate).toHaveBeenCalledWith({
-      songIndex: 0,
-      laneId: "lane-1",
-      writeMode: "touch",
-    });
+    const writeModeBtn = container.querySelector("button[aria-label='Automation write mode']");
+    expect(writeModeBtn).not.toBeNull();
+    expect(writeModeBtn?.textContent).toContain("Read");
   });
 
   it("toggles lane mute when clicking power button", async () => {
@@ -144,7 +135,7 @@ describe("AutomationTrackControls", () => {
       );
     });
 
-    const powerBtn = container.querySelector("button[title*='Automation Active']");
+    const powerBtn = container.querySelector("button[aria-label='Enable automation']");
     expect(powerBtn).not.toBeNull();
 
     await act(async () => {
@@ -154,6 +145,7 @@ describe("AutomationTrackControls", () => {
     expect(builder.automationLaneUpdate).toHaveBeenCalledWith({
       songIndex: 0,
       laneId: "lane-1",
+      enabled: true,
       muted: true,
     });
   });

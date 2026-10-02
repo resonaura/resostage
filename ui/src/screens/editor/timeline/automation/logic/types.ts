@@ -27,6 +27,10 @@ export interface AutomationTargetOption {
   minValue: number;
   maxValue: number;
   unit: string;
+  /** Effective value observed from Core, separate from the persisted fallback. */
+  currentValue?: number;
+  /** Legacy lanes may use the discovered index while new lanes use vendor IDs. */
+  legacyParameterId?: string;
   disabledReason?: string;
 }
 

@@ -11,6 +11,7 @@ import type {
   LightFixtureRow,
   LightTrackRow,
   TrackRow,
+  PluginParameterList,
   WebUiState,
 } from "@/lib/state/types";
 import { builder, lighting } from "@/lib/state/api";
@@ -28,7 +29,8 @@ import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 import { TimelineRowLabel } from "@/screens/editor/timeline/tracks/components/TimelineRowLabel";
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import { TrackHeaderControl } from "@/screens/editor/timeline/tracks/components/TrackHeaderControl";
-import { AutomationTrackControls } from "@/screens/editor/timeline/automation/components/AutomationTrackControls";
+import { AutomationTrackHeader } from "@/screens/editor/timeline/automation/components/AutomationTrackHeader";
+import { getAutomationLanesForTrack } from "@/screens/editor/timeline/automation/logic/automationTargets";
 import {
   trackSelectionGesture,
   type TrackSelectionGesture,
@@ -67,6 +69,7 @@ export function TimelineSidebar({
   onTrackReorderPreview,
   showAutomation = false,
   activeAutomationLaneIds,
+  automationParameters,
   onSelectAutomationLane,
 }: {
   state: WebUiState;
@@ -89,6 +92,7 @@ export function TimelineSidebar({
   onAutoScroll?: (deltaY: number) => void;
   showAutomation?: boolean;
   activeAutomationLaneIds?: Record<string, string>;
+  automationParameters?: Readonly<Record<string, PluginParameterList>>;
   onSelectAutomationLane?: (trackId: string, laneId: string) => void;
   onTrackReorderPreview?: (preview: {
     index: number;
@@ -340,6 +344,15 @@ export function TimelineSidebar({
                     }}
                     className="relative"
                   >
+                    <AutomationTrackHeader height={laneH} visible={showAutomation}
+                      songIndex={state.songIndex ?? 0} track={state.tracks[trackIdx]}
+                      lanes={getAutomationLanesForTrack(state.tracks[trackIdx], state.songs[state.songIndex ?? 0]?.automationLanes ?? [])}
+                      activeLaneId={activeAutomationLaneIds?.[state.tracks[trackIdx]?.id ?? ""]}
+                      parameters={automationParameters} buses={state.busses}
+                      onSelectLane={(laneId) => {
+                        const tid = state.tracks[trackIdx]?.id;
+                        if (tid) onSelectAutomationLane?.(tid, laneId);
+                      }}>
                     <TrackHeaderControl
                       track={state.tracks[trackIdx] as TrackRow}
                       index={trackIdx}
@@ -360,27 +373,7 @@ export function TimelineSidebar({
                         );
                       }}
                     />
-                    {showAutomation && state.tracks[trackIdx] && (
-                      <AutomationTrackControls
-                        songIndex={state.songIndex ?? 0}
-                        track={state.tracks[trackIdx]}
-                        lanes={(
-                          state.songs[state.songIndex ?? 0]?.automationLanes ?? []
-                        ).filter(
-                          (l) => l.target.entityId === state.tracks[trackIdx]?.id,
-                        )}
-                        activeLaneId={
-                          activeAutomationLaneIds?.[
-                            state.tracks[trackIdx]?.id ?? ""
-                          ]
-                        }
-                        onSelectLane={(laneId) => {
-                          const tid = state.tracks[trackIdx]?.id;
-                          if (tid) onSelectAutomationLane?.(tid, laneId);
-                        }}
-                        buses={state.busses}
-                      />
-                    )}
+                    </AutomationTrackHeader>
                   </div>
                 </div>
               );

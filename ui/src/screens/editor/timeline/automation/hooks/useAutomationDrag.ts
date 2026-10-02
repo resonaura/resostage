@@ -41,7 +41,7 @@ const MAX_STROKE_POINTS = 4096;
  */
 export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
   snapToGrid = true, snapStepBeats = 0.25, tool = "pointer", readOnly = false,
-  targetOption }: {
+  targetOption, resetKey }: {
   songIndex: number;
   lane: AutomationLaneRow;
   bpm: number;
@@ -52,8 +52,10 @@ export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
   tool?: TimelineTool;
   readOnly?: boolean;
   targetOption?: AutomationTargetOption;
+  /** Core project epoch/name identity, independent of reusable lane IDs. */
+  resetKey?: string;
 }) {
-  const commit = useAutomationCommit(songIndex, lane, readOnly);
+  const commit = useAutomationCommit(songIndex, lane, readOnly, resetKey);
   const { draftPoints, setDraftPoints, pendingRef, commitPoints, setError } = commit;
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [hoverInfo, setHoverInfo] = useState<{
@@ -108,7 +110,7 @@ export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
   useEffect(() => {
     cancel();
     setSelectedIndices(new Set());
-  }, [songIndex, lane.id, readOnly, cancel]);
+  }, [songIndex, lane.id, readOnly, resetKey, cancel]);
 
   const commitOperation = (points: AutomationPointViewModel[]) => {
     const id = editGesture.id();

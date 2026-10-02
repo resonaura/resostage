@@ -203,4 +203,31 @@ describe("automation pointer ownership and history", () => {
     expect(result.error).toBeNull();
     expect(result.activePoints).toEqual(points);
   });
+
+  it("cancels an active gesture when a project epoch changes with reused lane IDs", async () => {
+    render({ resetKey: "show:1", lane: emptyLane, tool: "pencil" });
+    await pointer("pointerdown", 50, 80);
+    await pointer("pointermove", 100, 60);
+    expect(result.activePoints).toHaveLength(2);
+    render({ resetKey: "show:2" });
+    expect(result.activePoints).toEqual([]);
+    expect(result.selectionCount).toBe(0);
+    await pointer("pointerup", 150, 40);
+    expect(builder.automationPointsReplace).not.toHaveBeenCalled();
+  });
+
+  it("ignores a late rejection after reopening a project with reused lane IDs", async () => {
+    let reject!: (error: Error) => void;
+    vi.mocked(builder.automationPointsReplace).mockReturnValueOnce(new Promise<void>((_, failure) => { reject = failure; }));
+    render({ resetKey: "show:1" });
+    act(() => result.setSelectedIndices(new Set([1])));
+    await act(async () => result.deleteSelectedPoints());
+    expect(result.isPending).toBe(true);
+    const reopened = { ...lane, points: [{ timeBeats: 0, value: 0.9, curve: 0 }] };
+    render({ resetKey: "show:2", lane: reopened });
+    await act(async () => reject(new Error("Old project failed")));
+    expect(result.error).toBeNull();
+    expect(result.activePoints).toEqual(reopened.points);
+    expect(result.isPending).toBe(false);
+  });
 });

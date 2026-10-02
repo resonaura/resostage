@@ -7,12 +7,13 @@
 import type {
   AutomationLaneRow,
   BusRow,
+  PluginParameterList,
   TrackRow,
 } from "@/lib/state/types";
 import type {
   AutomationTargetCategory,
   AutomationTargetOption,
-} from "./types";
+} from "@/screens/editor/timeline/automation/logic/types";
 
 export interface GroupedAutomationTargets {
   category: AutomationTargetCategory;
@@ -27,6 +28,7 @@ export function getTrackAutomationTargets(
   track: TrackRow,
   buses?: BusRow[],
   existingLanes?: AutomationLaneRow[],
+  parameters: Readonly<Record<string, PluginParameterList>> = {},
 ): GroupedAutomationTargets[] {
   const groups: GroupedAutomationTargets[] = [];
 
@@ -44,6 +46,8 @@ export function getTrackAutomationTargets(
       minValue: -60.0,
       maxValue: 12.0,
       unit: "dB",
+      currentValue: track.gainDb,
+      disabledReason: "Strip automation playback is not available yet",
     },
     {
       id: `strip:${track.id}:pan`,
@@ -57,6 +61,8 @@ export function getTrackAutomationTargets(
       minValue: -1.0,
       maxValue: 1.0,
       unit: "",
+      currentValue: track.pan,
+      disabledReason: "Strip automation playback is not available yet",
     },
     {
       id: `strip:${track.id}:mute`,
@@ -70,6 +76,8 @@ export function getTrackAutomationTargets(
       minValue: 0.0,
       maxValue: 1.0,
       unit: "",
+      currentValue: track.mute ? 1 : 0,
+      disabledReason: "Strip automation playback is not available yet",
     },
   ];
 
@@ -97,6 +105,8 @@ export function getTrackAutomationTargets(
         minValue: 0.0,
         maxValue: 1.0,
         unit: "%",
+        currentValue: send.level / 100,
+        disabledReason: "Send automation playback is not available yet",
       });
     });
   }
@@ -112,23 +122,34 @@ export function getTrackAutomationTargets(
   const pluginTargets: AutomationTargetOption[] = [];
   if (track.plugins && track.plugins.length > 0) {
     track.plugins.forEach((slot, slotIdx) => {
-      const isLoaded = slot.loadState === "loaded";
+      const metadata = parameters[slot.id];
+      const loadState = metadata?.loadState ?? slot.loadState ?? "loading";
       const slotName = slot.name || `Insert ${slotIdx + 1}`;
 
-      // Primary generic parameter or custom parameter ID
-      pluginTargets.push({
-        id: `plugin:${slot.id}:primary`,
+      // Discover actual vendor parameters. Never substitute an invented Param 1.
+      for (const parameter of metadata?.parameters ?? []) pluginTargets.push({
+        id: `plugin:${slot.id}:${parameter.parameterId}`,
         domain: "plugin",
         entityId: slot.id,
-        parameterId: "param:0",
-        label: `${slotName} · Param 1`,
+        parameterId: parameter.parameterId,
+        legacyParameterId: `param:${parameter.index}`,
+        label: `${slotName} · ${parameter.name || parameter.parameterId}`,
         category: "plugin",
         valueType: "floatNormalized",
-        defaultValue: 0.5,
+        defaultValue: parameter.defaultValue,
+        currentValue: parameter.currentValue,
         minValue: 0.0,
         maxValue: 1.0,
         unit: "",
-        disabledReason: isLoaded ? undefined : `Plug-in ${slot.loadState || "offline"}`,
+        disabledReason: loadState !== "loaded" ? `Plug-in ${loadState}`
+          : !parameter.automatable ? "Parameter cannot be automated" : undefined,
+      });
+      if (!metadata?.parameters.length) pluginTargets.push({
+        id: `plugin:${slot.id}:status`, domain: "plugin", entityId: slot.id,
+        parameterId: "", label: `${slotName} · ${loadState === "loaded" ? "No automatable parameters" : loadState}`,
+        category: "plugin", valueType: "floatNormalized", defaultValue: 0,
+        minValue: 0, maxValue: 1, unit: "",
+        disabledReason: metadata?.loadError || (loadState === "loaded" ? "No parameters exposed" : `Plug-in ${loadState}`),
       });
 
       // Retain any other parameters already automated in existingLanes for this slot
@@ -137,10 +158,10 @@ export function getTrackAutomationTargets(
           if (
             lane.target.domain === "plugin" &&
             lane.target.entityId === slot.id &&
-            lane.target.parameterId !== "param:0"
+            lane.target.parameterId !== ""
           ) {
             const exists = pluginTargets.some(
-              (t) => t.entityId === slot.id && t.parameterId === lane.target.parameterId,
+              (t) => matchesAutomationTarget(t, lane.target),
             );
             if (!exists) {
               let paramLabel = lane.target.parameterId;
@@ -160,7 +181,10 @@ export function getTrackAutomationTargets(
                 minValue: lane.target.minValue ?? 0.0,
                 maxValue: lane.target.maxValue ?? 1.0,
                 unit: "",
-                disabledReason: isLoaded ? undefined : `Plug-in ${slot.loadState || "offline"}`,
+                currentValue: lane.target.defaultValue,
+                disabledReason: loadState !== "loaded" ? `Plug-in ${loadState}`
+                  : metadata?.truncated ? "Parameter unavailable in bounded metadata"
+                  : "Unbound: parameter no longer exposed by this plug-in",
               });
             }
           }
@@ -365,6 +389,17 @@ export function getTrackAutomationTargets(
   }
 
   return groups;
+}
+
+export function matchesAutomationTarget(option: AutomationTargetOption, target: AutomationLaneRow["target"]): boolean {
+  return option.domain === target.domain && option.entityId === target.entityId
+    && (option.parameterId === target.parameterId || option.legacyParameterId === target.parameterId);
+}
+
+/** Slot ownership must be included; plugin lanes target a slot UUID, not a track. */
+export function getAutomationLanesForTrack(track: TrackRow, lanes: AutomationLaneRow[]): AutomationLaneRow[] {
+  const owned = new Set([track.id, track.stripId, ...(track.plugins ?? []).map((slot) => slot.id)]);
+  return lanes.filter((lane) => owned.has(lane.target.entityId));
 }
 
 /**

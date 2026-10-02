@@ -4,7 +4,9 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useRef, useState } from "react";
+import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "@/components/common/ContextMenu";
+import { useAutomationKeyboard } from "@/screens/editor/timeline/automation/hooks/useAutomationKeyboard";
 import type { AutomationLaneRow } from "@/lib/state/types";
 import type { TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
 import {
@@ -13,28 +15,31 @@ import {
   decimatePointsForViewport,
   getCurveHandlePosition,
   valueToPixel,
-} from "../logic/automationCoordinates";
-import { formatAutomationValue } from "../logic/automationTargets";
-import { useAutomationDrag } from "../hooks/useAutomationDrag";
-import type { AutomationTargetOption } from "../logic/types";
+} from "@/screens/editor/timeline/automation/logic/automationCoordinates";
+import { formatAutomationValue } from "@/screens/editor/timeline/automation/logic/automationTargets";
+import { useAutomationDrag } from "@/screens/editor/timeline/automation/hooks/useAutomationDrag";
+import type { AutomationTargetOption } from "@/screens/editor/timeline/automation/logic/types";
 
 export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
   songIndex,
   lane,
+  resetKey,
   bpm,
   pxPerSec,
   widthPx,
   heightPx,
-  color = "var(--rs-accent, #3b82f6)",
+  color = "var(--accent)",
   snapToGrid = true,
   tool = "pointer",
   readOnly = false,
   targetOption,
+  currentValue,
   scrollLeft = 0,
   viewportWidth = 1000,
 }: {
   songIndex: number;
   lane: AutomationLaneRow;
+  resetKey?: string;
   bpm: number;
   pxPerSec: number;
   widthPx: number;
@@ -44,6 +49,7 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
   tool?: TimelineTool;
   readOnly?: boolean;
   targetOption?: AutomationTargetOption;
+  currentValue?: number;
   scrollLeft?: number;
   viewportWidth?: number;
 }) {
@@ -56,9 +62,20 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     onPointerMove,
     onPointerUp,
     onPointerCancel,
+    onPointerLeave,
+    onContextMenu,
+    deleteSelectedPoints,
+    smoothSelectedPoints,
+    setSelectedCurve,
+    selectAllPoints,
+    clearSelection,
+    selectionCount,
+    error,
+    isPending,
   } = useAutomationDrag({
     songIndex,
     lane,
+    resetKey,
     bpm,
     pxPerSec,
     laneHeight: heightPx,
@@ -68,8 +85,13 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     targetOption,
   });
 
-  const minValue = targetOption?.minValue ?? 0;
-  const maxValue = targetOption?.maxValue ?? 1;
+  const surface = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const commandId = `${songIndex}.${lane.id}`;
+  useAutomationKeyboard(commandId, surface, readOnly, { deleteSelectedPoints, selectAllPoints, clearSelection });
+  const minValue = targetOption?.minValue ?? lane.target.minValue;
+  const maxValue = targetOption?.maxValue ?? lane.target.maxValue;
+  const pointIndices = useMemo(() => new Map(activePoints.map((point, index) => [point, index])), [activePoints]);
 
   // LOD decimation for path and point rendering across long timelines
   const visiblePoints = useMemo(() => {
@@ -108,7 +130,7 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
       .map((p, i) => ({ point: p, index: i }))
       .sort((a, b) => a.point.timeBeats - b.point.timeBeats);
 
-    for (let i = 0; i < sorted.length - 1; i++) {
+    for (let i = 0; i < sorted.length - 1 && handles.length < 300; i++) {
       const p1 = sorted[i];
       const p2 = sorted[i + 1];
       const handle = getCurveHandlePosition(
@@ -149,10 +171,20 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
   return (
     <div
       className="absolute inset-0 pointer-events-auto select-none z-10"
-      onPointerDown={onPointerDown}
+      ref={surface} tabIndex={-1} aria-label="Automation lane"
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        event.stopPropagation(); surface.current?.focus({ preventScroll: true }); onPointerDown(event);
+      }}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
+      onLostPointerCapture={onPointerCancel}
+      onPointerLeave={onPointerLeave}
+      onContextMenu={(event) => {
+        onContextMenu(event);
+        if (!readOnly) setMenu({ x: event.clientX, y: event.clientY });
+      }}
       style={{
         cursor:
           tool === "eraser"
@@ -169,17 +201,24 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
         style={{ color }}
       >
         {/* Fill under automation line */}
-        <path d={fillPath} fill="currentColor" fillOpacity={0.12} />
+        {activePoints.length > 0 && <path d={fillPath} fill="currentColor" fillOpacity={0.05} />}
 
         {/* Automation stroke path */}
-        <path
+        {activePoints.length > 0 && <path
           d={strokePath}
           fill="none"
           stroke="currentColor"
           strokeWidth={1.8}
           strokeLinecap="round"
           strokeLinejoin="round"
-        />
+        />}
+
+        {/* Empty means no persisted points; baseline never becomes a draggable node. */}
+        {activePoints.length === 0 && <line data-automation-baseline="true" x1={scrollLeft}
+          x2={Math.min(widthPx, scrollLeft + viewportWidth)}
+          y1={valueToPixel(currentValue ?? lane.target.defaultValue, heightPx, minValue, maxValue)}
+          y2={valueToPixel(currentValue ?? lane.target.defaultValue, heightPx, minValue, maxValue)}
+          stroke="currentColor" strokeOpacity={0.35} strokeWidth={1.5} />}
 
         {/* Curve handles */}
         {curveHandles.map((handle) => (
@@ -198,7 +237,8 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
         ))}
 
         {/* Breakpoint Nodes */}
-        {activePoints.map((point, index) => {
+        {visiblePoints.map((point) => {
+          const index = pointIndices.get(point) ?? -1;
           const px = beatToPixel(point.timeBeats, bpm, pxPerSec);
           const py = valueToPixel(point.value, heightPx, minValue, maxValue);
 
@@ -226,6 +266,27 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
           );
         })}
       </svg>
+
+      {targetOption?.disabledReason && <div className="pointer-events-none absolute bottom-1 left-2 text-[9px] text-muted max-w-full truncate"
+        title={targetOption.disabledReason}>{targetOption.disabledReason}</div>}
+      {(error || isPending) && <div className={`pointer-events-none absolute top-1 left-2 text-[10px] ${error ? "text-danger" : "text-muted"}`}
+        role={error ? "alert" : "status"}>{error ?? "Saving automation…"}</div>}
+      {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+        <ContextMenuItem disabled={selectionCount === 0 || isPending} danger shortcutCommand={`automation.${commandId}.delete`}
+          onClick={() => { deleteSelectedPoints(); setMenu(null); }}>Delete points</ContextMenuItem>
+        <ContextMenuItem disabled={selectionCount < 3 || isPending}
+          onClick={() => { smoothSelectedPoints(); setMenu(null); }}>Smooth selection</ContextMenuItem>
+        <ContextMenuDivider />
+        <ContextMenuItem disabled={selectionCount === 0 || isPending}
+          onClick={() => { setSelectedCurve(0); setMenu(null); }}>Linear curve</ContextMenuItem>
+        <ContextMenuItem disabled={selectionCount === 0 || isPending}
+          onClick={() => { setSelectedCurve(0.5); setMenu(null); }}>Curve up</ContextMenuItem>
+        <ContextMenuItem disabled={selectionCount === 0 || isPending}
+          onClick={() => { setSelectedCurve(-0.5); setMenu(null); }}>Curve down</ContextMenuItem>
+        <ContextMenuDivider />
+        <ContextMenuItem shortcutCommand={`automation.${commandId}.select-all`}
+          onClick={() => { selectAllPoints(); setMenu(null); }}>Select all points</ContextMenuItem>
+      </ContextMenu>}
 
       {/* Marquee Selection Rectangle */}
       {marqueeRect && (

@@ -8,8 +8,10 @@ import { describe, expect, it } from "vitest";
 import {
   formatAutomationValue,
   getTrackAutomationTargets,
-} from "../automationTargets";
-import type { TrackRow } from "@/lib/state/types";
+  matchesAutomationTarget,
+  getAutomationLanesForTrack,
+} from "@/screens/editor/timeline/automation/logic/automationTargets";
+import type { AutomationLaneRow, PluginParameterList, TrackRow } from "@/lib/state/types";
 
 describe("automationTargets", () => {
   const baseTrack: TrackRow = {
@@ -131,10 +133,31 @@ describe("automationTargets", () => {
 
     const pluginGroup = groups.find((g) => g.category === "plugin")!;
     expect(pluginGroup.targets.length).toBe(2);
-    expect(pluginGroup.targets.some((t) => t.parameterId === "param:0")).toBe(true);
+    expect(pluginGroup.targets.some((t) => t.parameterId === "param:0")).toBe(false);
     const customParam = pluginGroup.targets.find((t) => t.parameterId === "param:2");
     expect(customParam).toBeDefined();
     expect(customParam?.label).toContain("Param 3");
+    expect(customParam?.disabledReason).toContain("Unbound");
+  });
+
+  it("discovers actual vendor metadata, aliases legacy indexes and reports effective values", () => {
+    const metadata: PluginParameterList = { slotId: "slot:1", loadState: "loaded", loadError: "", truncated: false,
+      parameters: [{ index: 2, parameterId: "id:filter", name: "Filter frequency", label: "Hz", defaultValue: 0.4,
+        currentValue: 0.75, steps: 0, automatable: true }] };
+    const target = getTrackAutomationTargets(baseTrack, undefined, [], { "slot:1": metadata })
+      .find((group) => group.category === "plugin")!.targets[0];
+    expect(target.parameterId).toBe("id:filter");
+    expect(target.label).toContain("Filter frequency");
+    expect(target.currentValue).toBe(0.75);
+    expect(target.disabledReason).toBeUndefined();
+    expect(matchesAutomationTarget(target, { ...target, parameterId: "param:2" })).toBe(true);
+    expect(matchesAutomationTarget(target, { ...target, parameterId: "param:3" })).toBe(false);
+  });
+
+  it("includes slot-owned lanes instead of filtering plugin lanes out of their track", () => {
+    const lanes = [{ id: "owned", target: { entityId: "slot:1" } },
+      { id: "other", target: { entityId: "slot:2" } }, { id: "strip", target: { entityId: "track:1" } }] as AutomationLaneRow[];
+    expect(getAutomationLanesForTrack(baseTrack, lanes).map((lane) => lane.id)).toEqual(["owned", "strip"]);
   });
 
   it("detects orphan plug-in and send lanes when entities are removed", () => {

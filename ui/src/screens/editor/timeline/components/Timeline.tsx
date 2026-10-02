@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import { builder } from "@/lib/state/api";
+import { useAutomationParameters } from "@/screens/editor/timeline/automation/hooks/useAutomationParameters";
 import {
   useContinuousPlayhead,
   type CycleWrapRange,
@@ -276,6 +277,8 @@ export function Timeline({
   const [activeAutomationLaneIds, setActiveAutomationLaneIds] = useState<
     Record<string, string>
   >({});
+  const automationParameters = useAutomationParameters(state.tracks, showAutomation,
+    `${state.projectName}:${state.pluginLoading?.epoch ?? 0}`);
   const handleSelectAutomationLane = useCallback((trackId: string, laneId: string) => {
     setActiveAutomationLaneIds((prev) => ({ ...prev, [trackId]: laneId }));
   }, []);
@@ -1482,6 +1485,7 @@ export function Timeline({
               onTrackReorderPreview={setTrackReorderPreview}
               showAutomation={showAutomation}
               activeAutomationLaneIds={activeAutomationLaneIds}
+              automationParameters={automationParameters}
               onSelectAutomationLane={handleSelectAutomationLane}
             />
           )}
@@ -1764,6 +1768,7 @@ export function Timeline({
                       snapToGrid={snapToGrid}
                       showAutomation={showAutomation}
                       activeAutomationLaneIds={activeAutomationLaneIds}
+                      automationParameters={automationParameters}
                       selectRegion={selectRegion}
                       startRegionDrag={startRegionDrag}
                       onRegionContextMenu={setRegionContextMenu}

@@ -98,6 +98,10 @@ export interface SelectProps extends Omit<
   triggerClassName?: string;
   /** Extra classes on the dropdown surface. */
   popoverClassName?: string;
+  /** Optional HTML tabIndex. Defaults to -1 to prevent cluttering DAW tab order. */
+  tabIndex?: number;
+  /** Whether to exclude select trigger from sequential tab navigation. */
+  excludeFromTabOrder?: boolean;
 }
 
 interface OptionGroup {
@@ -148,6 +152,8 @@ function SelectRoot({
   triggerClassName,
   popoverClassName,
   fullWidth = true,
+  tabIndex = -1,
+  excludeFromTabOrder,
   ...rest
 }: SelectProps) {
   const groups = useMemo(() => groupOptions(options), [options]);
@@ -160,6 +166,15 @@ function SelectRoot({
   const selectedKey =
     value !== undefined && options.some((o) => o.id === value) ? value : null;
 
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (tabIndex === -1) {
+      e.preventDefault();
+    }
+  };
+
+  const shouldExcludeFromTabOrder =
+    tabIndex === -1 || excludeFromTabOrder === true;
+
   const select = (
     <HeroSelect
       {...rest}
@@ -170,7 +185,12 @@ function SelectRoot({
       }}
       className={cx(toneClass(tone), SIZE_CLASS[size], className)}
     >
-      <HeroSelect.Trigger className={triggerClassName}>
+      <HeroSelect.Trigger
+        className={triggerClassName}
+        {...(tabIndex !== undefined ? ({ tabIndex } as any) : {})}
+        excludeFromTabOrder={shouldExcludeFromTabOrder}
+        onMouseDown={handleMouseDown}
+      >
         {startContent !== undefined && startContent !== null && (
           // Wrapped rather than rendered bare so the gap between a status icon
           // and the value is one rule in the stylesheet instead of a margin
