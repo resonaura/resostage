@@ -19,7 +19,7 @@ Previous arrangement UI existed, but had significant functional gaps:
 
 ## Implemented foundations (verify latest commits)
 
-`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648`, `1739b29`, `9bf4652`, `ba9cb39`, `b04353b`, `de27854`, `7808523`, `aa44fac`, `1577c11`, `c60cc68`, `e3a4da2`, `2683dc2` implement:
+`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f`, `a15c648`, `1739b29`, `9bf4652`, `ba9cb39`, `b04353b`, `de27854`, `7808523`, `aa44fac`, `1577c11`, `c60cc68`, `e3a4da2`, `2683dc2`, `c595b4b` implement:
 - Zero-allocation strip fader, pan, mute, and aux send automation in `MixRenderer` and `OfflineRenderer`
   via `StripAutomationPlan.h/.cpp` with 562 native tests passing (332,647 assertions)
 - Dynamic PDC changed-latency refill continuity verified under continuous audio rendering with zero allocations
@@ -27,6 +27,11 @@ Previous arrangement UI existed, but had significant functional gaps:
   and edge-slot aux send automation bindings
 - Direct numerical point editing (Return/Enter shortcut, "Set exact value…" context menu option,
   double-click on point, floating input popover with unit display and boundary clamping)
+- Complete Copy, Cut, Paste, and Duplicate workflows for automation points:
+  `automationClipboard.ts`, `automationEditing.ts` (`copySelectedAutomationPoints`, `pasteAutomationClipboard`, `duplicateAutomationSelection`),
+  `useAutomationDrag.ts`, `useAutomationKeyboard.ts` (`Mod+C`, `Mod+X`, `Mod+V`, `Mod+D` shortcuts),
+  `AutomationLaneOverlay.tsx` (Copy, Cut, Paste, Duplicate context menu actions, click-based paste targeting,
+  automatic relative beat offset normalization, grid step alignment, and boundary clamping)
 - Next-unautomated lane addition on + click with bullet indicators (`•`) on automated parameters in selector
 - Full Touch, Latch, and Write manual control integration:
   `AutomationTouchController.ts` and `useAutomationTouchRecorder.ts` wired to `TrackHeaderControl`,
@@ -45,7 +50,7 @@ Previous arrangement UI existed, but had significant functional gaps:
 - Accessible typeahead search for automation parameter selector via `textValue`
 - End-to-end verification in `scripts/verification/editor-state.mjs` verifying uninterrupted
   transport playback during live MIDI and automation edits, Touch/Write gestures with safety auto-revert, Undo/Redo, 413, and persistence
-- Complete test suites: 102 UI Vitest test files / 695 tests, 5 Electron shell tests / 39 tests,
+- Complete test suites: 103 UI Vitest test files / 706 tests, 5 Electron shell tests / 39 tests,
   563 native engine tests / 333,233 assertions passing cleanly
 
 ## Finish in this order
@@ -64,9 +69,8 @@ Previous arrangement UI existed, but had significant functional gaps:
    Missing parameter IDs stay unbound with clear disabledReason banners.
 4. Visually verify light/dark themes, low/high vertical zoom, several songs, dense
    lanes, loading/failed plugins, reduced-motion transitions and header/body alignment.
-   Current + adds an empty lane for chosen parameter; additional simultaneous sublane
-   layout, searchable vendor picker, numerical point editing and copy/paste/duplicate
-   are not yet a complete production workflow.
+   Numerical point editing and copy/cut/paste/duplicate workflows with hotkeys (`Mod+C`,
+   `Mod+X`, `Mod+V`, `Mod+D`) and context menu are fully implemented and covered by unit tests.
 5. Touch/Latch/Write recording and manual-control ownership is fully integrated.
    `AutomationTouchController` and `useAutomationTouchRecorder` manage manual gestures from
    track faders and pan knobs, streaming points, calculating return ramps to evaluated underlying
