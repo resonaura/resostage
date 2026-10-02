@@ -5,6 +5,7 @@
  */
 
 #include "AudioRecordWorker.h"
+#include "project/Uuid.h"
 
 #include <algorithm>
 #include <chrono>
@@ -36,7 +37,8 @@ bool AudioRecordWorker::prepareRecording(const std::string& outputDirectory,
     }
 
     std::error_code ec;
-    std::filesystem::create_directories(outputDirectory, ec);
+    const std::filesystem::path directory(std::u8string(outputDirectory.begin(), outputDirectory.end()));
+    std::filesystem::create_directories(directory, ec);
     if (ec) {
         error = "Failed to create output audio directory: " + ec.message();
         return false;
@@ -45,15 +47,37 @@ bool AudioRecordWorker::prepareRecording(const std::string& outputDirectory,
     sessions.clear();
     sessions.reserve(requestedSessions.size());
 
+    // Only files successfully created by this preparation belong to us. An
+    // exclusive-open failure must leave the conflicting destination intact.
+    const auto rollbackPreparedFiles = [&] {
+        for (auto& prepared : sessions) {
+            if (prepared->file == nullptr) continue;
+            std::fclose(prepared->file);
+            prepared->file = nullptr;
+            std::error_code removeError;
+            std::filesystem::remove(
+                std::filesystem::path(std::u8string(prepared->fullPath.begin(), prepared->fullPath.end())),
+                removeError);
+        }
+        sessions.clear();
+    };
+
     // 8 seconds of buffer capacity per armed track (e.g. 384k frames @ 48kHz)
     const int64_t ringCapacity = static_cast<int64_t>(sampleRate * 8.0);
 
     for (const auto& req : requestedSessions) {
         auto sess = std::make_unique<TrackAudioRecordSession>();
-        sess->recordingId = req.recordingId.empty() ? ("rec_" + req.trackId) : req.recordingId;
+        sess->recordingId = req.recordingId.empty() ? ("rec_" + generateUuidV7()) : req.recordingId;
         sess->trackId = req.trackId;
         sess->filename = req.filename;
-        sess->fullPath = (std::filesystem::path(outputDirectory) / req.filename).string();
+        const std::filesystem::path filename(std::u8string(req.filename.begin(), req.filename.end()));
+        if (filename.empty() || filename != filename.filename() || filename == "." || filename == "..") {
+            error = "Invalid recording filename: " + req.filename;
+            rollbackPreparedFiles();
+            return false;
+        }
+        const auto fullPathUtf8 = (directory / filename).u8string();
+        sess->fullPath.assign(fullPathUtf8.begin(), fullPathUtf8.end());
         sess->inputChannel0 = req.inputChannel0;
         sess->inputChannel1 = req.inputChannel1;
         sess->channels = (req.channels == 1) ? 1 : 2;
@@ -71,10 +95,14 @@ bool AudioRecordWorker::prepareRecording(const std::string& outputDirectory,
         sess->liveCapturedFrames.store(0, std::memory_order_relaxed);
         sess->liveState.store(LiveRecordingState::Capturing, std::memory_order_relaxed);
 
-        sess->file = std::fopen(sess->fullPath.c_str(), "wb");
+#if defined(_WIN32)
+        sess->file = _wfopen((directory / filename).c_str(), L"wbx");
+#else
+        sess->file = std::fopen(sess->fullPath.c_str(), "wbx");
+#endif
         if (sess->file == nullptr) {
-            error = "Failed to open WAV file for writing: " + sess->fullPath;
-            sessions.clear();
+            error = "Failed to exclusively create WAV file (destination may already exist): " + sess->fullPath;
+            rollbackPreparedFiles();
             return false;
         }
 
@@ -84,7 +112,9 @@ bool AudioRecordWorker::prepareRecording(const std::string& outputDirectory,
             error = "Failed to write WAV header prefix to " + sess->fullPath;
             std::fclose(sess->file);
             sess->file = nullptr;
-            sessions.clear();
+            std::error_code removeError;
+            std::filesystem::remove(directory / filename, removeError);
+            rollbackPreparedFiles();
             return false;
         }
 

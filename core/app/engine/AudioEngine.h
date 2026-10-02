@@ -178,6 +178,8 @@ public:
 
     /** Hook called on message thread when recording has finished and project modified. */
     std::function<void()> onRecordingFinished;
+    /** Message-thread preparation failure; capture has not started. */
+    std::function<void(const std::string&)> onRecordingFailed;
 
 // The four public-API fragments and the private-members one below are class
 // body text, not headers. The guard is what lets an editor open one of them

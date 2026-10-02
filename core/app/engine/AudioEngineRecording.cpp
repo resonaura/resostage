@@ -10,6 +10,7 @@
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "audio/recording/RecordingFilePlan.h"
 #include "project/RouteId.h"
 #include "project/MidiRegionLoop.h"
 #include "events/DueQueue.h"
@@ -20,7 +21,6 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
-#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <limits>
@@ -85,8 +85,9 @@ void AudioEngine::startRecording(int targetTrackIndex) {
 
     // Prepare recording output directory
     std::filesystem::path recPath;
-    if (!projectPath().empty()) {
-        const std::filesystem::path p(projectPath());
+    const std::string projectFilePath = projectPath();
+    if (!projectFilePath.empty()) {
+        const std::filesystem::path p(std::u8string(projectFilePath.begin(), projectFilePath.end()));
         if (std::filesystem::is_directory(p)) {
             recPath = p / "Recordings";
         } else {
@@ -97,6 +98,8 @@ void AudioEngine::startRecording(int targetTrackIndex) {
     }
     std::error_code ec;
     std::filesystem::create_directories(recPath, ec);
+    const auto recPathUtf8 = recPath.u8string();
+    const std::string recordingDirectory(recPathUtf8.begin(), recPathUtf8.end());
 
     std::vector<TrackAudioRecordSession> requestedSessions;
     activeMidiRecordSessions.clear();
@@ -116,12 +119,9 @@ void AudioEngine::startRecording(int targetTrackIndex) {
         if (track.kind == TrackKind::Audio) {
             TrackAudioRecordSession s;
             s.trackId = track.id;
-            std::string sanitizedName = track.name.empty() ? track.id : track.name;
-            for (char& c : sanitizedName) {
-                if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-') c = '_';
-            }
-            s.filename = "Take_" + std::string(timeStr) + "_" + sanitizedName + ".wav";
-            s.fullPath = (recPath / s.filename).string();
+            auto filePlan = makeRecordingFilePlan(timeStr, track.name, track.id);
+            s.filename = std::move(filePlan.filename);
+            s.recordingId = std::move(filePlan.recordingId);
             s.channels = (track.channels == 1) ? 1 : 2;
             int chL = 0, chR = (track.channels == 1 ? -1 : 1);
             audio_engine_detail::parseInputRouting(track.inputSource, track.channels, chL, chR);
@@ -152,7 +152,13 @@ void AudioEngine::startRecording(int targetTrackIndex) {
 
     if (!requestedSessions.empty()) {
         std::string err;
-        audioRecordWorker.prepareRecording(recPath.string(), requestedSessions, sr, captureStartPos, err);
+        if (!audioRecordWorker.prepareRecording(recordingDirectory, requestedSessions, sr, captureStartPos, err)) {
+            trackToAudioRecordSession.fill(-1);
+            activeMidiRecordSessions.clear();
+            juce::Logger::writeToLog("Recording preparation failed: " + juce::String(err));
+            if (onRecordingFailed) onRecordingFailed(err);
+            return;
+        }
     }
 
     if (shouldCountIn) {

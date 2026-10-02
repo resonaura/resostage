@@ -7,12 +7,15 @@
 #include "doctest.h"
 
 #include "audio/recording/AudioRecordWorker.h"
+#include "audio/recording/RecordingFilePlan.h"
 #include "engine/AudioEngineInternal.h"
 #include "project/ProjectSchema.h"
 
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <set>
 #include <vector>
 
 using namespace resostage;
@@ -373,4 +376,148 @@ TEST_CASE("Song auto-extension extends endSeconds to bar boundary when recording
     CHECK(song.endSeconds > maxRecEndSec);
 }
 
+namespace {
+struct RecordingTestDirectory {
+    std::filesystem::path path = std::filesystem::temp_directory_path()
+        / ("resostage-recording-integrity-" + generateUuidV7());
 
+    RecordingTestDirectory() { std::filesystem::create_directories(path); }
+    ~RecordingTestDirectory() {
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+};
+
+std::string recordingPathUtf8(const std::filesystem::path& path) {
+    const auto value = path.u8string();
+    return {value.begin(), value.end()};
+}
+
+int32_t readRecordingPcm24(std::istream& stream) {
+    unsigned char bytes[3]{};
+    stream.read(reinterpret_cast<char*>(bytes), 3);
+    const int32_t sample = static_cast<int32_t>(bytes[0])
+        | (static_cast<int32_t>(bytes[1]) << 8)
+        | (static_cast<int32_t>(bytes[2]) << 16);
+    return (sample & 0x00800000) != 0 ? sample - 0x01000000 : sample;
+}
+} // namespace
+
+TEST_CASE("AudioRecordWorker multi-track recording: case, sanitized and Unicode names keep separate audio") {
+    RecordingTestDirectory directory;
+    const auto& tempDir = directory.path;
+
+    AudioRecordWorker worker;
+
+    // This is the production naming function used by AudioEngine. The label
+    // pairs collide under case folding, sanitizing and Unicode normalization.
+    const std::vector<std::string> trackNames{
+        "Audio", "audio", "Vocal/Main", "Vocal:Main", "Caf\xc3\xa9", "Cafe\xcc\x81"
+    };
+    std::vector<TrackAudioRecordSession> sessions;
+    std::set<std::string> foldedFilenames;
+    std::set<std::string> recordingIds;
+    for (size_t i = 0; i < trackNames.size(); ++i) {
+        TrackAudioRecordSession s;
+        s.trackId = "audio::track:" + std::to_string(i + 1);
+        const auto plan = makeRecordingFilePlan("20261001_120000", trackNames[i], s.trackId);
+        s.filename = plan.filename;
+        s.recordingId = plan.recordingId;
+        s.channels = 2;
+        s.inputChannel0 = 0;
+        s.inputChannel1 = 1;
+        std::string folded = s.filename;
+        for (char& byte : folded) {
+            if (byte >= 'A' && byte <= 'Z') byte += 'a' - 'A';
+        }
+        CHECK(foldedFilenames.insert(folded).second);
+        CHECK(recordingIds.insert(s.recordingId).second);
+        sessions.push_back(std::move(s));
+    }
+    CHECK(sessions[2].filename.find("_Vocal_Main_") != std::string::npos);
+    CHECK(sessions[3].filename.find("_Vocal_Main_") != std::string::npos);
+    CHECK(sessions[4].filename.find(trackNames[4]) != std::string::npos);
+    CHECK(sessions[5].filename.find(trackNames[5]) != std::string::npos);
+
+    std::string err;
+    const double sr = 48000.0;
+    REQUIRE(worker.prepareRecording(recordingPathUtf8(tempDir), sessions, sr, 0, err));
+    const auto liveRegions = worker.getLiveRegions();
+    REQUIRE(liveRegions.size() == sessions.size());
+
+    constexpr size_t blockSize = 128;
+    for (size_t i = 0; i < sessions.size(); ++i) {
+        CHECK(liveRegions[i].recordingId == sessions[i].recordingId);
+        const float amplitude = static_cast<float>(i + 1) * 0.125f;
+        const std::vector<float> left(blockSize, amplitude), right(blockSize, -amplitude);
+        const float* pointers[2] = {left.data(), right.data()};
+        worker.pushFrames(i, pointers, blockSize);
+    }
+
+    auto results = worker.stopAndFinalize();
+    REQUIRE(results.size() == sessions.size());
+
+    for (size_t i = 0; i < results.size(); ++i) {
+        CHECK(results[i].recordedFrames == blockSize);
+        const auto path = std::filesystem::path(std::u8string(results[i].fullPath.begin(), results[i].fullPath.end()));
+        CHECK(std::filesystem::file_size(path) == 44 + blockSize * 2 * 3);
+        std::ifstream input(path, std::ios::binary);
+        REQUIRE(input.is_open());
+        input.seekg(44);
+        const int32_t expected = static_cast<int32_t>(std::lrint(static_cast<float>(i + 1) * 0.125f * 8388607.0f));
+        for (size_t frame = 0; frame < blockSize; ++frame) {
+            CHECK(readRecordingPcm24(input) == expected);
+            CHECK(readRecordingPcm24(input) == -expected);
+        }
+    }
+}
+
+TEST_CASE("Recording naming keeps same-second retakes distinct and bounds UTF-8 labels") {
+    std::set<std::string> filenames, recordingIds;
+    for (size_t take = 0; take < 128; ++take) {
+        const auto plan = makeRecordingFilePlan("20261001_120000", "Audio", "audio::track:1");
+        CHECK(filenames.insert(plan.filename).second);
+        CHECK(recordingIds.insert(plan.recordingId).second);
+        CHECK(plan.filename.find(plan.recordingId.substr(4)) != std::string::npos);
+    }
+
+    const std::string longLabel = std::string(79, 'a') + "\xf0\x9f\x8e\xb5";
+    const auto bounded = makeRecordingFilePlan("20261001_120000", longLabel, "audio::track:1");
+    CHECK(bounded.filename.starts_with("Take_20261001_120000_" + std::string(79, 'a') + "_"));
+    CHECK(bounded.filename.size() < 160);
+    const auto fallback = makeRecordingFilePlan("20261001_120000", "", "audio::track:1");
+    CHECK(fallback.filename.starts_with("Take_20261001_120000_audio__track_1_"));
+}
+
+TEST_CASE("AudioRecordWorker refuses an existing destination and rolls back only its own new files") {
+    RecordingTestDirectory directory;
+    const auto newPlan = makeRecordingFilePlan("20261001_120000", "Audio", "audio::track:1");
+    const auto occupiedPlan = makeRecordingFilePlan("20261001_120000", "audio", "audio::track:2");
+    const auto occupiedPath = directory.path / occupiedPlan.filename;
+    const std::string original = "existing recorded audio must survive";
+    {
+        std::ofstream existing(occupiedPath, std::ios::binary);
+        existing << original;
+    }
+
+    std::vector<TrackAudioRecordSession> sessions;
+    for (const auto* plan : {&newPlan, &occupiedPlan}) {
+        TrackAudioRecordSession session;
+        session.filename = plan->filename;
+        session.recordingId = plan->recordingId;
+        session.trackId = "audio::track:" + std::to_string(sessions.size() + 1);
+        sessions.push_back(std::move(session));
+    }
+
+    AudioRecordWorker worker;
+    std::string error;
+    CHECK_FALSE(worker.prepareRecording(recordingPathUtf8(directory.path), sessions, 48000.0, 0, error));
+    CHECK_FALSE(error.empty());
+    CHECK_FALSE(worker.isRecording());
+    CHECK(worker.activeSessions().empty());
+    CHECK_FALSE(std::filesystem::exists(directory.path / newPlan.filename));
+    std::ifstream existing(occupiedPath, std::ios::binary);
+    const std::string preserved{std::istreambuf_iterator<char>(existing), std::istreambuf_iterator<char>()};
+    CHECK(preserved == original);
+    CHECK(worker.stopAndFinalize().empty());
+}

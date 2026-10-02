@@ -353,6 +353,10 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
         notifyProjectStructureChanged();
         publishWebState();
     };
+    engine.onRecordingFailed = [this](const std::string& error) {
+        setStatus("Recording preparation failed: " + juce::String(error));
+        publishWebState();
+    };
     // Do this only after the audio device and server are ready: recovery is
     // background work and must never delay the deadline-critical startup path.
 

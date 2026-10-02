@@ -227,6 +227,12 @@ monitor subscriptions on other tracks remain intact when focus changes. In the a
 contiguous range from the selection anchor; Command-click on macOS or
 Control-click elsewhere toggles an individual track.
 
+Audio take filenames include a per-session UUID, independent of readable track
+labels. Case folding, Unicode normalization, sanitization and same-second
+retakes must not collide. Recording file creation is exclusive; preparation
+failure removes only files created by that attempt, aborts capture/count-in,
+and reports the error through the message-thread status path.
+
 Recording count-in length is a device preference (`AppSettings`, 0–2 bars,
 defaulting to one), not project content. The last nonzero length is persisted so the
 transport Count-In toggle restores it after being switched off. The same Core
