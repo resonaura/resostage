@@ -8,6 +8,7 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
 
 - Recent work is on `main`; do not push unless the user asks.
 - Completed commits in this work sequence:
+  - `722c6fd` — Add unit test for multi-track recording count-in calculation and sample-accurate capture gating
   - `2e7b495` — Make plugin host control timer adaptive with event-driven wakeups
   - `13bf9f7c` — Preserve instrument MIDI during state snapshots
   - `2242eee2` — Sync track power guards with isolated plugins
@@ -17,8 +18,8 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
   names and WAV/UDP source filenames, retaining legacy aliases for source
   compatibility. It passed the Core build and native suite; the broader acronym
   inventory and cross-language/platform audit are still open.
-- The latest recorded regression runs: Core target build; 542 native test cases
-  / 287,112 assertions; UI 553 tests across 88 files; Electron 37 tests.
+- The latest recorded regression runs: Core target build; 543 native test cases
+  / 287,123 assertions; UI 553 tests across 88 files; Electron 37 tests.
   Plugin host control timer is now event-driven (immediate callAsync dispatch
   on wake) with adaptive 8 ms/50 ms interval. These do not establish
   real-device audio stability or heavy third-party plug-in performance.
