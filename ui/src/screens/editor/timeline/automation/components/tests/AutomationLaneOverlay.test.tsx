@@ -10,6 +10,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutomationLaneRow } from "@/lib/state/types";
 import { AutomationLaneOverlay } from "../AutomationLaneOverlay";
+import { builder } from "@/lib/state/api";
+
+const historyListeners = vi.hoisted(() => new Set<() => void>());
 
 vi.mock("@/lib/state/api", () => ({
   builder: {
@@ -23,7 +26,10 @@ vi.mock("@/lib/state/api", () => ({
 }));
 
 vi.mock("@/lib/state/historyNavigation", () => ({
-  subscribeHistoryBoundary: () => () => {},
+  subscribeHistoryBoundary: (listener: () => void) => {
+    historyListeners.add(listener);
+    return () => historyListeners.delete(listener);
+  },
 }));
 
 const mockLane: AutomationLaneRow = {
@@ -59,6 +65,7 @@ describe("AutomationLaneOverlay", () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     container = document.createElement("div");
     document.body.append(container);
@@ -68,6 +75,62 @@ describe("AutomationLaneOverlay", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+  });
+
+  const renderLane = (lane = mockLane, resetKey = "project:1") => {
+    act(() => root.render(createElement(AutomationLaneOverlay, {
+      songIndex: 0, lane, resetKey, bpm: 120, pxPerSec: 100, widthPx: 800, heightPx: 100,
+    })));
+  };
+  async function openExactEditor() {
+    renderLane();
+    const surface = container.querySelector("div[aria-label='Automation lane']") as HTMLDivElement;
+    for (let click = 0; click < 2; ++click) {
+      await act(async () => {
+        for (const type of ["pointerdown", "pointerup"]) {
+          const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 0, clientY: 17, button: 0 });
+          Object.defineProperty(event, "pointerId", { value: 1 });
+          surface.dispatchEvent(event);
+        }
+      });
+    }
+    const input = container.querySelector("input[data-testid='automation-exact-value-input']") as HTMLInputElement;
+    expect(input).not.toBeNull();
+    input.value = "-3.5";
+    return { input, surface };
+  }
+
+  it("cancels exact editing on Escape without blur submitting the changed value", async () => {
+    const { input, surface } = await openExactEditor();
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(container.querySelector("input")).toBeNull();
+    expect(document.activeElement).toBe(surface);
+    expect(builder.automationPointsReplace).not.toHaveBeenCalled();
+  });
+
+  it("settles Enter once even when restoring canvas focus blurs the input", async () => {
+    const { input } = await openExactEditor();
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(builder.automationPointsReplace).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(builder.automationPointsReplace).mock.calls[0][0].points[0].value).toBe(-3.5);
+  });
+
+  it("submits a changed value when editing intentionally loses focus", async () => {
+    const { surface } = await openExactEditor();
+    await act(async () => surface.focus());
+    expect(builder.automationPointsReplace).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["project", "lane", "history"])("retires an exact editor across %s identity changes", async (change) => {
+    const { input } = await openExactEditor();
+    await act(async () => {
+      if (change === "history") historyListeners.forEach((listener) => listener());
+      else renderLane(change === "lane" ? { ...mockLane, id: "new-lane" } : mockLane,
+        change === "project" ? "project:2" : "project:1");
+    });
+    expect(container.querySelector("input")).toBeNull();
+    await act(async () => input.dispatchEvent(new FocusEvent("focusout", { bubbles: true })));
+    expect(builder.automationPointsReplace).not.toHaveBeenCalled();
   });
 
   it("renders SVG stroke path, fill path, and point handles", () => {

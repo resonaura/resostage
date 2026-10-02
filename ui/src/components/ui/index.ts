@@ -54,3 +54,5 @@ export type { Tone } from "@/components/ui/tones";
 export { KeyHint } from "@/components/ui/KeyHint";
 export { CollapsibleInline } from "@/components/ui/CollapsibleInline";
 export { Tooltip } from "@/components/ui/Tooltip";
+export { Input } from "@/components/ui/Input";
+export type { InputProps } from "@/components/ui/Input";

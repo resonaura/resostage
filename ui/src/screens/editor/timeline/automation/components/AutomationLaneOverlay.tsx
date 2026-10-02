@@ -7,6 +7,8 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "@/components/common/ContextMenu";
 import { useAutomationKeyboard } from "@/screens/editor/timeline/automation/hooks/useAutomationKeyboard";
+import { useAutomationValueEditor } from "@/screens/editor/timeline/automation/hooks/useAutomationValueEditor";
+import { AutomationValueEditor } from "@/screens/editor/timeline/automation/components/AutomationValueEditor";
 import type { AutomationLaneRow } from "@/lib/state/types";
 import type { TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
 import {
@@ -54,7 +56,6 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
   scrollLeft?: number;
   viewportWidth?: number;
 }) {
-  const [valueInput, setValueInput] = useState<{ x: number; y: number; initialValue: number } | null>(null);
   const {
     activePoints,
     selectedIndices,
@@ -91,8 +92,8 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     tool,
     readOnly,
     targetOption,
-    onEditPointValue: (_idx, point, x, y) => {
-      setValueInput({ x, y, initialValue: point.value });
+    onEditPointValue: (index, point, x, y) => {
+      openEditor(x, y, point.value, [index]);
     },
   });
 
@@ -101,6 +102,10 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
   const commandId = `${songIndex}.${lane.id}`;
   const minValue = targetOption?.minValue ?? lane.target.minValue;
   const maxValue = targetOption?.maxValue ?? lane.target.maxValue;
+  const { editor: valueInput, openEditor, closeEditor, submitEditor } = useAutomationValueEditor(
+    `${resetKey ?? ""}\u0000${songIndex}\u0000${lane.id}\u0000${readOnly}`,
+    selectedIndices, setSelectedPointsValue,
+  );
   const handleEditValue = () => {
     if (selectedIndices.size === 0 || readOnly || isPending) return;
     const idx = Array.from(selectedIndices)[0];
@@ -108,7 +113,7 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
     if (pt) {
       const px = beatToPixel(pt.timeBeats, bpm, pxPerSec);
       const py = valueToPixel(pt.value, heightPx, minValue, maxValue);
-      setValueInput({ x: px, y: py, initialValue: pt.value });
+      openEditor(px, py, pt.value);
     }
   };
   useAutomationKeyboard(commandId, surface, readOnly, {
@@ -340,53 +345,11 @@ export const AutomationLaneOverlay = memo(function AutomationLaneOverlay({
           onClick={() => { selectAllPoints(); setMenu(null); }}>Select all points</ContextMenuItem>
       </ContextMenu>}
 
-      {valueInput && (
-        <div
-          className="absolute z-40 flex items-center gap-1.5 rounded-md border border-default/60 bg-surface/95 px-2 py-1 shadow-lg backdrop-blur-sm"
-          style={{
-            left: Math.max(8, Math.min(widthPx - 140, valueInput.x - 30)),
-            top: Math.max(4, Math.min(heightPx - 32, valueInput.y - 14)),
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <input
-            ref={(input) => input?.focus()}
-            type="number"
-            data-testid="automation-exact-value-input"
-            aria-label="Set exact automation value"
-            step={targetOption?.domain === "strip" && targetOption.parameterId === "faderGainDb" ? 0.1 : 0.01}
-            min={minValue}
-            max={maxValue}
-            defaultValue={Number(valueInput.initialValue.toFixed(3))}
-            className="w-20 rounded bg-background px-1.5 py-0.5 text-xs font-mono text-foreground border border-default focus:border-accent focus:outline-none"
-            onKeyDown={(e) => {
-              e.stopPropagation();
-              if (e.key === "Enter") {
-                const val = parseFloat((e.target as HTMLInputElement).value);
-                if (Number.isFinite(val)) {
-                  setSelectedPointsValue(val);
-                }
-                setValueInput(null);
-                surface.current?.focus({ preventScroll: true });
-              } else if (e.key === "Escape") {
-                setValueInput(null);
-                surface.current?.focus({ preventScroll: true });
-              }
-            }}
-            onBlur={(e) => {
-              const val = parseFloat(e.target.value);
-              if (Number.isFinite(val) && val !== valueInput.initialValue) {
-                setSelectedPointsValue(val);
-              }
-              setValueInput(null);
-            }}
-          />
-          {targetOption?.unit && (
-            <span className="text-[10px] text-muted font-mono">{targetOption.unit}</span>
-          )}
-        </div>
-      )}
+      {valueInput && <AutomationValueEditor {...valueInput} width={widthPx} height={heightPx}
+        minValue={minValue} maxValue={maxValue} unit={targetOption?.unit}
+        step={targetOption?.domain === "strip" && targetOption.parameterId === "faderGainDb" ? 0.1 : 0.01}
+        onSubmit={submitEditor} onCancel={closeEditor}
+        onReturnFocus={() => surface.current?.focus({ preventScroll: true })} />}
 
       {/* Marquee Selection Rectangle */}
       {marqueeRect && (
