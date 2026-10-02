@@ -269,7 +269,16 @@ export function Timeline({
     setTool,
     lightTrueColors,
     setLightTrueColors,
+    showAutomation,
+    setShowAutomation,
   } = useTimelinePrefs(readOnly);
+
+  const [activeAutomationLaneIds, setActiveAutomationLaneIds] = useState<
+    Record<string, string>
+  >({});
+  const handleSelectAutomationLane = useCallback((trackId: string, laneId: string) => {
+    setActiveAutomationLaneIds((prev) => ({ ...prev, [trackId]: laneId }));
+  }, []);
 
   // HeroUI's own scroll-shadow detection, driving edge fades that are painted
   // as overlays rather than as its usual mask.
@@ -544,6 +553,16 @@ export function Timeline({
       ),
     ).reduce((disposeAll, dispose) => () => { dispose(); disposeAll(); }, () => {});
   }, [readOnly, setTool]);
+
+  useEffect(() => {
+    if (readOnly) return;
+    return hotkeyManager.registerCommand(
+      "timeline.toggle-automation",
+      "a",
+      { scope: HotkeyScope.Timeline, priority: 100 },
+      () => setShowAutomation((prev) => !prev),
+    );
+  }, [readOnly, setShowAutomation]);
 
   /** Split selected region(s) at the absolute playhead (Logic-style ⌘T). */
   const splitSelectedAtPlayhead = async () => {
@@ -1421,6 +1440,8 @@ export function Timeline({
         applyZoomAt={applyZoomAt}
         markGestureActive={() => markGestureActiveRef.current()}
         markZoomActive={() => markZoomActiveRef.current()}
+        showAutomation={showAutomation}
+        setShowAutomation={setShowAutomation}
         verticalZoom={verticalZoom}
         setVerticalZoom={setVerticalZoom}
       />
@@ -1459,6 +1480,9 @@ export function Timeline({
               onWheel={handleSidebarWheel}
               onAutoScroll={handleAutoScroll}
               onTrackReorderPreview={setTrackReorderPreview}
+              showAutomation={showAutomation}
+              activeAutomationLaneIds={activeAutomationLaneIds}
+              onSelectAutomationLane={handleSelectAutomationLane}
             />
           )}
 
@@ -1738,6 +1762,8 @@ export function Timeline({
                       readOnly={readOnly}
                       tool={effectiveTool}
                       snapToGrid={snapToGrid}
+                      showAutomation={showAutomation}
+                      activeAutomationLaneIds={activeAutomationLaneIds}
                       selectRegion={selectRegion}
                       startRegionDrag={startRegionDrag}
                       onRegionContextMenu={setRegionContextMenu}

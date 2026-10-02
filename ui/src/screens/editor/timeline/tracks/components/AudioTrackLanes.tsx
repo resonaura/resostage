@@ -13,7 +13,9 @@ import type {
   SongRow,
   TrackRow,
   WebUiState,
+  AutomationLaneRow,
 } from "@/lib/state/types";
+import { AutomationLaneOverlay } from "@/screens/editor/timeline/automation/components/AutomationLaneOverlay";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { AudioRegionBlock } from "@/screens/editor/timeline/regions/components/AudioRegionBlock";
 import { MidiRegionBlock } from "@/screens/editor/timeline/regions/components/MidiRegionBlock";
@@ -64,6 +66,8 @@ export function AudioTrackLanes({
   readOnly,
   tool = "pointer",
   snapToGrid = true,
+  showAutomation = false,
+  activeAutomationLaneIds,
   selectRegion,
   startRegionDrag,
   writeGeomDraft,
@@ -91,6 +95,8 @@ export function AudioTrackLanes({
   readOnly: boolean;
   tool?: TimelineTool;
   snapToGrid?: boolean;
+  showAutomation?: boolean;
+  activeAutomationLaneIds?: Record<string, string>;
   /** Live geometry for a region mid-gesture; see useRegionDrag. */
   writeGeomDraft: (key: RegionSelKey, geom: RegionGeom) => void;
   selectRegion: (
@@ -268,12 +274,46 @@ export function AudioTrackLanes({
                   effectiveTrackId === row.name
                 );
               });
-              if (trackRegions.length === 0 && midiRegions.length === 0)
+              if (trackRegions.length === 0 && midiRegions.length === 0 && !showAutomation)
                 return null;
 
               const segDuration = songLengths[i];
               const peakEntryFor = (r: RegionRow) =>
                 peakLookupPerSong[i]?.forRegion(r, track?.id);
+
+              const trackLanes = (song.automationLanes ?? []).filter(
+                (l) => l.target.entityId === track?.id || l.target.entityId === row.name,
+              );
+              const activeLaneId = track ? activeAutomationLaneIds?.[track.id] : undefined;
+              const activeLane: AutomationLaneRow =
+                trackLanes.find((l) => l.id === activeLaneId) ??
+                trackLanes[0] ?? {
+                  id: `temp:${track?.id ?? row.name}:gain`,
+                  target: {
+                    domain: "strip",
+                    entityId: track?.id ?? row.name,
+                    parameterId: "faderGainDb",
+                    valueType: "decibels",
+                    defaultValue: 0,
+                    minValue: -60,
+                    maxValue: 12,
+                  },
+                  scope: "track",
+                  writeMode: "read",
+                  enabled: true,
+                  muted: false,
+                  points: [
+                    { timeBeats: 0, value: 0, curve: 0 },
+                    {
+                      timeBeats: Math.max(
+                        4,
+                        (song.bpm > 0 ? song.bpm : 120) * (segDuration / 60),
+                      ),
+                      value: 0,
+                      curve: 0,
+                    },
+                  ],
+                };
 
               // Adjacent overlapping pairs on this lane. Computed once and
               // used twice: the blocks need it to suppress the fade triangle
@@ -315,7 +355,7 @@ export function AudioTrackLanes({
                         laneHeight={laneHeightPx(verticalZoom)}
                         verticalZoom={verticalZoom}
                         pxPerSec={pxPerSec}
-                        dimmed={trackMuted || midiRegion.muted || soloDimmed}
+                        dimmed={trackMuted || midiRegion.muted || soloDimmed || showAutomation}
                         isSelected={selectedRegionKeys.includes(midiSelKey)}
                         readOnly={readOnly}
                         tool={tool}
@@ -402,7 +442,7 @@ export function AudioTrackLanes({
                         songIndex={i}
                         rowName={row.name}
                         rowColor={row.color}
-                        dimmed={trackMuted || regionUi.muted || soloDimmed}
+                        dimmed={trackMuted || regionUi.muted || soloDimmed || showAutomation}
                         invertPolarity={invertPolarity}
                         thisRegionSelKey={thisRegionSelKey}
                         isRegionSelected={isRegionSelected}
@@ -487,6 +527,22 @@ export function AudioTrackLanes({
                       writeGeomDraft={writeGeomDraft}
                     />
                   ))}
+                  {showAutomation && (
+                    <AutomationLaneOverlay
+                      songIndex={i}
+                      lane={activeLane}
+                      bpm={song.bpm > 0 ? song.bpm : 120}
+                      pxPerSec={pxPerSec}
+                      widthPx={segWidth}
+                      heightPx={laneHeightPx(verticalZoom)}
+                      color={row.color}
+                      snapToGrid={snapToGrid}
+                      tool={tool}
+                      readOnly={readOnly}
+                      scrollLeft={Math.max(0, scrollState.scrollLeft - segStart)}
+                      viewportWidth={scrollState.viewportWidth}
+                    />
+                  )}
                 </div>
               );
             })}

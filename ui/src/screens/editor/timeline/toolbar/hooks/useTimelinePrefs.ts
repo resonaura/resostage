@@ -14,6 +14,7 @@ const CATCH_PLAY_KEY = "resostage.timeline.catchOnPlay";
 const LIGHT_TRUE_COLORS_KEY = "resostage.timeline.lightTrueColors";
 const CATCH_SEEK_KEY = "resostage.timeline.catchOnSeek";
 const TOOL_KEY = "resostage.timeline.tool";
+const AUTOMATION_KEY = "resostage.timeline.showAutomation";
 
 function readBool(key: string, fallback: boolean): boolean {
   try {
@@ -91,6 +92,9 @@ export function useTimelinePrefs(readOnly: boolean) {
   const [lightTrueColors, setLightTrueColors] = useState(() =>
     readBool(LIGHT_TRUE_COLORS_KEY, false),
   );
+  const [showAutomation, setShowAutomation] = useState(() =>
+    readBool(AUTOMATION_KEY, false),
+  );
 
   // Last non-off mode so we can restore after a manual-scroll suspend.
   const preferredFollowRef = useRef<Exclude<TimelineFollowMode, "off">>(
@@ -118,6 +122,9 @@ export function useTimelinePrefs(readOnly: boolean) {
   useEffect(() => {
     persist(CATCH_SEEK_KEY, catchOnSeek ? "1" : "0");
   }, [catchOnSeek]);
+  useEffect(() => {
+    persist(AUTOMATION_KEY, showAutomation ? "1" : "0");
+  }, [showAutomation]);
 
   const cycleFollowMode = useCallback(() => {
     setFollowMode((m) =>
@@ -171,5 +178,7 @@ export function useTimelinePrefs(readOnly: boolean) {
     effectiveTool,
     lightTrueColors,
     setLightTrueColors,
+    showAutomation,
+    setShowAutomation,
   };
 }

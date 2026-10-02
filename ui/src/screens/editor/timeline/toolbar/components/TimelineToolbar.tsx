@@ -22,6 +22,7 @@ import {
   Pencil,
   Redo2,
   Scissors,
+  Spline,
   SquareSplitHorizontal,
   Trash2,
   Undo2,
@@ -88,6 +89,8 @@ export function TimelineToolbar({
   applyZoomAt,
   markGestureActive,
   markZoomActive,
+  showAutomation = false,
+  setShowAutomation,
   verticalZoom,
   setVerticalZoom,
 }: {
@@ -122,6 +125,8 @@ export function TimelineToolbar({
   applyZoomAt: (next: number) => void;
   markGestureActive: () => void;
   markZoomActive: () => void;
+  showAutomation?: boolean;
+  setShowAutomation?: (v: boolean | ((p: boolean) => boolean)) => void;
   verticalZoom: number;
   setVerticalZoom: React.Dispatch<React.SetStateAction<number>>;
 }) {
@@ -240,6 +245,15 @@ export function TimelineToolbar({
               onChange={setSnapToGrid}
             >
               <Magnet size={13} />
+            </ToggleButton>
+            <ToggleButton
+              size="sm"
+              isIconOnly
+              aria-label={showAutomation ? "Automation: ON (A)" : "Automation: OFF (A)"}
+              isSelected={showAutomation}
+              onChange={(selected) => setShowAutomation?.(selected)}
+            >
+              <Spline size={13} />
             </ToggleButton>
             {/* Only means anything with light on screen, so it collapses away
                 the rest of the time rather than sitting there greyed out --

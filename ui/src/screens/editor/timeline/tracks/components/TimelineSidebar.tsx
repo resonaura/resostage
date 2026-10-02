@@ -28,6 +28,7 @@ import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 import { TimelineRowLabel } from "@/screens/editor/timeline/tracks/components/TimelineRowLabel";
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import { TrackHeaderControl } from "@/screens/editor/timeline/tracks/components/TrackHeaderControl";
+import { AutomationTrackControls } from "@/screens/editor/timeline/automation/components/AutomationTrackControls";
 import {
   trackSelectionGesture,
   type TrackSelectionGesture,
@@ -64,6 +65,9 @@ export function TimelineSidebar({
   onWheel,
   onAutoScroll,
   onTrackReorderPreview,
+  showAutomation = false,
+  activeAutomationLaneIds,
+  onSelectAutomationLane,
 }: {
   state: WebUiState;
   rows: TimelineRow[];
@@ -83,6 +87,9 @@ export function TimelineSidebar({
   onSelectTrack?: (id: string | null, gesture?: TrackSelectionGesture) => void;
   onWheel?: (e: React.WheelEvent) => void;
   onAutoScroll?: (deltaY: number) => void;
+  showAutomation?: boolean;
+  activeAutomationLaneIds?: Record<string, string>;
+  onSelectAutomationLane?: (trackId: string, laneId: string) => void;
   onTrackReorderPreview?: (preview: {
     index: number;
     kind: "audio" | "light";
@@ -353,6 +360,27 @@ export function TimelineSidebar({
                         );
                       }}
                     />
+                    {showAutomation && state.tracks[trackIdx] && (
+                      <AutomationTrackControls
+                        songIndex={state.songIndex ?? 0}
+                        track={state.tracks[trackIdx]}
+                        lanes={(
+                          state.songs[state.songIndex ?? 0]?.automationLanes ?? []
+                        ).filter(
+                          (l) => l.target.entityId === state.tracks[trackIdx]?.id,
+                        )}
+                        activeLaneId={
+                          activeAutomationLaneIds?.[
+                            state.tracks[trackIdx]?.id ?? ""
+                          ]
+                        }
+                        onSelectLane={(laneId) => {
+                          const tid = state.tracks[trackIdx]?.id;
+                          if (tid) onSelectAutomationLane?.(tid, laneId);
+                        }}
+                        buses={state.busses}
+                      />
+                    )}
                   </div>
                 </div>
               );
