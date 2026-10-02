@@ -390,6 +390,17 @@ export async function verifyEditorState(coreExecutable, inspect) {
     ) && snapshot.songs?.[0]?.midiRegions?.length === 1, "new project's MIDI region");
     const fencedRegion = fencedProject.songs[0].midiRegions[0];
     const revisionBeforeStaleEdit = fencedProject.stateRevision;
+    await request("/api/v1/project/new", {}, {
+      "X-ResoStage-Session": oldIdentity.stateSessionId,
+      "X-ResoStage-Project-Epoch": String(oldIdentity.projectEpoch),
+    });
+    await sleep(300);
+    state = await request("/api/v1/state");
+    commandState = state;
+    assert.equal(state.projectEpoch, fencedProject.projectEpoch,
+      "stale project replacement must not discard the current project");
+    assert.ok(state.tracks?.some((track) => track.name === "Epoch Fence Fixture"),
+      "stale project replacement must not erase current tracks");
     const staleEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", {
       songIndex: 0, regionId: fencedRegion.id, name: "Must Not Reach New Project",
     }, false, {

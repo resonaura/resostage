@@ -11,6 +11,7 @@ import {
   clearApiCaches,
   currentProjectCommandIdentity,
   observeProjectCommandIdentity,
+  project,
   postReliable,
 } from "@/lib/state/api";
 
@@ -62,6 +63,23 @@ describe("project-scoped command identity", () => {
 
     expect(fetch).toHaveBeenCalledTimes(2);
     const sentRequest = fetch.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit];
+    expect(sentRequest[1]?.headers).toMatchObject({
+      "X-ResoStage-Session": "Core A",
+      "X-ResoStage-Project-Epoch": "12",
+    });
+  });
+
+  it("fences destructive project lifecycle commands to the observed project", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetch);
+    observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 12 });
+
+    await project.new();
+
+    const sentRequest = fetch.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit];
+    expect(String(sentRequest[0])).toMatch(/\/api\/v1\/project\/new$/);
     expect(sentRequest[1]?.headers).toMatchObject({
       "X-ResoStage-Session": "Core A",
       "X-ResoStage-Project-Epoch": "12",

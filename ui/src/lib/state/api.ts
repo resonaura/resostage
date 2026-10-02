@@ -79,7 +79,13 @@ function isProjectScopedPath(path: string): boolean {
     || path === "/api/v1/recording/low-latency"
     || path === "/api/v1/timeline/undo"
     || path === "/api/v1/timeline/redo"
-    || path === "/api/v1/project/name";
+    || path === "/api/v1/project/name"
+    || path === "/api/v1/project/new"
+    || path === "/api/v1/project/load-dialog"
+    || path === "/api/v1/project/save"
+    || path === "/api/v1/project/save-as"
+    || path === "/api/v1/project/open-recent"
+    || path === "/api/v1/project/export";
 }
 
 function sameProjectCommandIdentity(

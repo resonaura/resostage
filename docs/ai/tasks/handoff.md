@@ -136,19 +136,21 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   tests pass 10/10. Core publishes the history mutation and its result in the
   same frame; expired outcomes stay unknown instead of falling back to another
   request's high-water mark.
-- Current uncommitted block adds Core-session/project-epoch headers and
+- Current continuation block adds Core-session/project-epoch headers and
   message-thread revalidation for project-scoped commands; request identity is
   carried through media import tickets. Exact request outcomes cover MIDI
   region add/update and automation lane/point transactions. Verification:
-  optimized Core build passed, full UI Vitest 740 tests/108 files, UI TypeScript
-  passed, and real-Core `editor-state.mjs` passed stale-upload/stale-edit plus
-  active-playback Undo/Redo and save/reopen cases. No full native/Electron run,
+  New/Save/Save As/Open Recent/Export and open-dialog requests are fenced too.
+  Optimized Core build passed, full UI Vitest 741 tests/108 files, UI TypeScript
+  passed, and real-Core `editor-state.mjs` passed stale-upload/stale-edit,
+  stale destructive New Project, active-playback Undo/Redo and save/reopen cases.
+  No full native/Electron run,
   acoustic proof, vendor proof or callback-deadline evidence in this block.
   Exact-result coverage is deliberately incomplete; see [audit.md](audit.md).
 
-Commit `9dc3008` contains this implementation, verification script, tests,
-`AGENTS.md`, audit and handoff updates. It is not pushed. Start by checking
-`git status`; preserve any newer work. No push.
+The command-identity and active-document lifecycle blocks, tests and
+documentation are committed locally and not pushed. Start by checking
+`git status` and preserve any newer work.
 Every source keeps the standard license header. English comments/commits,
 `@/` frontend imports, separate components/hooks/logic/tests, lowercase one-word
 folders. Commit each finished block; do not push.

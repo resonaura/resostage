@@ -126,6 +126,10 @@ identity before enqueue, refuse to send if that identity changes, and attach it
 to project-scoped requests. This client bound does not replace Core's second
 message-thread epoch check. Best-effort controls still do not have
 request-specific completion errors.
+Active-document lifecycle requests (New, Save, Save As, Open Recent, Export,
+and the native open-dialog request) are fenced too. Recent-list clearing and
+quit/open confirmation responses remain app/dialog state, not edits to the
+active document.
 
 Internal frontend imports use the `@/` alias rooted at `ui/src`; TypeScript,
 Vite, and Vitest must keep that mapping aligned. Electron has its own `@/`

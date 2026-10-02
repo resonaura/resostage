@@ -157,6 +157,10 @@ Implemented in the current continuation block (2026-10-02):
   checks the captured epoch again on the JUCE message thread immediately before
   applying the command. Legacy requests without headers remain compatible, but
   Core binds them to the state snapshot observed at admission.
+- Active-document lifecycle requests (New, Save, Save As, Open Recent, Export,
+  and native open-dialog requests) are also fenced. Recent-list clearing and
+  quit/open confirmation responses remain app/dialog state, not active-document
+  edits.
 - Media import begin tickets preserve session/epoch through streamed upload and
   final message-thread conversion. A project switch between begin and upload
   now settles the import as a failure, removes temporary bytes and cannot
@@ -173,12 +177,13 @@ Implemented in the current continuation block (2026-10-02):
   identity is included in coalescing keys for continuous values. Deferred-Core
   queue exhaustion and stale-epoch rejection now settle exact history/editor
   outcomes and media-job failure instead of leaving accepted requests pending.
-- Verification on 2026-10-02: `pnpm --dir ui test` passed 740 tests in 108
+- Verification on 2026-10-02: `pnpm --dir ui test` passed 741 tests in 108
   files; `pnpm --dir ui exec tsc -b --pretty false` passed; optimized Core
   target built with `cmake --build core/build --target ResoStage -j2`; the real
   Core `scripts/verification/editor-state.mjs` harness passed, including
   active-playback Undo/Redo, save/reopen, stale media ticket, stale MIDI edit,
-  and 413 admission. Four focused UI suites also passed 27/27. This does not
+  stale destructive New Project rejection, and 413 admission. Four focused UI
+  suites passed 27/27 and the identity suite passed 3/3. This does not
   establish acoustic/device behavior, vendor plug-in continuity, sanitizer
   cleanliness or physical-platform coverage.
 
