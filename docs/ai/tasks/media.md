@@ -12,14 +12,16 @@ Do not reimplement it or introduce a runtime PATH/package-manager dependency.
 
 ## Remaining validation plan
 
-1. Assemble the full shipping application and verify the outer/nested macOS
-   signature, media metadata/icon, relative dylib closure, and actual installed
-   helper invocation. Standalone helper install probes are already recorded.
+1. The macOS ARM64 application assembly, deep strict signature, helper icon/
+   metadata probes and installed HTTP export invocation passed on 2026-10-01.
+   Repeat these checks for release artifacts and the remaining platforms.
 2. Exercise actual HTTP import-begin/upload/completion: successful audio/video,
    no-audio video, corrupt source, duplicate filename, cancelled/disconnected
    upload, queue rejection, and song boundary extension. Confirm failure leaves
    no region/history/temporary file and success survives save/reopen.
-3. Exercise production offline graph-to-codec export with saved AU/VST3 state,
+3. Nine-format HTTP graph-to-codec export and custom destination persistence/
+   validation are covered by `scripts/media/acceptance.mjs`. Still exercise
+   production export with heavy saved AU/VST3 state,
    multiple stems/ranges, cancellation, and output collisions. Verify effects
    are rendered before conversion and publication remains all-or-nothing.
 4. Run complete suites after concurrent changes. Report AU/vendor fixture skips

@@ -22,6 +22,13 @@ a background operation, separate from live audio and the plug-in DSP helpers.
   selected encoder in the summary/action, and limits rates/bit depths to the
   selected codec. Lossy formats show their quality profile instead of a misleading
   disabled WAV-encoding field. FLAC/ALAC offer 16/24-bit; WAV/AIFF also offer float.
+  The Destination section supports a chosen folder, remembers the last accepted
+  folder on the Core device, and offers an explicit reset to the standard
+  Exports location. Local Electron uses the OS folder picker; remote/browser
+  control accepts an absolute path on the Core computer, not the controller.
+  Missing/unwritable/non-directory paths report errors without creating folders
+  or altering the saved choice. Files appearing during rendering are preserved
+  by exclusive final publication; WAV and codec outputs use the same policy.
 
 Imports retain source offsets, extend explicit song boundaries when required,
 use unique resources for repeated filenames, and enter shared history only on
@@ -94,9 +101,12 @@ hardware execution there and a physical Intel macOS pass remain release checks.
 
 ## Remaining release acceptance
 
-Integration is implemented. Full outer-app assembly/signature and actual
-HTTP import/export acceptance after concurrent changes remain separate checks;
-standalone codec smoke cannot prove project/history commit or vendor rendering.
-The idle full native run on 2026-10-01 passed all 517 cases and 214,921 assertions.
+Integration is implemented. Outer-app assembly/deep signature and real HTTP
+export acceptance were verified on macOS ARM64 on 2026-10-01. The acceptance
+harness in `scripts/media/acceptance.mjs` exercises all nine output formats,
+Unicode custom destinations, Core restart persistence, rejected paths, older
+clients and explicit default reset. Actual HTTP import/history and heavy vendor
+rendering remain separate checks; codec smoke does not certify them.
+The full native run on 2026-10-01 passed all 540 cases and 285,554 assertions.
 Do not infer ARM Windows/Linux or physical Intel Mac coverage from pinned
 packages or Rosetta. The current plan is [ai/tasks/media.md](ai/tasks/media.md).
