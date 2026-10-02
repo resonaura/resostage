@@ -153,6 +153,28 @@ describe("HotkeyManager", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("allows an explicit inline-edit owner to settle before blur without global shortcuts", () => {
+    const hotkeys = manager();
+    const handler = vi.fn();
+    hotkeys.setConfiguredBindings([{ action: "cancel", key: "escape" }, { action: "accept", key: "return" }]);
+    hotkeys.registerActionHandler("cancel", handler);
+    hotkeys.registerActionHandler("accept", handler);
+    const input = document.createElement("input");
+    input.dataset.rsEditingKeys = "owned";
+    document.body.appendChild(input);
+    const owner = vi.fn();
+    input.addEventListener("keydown", owner);
+    input.focus();
+    try {
+      for (const key of ["Escape", "Enter"]) {
+        input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+        expect(document.activeElement).toBe(input);
+      }
+      expect(owner).toHaveBeenCalledTimes(2);
+      expect(handler).not.toHaveBeenCalled();
+    } finally { input.remove(); }
+  });
+
   it("blurs active element and prevents default when Space is pressed outside inputs", () => {
     const hotkeys = manager();
     const playHandler = vi.fn();

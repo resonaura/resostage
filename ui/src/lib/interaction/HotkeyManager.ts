@@ -79,6 +79,10 @@ export class HotkeyManager {
         description === "escape" ||
         (description === "return" && (event.target as HTMLElement)?.tagName === "INPUT")
       ) {
+        // An explicit inline transaction must cancel/submit before focus is
+        // released. Capturing blur here would run its blur-save before Escape
+        // reaches the owner; editable focus still excludes all DAW shortcuts.
+        if (event.target instanceof HTMLElement && event.target.dataset.rsEditingKeys === "owned") return;
         if (event.target instanceof HTMLElement) {
           event.target.blur();
         }

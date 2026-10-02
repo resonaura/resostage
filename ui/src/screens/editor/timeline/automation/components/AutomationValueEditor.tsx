@@ -16,7 +16,7 @@ export function AutomationValueEditor({ x, y, width, height, initialValue, minVa
   return <div className="absolute z-40 flex items-center gap-1.5 rounded-md border border-default/60 bg-background-secondary px-2 py-1 shadow-sm"
     style={{ left: Math.max(8, Math.min(width - 140, x - 30)), top: Math.max(4, Math.min(height - 32, y - 14)) }}
     onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-    <Input autoFocus type="number" data-testid="automation-exact-value-input"
+    <Input autoFocus ownsEditingKeys type="number" data-testid="automation-exact-value-input"
       aria-label="Set exact automation value" step={step} min={minValue} max={maxValue}
       defaultValue={String(Number(initialValue.toFixed(3)))}
       className="h-6 w-20 min-w-0 rounded px-1.5 py-0.5 text-xs font-mono"

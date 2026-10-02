@@ -9,8 +9,9 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutomationLaneRow } from "@/lib/state/types";
-import { AutomationLaneOverlay } from "../AutomationLaneOverlay";
+import { AutomationLaneOverlay } from "@/screens/editor/timeline/automation/components/AutomationLaneOverlay";
 import { builder } from "@/lib/state/api";
+import { HotkeyManager } from "@/lib/interaction/HotkeyManager";
 
 const historyListeners = vi.hoisted(() => new Set<() => void>());
 
@@ -63,6 +64,7 @@ const emptyMockLane: AutomationLaneRow = {
 describe("AutomationLaneOverlay", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let unmountHotkeys: () => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -70,11 +72,13 @@ describe("AutomationLaneOverlay", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+    unmountHotkeys = new HotkeyManager().mount(window);
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    unmountHotkeys();
   });
 
   const renderLane = (lane = mockLane, resetKey = "project:1") => {

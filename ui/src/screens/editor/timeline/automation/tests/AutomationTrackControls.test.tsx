@@ -10,7 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutomationLaneRow, TrackRow } from "@/lib/state/types";
 import { builder } from "@/lib/state/api";
-import { AutomationTrackControls } from "../AutomationTrackControls";
+import { AutomationTrackControls } from "@/screens/editor/timeline/automation/components/AutomationTrackControls";
 
 vi.mock("@/lib/state/api", () => ({
   builder: {
@@ -418,4 +418,3 @@ describe("AutomationTrackControls", () => {
     expect(onSelectLane).toHaveBeenCalledWith("strip:track-1:pan");
   });
 });
-
