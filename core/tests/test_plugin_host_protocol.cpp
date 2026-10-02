@@ -449,6 +449,87 @@ TEST_CASE("deferred MIDI overflow clears ambiguous history and replays channel p
             ++allSoundOffCount;
     CHECK(allSoundOffCount == 16);
 }
+
+TEST_CASE("dense sustain-release and panic traffic during deferred MIDI state capture preserves acoustic continuity") {
+    PluginMIDIDeferredQueue deferred;
+    PluginMIDIBuffer input;
+
+    // 1. Interleave active sustain pedal (CC 64), pitch bend, and notes across channels 1..4
+    constexpr int kChannels = 4;
+    for (int ch = 1; ch <= kChannels; ++ch) {
+        const int base = (ch - 1) * 50;
+        REQUIRE(input.add(juce::MidiMessage::controllerEvent(ch, 64, 127), base + 0));
+        REQUIRE(input.add(juce::MidiMessage::pitchWheel(ch, 10000), base + 5));
+        REQUIRE(input.add(juce::MidiMessage::noteOn(ch, 60, static_cast<uint8_t>(90)), base + 10));
+        REQUIRE(input.add(juce::MidiMessage::noteOn(ch, 64, static_cast<uint8_t>(95)), base + 15));
+        REQUIRE(input.add(juce::MidiMessage::controllerEvent(ch, 64, 0), base + 20));
+        REQUIRE(input.add(juce::MidiMessage::noteOff(ch, 60), base + 25));
+        REQUIRE(input.add(juce::MidiMessage::noteOff(ch, 64), base + 30));
+    }
+
+    // Capture into deferred queue during state capture window
+    deferred.capture(input.buffer());
+    CHECK(deferred.hasPending());
+    CHECK(deferred.takeDroppedEvents() == 0);
+
+    // Replay into destination buffer
+    PluginMIDIBuffer replayed;
+    const uint32_t replayedCount = deferred.replayInto(replayed);
+    CHECK(replayedCount == kChannels * 7);
+    CHECK_FALSE(deferred.hasPending());
+    CHECK(replayed.size() == kChannels * 7);
+
+    // Verify ordering and content
+    int index = 0;
+    for (const juce::MidiMessageMetadata event : replayed.buffer()) {
+        const int ch = (index / 7) + 1;
+        const int step = index % 7;
+        if (step == 0) {
+            // Sustain ON
+            CHECK(event.data[0] == (0xb0 | (ch - 1)));
+            CHECK(event.data[1] == 64);
+            CHECK(event.data[2] == 127);
+        } else if (step == 4) {
+            // Sustain OFF
+            CHECK(event.data[0] == (0xb0 | (ch - 1)));
+            CHECK(event.data[1] == 64);
+            CHECK(event.data[2] == 0);
+        }
+        ++index;
+    }
+
+    // 2. Now simulate heavy burst that exceeds capacity
+    juce::MidiBuffer overflowBurst;
+    for (uint32_t i = 0; i <= PluginMIDIDeferredQueue::capacity; ++i) {
+        REQUIRE(overflowBurst.addEvent(
+            juce::MidiMessage::controllerEvent(1, 64, static_cast<uint8_t>(i % 128)),
+            static_cast<int>(i)));
+    }
+    deferred.capture(overflowBurst);
+    CHECK(deferred.hasPending());
+    CHECK(deferred.takeDroppedEvents() == PluginMIDIDeferredQueue::capacity + 1);
+
+    // Replay after overflow: must emit 48-event panic (AllSoundOff, ResetControllers, CenterPitch across 16 channels)
+    PluginMIDIBuffer panicReplay;
+    const uint32_t panicCount = deferred.replayInto(panicReplay);
+    CHECK(panicCount == 48);
+    CHECK_FALSE(deferred.hasPending());
+
+    // 3. Verify clean recovery: next incoming note is captured and replayed cleanly
+    PluginMIDIBuffer postRecoveryInput;
+    REQUIRE(postRecoveryInput.add(juce::MidiMessage::noteOn(1, 72, static_cast<uint8_t>(100)), 0));
+    deferred.capture(postRecoveryInput.buffer());
+    CHECK(deferred.hasPending());
+    CHECK(deferred.takeDroppedEvents() == 0);
+
+    PluginMIDIBuffer postRecoveryReplay;
+    CHECK(deferred.replayInto(postRecoveryReplay) == 1);
+    CHECK_FALSE(deferred.hasPending());
+    CHECK(postRecoveryReplay.size() == 1);
+    const auto finalEvent = *postRecoveryReplay.buffer().begin();
+    CHECK(finalEvent.data[0] == 0x90);
+    CHECK(finalEvent.data[1] == 72);
+}
 #endif
 
 TEST_CASE("plug-in host shared memory opens a second process view and signals it") {
