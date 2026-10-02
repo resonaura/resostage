@@ -62,8 +62,11 @@ evidence for the whole callback before claiming dropout elimination.
   upon `signalControlWake()`, eliminating editor command latency (~0.1 ms vs 8 ms).
   The timer adapts dynamically between 8 ms (when an editor is open or a command
   is pending) and 50 ms (when completely idle), reducing idle wakeups by ~84%.
-- Surface actual deadline misses/control/MIDI rejection counters and realistic
-  recovery behavior. Don't remove meaningful bounded IPC copies speculatively.
+- Actual deadline misses, dropped inputs, dropped controls, and rejected MIDI counters
+  are now aggregated across isolated plug-in child helpers by PluginProcessorBank,
+  published in SystemHealthSnapshot, forwarded over WebServer telemetry (WHealthTelemetry),
+  merged into WebUiState, and displayed in HealthSettingsTab with real-time operator alerts
+  for missed deadlines. Bounded IPC copies are preserved.
 - Changed-latency PDC refill continuity is an explicit residual acoustic task;
   unsafe concurrent history copying is not an acceptable solution.
 
