@@ -96,8 +96,10 @@ without a project-size scan. Future lease/edge protocol changes need tests.
   and effects; “two bars ahead” is a policy, not proof that every vendor is ready.
 - Idle helper timers and dense helper scheduling need measured weak-machine
   workloads. Do not promise a fixed resume time or percentage CPU saving.
-- UI/telemetry should expose remote power state and packet-drop diagnostics,
-  not only an intent kept in a proxy object.
+- Core aggregates helper deadline/input/control/MIDI-drop diagnostics and
+  publishes them through health telemetry to Health Settings. Verify those
+  counters and actual remote power transitions with a real helper workload;
+  an intent kept in a proxy object is not proof that the vendor suspended.
 
 ## Verification
 

@@ -98,5 +98,9 @@ The WAV/UDP/HTTP/DMX/BPM/DSP/IO/MIDI cleanup and references were built and verif
 - Electron Vitest: 5 test files / 37 unit tests + 2 alias tests passed.
 - TypeScript: `pnpm typecheck` passed (0 errors).
 - Linter: `pnpm --filter ui lint` passed (0 errors).
-Remaining: continue repository-wide inventory of acronym identifiers and filenames as new features land. Preserve external wire/persisted/JUCE spellings.
-
+Remaining: finish the existing internal filename/caller inventory, not only add
+aliases as new features land. Audited examples still include `CoreMidiDispatcher`,
+`CoreMidiInputListener`, `OfflineMidiEvents`, `MidiRegionLoop`, `MidiTransform`,
+`MidiRegionBlock`, `ImportMidiDialog` and `VirtualMidiKeyboard`. Classify and
+rename mechanically in separate verified blocks; keep vendor/JUCE and external
+wire/persisted spellings stable. Do not call alias additions a completed rename.

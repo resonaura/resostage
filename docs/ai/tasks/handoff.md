@@ -1,6 +1,8 @@
 # ResoStage: current continuation handoff
 
-Updated 2026-10-01. This file is intended to be given directly to the next coding
+Updated 2026-10-02. Read [audit.md](audit.md) first: it supersedes completion
+claims below with confirmed remaining gaps and strict acceptance instructions.
+This file is intended to be given directly to the next coding
 agent. Read the complete repository `AGENTS.md` first. Check `git status` and
 recent commits before acting: code changes after this snapshot take precedence.
 Do not redo completed implementation from obsolete chat history.
@@ -87,29 +89,44 @@ Additional critical issues:
 - `c60cc68`: Added native test in `test_plugin_performance.cpp` for dynamic PDC changed-latency refill continuity and zero allocations during active audio rendering.
 - `e3a4da2`: Suppressed automation playback during Write mode across Strip, Plugin, and MIDI domains so manual fader gestures write without competing against existing points.
 - `54f083e`: Normalized UDP telemetry acronym identifiers across server headers and implementations (`kUDPTelemetryPort`, `RemoteUDPSubscriber`, `WSubscribeUDPPayload`, `lastUDPSendTimeSec_`).
-- `2683dc2`: Integrated live Touch, Latch, and Write automation recording from UI manual faders and knobs (`AutomationTouchController`, `useAutomationTouchRecorder`, `TrackHeaderControl`, `TrackGainControl`, `TrackPanControl`, `MeterFader`, `Knob`, `useKnobDrag`) with off-thread RDP thinning, return ramps to underlying curves, transport stop punch-out, cycle wrap re-anchoring, and automatic Write safety revert.
+- `2683dc2`: Added manual-gesture/session helpers and fader/knob callback support,
+  with TimelineSidebar wiring, final gesture requests, return-ramp helpers and
+  Write safety revert. The audit found actual Touch/Latch ownership, other
+  surfaces, cycle/TempoMap/epoch wiring and rejection handling incomplete.
 - `fdc32a2`: Unit test for dense sustain and panic traffic during deferred MIDI queue capture in `test_plugin_host_protocol.cpp` (582 assertions verifying pedal CC 64, notes, pitch bend across channels 1..4, overflow degradation to 48-event 16-channel panic, and clean recovery).
 - `75c3eb0`: Canonicalized ArtDMX (`buildArtDMXPacket`, `parseArtDMXPacket`), WebCommandKind values (`BuilderTrackImportWAV*`, `BuilderMIDIRegion*`, `SetMIDI*`, `MIDILearn*`), builder/settings methods (`builderMIDIRegion*`, `builderTrackImportWAV*`, `settingsSetMIDI*`, `settingsMIDI*`), and `importWAVForTrackAsync` across Core with backward-compatible aliases.
 - `e214318`: Exposed canonical acronym types and method aliases in UI (`MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow`, `trackImportWAV`, `setMIDI*`) and Electron (`UDPTelemetryStats`, `UDPTelemetryTracker`).
 - `c595b4b`: Implemented Copy, Cut, Paste, and Duplicate workflows for arrangement automation points (`automationClipboard.ts`, `automationEditing.ts`, `useAutomationDrag.ts`, `useAutomationKeyboard.ts` with `Mod+C`/`Mod+X`/`Mod+V`/`Mod+D` shortcuts, and `AutomationLaneOverlay.tsx` context menu with relative beat offset normalization, grid alignment, and click-based paste positioning). 10 unit tests in `automationClipboard.test.ts` and 5 keyboard tests in `useAutomationKeyboard.test.tsx` pass.
 - `345c4c1`: Canonicalized MIDI symbol aliases across `AudioEngine` (`ActiveMIDINoteInfo`, `enqueueIncomingMIDI()`, `getActiveMIDINotes()`, `syncMIDITransportToCurrentSong()`), `OfflineMidiEvents` (`OfflineMIDIEvent`, `buildOfflineMIDIEvents()`), `MainComponent` (`handleMIDILearnMessage()`), `MidiTransform` (`MIDITakeoverMode`, `MIDIRelativeEncoding`), and `CoreMidiDispatcher`/`CoreMidiInputListener` (`MIDIClientRef`, `MIDIPortRef`, `MIDIEndpointRef` cross-platform). Added tests in `test_midi_takeover.cpp` and `test_offline_renderer.cpp`.
-- `818aa31`: Verified dynamic PDC changed-latency continuity across all standard hardware block sizes (64, 128, 256, 512 frames) and added multi-buffer device transition test in `test_plugin_performance.cpp` verifying zero heap allocations and sample-accurate phase continuity across varying hardware buffer sequences. Canonicalized MIDI acronym aliases across `WebServer`, `WireTypes`, `PluginHostProtocol`, and `ProjectSchema`, and bounded Vitest concurrency via `maxWorkers: 3`.
+- `818aa31`: Added synthetic PDC steady-state and varying-render-block tests
+  (64/128/256/512 frames), checking finite output and ordinary C++ allocations
+  in the probed section. These do not exercise physical device changes or the
+  full callback. Added MIDI acronym aliases. A worker limit was placed in Vite
+  config, but Vitest loads its separate config; the audit corrects that location.
 
 ## Work in progress: inspect before continuing
 
-The native strip automation, live manual-control touch recording, and modernized arrangement UI have been integrated
-and verified end-to-end against live Core HTTP commands and transport continuity.
+Native strip automation, manual-control recording foundations, and arrangement
+UI have been integrated. The HTTP harness verifies command/state persistence
+and transport advancement, not audible manual-control ownership or vendor DSP.
 `scripts/verification/editor-state.mjs` confirms:
 - >4 KiB note and automation updates over HTTP without socket termination
 - Live note quantize during active playback without stopping or resetting clock
-- Live strip fader, pan, mute, and send automation creation and point replacement during active playback
-- Live Touch gesture recording and Write mode auto-safety revert during active playback
+- Strip fader, pan, mute, and send lane creation/point replacement while playing
+- Submitted Touch gesture persistence and Write mode safety revert while playing
 - Continuous sample transport advancement through live project edits
 - Undo and Redo roundtrips restoring exact note durations and curves
 - Explicit 413 rejection for oversized command bodies
 - Persistence across project save and clean reopen
-- Test evidence: 103 UI Vitest test files / 706 tests pass, 5 Electron shell tests / 39 tests pass,
-  566 native engine tests / 378,188 assertions pass, zero tsc errors, zero oxlint errors.
+- Historical test evidence: 103 UI files / 706 tests, 39 Electron tests and
+  566 native tests passed in the previous completion snapshot. The 2026-10-02
+  audit independently passed UI 706 and Electron 39; its initial native run
+  passed 563/566. An isolated AU rerun passed 67 assertions. Do not erase the
+  integrated failure by quoting an older green run; see [audit.md](audit.md).
+- After the audit fixes/rebuild, the final suites passed UI 724 tests/105 files,
+  Electron 39 tests and native 572 cases/424,285 assertions. UI/Electron
+  typechecks passed; lint has zero errors and 12 existing warnings. Remaining
+  ownership/epoch/legacy-validation issues are not covered by those green totals.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,
@@ -118,18 +135,21 @@ folders. Commit each finished block; do not push.
 
 ## Immediate next actions
 
-1. Validate visuals in both themes and several track heights. Shared controls,
-   project/track colors, restrained fills, reduced-motion transitions, topmost
-   playhead. Curve/node hit areas must not conflict with arrangement marquee.
-2. Touch/Latch/Write recording integration: compile binding tables off audio,
-   bounded callback buffers, one pass/history transaction, off-thread thinning.
+1. Close the P1 publication/state/identity/validation defects in `audit.md`.
+   Keep transport advancing; do not stop or restart healthy helpers to conceal
+   an unsafe live editor update. Separate applied acknowledgements from admission.
+2. Finish actual Touch/Latch/Write manual ownership, supported surface bindings,
+   tempo/cycle/epoch handling and bounded recording/rejection recovery. Recorded
+   point collections and endpoint tests alone do not establish this lifecycle.
 3. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
-4. Run complete UI suite/typecheck/lint and relevant native suites/build after
+4. Validate light/dark visual geometry, compact heights, reduced motion and
+   exclusive/cancellable gestures. Run complete UI suite/typecheck/lint and relevant native suites/build after
    integrating changes; commit by finished block. Report actual totals, vendor
    skips and hardware limits. Update this file and detailed tasks with evidence.
 
 ## Remaining task files and transport decision
 
+- [audit.md](audit.md): current P1 defects, quality/edge-case contracts and proof limits.
 - [automation.md](automation.md): remaining arrangement/DSP and acceptance work.
 - [performance.md](performance.md): heavy AU/VST3 device tests, whole-callback
   allocation/deadline evidence and changed-latency PDC continuity.

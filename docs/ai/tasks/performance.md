@@ -1,12 +1,17 @@
 # Indexed plug-in activity and heavy-project acceptance
 
-Status: current follow-up, 2026-10-01. Earlier cross-thread power/bypass mailbox
+Status: current follow-up, 2026-10-02. Read [audit.md](audit.md) first. Earlier cross-thread power/bypass mailbox
 work is implemented and preserved in [the power architecture](../../architecture/PLUGIN_POWER_MANAGEMENT.md)
 and [dated benchmark evidence](../../performance/PLUGIN_BASELINE.md).
 
-The 2026-10-02 native validation passed the Core build and 563 native test
-cases / 333,233 assertions; the UI suite passed 695 tests across 102 files. These are regression
-results, not heavy-vendor acoustic acceptance or callback-allocation proof.
+Earlier validation snapshots passed the Core build and focused/full regressions.
+The current audit passed UI 706/Electron 39; its first native run passed 563/566.
+An isolated AU rerun passed 67 assertions. Diagnose integrated failures and
+publication ordering before declaring completion. None of these totals is
+heavy-vendor acoustic acceptance or whole-callback allocation proof.
+After audit fixes, the final native suite passed 572 cases/424,285 assertions
+and both AU editor cases; final UI passed 724 tests/105 files. See the audit
+for actual fixes and the still-open live publication/ownership contract.
 
 ## Current correctness/performance pass
 
@@ -55,15 +60,17 @@ evidence for the whole callback before claiming dropout elimination.
   panic rather than silently leaving voices held. Snapshot publication stages a
   complete directory before replacing the previous state. Focused FIFO,
   overflow, helper load/render tests passed (1,995 assertions). Dense sustain-release/panic
-  traffic during deferred MIDI state capture is verified by `dense sustain-release and panic traffic during deferred MIDI state capture preserves acoustic continuity`
+  traffic during deferred MIDI state capture is covered by the dense queue test
   in `test_plugin_host_protocol.cpp` (582 assertions): validates interleaved multi-channel
   pedal (CC 64), pitch bend, and notes, verified overflow degradation to 48-event 16-channel
   panic (AllSoundOff, ResetControllers, CenterPitch), and clean post-recovery note handling.
+  It does not process vendor audio; acoustic continuity still needs a real helper test.
 - Helper message-thread control timer is now event-driven: `runCommandWorker`
   dispatches `callAsync` to trigger immediate evaluation on the message thread
-  upon `signalControlWake()`, eliminating editor command latency (~0.1 ms vs 8 ms).
+  upon `signalControlWake()`, avoiding dependence on the periodic timer for control dispatch.
   The timer adapts dynamically between 8 ms (when an editor is open or a command
-  is pending) and 50 ms (when completely idle), reducing idle wakeups by ~84%.
+  is pending) and 50 ms (when completely idle). These are scheduling policies,
+  not measured whole-application latency/idle-CPU guarantees.
 - Actual deadline misses, dropped inputs, dropped controls, and rejected MIDI counters
   are now aggregated across isolated plug-in child helpers by PluginProcessorBank,
   published in SystemHealthSnapshot, forwarded over WebServer telemetry (WHealthTelemetry),
@@ -71,11 +78,16 @@ evidence for the whole callback before claiming dropout elimination.
   for missed deadlines. Bounded IPC copies are preserved.
 - Changed-latency PDC refill continuity is verified by `Dynamic PDC changed-latency refill continuity and alignment during active rendering`
   in `test_plugin_performance.cpp` across all standard hardware block sizes (64, 128, 256, 512 frames):
-  zero allocations on the audio thread across latency transitions (64 -> 128 samples), bounded refill transient without NaN/Inf,
-  and sample-accurate steady-state phase alignment matching the new latency.
-- Multi-buffer device transition continuity is verified by `MixRenderer multi-buffer device transitions (64, 128, 256, 512 frames) with PDC maintain zero allocations and phase continuity`
+  no detected ordinary C++ allocations in the synthetic render section across
+  latency transitions (64 -> 128 samples). Audit commit `695df99` additionally
+  asserts the first 128 samples are zero and every following sample has the
+  expected delayed phase. This bounds the synthetic refill transient, not
+  device/helper scheduling or a heavy vendor's output continuity.
+- Varying renderer-block continuity is covered by `MixRenderer varying block sizes (64, 128, 256, 512 frames) with PDC maintain probed zero allocations and phase continuity`
   in `test_plugin_performance.cpp`: verifies zero heap allocations across varying hardware buffer sizes (cycling 64, 128, 256, 512, 64, 256...),
-  zero NaN/Inf, and sample-accurate phase continuity across non-uniform buffer boundaries.
+  zero NaN/Inf, and sample-accurate phase continuity across non-uniform renderer
+  block boundaries. This is not physical device reconfiguration acceptance;
+  the allocation probe is disabled on MSVC and does not cover all allocators.
 
 ## Acceptance and measurements
 

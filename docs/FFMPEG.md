@@ -105,8 +105,11 @@ Integration is implemented. Outer-app assembly/deep signature and real HTTP
 export acceptance were verified on macOS ARM64 on 2026-10-01. The acceptance
 harness in `scripts/media/acceptance.mjs` exercises all nine output formats,
 Unicode custom destinations, Core restart persistence, rejected paths, older
-clients and explicit default reset. Actual HTTP import/history and heavy vendor
-rendering remain separate checks; codec smoke does not certify them.
+clients and explicit default reset. Actual HTTP import-begin/upload/completion
+acceptance also covers audio/video, malformed/no-audio sources, duplicate names,
+interrupted upload cleanup, song extension and restart persistence. Import
+Undo/Redo and heavy saved-state vendor rendering remain separate checks;
+codec smoke does not certify them.
 The full native run on 2026-10-01 passed all 542 cases and 287,112 assertions.
 Do not infer ARM Windows/Linux or physical Intel Mac coverage from pinned
 packages or Rosetta. The current plan is [ai/tasks/media.md](ai/tasks/media.md).

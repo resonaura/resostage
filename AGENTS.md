@@ -206,6 +206,11 @@ DAW keyboard focus isolation and transport protection:
   timeline and piano roll (matching standard DAW ergonomics like Ableton Live/Bitwig).
 - Text input fields (`<input>`, `<textarea>`, contenteditable) auto-blur on
   `Escape` and `Enter` (for single-line `input`), releasing focus back to the canvas.
+- Transactional inline editors opt into shared `Input.ownsEditingKeys`. The
+  global dispatcher leaves their Escape/Enter handling with the edit owner,
+  which cancels/submits before returning canvas focus. Generic capture-phase
+  blur must not trigger a blur-save before Escape can cancel the transaction;
+  editable focus still excludes ordinary DAW shortcuts.
 - `Space` key transport protection: Spacebar immediately blurs any lingering active
   DOM element, prevents default browser scroll, and triggers transport toggle.
 - Electron main process guards: `before-input-event` catches `Cmd+R` / `Ctrl+R` to
@@ -480,7 +485,7 @@ Preserve these rules:
   rejected before allocation and counted by the bank. Complete channel-wide
   32/48-event panic bursts take priority over pending musical packets. Offline
   non-realtime banks retain full SysEx/growing buffers; never use that mode in
-  a live callback. The live-host shared-memory ABI is version 6; fixed per-slot
+  a live callback. The live-host shared-memory ABI is version 8; fixed per-slot
   power/bypass mailboxes coalesce latest-state controls independently of the
   parameter queue. Helper DSP owns power counters/envelopes; other threads
   publish atomic intents. Explicit parking is not cancelled by automatic wake.
@@ -580,6 +585,13 @@ Preserve these rules:
   signal tracking utilizes `EnvelopeFollower` with peak/RMS detection and anti-denormal
   flush. Automation recording utilizes `AutomationRecorder` with touch/latch modes
   and non-destructive Ramer-Douglas-Peucker reduction (`RamerDouglasPeucker.cpp`).
+- Strip send automation binds only aux edges tagged with their source
+  `MixEdge::sendIndex`; direct bus/output routes cannot be mistaken for a send.
+  That source slot participates in the routing-layout compatibility key.
+  New targets use `send:<bus-id>` so unrelated send deletion/reordering does
+  not silently change the destination. Legacy `send:<index>` remains readable
+  with its positional meaning. Duplicate enabled sends to the same bus make
+  a stable bus target ambiguous/unbound; never guess which tap to modulate.
 - Plug-in parameter metadata is enumerated only inside the isolated plug-in
   host and copied into a fixed-capacity shared-memory table before the host
   publishes `Ready`. Core exposes that immutable table through the plug-in

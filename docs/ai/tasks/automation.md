@@ -1,6 +1,6 @@
 # Arrangement automation: verified state and remaining work
 
-Updated2026-10-01. Read [handoff.md](handoff.md), complete `AGENTS.md` and
+Updated 2026-10-02. Read [audit.md](audit.md), [handoff.md](handoff.md), complete `AGENTS.md` and
 [automation model](../../architecture/AUTOMATION_MODEL.md). This task remains open.
 
 ## Audit findings
@@ -33,11 +33,13 @@ Previous arrangement UI existed, but had significant functional gaps:
   `AutomationLaneOverlay.tsx` (Copy, Cut, Paste, Duplicate context menu actions, click-based paste targeting,
   automatic relative beat offset normalization, grid step alignment, and boundary clamping)
 - Next-unautomated lane addition on + click with bullet indicators (`•`) on automated parameters in selector
-- Full Touch, Latch, and Write manual control integration:
+- Touch, Latch, and Write manual-control recording foundations:
   `AutomationTouchController.ts` and `useAutomationTouchRecorder.ts` wired to `TrackHeaderControl`,
   `TrackGainControl`, `TrackPanControl`, `MeterFader`, `Knob`, and `useKnobDrag`.
-  Includes live point streaming, return ramp calculation to underlying curve (`evaluateAutomationAt`),
-  transport stop punch-out, loop cycle wrap re-anchoring, and automatic Write->Touch safety revert.
+  Includes local point collection, return-ramp calculation (`evaluateAutomationAt`),
+  transport-stop punch-out and Write->Touch safety revert. The audited call site
+  is TimelineSidebar; live manual ownership, all supported surfaces and actual
+  cycle/TempoMap/epoch wiring remain incomplete. See the audit before extending it.
 - Compact lane height density scaling (<= 32px), omitting curve handles, scaling breakpoint nodes,
   compact header/controls layout, and reduced-motion transitions
 - Exclusive/cancellable gestures, full-point atomic replacement/empty creation,
@@ -48,34 +50,40 @@ Previous arrangement UI existed, but had significant functional gaps:
 - Project epoch guarding in `useMidiRegionEditorState` preventing stale snapshots
   and late creates from cross-contaminating reopened/switched projects
 - Accessible typeahead search for automation parameter selector via `textValue`
-- End-to-end verification in `scripts/verification/editor-state.mjs` verifying uninterrupted
-  transport playback during live MIDI and automation edits, Touch/Write gestures with safety auto-revert, Undo/Redo, 413, and persistence
-- Complete test suites: 103 UI Vitest test files / 706 tests, 5 Electron shell tests / 39 tests,
-  563 native engine tests / 333,233 assertions passing cleanly
+- Real Core HTTP verification in `scripts/verification/editor-state.mjs` checks
+  transport advancement while applying MIDI/lane edits, submitted Touch/Write
+  gesture persistence/safety revert, active-playback and stopped-state Undo/Redo,
+  rejected out-of-pass gesture atomicity, 413 and reopen.
+  It does not drive React gestures or measure emitted audio/MIDI/vendor DSP.
+- Final audit regression suites: 105 UI files/724 tests, Electron 39 tests,
+  native 572 cases/424,285 assertions. Typechecks pass; lint has zero errors and
+  12 existing warnings. These do not complete the open ownership/epoch contract.
 
 ## Finish in this order
 
-1. Strip fader, pan, mute, and send automation playback is fully implemented and verified.
-   Safe declicked audibility ramping and edge-gain modulation are operational.
-   Live-editing while playing is fully verified by `editor-state.mjs`.
+1. Preserve implemented track-scope strip gain/pan/mute/send DSP and declicked
+   audibility/edge modulation. Finish immutable note/automation publication and
+   stable send identity, then prove actual live/offline output through edits.
 2. Component/gesture tests and actual HTTP persistence/history acceptance are verified.
    Selected automation points delete with Delete/Backspace hotkey when focused, with
    pointer gestures isolated from parent arrangement marquee. Empty current-value
    baseline is translucent dashed and non-draggable. Parameter selection previews without
    calling `automationLaneAdd` until explicit + is clicked. Curves are preserved on edits.
-3. Async metadata, MIDI, and automation drafts are guarded with project epoch
+3. Async metadata, MIDI, and point-edit drafts are guarded with project epoch
    (`${state.projectName}:${state.pluginLoading?.epoch ?? 0}`) and history navigation.
    Late creations and follow-up edits reject and discard on project change and Undo.
-   Missing parameter IDs stay unbound with clear disabledReason banners.
+   Missing parameter IDs stay unbound with clear disabledReason banners. Manual
+   touch sessions must gain the same epoch/late-completion protection; do not
+   assume guarding the point editor also guards every recording path.
 4. Visually verify light/dark themes, low/high vertical zoom, several songs, dense
    lanes, loading/failed plugins, reduced-motion transitions and header/body alignment.
    Numerical point editing and copy/cut/paste/duplicate workflows with hotkeys (`Mod+C`,
    `Mod+X`, `Mod+V`, `Mod+D`) and context menu are fully implemented and covered by unit tests.
-5. Touch/Latch/Write recording and manual-control ownership is fully integrated.
-   `AutomationTouchController` and `useAutomationTouchRecorder` manage manual gestures from
-   track faders and pan knobs, streaming points, calculating return ramps to evaluated underlying
-   curves, holding latch across playback, committing on transport stop, re-anchoring across cycle wraps,
-   and enforcing Write safety auto-revert.
+5. Complete Touch/Latch/Write ownership and recording according to `audit.md`.
+   Session helpers calculate returns and collect points, but actual manual
+   override while Touch/Latch is active must beat playback and remain correct
+   across cycle, seek, song/epoch replacement and rejection. Wire supported
+   mixer/inspector/plugin surfaces explicitly or keep unsupported modes disabled.
 6. Compile binding tables off audio instead of repeated string/region lookups.
    Native sample-offset vendor automation, Trim/relative layers, VCA and advanced
    hardware/lighting integrations remain separate explicit tasks.
