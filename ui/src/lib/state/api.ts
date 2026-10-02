@@ -58,7 +58,9 @@ export function sendLiveMidi(
   trackIndex?: number,
 ): void {
   const bytes = new Uint8Array([status, data1, data2]);
-  if (_liveMidiSender && _liveMidiSender(bytes)) {
+  // The legacy binary WS packet contains only three MIDI bytes. It cannot
+  // represent an explicit destination, so targeted audition must use HTTP.
+  if (trackIndex === undefined && _liveMidiSender && _liveMidiSender(bytes)) {
     return;
   }
   void apiFetch("/api/v1/midi/send", {

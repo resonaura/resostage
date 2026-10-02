@@ -319,6 +319,7 @@ export function PianoRollEditorTab(props: PianoRollEditorTabProps) {
     (track) =>
       track.kind === "instrument" ||
       track.kind === "midi" ||
+      track.kind === "externalMidi" ||
       midiRegions.some((region) => region.trackId === track.id),
   );
 
