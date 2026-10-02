@@ -1,108 +1,75 @@
-# Arrangement automation editing
+# Arrangement automation: verified state and remaining work
 
-Status: Core timeline arrangement lane workflow and boundary evaluation implemented;
-real AU/VST3 hardware fixture validation and ParamID UUID migration open. Read `AGENTS.md` and
-[the domain reference](../../architecture/AUTOMATION_MODEL.md) first.
+Updated2026-10-01. Read [handoff.md](handoff.md), complete `AGENTS.md` and
+[automation model](../../architecture/AUTOMATION_MODEL.md). This task remains open.
 
-## Existing foundations — reuse rather than replace
+## Audit findings
 
-- `core/engine/project/ProjectSchema.h`: song/audio-region/MIDI-region lanes,
-  `AutomationTarget`, scope, points in musical beats, and write-mode enums.
-- `core/engine/automation/`: curve/evaluator/recorder/thinning primitives.
-- `core/app/main/builder/MainComponentBuilderAutomation.cpp`: message-thread
-  builder commands and shared project-history ownership.
-- `core/app/engine/AudioEngineAutomation.cpp`: current block-rate live dispatch;
-  offline automation must remain equivalent to the private render session.
-- `ui/src/screens/mixer/plugins/components/{PluginAutomationPanel,AutomationMiniGraph}.tsx`:
-  existing parameter discovery and plug-in lane editing, not arrangement lanes.
-- `ui/src/screens/editor/timeline/`: shared project ruler, coordinates, cycle,
-  snapping, playhead, track heights, virtualization, tools, selection, history.
-- `ui/src/lib/interaction/HotkeyManager.ts`: one dispatcher; fixed gestures
-  must not bypass Musical Typing/input/modal focus protection.
+Previous arrangement UI existed, but had significant functional gaps:
+- Raw buttons/selects, hardcoded write-mode colors, abrupt display transitions.
+- Sidebar added28 px without adding the same body lane height.
+- Empty fallback lanes fabricated two gain points; creation invented a first
+  point even when no automation was drawn.
+- Parent marquee competed with automation pointer gestures.
+- Negative pixel deltas were clamped, selected groups collapsed on click.
+- Long JSON edits exceeded the server4096-byte cap; frontend swallowed rejection.
+- Plugin picker invented generic Param1 instead of actual vendor metadata.
+- Strip gain/pan/mute/send lanes were persisted but not dispatched by production
+  live/offline code. Touch/Latch/Write enums/primitives were not integrated recording.
 
-The attached 662-line research was read in full on 2026-10-01. Treat its UI
-descriptions as reference, not copied assets/code or proof of legal clearance.
-Use product-neutral component names, comments, icons, and theme tokens. Do not
-claim sample-accurate vendor automation where the existing bridge is block-rate.
+## Implemented foundations (verify latest commits)
 
-## Implementation order
+`424e4f4`, `f436040`, `f747399` implement exclusive/cancellable gestures,
+full-point atomic replacement/empty creation, real vendor metadata/current values,
+stable vendor identities with legacy-index compatibility, bounded admission and
+visible draft confirmation errors. Group movement, additive marquee, point
+deletion, weighted smoothing with fixed selection endpoints, curve handles and
+context operations are implemented. Paths have bounded viewportLOD and constant
+tail anchors. This is not proof all UI acceptance or strip DSP is finished.
 
-1. Add a shared-toolbar automation visibility toggle and a scoped command.
-   Preserve normal region tools when off; when on, dim region content using
-   existing theme material, not a new hardcoded palette. Keep audio playback
-   independent of display state. Organize `timeline/automation/` into
-   `components/`, `hooks/`, `logic/`, and `tests/`.
-2. Extend track headers with scope, parameter, write mode, and expandable
-   sublanes. One primary lane plus explicit additional lanes avoids rendering
-   every vendor parameter. Provide searchable grouped targets: strip gain,
-   pan, mute; sends; each stable plug-in instance; available MIDI CC/bend.
-   Unsupported targets are disabled with a reason, not empty working controls.
-3. Add a pure viewport/coordinate and hit-test model. Time must use the same
-   song/project mapping and snap service as regions. Draw only the viewport;
-   density/LOD decimation must retain extrema and original editable points.
-   Add/select/drag nodes, segment displacement, curvature, rubber-band/range
-   selection, freehand draw, erase, copy/paste/duplicate and numerical editing.
-   Multi-node movement preserves relative offsets and ordering. Esc, pointer
-   cancel, focus loss, project replacement and disconnect revert the gesture.
-4. One pointer/write gesture is one shared history transaction. Use a local
-   draft for responsive previews and commit a validated bounded patch; do not
-   send a history step for every pointermove. Late snapshots cannot overwrite
-   a new draft, and accepted commands are not assumed applied until confirmed.
-   Validate finite time/value/curve, target existence, point limits, duplicate
-   times and invalid/no-op transactions. Reuse Core history request/revision
-   correlation rather than creating a second editor history.
-5. Define scope semantics before editing operations: track lanes are song-time
-   anchored; region lanes move/copy with their region and use the *trimmed source
-   loop window*. Split/trim/copy evaluates boundary values without deforming
-   adjacent segments. Specify overlap priority and optional track-automation
-   follows-region edits (`always`, `never`, `ask`) deliberately. Musical beats
-   already exist; absolute-time locking needs an explicit schema/migration,
-   not silently interpreting `timeBeats` as seconds. Multi-song changes must
-   preserve each song's BPM/meter and export tempo-map behavior.
-6. Integrate strip controls and live write lifecycle: engine-read, user-touch,
-   return-ramp ownership. Read must not write; Touch returns smoothly; Latch
-   holds until stop; Write is destructive, scoped to armed targets, and reverts
-   to a safe mode after stop. Group a pass in history, thin off the callback,
-   handle loop/punch/seek/stop/project change and controller disconnect. UI
-   displays authoritative effective values without fighting a held fader.
-   Do not call allocating recorder/vector APIs from the audio thread.
-7. Compile target mappings/indexes off audio. Reordering a plug-in must retain
-   slot UUID ownership. Current `param:<index>` is not a stable vendor ParamID:
-   discover/persist actual vendor IDs (and migrate legacy indexes safely) before
-   promising parameter identity across vendor updates. Removed/missing/failed
-   plug-ins leave recoverable orphan lanes, never redirect to another plug-in.
-   Keep MIDI takeover/feedback suppression and native sample-offset vendor
-   automation as explicit integrations with their own protocol/version tests.
+UI integration uses shared HeroUI wrappers and semantic tokens, visible + for
+selected parameters, no empty fake nodes, actual parameter ranges/current baseline,
+slot-owned lane discovery and fixed-height animated headers. Existing orphan data
+remains preserved. Inspect working tree and run tests before considering complete.
 
-## Real-time requirements
+## Finish in this order
 
-No callback waits, vendor-state capture, disk/network work, vector growth, or
-per-point string lookup. Publish immutable prepared automation snapshots with
-project epoch/layout compatibility. Smoothing must preserve gain/pan laws and
-PDC timing; derive sample/host timestamps from the actual sample clock, not UI
-timers or unverified timing formulas from the research. Discrete controls need
-defined step/crossfade semantics; bypass must not casually destroy latency or
-tails. Offline and live rendering share curve/target semantics.
+1. Complete gain/pan strip playback through immutable prepared bindings and shared
+   renderer evaluation/smoothing, same live/offline semantics. Current implementation
+   is in progress; verify compile, cycle/seek/song selection, bypass and no-point
+   behavior before enabling targets. Mute/send remain explicitly unavailable until
+   safe audibility/edge-gain behavior exists. Do not toggle immutable edge.active
+   from audio or casually bypass existing mute/solo/pan-law/PDC.
+2. Complete component/gesture tests and actual HTTP persistence/history acceptance.
+   Selected automation points must delete instead of selected regions; all gestures
+   claim pointer ownership. Empty current-value baseline is not selectable. Changing
+   parameter without drawing/+ must not dirty the project. Preserve curves on edit.
+3. Guard async metadata, MIDI and automation drafts with project epoch as well as
+   song/region/lane IDs. Late results from another project must never mutate this one.
+   Distinguish HTTP admitted from applied. Missing parameter IDs stay unbound, not
+   redirected. A truncated2048-entry table cannot prove a later parameter is removed.
+4. Visually verify light/dark themes, low/high vertical zoom, several songs, dense
+   lanes, loading/failed plugins, reduced-motion transitions and header/body alignment.
+   Current + adds an empty lane for chosen parameter; additional simultaneous sublane
+   layout, searchable vendor picker, numerical point editing and copy/paste/duplicate
+   are not yet a complete production workflow.
+5. Integrate actual Touch/Latch/Write recording and manual-control ownership. The
+   pure TouchSession primitive alone is not a live write feature. Use fixed callback
+   buffers, one pass/history transaction, off-thread thinning and defined return
+   ramp/stop/cycle/punch/controller-disconnect behavior. Write must return to safety.
+6. Compile binding tables off audio instead of repeated string/region lookups.
+   Native sample-offset vendor automation, Trim/relative layers,VCA and advanced
+   hardware/lighting integrations remain separate explicit tasks.
 
-## Acceptance
- 
-- Pure coordinate, snap, curve, boundary, LOD, target mapping and multi-selection tests.
-  Passed 2026-10-01: `automationCoordinates.test.ts` (22 tests), `automationSelection.test.ts` (9 tests),
-  `automationTargets.test.ts` (9 tests), `automationBoundary.test.ts` (6 tests),
-  `automationTouchSession.test.ts` (3 tests), `AutomationTrackControls.test.tsx` (4 tests),
-  `AutomationLaneOverlay.test.tsx` (1 test).
- - Pointer tests for all tools, empty lanes, overlapping tracks, narrow/large
-   zoom, autoscroll, cancellation, stale revision and shared Undo/Redo branching.
- - Native persistence/migration, reordering/removal/orphan target, chase, tempo,
-   cycle/punch, bounded queue overflow and live/offline equivalence tests.
-   Passed 2026-10-01: `test_automation_framework.cpp` (`AutomationTarget: Slot UUID retention, orphan lane recovery, and paramID parsing`, 22 assertions).
- - Real AU/VST3 saved-state tests at multiple block sizes; separately report
-   block-rate versus sample-accurate capabilities, vendor skips and hardware.
- - Visual checks in both themes and several track densities; reuse shared
-   toolbar/design wrappers, project/track colors, ruler and topmost playhead.
- - Test manual control ownership, touch release, sustain/MIDI focus and hotkeys
-   with Musical Typing open. Do not claim motorized feedback without hardware.
- 
- Trim/relative layers, VCA groups, MIDI-focused hardware mapping, and full
- lighting integration follow only after the base workflow passes. This plan
- does not itself implement those features or establish patent/legal safety.
+## Acceptance evidence and limits
+
+-49 focused UI gesture/model tests passed for `424e4f4`.
+-10 automation commit/drag tests passed for `f747399`.
+- Core/helper/tests build passed for `f436040`;19 focused native cases /
+  3794 assertions include real Apple AUDelay metadata/current-value control.
+- These counts are point-in-time evidence. Run current integrated suites after UI
+  and DSP changes. Do not call generic model tests acoustic or platform acceptance.
+- Need whole-lane add/draw/move/curve/smooth/delete, Undo/Redo branch, save/reopen,
+  malformed/oversized/queue rejection, project replacement and delayed-echo checks.
+- Need saved-state real AU/VST3 playback/render tests at multiple block sizes.
+  Current vendor control bridge is block-rate, not sample-accurate.

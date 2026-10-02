@@ -80,6 +80,16 @@ static asset responses and performs at most two delayed cache-bypassing
 reloads after same-origin 404s; this is a recovery path, not a substitute for
 publishing a complete UI build.
 
+HTTP JSON command admission is bounded by route:64 KiB for scalar controls,
+16 MiB for MIDI-region add/update collections, and4 MiB for complete automation
+collections. Media/project uploads remain streamed. The single message-thread
+command queue has a32 MiB aggregate payload budget in addition to its fixed slot
+capacity; failure is explicit413/503, never a silently truncated accepted edit.
+libwebsockets protocol storage has C++ construction/destruction at HTTP bind/drop
+boundaries. Reliable editor posts expose rejection, and local drafts remain
+distinct from authoritative snapshots until a matching Core echo. An HTTP
+admission response is not an applied-project acknowledgement.
+
 Internal frontend imports use the `@/` alias rooted at `ui/src`; TypeScript,
 Vite, and Vitest must keep that mapping aligned. Electron has its own `@/`
 alias rooted at `electron/src`. Electron is emitted as direct Node ESM rather
@@ -1045,6 +1055,24 @@ direct child of Dialog, never a flex item inside Header; the wrapper reserves
 header space for its absolute-positioned hit target. Non-dismissible/busy
 workflows keep their dismissal restrictions. Do not import a raw HeroUI modal at a feature call site to bypass
 the policy. Reuse tokens and variants; avoid one-off near-duplicate components.
+
+Feature UI must use the shared `components/ui` controls for buttons, selectors,
+menus, inputs, tooltips and dialogs. Before creating chrome, inspect an existing
+equivalent surface and the installed HeroUI documentation. Native HTML controls
+and hardcoded feature palettes are not shortcuts around this contract. Custom
+SVG/canvas rendering is appropriate for musical content (notes, waveforms,
+automation), not for replacing standard application controls. Use semantic theme
+tokens, shared sizing/focus rules, and reduced-motion-aware transitions. Expanded
+track headers and their timeline lanes must retain the same vertical geometry.
+
+An editor gesture has exactly one owner: a claimed automation/note/curve gesture
+must not also seek, reorder tracks or start the arrangement marquee. Drafts are
+local previews, not authoritative project state. A rejected command must expose
+an error and preserve or explicitly revert the draft; never silently report a
+successful edit. Empty automation lanes show the effective parameter value as a
+non-editable baseline, not fabricated persisted control points. Plug-in target
+pickers use discovered metadata and explicitly distinguish loading, failed,
+missing and unbound targets; never invent a generic parameter as a fallback.
 
 ## 13. Rules for safe changes
 
