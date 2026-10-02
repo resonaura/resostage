@@ -1453,7 +1453,7 @@ PluginProcessorBank::createEditor(const std::string& slotId) {
                     try {
                         if (node->instance->hasEditor())
                             return std::unique_ptr<juce::AudioProcessorEditor>(
-                                node->instance->createEditorIfNeeded());
+                                node->instance->createEditorAndMakeActive());
                     } catch (...) {
                         node->faulted.store(true, std::memory_order_relaxed);
                         return {};
