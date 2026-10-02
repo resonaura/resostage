@@ -86,8 +86,8 @@ describe("AutomationLaneOverlay", () => {
       songIndex: 0, lane, resetKey, bpm: 120, pxPerSec: 100, widthPx: 800, heightPx: 100,
     })));
   };
-  async function openExactEditor() {
-    renderLane();
+  async function openExactEditor(lane = mockLane, nextValue: string | null = "-3.5") {
+    renderLane(lane);
     const surface = container.querySelector("div[aria-label='Automation lane']") as HTMLDivElement;
     for (let click = 0; click < 2; ++click) {
       await act(async () => {
@@ -100,7 +100,7 @@ describe("AutomationLaneOverlay", () => {
     }
     const input = container.querySelector("input[data-testid='automation-exact-value-input']") as HTMLInputElement;
     expect(input).not.toBeNull();
-    input.value = "-3.5";
+    if (nextValue !== null) input.value = nextValue;
     return { input, surface };
   }
 
@@ -123,6 +123,14 @@ describe("AutomationLaneOverlay", () => {
     const { surface } = await openExactEditor();
     await act(async () => surface.focus());
     expect(builder.automationPointsReplace).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not round or rewrite an untouched exact value when the input blurs", async () => {
+    const lane = { ...mockLane, points: [{ ...mockLane.points[0], value: 0.123456 }, ...mockLane.points.slice(1)] };
+    const { input, surface } = await openExactEditor(lane, null);
+    expect(input.value).toBe("0.123456");
+    await act(async () => surface.focus());
+    expect(builder.automationPointsReplace).not.toHaveBeenCalled();
   });
 
   it.each(["project", "lane", "history"])("retires an exact editor across %s identity changes", async (change) => {

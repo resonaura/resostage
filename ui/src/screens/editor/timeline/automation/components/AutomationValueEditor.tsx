@@ -18,7 +18,7 @@ export function AutomationValueEditor({ x, y, width, height, initialValue, minVa
     onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
     <Input autoFocus ownsEditingKeys type="number" data-testid="automation-exact-value-input"
       aria-label="Set exact automation value" step={step} min={minValue} max={maxValue}
-      defaultValue={String(Number(initialValue.toFixed(3)))}
+      defaultValue={String(initialValue)}
       className="h-6 w-20 min-w-0 rounded px-1.5 py-0.5 text-xs font-mono"
       onKeyDown={(event) => {
         event.stopPropagation();
