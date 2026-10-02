@@ -47,6 +47,21 @@ export function useMidiRegionEditorState(state: WebUiState) {
     awaitingRecordedMidiRef.current = false;
   }), []);
 
+  const projectEpoch = `${state.projectName}:${state.pluginLoading?.epoch ?? 0}`;
+  const previousEpochRef = useRef(projectEpoch);
+  useEffect(() => {
+    if (previousEpochRef.current !== projectEpoch) {
+      previousEpochRef.current = projectEpoch;
+      for (const pending of pendingMidiRegionCreatesRef.current.values())
+        pending.reject(new Error("MIDI edit cancelled by project change"));
+      pendingMidiRegionCreatesRef.current.clear();
+      awaitingRecordedMidiRef.current = false;
+      setSelectedMidiTrackId(null);
+      setSelectedMidiRegionId(null);
+      setVisibleMidiRegionIds([]);
+    }
+  }, [projectEpoch]);
+
   useEffect(() => {
     const pendingCreates = pendingMidiRegionCreatesRef.current;
     for (const [placeholderId, pending] of pendingCreates) {
