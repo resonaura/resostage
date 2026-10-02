@@ -41,4 +41,17 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
                             std::vector<OfflineMidiEvent>& events,
                             std::string& error);
 
+using OfflineMIDIEvent = OfflineMidiEvent;
+
+inline bool buildOfflineMIDIEvents(const Project& project, const SongDef& song,
+                                   const MixGraph& graph, const TempoMap& tempoMap,
+                                   const OfflineProcessorSession* processors,
+                                   double sampleRate, int64_t renderStartSample,
+                                   int64_t renderEndSample,
+                                   std::vector<OfflineMidiEvent>& events,
+                                   std::string& error) {
+    return buildOfflineMidiEvents(project, song, graph, tempoMap, processors, sampleRate,
+                                  renderStartSample, renderEndSample, events, error);
+}
+
 } // namespace resostage::offline_detail

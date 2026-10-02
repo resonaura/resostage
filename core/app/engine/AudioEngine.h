@@ -111,6 +111,7 @@ public:
         int pitch = 0;
         size_t trackIndex = 0;
     };
+    using ActiveMIDINoteInfo = ActiveMidiNoteInfo;
 
     AudioEngine();
 
@@ -125,6 +126,9 @@ public:
     LightHardwareServer& lightHardware() { return lightHardwareServer; }
 
     void enqueueIncomingMidi(const uint8_t* data, int length, int targetTrackIndex = -1);
+    void enqueueIncomingMIDI(const uint8_t* data, int length, int targetTrackIndex = -1) {
+        enqueueIncomingMidi(data, length, targetTrackIndex);
+    }
     void setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value);
     bool setPluginParameterBySlotId(const std::string& slotId, int paramIndex, float value);
 

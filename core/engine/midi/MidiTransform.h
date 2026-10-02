@@ -24,6 +24,9 @@ enum class RelativeEncoding : uint8_t {
     SignedBit = 2
 };
 
+using MIDITakeoverMode = TakeoverMode;
+using MIDIRelativeEncoding = RelativeEncoding;
+
 /**
  * Audio console fader law mapping normalized [0.0, 1.0] controller positions
  * to decibels and linear gain with standard DAW unity positioning (0 dB at 0.80).

@@ -17,9 +17,12 @@ using MidiClientRef = MIDIClientRef;
 using MidiPortRef = MIDIPortRef;
 using MidiEndpointRef = MIDIEndpointRef;
 #else
-using MidiClientRef = std::uintptr_t;
-using MidiPortRef = std::uintptr_t;
-using MidiEndpointRef = std::uintptr_t;
+using MIDIClientRef = std::uintptr_t;
+using MIDIPortRef = std::uintptr_t;
+using MIDIEndpointRef = std::uintptr_t;
+using MidiClientRef = MIDIClientRef;
+using MidiPortRef = MIDIPortRef;
+using MidiEndpointRef = MIDIEndpointRef;
 #endif
 
 #include "project/ProjectSchema.h"

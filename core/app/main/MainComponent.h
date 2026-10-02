@@ -352,6 +352,9 @@ private:
     // not wait out the slow refresh to show what the user just picked.
     void invalidateHardwareSettingsCache();
     void handleMidiLearnMessage(MidiTriggerType type, int channel1to16, int number);
+    void handleMIDILearnMessage(MidiTriggerType type, int channel1to16, int number) {
+        handleMidiLearnMessage(type, channel1to16, number);
+    }
 
     void transportSeek(const std::string& json);
     void maybePublishPeaks();

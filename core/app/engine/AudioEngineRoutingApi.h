@@ -177,5 +177,6 @@
     // sendContinue=true also emits 0xFB (seek/resume); false is tempo+SPP only
     // (gapless hop -- clock already running).
     void syncMidiTransportToCurrentSong(bool sendContinue = false);
+    void syncMIDITransportToCurrentSong(bool sendContinue = false) { syncMidiTransportToCurrentSong(sendContinue); }
 
 #endif // RESOSTAGE_INSIDE_AUDIOENGINE_CLASS

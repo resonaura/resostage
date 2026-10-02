@@ -7,6 +7,7 @@
 #include "doctest.h"
 
 #include "engine/OfflineRenderer.h"
+#include "engine/OfflineMidiEvents.h"
 
 #include <array>
 #include <algorithm>
@@ -663,4 +664,41 @@ TEST_CASE("OfflineRenderer writes and cancels custom Unicode destinations withou
     CHECK(std::filesystem::is_empty(directory));
     std::error_code ignored;
     std::filesystem::remove_all(directory.parent_path(), ignored);
+}
+
+TEST_CASE("OfflineMIDIEvent and buildOfflineMIDIEvents alias compatibility") {
+    using namespace resostage::offline_detail;
+    OfflineMIDIEvent canonicalEvent;
+    canonicalEvent.sample = 48000;
+    canonicalEvent.strip = 2;
+    canonicalEvent.pitch = 60;
+    canonicalEvent.velocity = 100;
+    canonicalEvent.noteOn = true;
+
+    OfflineMidiEvent legacyEvent = canonicalEvent;
+    CHECK(legacyEvent.sample == 48000);
+    CHECK(legacyEvent.strip == 2);
+    CHECK(legacyEvent.pitch == 60);
+    CHECK(legacyEvent.velocity == 100);
+    CHECK(legacyEvent.noteOn);
+
+    Project project;
+    SongDef song;
+    song.id = "s1";
+    song.bpm = 120.0;
+    song.endSeconds = 10.0;
+    MixGraph graph;
+    TempoMap tempoMap(120.0);
+
+    std::vector<OfflineMidiEvent> eventsA;
+    std::string errA;
+    bool okA = buildOfflineMidiEvents(project, song, graph, tempoMap, nullptr, 48000.0, 0, 480000, eventsA, errA);
+
+    std::vector<OfflineMidiEvent> eventsB;
+    std::string errB;
+    bool okB = buildOfflineMIDIEvents(project, song, graph, tempoMap, nullptr, 48000.0, 0, 480000, eventsB, errB);
+
+    CHECK(okA == okB);
+    CHECK(errA == errB);
+    CHECK(eventsA.size() == eventsB.size());
 }

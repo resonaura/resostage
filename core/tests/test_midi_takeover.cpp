@@ -89,4 +89,20 @@ TEST_SUITE("MidiTransform") {
         CHECK(RelativeEncoder::decodeSignedBit(0x41) == -1); // bit 6 set, magnitude 1
         CHECK(RelativeEncoder::decodeSignedBit(0) == 0);
     }
+
+    TEST_CASE("Canonical MIDITakeoverMode and MIDIRelativeEncoding aliases") {
+        CHECK(static_cast<uint8_t>(MIDITakeoverMode::Jump) == static_cast<uint8_t>(TakeoverMode::Jump));
+        CHECK(static_cast<uint8_t>(MIDITakeoverMode::Pickup) == static_cast<uint8_t>(TakeoverMode::Pickup));
+        CHECK(static_cast<uint8_t>(MIDITakeoverMode::ValueScaling) == static_cast<uint8_t>(TakeoverMode::ValueScaling));
+
+        CHECK(static_cast<uint8_t>(MIDIRelativeEncoding::TwosComplement7) == static_cast<uint8_t>(RelativeEncoding::TwosComplement7));
+        CHECK(static_cast<uint8_t>(MIDIRelativeEncoding::BinaryOffset) == static_cast<uint8_t>(RelativeEncoding::BinaryOffset));
+        CHECK(static_cast<uint8_t>(MIDIRelativeEncoding::SignedBit) == static_cast<uint8_t>(RelativeEncoding::SignedBit));
+
+        ControllerTakeoverState state;
+        state.mode = MIDITakeoverMode::Pickup;
+        CHECK(state.mode == TakeoverMode::Pickup);
+
+        CHECK(RelativeEncoder::decode(MIDIRelativeEncoding::BinaryOffset, 65) == 1);
+    }
 }
