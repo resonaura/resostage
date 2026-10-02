@@ -86,15 +86,16 @@ tails. Offline and live rendering share curve/target semantics.
 
 ## Acceptance
  
-- Pure coordinate, snap, curve, boundary, LOD and multi-selection tests.
+- Pure coordinate, snap, curve, boundary, LOD, target mapping and multi-selection tests.
   Passed 2026-10-01: `automationCoordinates.test.ts` (22 tests), `automationSelection.test.ts` (9 tests),
-  `automationTargets.test.ts` (7 tests), `automationBoundary.test.ts` (6 tests),
-  `automationTouchSession.test.ts` (3 tests), `AutomationTrackControls.test.tsx` (3 tests),
+  `automationTargets.test.ts` (9 tests), `automationBoundary.test.ts` (6 tests),
+  `automationTouchSession.test.ts` (3 tests), `AutomationTrackControls.test.tsx` (4 tests),
   `AutomationLaneOverlay.test.tsx` (1 test).
  - Pointer tests for all tools, empty lanes, overlapping tracks, narrow/large
    zoom, autoscroll, cancellation, stale revision and shared Undo/Redo branching.
  - Native persistence/migration, reordering/removal/orphan target, chase, tempo,
    cycle/punch, bounded queue overflow and live/offline equivalence tests.
+   Passed 2026-10-01: `test_automation_framework.cpp` (`AutomationTarget: Slot UUID retention, orphan lane recovery, and paramID parsing`, 22 assertions).
  - Real AU/VST3 saved-state tests at multiple block sizes; separately report
    block-rate versus sample-accurate capabilities, vendor skips and hardware.
  - Visual checks in both themes and several track densities; reuse shared

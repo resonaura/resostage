@@ -8,6 +8,7 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
 
 - Recent work is on `main`; do not push unless the user asks.
 - Completed commits in this work sequence:
+  - `e0c4dbd` — Retain slot UUID ownership across plugin moves and discover recoverable orphan lanes
   - `5e26397` — Add touch session lifecycle and return ramp model for live automation recording
   - `84642ad` — Preserve automation continuity and boundary points across region splits
   - `83900dc` — Add arrangement timeline automation lane editing and scoped visibility controls
@@ -24,8 +25,8 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
   names and WAV/UDP source filenames, retaining legacy aliases for source
   compatibility. It passed the Core build and native suite; the broader acronym
   inventory and cross-language/platform audit are still open.
-- The latest recorded regression runs: Core target build; 546 native test cases
-  / 287,194 assertions; UI 602 tests across 94 files; Electron 37 tests.
+- The latest recorded regression runs: Core target build; 547 native test cases
+  / 287,216 assertions; UI 608 tests across 95 files; Electron 37 tests.
   Plugin host control timer is now event-driven (immediate callAsync dispatch
   on wake) with adaptive 8 ms/50 ms interval. Bounded deadline misses and queue
   rejection diagnostics are now surfaced to the Health UI. An allocator probe
