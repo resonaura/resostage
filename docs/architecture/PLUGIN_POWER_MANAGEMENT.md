@@ -42,16 +42,21 @@ the DSP writer. Any-thread controls publish atomic guard values and coalesced
 intents; they do not touch ordinary DSP counters. Explicit park survives input
 or prewarm and requires explicit unpark. No blocking lock was added.
 
-Host ABI v6 adds 128 fixed per-slot latest-wins power mailboxes and helper-owned
+Host ABI v7 adds 128 fixed per-slot latest-wins power mailboxes and helper-owned
 power-state atomics, separate from the parameter queue. Keep-awake/park/unpark/
-wake reach the owning child; predictive prewarm uses one coalesced chain flag.
+wake and paired record-arm/input-monitor/bypass controls reach the owning child;
+predictive prewarm uses one coalesced chain flag. Core track setters update the
+active proxy bank immediately, while new isolated chains receive the initial
+R/I guards through their private project snapshot. These control changes do not
+recreate a healthy vendor instance.
 The helper consumes intentions at its next DSP block and publishes actual state.
 There is no extra poll worker or OS wake for power control. Mailbox producers
 cap concurrent CAS attempts at eight and count a rejected newest intention.
-Paired bypass enable/disable shares these mailboxes: normal On/Off does not
-compete with parameter events. Reuse identity ignores bypass and synchronizes
-the requested bypass/keep-awake state to a reused healthy helper, so bypass
-history edits do not reload its vendor chain. Existing JUCE
+Paired bypass, record-arm and input-monitor enable/disable share these mailboxes:
+normal On/Off and R/I changes do not compete with parameter events. Reuse
+identity ignores these mutable guards and synchronizes their requested values
+to a reused healthy helper, so history or routing edits do not reload its vendor
+chain. Existing JUCE
 `processBlockBypassed` semantics remain the DSP policy.
 Read the matching current `PluginHostProtocol.h`; old helpers fail ABI validation.
 

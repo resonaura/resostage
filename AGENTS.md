@@ -494,6 +494,12 @@ Preserve these rules:
   the corresponding helper.
   Bypass/keep-awake history changes synchronize coalesced controls to an
   otherwise unchanged healthy helper rather than reinstantiating the vendor.
+  Track record-arm and input-monitor guards are also authoritative project
+  state: routing setters update the active Core proxy bank and publish paired,
+  latest-wins helper controls without rebuilding plug-ins. New isolated chains
+  receive the same guard state in their private project snapshot. This keeps a
+  silent monitored/armed instrument awake while preserving helper ownership;
+  it does not change track R/I persistence or callback synchronization.
   A new project's plug-in loading session is epoch/generation scoped and
   gates Play/Record in Core until the completed bank is published. Structural
   state includes progress and per-slot loading/loaded/missing/failed states.

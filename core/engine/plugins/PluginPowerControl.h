@@ -45,6 +45,10 @@ enum class PluginPowerControl : uint32_t {
     KeepAwakeDisable = 16u,
     BypassEnable = 32u,
     BypassDisable = 64u,
+    RecordArmedEnable = 128u,
+    RecordArmedDisable = 256u,
+    InputMonitoringEnable = 512u,
+    InputMonitoringDisable = 1024u,
 };
 
 constexpr uint32_t pluginPowerControlMask(PluginPowerControl control) noexcept {

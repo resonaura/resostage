@@ -41,12 +41,18 @@ evidence for the whole callback before claiming dropout elimination.
 
 ## Remaining host integrations
 
-- Forward actual arm/monitor guard changes to helper DSP if semantics require
-  keeping silent monitored instruments awake. Existing setters have no normal
-  production callers; a proxy-only flag is not vendor power ownership.
-- State capture skips node execution while the vendor serializes. Test note-off,
-  sustain release, panic and dense MIDI during long state capture; retain them
-  through a bounded node-owned queue rather than dropping them or allocating.
+- Core R/I routing setters now update the active proxy bank and forward paired,
+  coalesced guard controls to isolated helpers. New isolated snapshots persist
+  their initial guard state. Protocol mailbox tests and the full Core target
+  compile pass; add a real helper transition test when the harness can inspect
+  track-level power state end to end.
+- State capture defers instrument MIDI into a fixed-capacity per-node FIFO,
+  replays with block-relative sample offsets, and degrades overflow to channel
+  panic rather than silently leaving voices held. Snapshot publication stages a
+  complete directory before replacing the previous state. Focused FIFO,
+  overflow, helper load/render tests passed (1,995 assertions). Still exercise
+  dense sustain-release/panic traffic during a deliberately slow real vendor
+  state capture and verify acoustic continuity.
 - Helper message-thread control timer wakes at 8 ms even idle. Replace polling
   only with a verified event-driven/coalesced edge that preserves editor,
   parameter/state and latency-response time. Merely slowing it increases delay.

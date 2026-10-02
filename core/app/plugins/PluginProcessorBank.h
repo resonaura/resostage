@@ -173,6 +173,9 @@ public:
     bool setPluginParameterBySlotId(const std::string& slotId, int paramIndex, float value) noexcept;
     /** Message-thread bypass update; preserves the live vendor instance. */
     bool setSlotBypassed(const std::string& slotId, bool bypassed) noexcept;
+    /** Message-thread update of the track's recording/monitoring power guards. */
+    void setTrackPowerGuards(const std::string& trackId, bool recordArmed,
+                             bool inputMonitoring) noexcept;
 
     /** Atomic power inspection and coalesced controls; callable across threads. */
     PluginPowerState getSlotPowerState(const std::string& slotId) const noexcept;

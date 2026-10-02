@@ -332,6 +332,9 @@ void PluginHostRuntime::applyPowerRequests(plugin_host::SharedArea& area) noexce
         // a predictive wake in the same batch; a wake cannot cancel parking.
         constexpr PluginPowerControl order[] = {
             PluginPowerControl::KeepAwakeEnable, PluginPowerControl::KeepAwakeDisable,
+            PluginPowerControl::RecordArmedEnable, PluginPowerControl::RecordArmedDisable,
+            PluginPowerControl::InputMonitoringEnable,
+            PluginPowerControl::InputMonitoringDisable,
             PluginPowerControl::BypassEnable, PluginPowerControl::BypassDisable,
             PluginPowerControl::Wake, PluginPowerControl::Park, PluginPowerControl::Unpark};
         for (const auto control : order)

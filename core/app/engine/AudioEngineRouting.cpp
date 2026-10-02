@@ -498,6 +498,8 @@ void AudioEngine::setTrackRecordArmed(size_t songIndex, size_t trackIndex, bool 
     if (t == nullptr)
         return;
     t->recordArmed = trackSupportsRecordArm(*t) && armed;
+    if (auto bank = activePluginProcessorBank())
+        bank->setTrackPowerGuards(t->id, t->recordArmed, t->inputMonitoring);
     publishRoutingSnapshot();
 }
 
@@ -510,6 +512,8 @@ void AudioEngine::setTrackInputMonitoring(size_t songIndex, size_t trackIndex, b
     // MIDI track automatic auditioning, while I permits any additional audio
     // and MIDI/instrument tracks to monitor simultaneously.
     t->inputMonitoring = trackSupportsInputMonitoring(*t) && monitoring;
+    if (auto bank = activePluginProcessorBank())
+        bank->setTrackPowerGuards(t->id, t->recordArmed, t->inputMonitoring);
     publishRoutingSnapshot();
 }
 
@@ -540,6 +544,8 @@ void AudioEngine::setTrackInputSource(size_t songIndex, size_t trackIndex, const
         t->recordArmed = false;
     if (!trackSupportsInputMonitoring(*t))
         t->inputMonitoring = false;
+    if (auto bank = activePluginProcessorBank())
+        bank->setTrackPowerGuards(t->id, t->recordArmed, t->inputMonitoring);
     publishRoutingSnapshot();
 }
 

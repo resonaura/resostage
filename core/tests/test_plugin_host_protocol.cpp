@@ -252,6 +252,10 @@ TEST_CASE("plug-in host power mailboxes coalesce independently of the parameter 
         REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::Unpark));
         REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::BypassEnable));
         REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::BypassDisable));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::RecordArmedEnable));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::RecordArmedDisable));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::InputMonitoringEnable));
+        REQUIRE(publishPowerControl(area, slotIndex, PluginPowerControl::InputMonitoringDisable));
         const auto mask = area.pluginSlotPowerRequests[slotIndex].exchange(0);
         CHECK(hasPluginPowerControl(mask, PluginPowerControl::Wake));
         CHECK_FALSE(hasPluginPowerControl(mask, PluginPowerControl::KeepAwakeEnable));
@@ -260,6 +264,10 @@ TEST_CASE("plug-in host power mailboxes coalesce independently of the parameter 
         CHECK(hasPluginPowerControl(mask, PluginPowerControl::Unpark));
         CHECK_FALSE(hasPluginPowerControl(mask, PluginPowerControl::BypassEnable));
         CHECK(hasPluginPowerControl(mask, PluginPowerControl::BypassDisable));
+        CHECK_FALSE(hasPluginPowerControl(mask, PluginPowerControl::RecordArmedEnable));
+        CHECK(hasPluginPowerControl(mask, PluginPowerControl::RecordArmedDisable));
+        CHECK_FALSE(hasPluginPowerControl(mask, PluginPowerControl::InputMonitoringEnable));
+        CHECK(hasPluginPowerControl(mask, PluginPowerControl::InputMonitoringDisable));
     }
     CHECK(area.controlEnqueuePosition.load(std::memory_order_relaxed) == enqueueCursor);
     CHECK(area.missedControlEvents.load(std::memory_order_relaxed) == 0);
@@ -272,9 +280,11 @@ TEST_CASE("plug-in host power mailbox retains independent requests from concurre
     SharedArea area{};
     area.pluginSlotCount = 1;
     std::atomic<bool> start{false};
-    std::array<std::thread, 3> producers;
+    std::array<std::thread, 5> producers;
     constexpr PluginPowerControl controls[] = {
-        PluginPowerControl::Wake, PluginPowerControl::KeepAwakeEnable, PluginPowerControl::Park};
+        PluginPowerControl::Wake, PluginPowerControl::KeepAwakeEnable,
+        PluginPowerControl::Park, PluginPowerControl::RecordArmedEnable,
+        PluginPowerControl::InputMonitoringEnable};
     for (size_t index = 0; index < producers.size(); ++index)
         producers[index] = std::thread([&, index] {
             while (!start.load(std::memory_order_acquire))

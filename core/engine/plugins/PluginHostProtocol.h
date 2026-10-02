@@ -260,6 +260,16 @@ inline bool publishPowerControl(SharedArea& area, uint32_t slotIndex,
             replaceMask = pluginPowerControlMask(PluginPowerControl::BypassEnable)
                 | pluginPowerControlMask(PluginPowerControl::BypassDisable);
             break;
+        case PluginPowerControl::RecordArmedEnable:
+        case PluginPowerControl::RecordArmedDisable:
+            replaceMask = pluginPowerControlMask(PluginPowerControl::RecordArmedEnable)
+                | pluginPowerControlMask(PluginPowerControl::RecordArmedDisable);
+            break;
+        case PluginPowerControl::InputMonitoringEnable:
+        case PluginPowerControl::InputMonitoringDisable:
+            replaceMask = pluginPowerControlMask(PluginPowerControl::InputMonitoringEnable)
+                | pluginPowerControlMask(PluginPowerControl::InputMonitoringDisable);
+            break;
         default:
             area.missedControlEvents.fetch_add(1, std::memory_order_relaxed);
             return false;
