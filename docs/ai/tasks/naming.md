@@ -64,6 +64,16 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
 - `Midi2Compatibility.h`: canonical `MIDI1CompatibleMessage` alias.
 - `WebServer.h` & `WireTypes.h`: canonical `RemoteUDPSubscriber`, `WSubscribeUDPPayload`, and `lastUDPSendTimeSec_` with legacy aliases.
 - `WebServerCommands.cpp`: uses canonical `kUDPTelemetryPort`, `wire::WSubscribeUDPPayload`, and `registerUDPSubscriber`.
+- `ArtNetPacket.{h,cpp}`: canonical `buildArtDMXPacket()` and `parseArtDMXPacket()` with `buildArtDmxPacket()` and `parseArtDmxPacket()` backward-compatible wrappers.
+- `EventDispatcher.cpp`: uses canonical `buildArtDMXPacket()` and `kArtNetUDPPort`.
+- `core/tests/test_artnet_packet.cpp`: tests canonical `buildArtDMXPacket()` and validates roundtrip parity against legacy alias.
+- `WebServer.h`: canonical `WebCommandKind` values (`BuilderTrackImportWAVBegin`, `BuilderTrackImportWAVUpload`, `BuilderTrackImportWAVDialog`, `BuilderMIDIRegionAdd`, `BuilderMIDIRegionRemove`, `BuilderMIDIRegionUpdate`, `SetMIDIOutput`, `SetMIDIInput`, `SetMIDIVirtualPort`, `MIDILearn`, `MIDILearnCancel`, `MIDIClear`) with legacy aliases.
+- `WebServerCommands.cpp`: routes table and dispatch switch use canonical `WebCommandKind` values.
+- `MainComponent.h`, `MainComponentBuilderImports.cpp`, `MainComponentBuilderTracks.cpp`, `MainComponentSettingsMidi.cpp`, `MainComponentWebCommands.cpp`: canonical method names (`builderMIDIRegionAdd/Remove/Update`, `builderTrackImportWAVUpload/Dialog`, `settingsSetMIDIOutput/Input/VirtualPort`, `settingsMIDILearn/Cancel/Clear`) with backward-compatible wrappers.
+- `AudioEngineProjectApi.h` and `AudioEngineImport.cpp`: canonical `importWAVForTrackAsync()` with `importWavForTrackAsync()` inline wrapper.
+- `electron/src/udpTelemetry.ts`: exports canonical `UDPTelemetryStats` and `UDPTelemetryTracker` aliases.
+- `ui/src/lib/state/types.ts`: exports canonical `MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow` aliases.
+- `ui/src/lib/state/api.ts`: canonical `trackImportWAV()`, `trackImportWAVDialog()`, `setMIDIOutput()`, `setMIDIInput()`, `setMIDIVirtualPort()` with backward-compatible wrappers.
 - Invariants preserved:
   - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
   - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
@@ -71,10 +81,13 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
     macOS/Windows file systems. A future rename needs a two-step Git move and
     reference-aware updates, not ambiguous duplicate paths.
 
-The WAV/UDP/HTTP/DMX/BPM/DSP/IO/MIDI cleanup and references were built and the native test target
-passed on 2026-10-02 (562 tests / 332,647 assertions). Remaining: continue the repository-wide inventory of
-acronym identifiers and filenames, migrate any remaining internal uses away
-from transitional aliases, and run UI/Electron/script plus supported platform
-build and resolution checks. Preserve external wire/persisted/JUCE spellings
-unless a deliberate compatibility change is made. Do not mark this task done
-until that inventory and verification are complete.
+The WAV/UDP/HTTP/DMX/BPM/DSP/IO/MIDI cleanup and references were built and verified on 2026-10-02:
+- Native engine tests: 563 passed / 333,233 assertions (`core/build/tests/resostage_engine_tests`).
+- Native application target: built and verified with embedded scanner and host helpers.
+- Verification harness: `scripts/verification/editor-state.mjs` PASS.
+- UI Vitest: 102 test files / 695 tests passed.
+- Electron Vitest: 5 test files / 37 unit tests + 2 alias tests passed.
+- TypeScript: `pnpm typecheck` passed (0 errors).
+- Linter: `pnpm --filter ui lint` passed (0 errors).
+Remaining: continue repository-wide inventory of acronym identifiers and filenames as new features land. Preserve external wire/persisted/JUCE spellings.
+

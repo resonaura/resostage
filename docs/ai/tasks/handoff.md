@@ -88,6 +88,9 @@ Additional critical issues:
 - `e3a4da2`: Suppressed automation playback during Write mode across Strip, Plugin, and MIDI domains so manual fader gestures write without competing against existing points.
 - `54f083e`: Normalized UDP telemetry acronym identifiers across server headers and implementations (`kUDPTelemetryPort`, `RemoteUDPSubscriber`, `WSubscribeUDPPayload`, `lastUDPSendTimeSec_`).
 - `2683dc2`: Integrated live Touch, Latch, and Write automation recording from UI manual faders and knobs (`AutomationTouchController`, `useAutomationTouchRecorder`, `TrackHeaderControl`, `TrackGainControl`, `TrackPanControl`, `MeterFader`, `Knob`, `useKnobDrag`) with off-thread RDP thinning, return ramps to underlying curves, transport stop punch-out, cycle wrap re-anchoring, and automatic Write safety revert.
+- `fdc32a2`: Unit test for dense sustain and panic traffic during deferred MIDI queue capture in `test_plugin_host_protocol.cpp` (582 assertions verifying pedal CC 64, notes, pitch bend across channels 1..4, overflow degradation to 48-event 16-channel panic, and clean recovery).
+- `75c3eb0`: Canonicalized ArtDMX (`buildArtDMXPacket`, `parseArtDMXPacket`), WebCommandKind values (`BuilderTrackImportWAV*`, `BuilderMIDIRegion*`, `SetMIDI*`, `MIDILearn*`), builder/settings methods (`builderMIDIRegion*`, `builderTrackImportWAV*`, `settingsSetMIDI*`, `settingsMIDI*`), and `importWAVForTrackAsync` across Core with backward-compatible aliases.
+- `e214318`: Exposed canonical acronym types and method aliases in UI (`MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow`, `trackImportWAV`, `setMIDI*`) and Electron (`UDPTelemetryStats`, `UDPTelemetryTracker`).
 
 ## Work in progress: inspect before continuing
 
@@ -103,7 +106,7 @@ and verified end-to-end against live Core HTTP commands and transport continuity
 - Explicit 413 rejection for oversized command bodies
 - Persistence across project save and clean reopen
 - Test evidence: 102 UI Vitest test files / 695 tests pass, 5 Electron shell tests / 39 tests pass,
-  562 native engine tests / 332,647 assertions pass, zero tsc errors, zero oxlint errors.
+  563 native engine tests / 333,233 assertions pass, zero tsc errors, zero oxlint errors.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,

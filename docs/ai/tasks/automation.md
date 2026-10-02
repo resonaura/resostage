@@ -46,7 +46,7 @@ Previous arrangement UI existed, but had significant functional gaps:
 - End-to-end verification in `scripts/verification/editor-state.mjs` verifying uninterrupted
   transport playback during live MIDI and automation edits, Touch/Write gestures with safety auto-revert, Undo/Redo, 413, and persistence
 - Complete test suites: 102 UI Vitest test files / 695 tests, 5 Electron shell tests / 39 tests,
-  562 native engine tests / 332,647 assertions passing cleanly
+  563 native engine tests / 333,233 assertions passing cleanly
 
 ## Finish in this order
 

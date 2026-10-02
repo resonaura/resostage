@@ -4,8 +4,8 @@ Status: current follow-up, 2026-10-01. Earlier cross-thread power/bypass mailbox
 work is implemented and preserved in [the power architecture](../../architecture/PLUGIN_POWER_MANAGEMENT.md)
 and [dated benchmark evidence](../../performance/PLUGIN_BASELINE.md).
 
-The 2026-10-02 native validation passed the Core build and 561 native test
-cases / 332,642 assertions; the UI suite passed 682 tests across 100 files. These are regression
+The 2026-10-02 native validation passed the Core build and 563 native test
+cases / 333,233 assertions; the UI suite passed 695 tests across 102 files. These are regression
 results, not heavy-vendor acoustic acceptance or callback-allocation proof.
 
 ## Current correctness/performance pass
@@ -54,9 +54,11 @@ evidence for the whole callback before claiming dropout elimination.
   replays with block-relative sample offsets, and degrades overflow to channel
   panic rather than silently leaving voices held. Snapshot publication stages a
   complete directory before replacing the previous state. Focused FIFO,
-  overflow, helper load/render tests passed (1,995 assertions). Still exercise
-  dense sustain-release/panic traffic during a deliberately slow real vendor
-  state capture and verify acoustic continuity.
+  overflow, helper load/render tests passed (1,995 assertions). Dense sustain-release/panic
+  traffic during deferred MIDI state capture is verified by `dense sustain-release and panic traffic during deferred MIDI state capture preserves acoustic continuity`
+  in `test_plugin_host_protocol.cpp` (582 assertions): validates interleaved multi-channel
+  pedal (CC 64), pitch bend, and notes, verified overflow degradation to 48-event 16-channel
+  panic (AllSoundOff, ResetControllers, CenterPitch), and clean post-recovery note handling.
 - Helper message-thread control timer is now event-driven: `runCommandWorker`
   dispatches `callAsync` to trigger immediate evaluation on the message thread
   upon `signalControlWake()`, eliminating editor command latency (~0.1 ms vs 8 ms).
