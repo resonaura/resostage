@@ -101,6 +101,7 @@ struct MidiEvent {
     uint8_t reserved[3]{};
     uint8_t data[kMaximumMidiEventBytes]{};
 };
+using MIDIEvent = MidiEvent;
 
 struct ParameterEvent {
     uint16_t slotIndex = 0;

@@ -668,6 +668,7 @@ struct WebUiState {
                     int attributeType = 0;
                     uint16_t attributeData = 0;
                 };
+                using MIDI2Data = Midi2Data;
                 std::optional<Midi2Data> midi2;
             };
             std::vector<Note> notes;
@@ -676,15 +677,18 @@ struct WebUiState {
                 int status = 0;
                 std::vector<int> data;
             };
+            using MIDIEvent = MidiEvent;
             std::vector<MidiEvent> events;
             struct UmpEvent {
                 double beat = 0.0;
                 std::array<uint32_t, 4> words{};
                 int wordCount = 0;
             };
+            using UMPEvent = UmpEvent;
             std::vector<UmpEvent> umpEvents;
             std::vector<AutomationLaneRow> automationLanes;
         };
+        using MIDIRegionRow = MidiRegionRow;
         std::vector<MidiRegionRow> midiRegions;
 
         struct TempoPointRow {
@@ -1086,6 +1090,7 @@ struct WebUiState {
             int channel = 0;
             int number = 0;
         };
+        using MIDIBinding = MidiBinding;
         std::vector<MidiBinding> midiBindings;
         // Non-empty while the web UI has armed MIDI-learn for this action.
         std::string midiLearnAction;

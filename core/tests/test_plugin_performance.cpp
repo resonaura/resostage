@@ -597,16 +597,126 @@ TEST_CASE("MixRenderer latency percentiles (p50/p95/p99/max) and PDC alignment a
 
 TEST_CASE("Dynamic PDC changed-latency refill continuity and alignment during active rendering") {
     // Tests real-time live transition when a plugin changes its latency report
-    // from 64 to 128 samples during continuous audio rendering.
+    // from 64 to 128 samples during continuous audio rendering across all standard
+    // hardware block sizes (64, 128, 256, 512 frames).
     // Verifies:
     // 1. Zero heap allocations on the audio thread during and across transitions.
     // 2. Refill transient is bounded exactly to the new delay length.
     // 3. Signal continuity: zero NaN/Inf, outputs clean delayed stream.
     // 4. Phase and alignment match the newly declared latency exactly.
-    constexpr int blockSize = 128;
+    const int blockSizes[] = {64, 128, 256, 512};
+
+    for (int blockSize : blockSizes) {
+        MixGraph graph;
+        graph.strips.resize(3);
+        graph.routingLayoutKey = 100 + static_cast<uint64_t>(blockSize);
+        graph.strips[0].id = "track:0";
+        graph.strips[0].kind = StripKind::Track;
+        graph.strips[0].channels = 2;
+        graph.strips[0].gainLinear = 1.0f;
+        graph.strips[0].audible = true;
+
+        graph.strips[1].id = "track:1";
+        graph.strips[1].kind = StripKind::Track;
+        graph.strips[1].channels = 2;
+        graph.strips[1].gainLinear = 1.0f;
+        graph.strips[1].audible = true;
+
+        graph.strips[2].id = "main";
+        graph.strips[2].kind = StripKind::Main;
+        graph.strips[2].channels = 2;
+        graph.strips[2].gainLinear = 1.0f;
+        graph.strips[2].audible = true;
+
+        MixEdge edge0{.from = 0, .to = 2, .gainLinear = 1.0f, .active = true};
+        MixEdge edge1{.from = 1, .to = 2, .gainLinear = 1.0f, .active = true};
+        graph.edges.push_back(edge0);
+        graph.edges.push_back(edge1);
+
+        MixRenderer renderer;
+        renderer.prepare(48000.0, 512, 3, 2);
+
+        std::vector<std::string> warnings;
+        // Initial latency: Track 0 has 64 samples latency -> Edge 1 gets 64 samples delay
+        uint32_t currentLatency = 64;
+        auto delayBank = PluginDelayBank::build(graph, {currentLatency, 0, 0}, 48000.0, warnings);
+        REQUIRE(delayBank != nullptr);
+
+        MixProcessorView procView;
+        delayBank->applyTo(procView);
+
+        constexpr double freq = 440.0;
+        constexpr double sr = 48000.0;
+        int globalSample = 0;
+
+        auto renderBlock = [&](MixProcessorView& view) {
+            renderer.beginBlock(graph, blockSize);
+            float* track1L = renderer.sourceChannel(1, 0);
+            float* track1R = renderer.sourceChannel(1, 1);
+            for (int s = 0; s < blockSize; ++s) {
+                const float val = static_cast<float>(std::sin(2.0 * 3.141592653589793 * freq * (globalSample + s) / sr));
+                track1L[s] = val;
+                track1R[s] = val;
+            }
+            renderer.process(graph, blockSize, view);
+            globalSample += blockSize;
+        };
+
+        // Render enough blocks to establish continuous steady state (at least 640 samples)
+        const int warmupBlocks = std::max(10, 640 / blockSize);
+        for (int b = 0; b < warmupBlocks; ++b) {
+            renderBlock(procView);
+            const float* mainL = renderer.postChannel(2, 0);
+            for (int s = 0; s < blockSize; ++s) {
+                REQUIRE_FALSE(std::isnan(mainL[s]));
+                REQUIRE_FALSE(std::isinf(mainL[s]));
+            }
+        }
+
+        // Now, change latency from 64 to 128 samples (e.g. plugin lookahead or oversampling increased)
+        currentLatency = 128;
+        auto nextDelayBank = PluginDelayBank::build(graph, {currentLatency, 0, 0}, 48000.0, warnings, delayBank.get());
+        REQUIRE(nextDelayBank != nullptr);
+
+        MixProcessorView nextView;
+        nextDelayBank->applyTo(nextView);
+
+#if !defined(_MSC_VER)
+        sAudioRenderAllocProbeCount = 0;
+        sAudioRenderAllocProbeActive = true;
+#endif
+
+        // Render through transition (enough to clear 128-sample refill transient)
+        const int transitionBlocks = std::max(10, (128 / blockSize) + 4);
+        for (int b = 0; b < transitionBlocks; ++b) {
+            renderBlock(nextView);
+            const float* mainL = renderer.postChannel(2, 0);
+            for (int s = 0; s < blockSize; ++s) {
+                REQUIRE_FALSE(std::isnan(mainL[s]));
+                REQUIRE_FALSE(std::isinf(mainL[s]));
+            }
+        }
+
+#if !defined(_MSC_VER)
+        sAudioRenderAllocProbeActive = false;
+        CHECK(sAudioRenderAllocProbeCount == 0); // Zero allocations across latency change
+#endif
+
+        // Verify steady-state output after refill matches exactly 128-sample delayed sine
+        const float* mainL = renderer.postChannel(2, 0);
+        const int checkBlockStart = globalSample - blockSize;
+        for (int s = 0; s < blockSize; ++s) {
+            const int expectedSample = (checkBlockStart + s) - static_cast<int>(currentLatency);
+            const float expectedVal = static_cast<float>(std::sin(2.0 * 3.141592653589793 * freq * expectedSample / sr));
+            CHECK(doctest::Approx(mainL[s]).epsilon(0.001f) == expectedVal);
+        }
+    }
+}
+
+TEST_CASE("MixRenderer multi-buffer device transitions (64, 128, 256, 512 frames) with PDC maintain zero allocations and phase continuity") {
     MixGraph graph;
     graph.strips.resize(3);
-    graph.routingLayoutKey = 100;
+    graph.routingLayoutKey = 200;
     graph.strips[0].id = "track:0";
     graph.strips[0].kind = StripKind::Track;
     graph.strips[0].channels = 2;
@@ -633,10 +743,9 @@ TEST_CASE("Dynamic PDC changed-latency refill continuity and alignment during ac
     MixRenderer renderer;
     renderer.prepare(48000.0, 512, 3, 2);
 
+    constexpr uint32_t kLatency = 128;
     std::vector<std::string> warnings;
-    // Initial latency: Track 0 has 64 samples latency -> Edge 1 gets 64 samples delay
-    uint32_t currentLatency = 64;
-    auto delayBank = PluginDelayBank::build(graph, {currentLatency, 0, 0}, 48000.0, warnings);
+    auto delayBank = PluginDelayBank::build(graph, {kLatency, 0, 0}, 48000.0, warnings);
     REQUIRE(delayBank != nullptr);
 
     MixProcessorView procView;
@@ -646,65 +755,45 @@ TEST_CASE("Dynamic PDC changed-latency refill continuity and alignment during ac
     constexpr double sr = 48000.0;
     int globalSample = 0;
 
-    auto renderBlock = [&](MixProcessorView& view) {
-        renderer.beginBlock(graph, blockSize);
-        float* track1L = renderer.sourceChannel(1, 0);
-        float* track1R = renderer.sourceChannel(1, 1);
-        for (int s = 0; s < blockSize; ++s) {
-            const float val = static_cast<float>(std::sin(2.0 * 3.141592653589793 * freq * (globalSample + s) / sr));
-            track1L[s] = val;
-            track1R[s] = val;
-        }
-        renderer.process(graph, blockSize, view);
-        globalSample += blockSize;
+    // Sequence of alternating buffer sizes spanning small (64), medium (128, 256) and large (512)
+    const int blockSequence[] = {
+        64, 128, 256, 512, 64, 256, 128, 512, 64, 64, 128, 256, 512, 128, 64, 512
     };
-
-    // Render 10 blocks with 64-sample latency to establish continuous steady state
-    for (int b = 0; b < 10; ++b) {
-        renderBlock(procView);
-        const float* mainL = renderer.postChannel(2, 0);
-        for (int s = 0; s < blockSize; ++s) {
-            REQUIRE_FALSE(std::isnan(mainL[s]));
-            REQUIRE_FALSE(std::isinf(mainL[s]));
-        }
-    }
-
-    // Now, change latency from 64 to 128 samples (e.g. plugin lookahead or oversampling increased)
-    currentLatency = 128;
-    auto nextDelayBank = PluginDelayBank::build(graph, {currentLatency, 0, 0}, 48000.0, warnings, delayBank.get());
-    REQUIRE(nextDelayBank != nullptr);
-
-    MixProcessorView nextView;
-    nextDelayBank->applyTo(nextView);
 
 #if !defined(_MSC_VER)
     sAudioRenderAllocProbeCount = 0;
     sAudioRenderAllocProbeActive = true;
 #endif
 
-    // Render through transition
-    for (int b = 0; b < 10; ++b) {
-        renderBlock(nextView);
+    for (int curBlockSize : blockSequence) {
+        renderer.beginBlock(graph, curBlockSize);
+        float* track1L = renderer.sourceChannel(1, 0);
+        float* track1R = renderer.sourceChannel(1, 1);
+        for (int s = 0; s < curBlockSize; ++s) {
+            const float val = static_cast<float>(std::sin(2.0 * 3.141592653589793 * freq * (globalSample + s) / sr));
+            track1L[s] = val;
+            track1R[s] = val;
+        }
+        renderer.process(graph, curBlockSize, procView);
+
         const float* mainL = renderer.postChannel(2, 0);
-        for (int s = 0; s < blockSize; ++s) {
+        for (int s = 0; s < curBlockSize; ++s) {
             REQUIRE_FALSE(std::isnan(mainL[s]));
             REQUIRE_FALSE(std::isinf(mainL[s]));
+            // After initial 128-sample delay line fill, verify phase continuity:
+            if (globalSample + s >= static_cast<int>(kLatency)) {
+                const int expectedSample = (globalSample + s) - static_cast<int>(kLatency);
+                const float expectedVal = static_cast<float>(std::sin(2.0 * 3.141592653589793 * freq * expectedSample / sr));
+                CHECK(doctest::Approx(mainL[s]).epsilon(0.001f) == expectedVal);
+            }
         }
+        globalSample += curBlockSize;
     }
 
 #if !defined(_MSC_VER)
     sAudioRenderAllocProbeActive = false;
-    CHECK(sAudioRenderAllocProbeCount == 0); // Zero allocations across latency change
+    CHECK(sAudioRenderAllocProbeCount == 0); // Zero allocations across all buffer transitions
 #endif
-
-    // Verify steady-state output after refill matches exactly 128-sample delayed sine
-    const float* mainL = renderer.postChannel(2, 0);
-    const int checkBlockStart = globalSample - blockSize;
-    for (int s = 0; s < blockSize; ++s) {
-        const int expectedSample = (checkBlockStart + s) - static_cast<int>(currentLatency);
-        const float expectedVal = static_cast<float>(std::sin(2.0 * 3.141592653589793 * freq * expectedSample / sr));
-        CHECK(doctest::Approx(mainL[s]).epsilon(0.001f) == expectedVal);
-    }
 }
 
 } // TEST_SUITE

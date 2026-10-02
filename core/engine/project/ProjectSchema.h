@@ -560,6 +560,7 @@ struct MidiNote {
         uint8_t attributeType = 0;
         uint16_t attributeData = 0;
     };
+    using MIDI2Data = Midi2Data;
     std::optional<Midi2Data> midi2; // Exact MIDI 2.0 note fields; absent for MIDI 1.0 notes.
 };
 
@@ -633,6 +634,12 @@ enum class EventType {
     MidiProgramChange,
     Http,
     Dmx,
+    MIDINoteOn = MidiNoteOn,
+    MIDINoteOff = MidiNoteOff,
+    MIDICC = MidiCC,
+    MIDIProgramChange = MidiProgramChange,
+    HTTP = Http,
+    DMX = Dmx,
 };
 
 // A single timeline-triggered action. `type` selects which fields apply.

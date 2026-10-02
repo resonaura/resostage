@@ -214,6 +214,7 @@ struct WLiveRecordingRegion {
         double velocity = 0.8;
         bool active = false;
     };
+    using MIDINote = MidiNote;
     std::vector<MidiNote> midiNotes;
 };
 

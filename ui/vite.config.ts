@@ -142,10 +142,7 @@ export default defineConfig({
   },
   test: {
     pool: 'threads',
-    poolOptions: {
-      threads: { maxThreads: 3, minThreads: 1 },
-      forks: { maxForks: 3, minForks: 1 },
-    },
+    maxWorkers: 3,
     testTimeout: 30000,
     hookTimeout: 30000,
   },
