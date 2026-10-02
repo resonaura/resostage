@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PianoRollCanvas } from "@/screens/editor/pianoroll/components/PianoRollCanvas";
 import { PianoRollToolbar } from "@/screens/editor/pianoroll/components/PianoRollToolbar";
 import { getRegionActivePitches } from "@/lib/midi/activeMidiPitches";
-import type { MidiNoteRow } from "@/lib/state/types";
+import { Button } from "@/components/ui/Button";
 import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import { useCycleState } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 import { timelineHistory } from "@/lib/state/api";
@@ -18,6 +18,7 @@ import { useThemeVersion } from "@/hooks/useThemeVersion";
 import { PianoRollHeader } from "@/screens/editor/pianoroll/components/PianoRollHeader";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
+import { usePianoRollNoteDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteDraft";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
@@ -35,23 +36,6 @@ const DEFAULT_VIEWPORT: PianoRollViewport = {
   keyWidth: 54,
   velocityLaneHeight: 90,
 };
-
-export function sameEditableNotes(left: MidiNoteRow[], right: MidiNoteRow[]): boolean {
-  if (left.length !== right.length) return false;
-  const rightById = new Map(right.map((note) => [note.id, note]));
-  return left.every((note) => {
-    const actual = rightById.get(note.id);
-    return actual !== undefined
-      && actual.pitch === note.pitch
-      && Math.abs(actual.startBeats - note.startBeats) < 1e-4
-      && Math.abs(actual.durationBeats - note.durationBeats) < 1e-4
-      && Math.abs(actual.velocity - note.velocity) < 1e-3
-      && (actual.releaseVelocity === undefined || note.releaseVelocity === undefined
-          || Math.abs(actual.releaseVelocity - note.releaseVelocity) < 1e-3)
-      && (actual.probability === undefined || note.probability === undefined
-          || Math.abs(actual.probability - note.probability) < 1e-3);
-  });
-}
 
 export function PianoRoll({
   region,
@@ -103,14 +87,13 @@ export function PianoRoll({
     regionId: region.id,
     ids: new Set(region.notes.map((note) => note.id)),
   });
-  const [optimisticNotes, setOptimisticNotes] = useState<{
-    regionId: string;
-    notes: MidiNoteRow[];
-  } | null>(null);
+  const { editableNotes, getEditableNotes, commitNotes, discardDraft,
+    retryDraft, error: noteEditError, canRetry } = usePianoRollNoteDraft({
+    regionId: region.id, notes: region.notes, onNotesChange,
+  });
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
   useEffect(() => subscribeHistoryBoundary(() => {
-    setOptimisticNotes(null);
     setLoopLengthDraft(null);
   }), []);
 
@@ -138,26 +121,6 @@ export function PianoRoll({
       });
     }
   }, [region.id, region.notes]);
-
-  const editableNotes = useMemo(() => {
-    return optimisticNotes?.regionId === region.id ? optimisticNotes.notes : region.notes;
-  }, [optimisticNotes, region.id, region.notes]);
-
-  const getEditableNotes = useCallback(() => {
-    return editableNotes;
-  }, [editableNotes]);
-
-  const commitNotes = useCallback((notes: MidiNoteRow[]) => {
-    setOptimisticNotes({ regionId: region.id, notes });
-    onNotesChange(notes);
-  }, [region.id, onNotesChange]);
-
-  useEffect(() => {
-    if (!optimisticNotes) return;
-    if (optimisticNotes.regionId !== region.id || sameEditableNotes(optimisticNotes.notes, region.notes)) {
-      setOptimisticNotes(null);
-    }
-  }, [region.id, region.notes, optimisticNotes]);
 
   const [viewport, setViewport] = useState<PianoRollViewport>(() => {
     try {
@@ -323,16 +286,16 @@ export function PianoRoll({
   } = noteActions;
 
   const handleUndo = useCallback(() => {
-    setOptimisticNotes(null);
+    discardDraft();
     if (onUndo) onUndo();
     else void timelineHistory.undo();
-  }, [onUndo]);
+  }, [onUndo, discardDraft]);
 
   const handleRedo = useCallback(() => {
-    setOptimisticNotes(null);
+    discardDraft();
     if (onRedo) onRedo();
     else void timelineHistory.redo();
-  }, [onRedo]);
+  }, [onRedo, discardDraft]);
 
   usePianoRollCommands({
     setTool,
@@ -376,6 +339,9 @@ export function PianoRoll({
         onSnapChange={(value) => {
           setSnap(value);
           if (value > 0) setLastSnap(value);
+          // Use the newly chosen division, not the previous render's snap.
+          // Switching the grid without a selection is not a destructive edit.
+          if (value > 0 && selectedNoteIds.size > 0) handleQuantize(value);
         }}
         snapEnabled={snap > 0}
         onToggleSnap={() => setSnap((current) => current > 0 ? 0 : lastSnap)}
@@ -460,6 +426,14 @@ export function PianoRoll({
         catchOnSeek={catchOnSeek}
         onCatchOnSeekChange={setCatchOnSeek}
       />
+
+      {noteEditError && (
+        <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+          <span className="min-w-0 flex-1">{noteEditError}</span>
+          <Button size="sm" variant="secondary" isDisabled={!canRetry} onPress={retryDraft}>Retry</Button>
+          <Button size="sm" variant="ghost" onPress={discardDraft}>Discard draft</Button>
+        </div>
+      )}
 
       {/* Canvas Viewport */}
       <div className="relative flex-1 min-h-0 w-full">

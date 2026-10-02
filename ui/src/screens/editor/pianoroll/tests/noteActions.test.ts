@@ -10,7 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
-import { sameEditableNotes } from "@/screens/editor/pianoroll/components/PianoRoll";
+import { sameEditableNotes } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteDraft";
 
 function makeNote(
   partial: Partial<MidiNoteRow> & { id: number; pitch: number; startBeats: number; durationBeats: number },
