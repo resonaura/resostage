@@ -8,6 +8,7 @@ is a status handoff, not proof that unfinished acceptance criteria passed.
 
 - Recent work is on `main`; do not push unless the user asks.
 - Completed commits in this work sequence:
+  - `a7dc2c8` — Replace deprecated createEditorIfNeeded with createEditorAndMakeActive
   - `d348319` — Canonicalize BPM, DSP, and IO acronyms with backwards-compatible aliases
   - `e0c4dbd` — Retain slot UUID ownership across plugin moves and discover recoverable orphan lanes
   - `5e26397` — Add touch session lifecycle and return ramp model for live automation recording
