@@ -7,7 +7,9 @@
 import { describe, expect, it } from "vitest";
 import {
   finishTouchSession,
+  punchOutLatchSession,
   recordTouchValue,
+  revertWriteModeToSafety,
   startTouchSession,
 } from "../automationTouchSession";
 
@@ -46,5 +48,31 @@ describe("automationTouchSession", () => {
     expect(result).not.toBeNull();
     expect(result?.returnRampBeats).toBe(0);
     expect(session.state).toBe("holding_latch");
+  });
+
+  it("punches out a held latch session with return ramp and releases to idle", () => {
+    const session = startTouchSession("lane-1", "latch", 2.0, 0.5);
+    recordTouchValue(session, 3.0, 0.8);
+    finishTouchSession(session, 4.0, 0.8, 0.0, 1.0);
+    expect(session.state).toBe("holding_latch");
+
+    const punchOut = punchOutLatchSession(session, 6.0, 0.0, 0.5);
+    expect(punchOut).not.toBeNull();
+    expect(punchOut?.punchInBeats).toBe(2.0);
+    expect(punchOut?.releaseBeats).toBe(6.0);
+    expect(punchOut?.releaseValue).toBe(0.8);
+    expect(punchOut?.returnRampBeats).toBe(0.5);
+    expect(punchOut?.underlyingValue).toBe(0.0);
+    expect(session.state).toBe("idle");
+
+    // Once idle, subsequent punch out returns null
+    expect(punchOutLatchSession(session, 7.0, 0.0)).toBeNull();
+  });
+
+  it("reverts write mode to touch safety while leaving other modes untouched", () => {
+    expect(revertWriteModeToSafety("write")).toBe("touch");
+    expect(revertWriteModeToSafety("touch")).toBe("touch");
+    expect(revertWriteModeToSafety("latch")).toBe("latch");
+    expect(revertWriteModeToSafety("read")).toBe("read");
   });
 });

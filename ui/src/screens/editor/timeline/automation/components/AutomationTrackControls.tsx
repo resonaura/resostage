@@ -96,11 +96,22 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
           const existing = selected && lanes.find((lane) => matchesAutomationTarget(selected, lane.target));
           onSelectLane(existing?.id ?? id);
         }} />
-      <Select size="xs" variant="secondary" className="w-16 shrink-0" aria-label="Automation write mode"
+      <Select size="xs" tone={activeLane?.writeMode === "touch" ? "warning-soft" : activeLane?.writeMode === "latch" ? "accent-soft" : activeLane?.writeMode === "write" ? "danger-soft" : undefined} className="w-16 shrink-0" aria-label="Automation write mode"
         value={activeLane?.writeMode ?? "read"} isDisabled={disabled || !activeLane}
-        options={["read", "touch", "latch", "write"].map((id) => ({ id, label: id[0].toUpperCase() + id.slice(1),
-          isDisabled: id !== "read" }))}
-        title="Read playback; live Touch/Latch/Write recording is not available yet"
+        options={["read", "touch", "latch", "write"].map((id) => ({
+          id,
+          label: id[0].toUpperCase() + id.slice(1),
+          textValue: id[0].toUpperCase() + id.slice(1),
+        }))}
+        title={
+          activeLane?.writeMode === "touch"
+            ? "Touch: records automation while touched, return ramp on release"
+            : activeLane?.writeMode === "latch"
+              ? "Latch: records automation while touched, holds value until stop"
+              : activeLane?.writeMode === "write"
+                ? "Write: continuously overwrites automation during playback"
+                : "Read: plays back existing automation curve"
+        }
         onChange={(writeMode) => activeLane && void run(() => builder.automationLaneUpdate({ songIndex,
           laneId: activeLane.id, writeMode: writeMode as AutomationLaneRow["writeMode"] }))} />
       <Tooltip content={addTooltip}><Button isIconOnly size="sm" variant="ghost" className="h-5.5 min-w-5.5 w-5.5 shrink-0"

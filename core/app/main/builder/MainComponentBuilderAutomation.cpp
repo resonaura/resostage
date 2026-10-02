@@ -444,6 +444,11 @@ void MainComponent::builderAutomationRecordGesture(const std::string& json) {
 
     AutomationRecorder::punchPointsIntoLane(*lanePtr, thinned, punchInBeats, rampEndBeats);
 
+    // Write mode automatically returns to touch safety to prevent unintentional overwriting
+    if (lanePtr->writeMode == AutomationWriteMode::Write) {
+        lanePtr->writeMode = AutomationWriteMode::Touch;
+    }
+
     engine.projectHistoryCommitEdit();
     engine.markDirty();
     notifyProjectStructureChanged();

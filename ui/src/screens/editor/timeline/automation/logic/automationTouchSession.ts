@@ -127,3 +127,61 @@ export function finishTouchSession(
     points: session.recordedPoints,
   };
 }
+
+/**
+ * Terminates an active or held Latch session and prepares points for commit.
+ * In Latch mode, points are held at the last touched value until punch-out or stop.
+ */
+export function punchOutLatchSession(
+  session: TouchRecordSession,
+  stopBeats: number,
+  underlyingValue: number,
+  returnRampBeats = 0.5,
+): {
+  punchInBeats: number;
+  releaseBeats: number;
+  releaseValue: number;
+  returnRampBeats: number;
+  underlyingValue: number;
+  points: Array<{ timeBeats: number; value: number }>;
+} | null {
+  if (session.state !== "holding_latch" && session.state !== "recording") {
+    return null;
+  }
+
+  const safeStopBeats = Math.max(
+    session.lastBeats,
+    Number.isFinite(stopBeats) ? stopBeats : session.lastBeats,
+  );
+  const safeUnderlying = Number.isFinite(underlyingValue) ? underlyingValue : 0;
+  const safeRamp = Math.max(0, Number.isFinite(returnRampBeats) ? returnRampBeats : 0);
+
+  if (safeStopBeats > session.lastBeats) {
+    session.recordedPoints.push({
+      timeBeats: safeStopBeats,
+      value: session.lastValue,
+    });
+    session.lastBeats = safeStopBeats;
+  }
+
+  session.state = "idle";
+
+  return {
+    punchInBeats: session.punchInBeats,
+    releaseBeats: safeStopBeats,
+    releaseValue: session.lastValue,
+    returnRampBeats: safeRamp,
+    underlyingValue: safeUnderlying,
+    points: session.recordedPoints,
+  };
+}
+
+/**
+ * Standard DAW console safety rule:
+ * In 'write' mode, once recording is finished, the lane reverts to 'touch'
+ * to prevent unintentional destruction of existing automation on subsequent passes.
+ */
+export function revertWriteModeToSafety(mode: AutomationWriteMode): AutomationWriteMode {
+  return mode === "write" ? "touch" : mode;
+}
+

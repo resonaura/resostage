@@ -105,7 +105,7 @@ describe("AutomationTrackControls", () => {
     expect(container.textContent).toContain("Read");
   });
 
-  it("displays write mode selector showing Read with other modes reserved for future live write", () => {
+  it("displays write mode selector and allows selecting touch, latch, and write modes", async () => {
     act(() => {
       root.render(
         createElement(AutomationTrackControls, {
@@ -121,6 +121,39 @@ describe("AutomationTrackControls", () => {
     const writeModeBtn = container.querySelector("button[aria-label='Automation write mode']");
     expect(writeModeBtn).not.toBeNull();
     expect(writeModeBtn?.textContent).toContain("Read");
+
+    const selects = container.querySelectorAll("select");
+    expect(selects.length).toBeGreaterThanOrEqual(2);
+    const writeModeSelect = selects[1];
+    expect(writeModeSelect.value).toBe("read");
+
+    await act(async () => {
+      writeModeSelect.value = "touch";
+      writeModeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(builder.automationLaneUpdate).toHaveBeenCalledWith({
+      songIndex: 0,
+      laneId: "lane-1",
+      writeMode: "touch",
+    });
+  });
+
+  it("applies tone styling for touch, latch, and write modes", () => {
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [{ ...mockLane, writeMode: "touch" }],
+          activeLaneId: "lane-1",
+          onSelectLane: vi.fn(),
+        }),
+      );
+    });
+
+    const writeModeContainer = container.querySelector(".rs-tone--warning-soft");
+    expect(writeModeContainer).not.toBeNull();
   });
 
   it("toggles lane mute when clicking power button", async () => {

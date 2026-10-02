@@ -137,6 +137,49 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(state.playing, true, "Strip automation edit must not stop playback");
     assert.ok(state.playheadSeconds > playingStrip.playheadSeconds, "Transport continuously advances through strip automation edit");
 
+    // Live Touch gesture recording while playing
+    await request("/api/v1/builder/automation-lane/update", { songIndex: 0, laneId: faderLane.id, writeMode: "touch" });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[1]?.writeMode === "touch", "set writeMode to touch");
+    assert.equal(state.playing, true, "Mode change must not interrupt playback");
+
+    await request("/api/v1/builder/automation/record-gesture", {
+      songIndex: 0,
+      laneId: faderLane.id,
+      punchInBeats: 4,
+      releaseBeats: 6,
+      releaseValue: -12,
+      returnRampBeats: 1.0,
+      underlyingValue: -6,
+      points: [
+        { timeBeats: 4, value: -6 },
+        { timeBeats: 5, value: -9 },
+        { timeBeats: 6, value: -12 },
+      ],
+    });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[1]?.points.length >= 4, "punch live touch gesture");
+    assert.equal(state.playing, true, "Live touch gesture must not stop playback");
+
+    // Live Write mode safety auto-revert test
+    await request("/api/v1/builder/automation-lane/update", { songIndex: 0, laneId: faderLane.id, writeMode: "write" });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[1]?.writeMode === "write", "set writeMode to write");
+
+    await request("/api/v1/builder/automation/record-gesture", {
+      songIndex: 0,
+      laneId: faderLane.id,
+      punchInBeats: 10,
+      releaseBeats: 12,
+      releaseValue: -3,
+      returnRampBeats: 0,
+      underlyingValue: 0,
+      points: [
+        { timeBeats: 10, value: -6 },
+        { timeBeats: 11, value: -4 },
+        { timeBeats: 12, value: -3 },
+      ],
+    });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[1]?.writeMode === "touch", "auto-revert writeMode to touch safety");
+    assert.equal(state.playing, true, "Write recording must preserve playback");
+
     // Pan automation lane
     await request("/api/v1/builder/automation-lane/add", { songIndex: 0, domain: "strip", entityId: "audio::track:1",
       parameterId: "pan", valueType: "floatNormalized", defaultValue: 0, minValue: -1, maxValue: 1, points: [
@@ -182,7 +225,8 @@ export async function verifyEditorState(coreExecutable, inspect) {
       if (saved.songs?.[0]?.midiRegions?.[0]?.notes.length === notes.length
           && saved.songs[0].automationLanes?.length === 5
           && saved.songs[0].automationLanes?.[0]?.points.length === points.length
-          && saved.songs[0].automationLanes?.[1]?.points.length === 3
+          && saved.songs[0].automationLanes?.[1]?.points.length >= 5
+          && saved.songs[0].automationLanes?.[1]?.writeMode === "touch"
           && saved.songs[0].automationLanes?.[2]?.points.length === 2
           && saved.songs[0].automationLanes?.[3]?.points.length === 2
           && saved.songs[0].automationLanes?.[4]?.points.length === 2) break;
@@ -196,7 +240,8 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.ok(getRegion(state).notes.every((note) => note.durationBeats === 0.5 && note.startBeats % 0.5 === 0));
     assert.equal(state.songs[0].automationLanes[0].points.length, points.length);
     assert.equal(state.songs[0].automationLanes[1].target.parameterId, "faderGainDb");
-    assert.equal(state.songs[0].automationLanes[1].points.length, 3);
+    assert.ok(state.songs[0].automationLanes[1].points.length >= 5);
+    assert.equal(state.songs[0].automationLanes[1].writeMode, "touch");
     assert.equal(state.songs[0].automationLanes[2].target.parameterId, "pan");
     assert.equal(state.songs[0].automationLanes[2].points.length, 2);
     assert.equal(state.songs[0].automationLanes[3].target.parameterId, "mute");
@@ -204,7 +249,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(state.songs[0].automationLanes[4].target.parameterId, "send:0");
     assert.equal(state.songs[0].automationLanes[4].points.length, 2);
     if (inspect) await inspect(origin);
-    console.log("PASS: large MIDI/automation HTTP edits, strip fader/pan/mute/send playback, live transport continuity, Undo/Redo, 413, save/reopen");
+    console.log("PASS: large MIDI/automation HTTP edits, live Touch/Write gestures & safety revert, strip fader/pan/mute/send playback, live transport continuity, Undo/Redo, 413, save/reopen");
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.

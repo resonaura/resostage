@@ -297,6 +297,18 @@ TEST_CASE("AutomationRecorder: Touch, Latch, and punch-out return ramp") {
     for (size_t i = 1; i < lane.points.size(); ++i) {
         CHECK(lane.points[i].timeBeats > lane.points[i - 1].timeBeats);
     }
+
+    // 3. Write mode test
+    AutomationRecorder::beginTouch(session, lane.id, AutomationWriteMode::Write, 12.0, 0.4f);
+    AutomationRecorder::recordValue(session, 13.0, 0.6f);
+    AutomationRecorder::recordValue(session, 14.0, 0.8f);
+    bool writeCommitted = AutomationRecorder::endTouch(session, lane, 14.5, 0.8f, 0.0, 0.0f, 0.002);
+    CHECK(writeCommitted);
+    CHECK(session.state == AutomationRecorder::State::Idle);
+
+    for (size_t i = 1; i < lane.points.size(); ++i) {
+        CHECK(lane.points[i].timeBeats > lane.points[i - 1].timeBeats);
+    }
 }
 
 TEST_CASE("ProjectJson: Lossless roundtrip of AutomationLanes") {
