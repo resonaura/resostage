@@ -7,7 +7,7 @@
 import type {
   AutomationHitResult,
   AutomationPointViewModel,
-} from "./types";
+} from "@/screens/editor/timeline/automation/logic/types";
 
 export function clamp(val: number, min: number, max: number): number {
   if (!Number.isFinite(val)) return min;
@@ -48,6 +48,14 @@ export function pixelToBeat(
   const safeScale = Number.isFinite(pxPerSec) && pxPerSec > 0 ? pxPerSec : 100;
   const seconds = px / safeScale;
   return (seconds * safeBpm) / 60;
+}
+
+/** Signed displacement for dragging; absolute timeline positions clamp at zero. */
+export function pixelDeltaToBeats(px: number, bpm: number, pxPerSec: number): number {
+  if (!Number.isFinite(px)) return 0;
+  const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
+  const safeScale = Number.isFinite(pxPerSec) && pxPerSec > 0 ? pxPerSec : 100;
+  return px * safeBpm / (60 * safeScale);
 }
 
 /**
@@ -322,7 +330,8 @@ export function decimatePointsForViewport(
   viewportEndPx: number,
   maxPoints = 400,
 ): AutomationPointViewModel[] {
-  if (points.length <= maxPoints) return points;
+  const limit = Math.max(2, Math.floor(maxPoints));
+  if (points.length <= limit) return points;
 
   const sorted = points.slice().sort((a, b) => a.timeBeats - b.timeBeats);
   const startBeat = pixelToBeat(Math.max(0, viewportStartPx - 100), bpm, pxPerSec);
@@ -331,7 +340,7 @@ export function decimatePointsForViewport(
   // Keep all points within or adjacent to the visible viewport
   const visible: AutomationPointViewModel[] = [];
   let prevOutside: AutomationPointViewModel | null = null;
-  let nextOutsidePending = false;
+  let hasNextAnchor = false;
 
   for (const p of sorted) {
     if (p.timeBeats < startBeat) {
@@ -342,33 +351,43 @@ export function decimatePointsForViewport(
         prevOutside = null;
       }
       visible.push(p);
-      nextOutsidePending = true;
     } else {
-      if (nextOutsidePending) {
+      if (!hasNextAnchor) {
+        if (prevOutside) {
+          visible.push(prevOutside);
+          prevOutside = null;
+        }
         visible.push(p);
-        nextOutsidePending = false;
+        hasNextAnchor = true;
       }
+      break;
     }
   }
+  // An entirely off-screen lane still defines a constant value at the view.
+  if (prevOutside) visible.push(prevOutside);
 
-  if (visible.length <= maxPoints) return visible;
+  if (visible.length <= limit) return visible;
 
-  // If still dense within viewport, decimate by stride while preserving first, last, and local extrema
+  // One largest deviation per bucket retains salient shape while enforcing a
+  // hard SVG node budget. Keeping every extremum could exceed it on noisy data.
   const result: AutomationPointViewModel[] = [visible[0]];
-  const stride = Math.ceil(visible.length / maxPoints);
-
-  for (let i = 1; i < visible.length - 1; i++) {
-    const prev = visible[i - 1];
-    const curr = visible[i];
-    const next = visible[i + 1];
-
-    const isExtremum =
-      (curr.value > prev.value && curr.value > next.value) ||
-      (curr.value < prev.value && curr.value < next.value);
-
-    if (isExtremum || i % stride === 0) {
-      result.push(curr);
+  const buckets = limit - 2;
+  for (let bucket = 0; bucket < buckets; ++bucket) {
+    const start = 1 + Math.floor(bucket * (visible.length - 2) / buckets);
+    const end = 1 + Math.floor((bucket + 1) * (visible.length - 2) / buckets);
+    const before = visible[start - 1];
+    const after = visible[Math.min(end, visible.length - 1)];
+    const span = Math.max(1e-9, after.timeBeats - before.timeBeats);
+    let strongest = start;
+    let deviation = -1;
+    for (let index = start; index < end; ++index) {
+      const point = visible[index];
+      const fraction = (point.timeBeats - before.timeBeats) / span;
+      const linear = before.value + fraction * (after.value - before.value);
+      const distance = Math.abs(point.value - linear);
+      if (distance > deviation) { strongest = index; deviation = distance; }
     }
+    result.push(visible[strongest]);
   }
 
   result.push(visible[visible.length - 1]);

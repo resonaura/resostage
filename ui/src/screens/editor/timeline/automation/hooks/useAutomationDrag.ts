@@ -5,737 +5,304 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { builder } from "@/lib/state/api";
 import { beginCancellableDrag, type CancellableDrag } from "@/lib/interaction/dragCancel";
 import { createEditGesture } from "@/lib/interaction/editGesture";
-import type { TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import type { AutomationLaneRow } from "@/lib/state/types";
-import {
-  beatToPixel,
-  hitTestAutomation,
-  pixelToBeat,
-  pixelToValue,
-  valueToPixel,
-} from "../logic/automationCoordinates";
-import {
-  adjustCurvature,
-  insertAutomationPoint,
-  moveSegment,
-  moveSelectedPoints,
-  selectPointsInRect,
-  toggleSelectPoint,
-} from "../logic/automationSelection";
-import type {
-  AutomationDragSession,
-  AutomationPointViewModel,
-  AutomationTargetOption,
-} from "../logic/types";
+import type { TimelineTool } from "@/screens/editor/timeline/toolbar/logic/tools";
+import { useAutomationCommit } from "@/screens/editor/timeline/automation/hooks/useAutomationCommit";
+import { beatToPixel, hitTestAutomation, pixelDeltaToBeats, pixelToBeat, pixelToValue,
+  valueToPixel } from "@/screens/editor/timeline/automation/logic/automationCoordinates";
+import { replaceAutomationStroke, setAutomationSelectionCurve,
+  smoothAutomationSelection } from "@/screens/editor/timeline/automation/logic/automationEditing";
+import { adjustCurvature, insertAutomationPoint, moveSegment, moveSelectedPoints,
+  removeAutomationPoints, selectPointsInRect,
+  toggleSelectPoint } from "@/screens/editor/timeline/automation/logic/automationSelection";
+import type { AutomationDragSession, AutomationPointViewModel,
+  AutomationTargetOption } from "@/screens/editor/timeline/automation/logic/types";
 
-export function useAutomationDrag({
-  songIndex,
-  lane,
-  bpm,
-  pxPerSec,
-  laneHeight,
-  snapToGrid = true,
-  tool = "pointer",
-  readOnly = false,
-  targetOption,
-}: {
+type Surface = SVGSVGElement | HTMLDivElement;
+type PointerEvent = React.PointerEvent<Surface>;
+type SelectionRect = { left: number; top: number; width: number; height: number };
+type Session = AutomationDragSession & {
+  pointerId: number;
+  target: Surface;
+  startLocalX: number;
+  startLocalY: number;
+  initialSelection: Set<number>;
+  additiveMarquee: boolean;
+  stroke: AutomationPointViewModel[];
+};
+const MAX_STROKE_POINTS = 4096;
+
+/**
+ * One overlay owns one exclusive pointer gesture. Drafts stay local until
+ * release, so Esc/blur/capture loss cannot leave partial history mutations.
+ */
+export function useAutomationDrag({ songIndex, lane, bpm, pxPerSec, laneHeight,
+  snapToGrid = true, snapStepBeats = 0.25, tool = "pointer", readOnly = false,
+  targetOption }: {
   songIndex: number;
   lane: AutomationLaneRow;
   bpm: number;
   pxPerSec: number;
   laneHeight: number;
   snapToGrid?: boolean;
+  snapStepBeats?: number;
   tool?: TimelineTool;
   readOnly?: boolean;
   targetOption?: AutomationTargetOption;
 }) {
-  const [draftPoints, setDraftPoints] = useState<AutomationPointViewModel[] | null>(null);
+  const commit = useAutomationCommit(songIndex, lane, readOnly);
+  const { draftPoints, setDraftPoints, pendingRef, commitPoints, setError } = commit;
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [hoverInfo, setHoverInfo] = useState<{
-    x: number;
-    y: number;
-    timeBeats: number;
-    value: number;
-    type: string;
+    x: number; y: number; timeBeats: number; value: number; type: string;
   } | null>(null);
-  const [marqueeRect, setMarqueeRect] = useState<{
-    left: number;
-    top: number;
-    width: number;
-    height: number;
-  } | null>(null);
-
-  const editGesture = useRef(createEditGesture()).current;
+  const [marqueeRect, setMarqueeRect] = useState<SelectionRect | null>(null);
+  const sessionRef = useRef<Session | null>(null);
   const cancellableRef = useRef<CancellableDrag | null>(null);
-  const sessionRef = useRef<AutomationDragSession | null>(null);
-  const lastClickRef = useRef<{ time: number; x: number; y: number }>({
-    time: 0,
-    x: 0,
-    y: 0,
-  });
-
-  const minValue = targetOption?.minValue ?? 0;
-  const maxValue = targetOption?.maxValue ?? 1;
-
-  // Active points: optimistic draft takes priority over authoritative lane state
+  const editGesture = useRef(createEditGesture()).current;
+  const lastClick = useRef({ time: 0, x: 0, y: 0 });
   const activePoints = draftPoints ?? lane.points;
-
-  // Window blur / disconnect reverts any in-progress draft
-  useEffect(() => {
-    const onBlur = () => {
-      if (sessionRef.current) {
-        cancellableRef.current?.cancel();
-        sessionRef.current = null;
-        setDraftPoints(null);
-        setMarqueeRect(null);
-      }
-    };
-    window.addEventListener("blur", onBlur);
-    return () => {
-      window.removeEventListener("blur", onBlur);
-      cancellableRef.current?.end();
-    };
-  }, []);
-
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent<SVGSVGElement | HTMLDivElement>) => {
-      if (readOnly || e.button !== 0) return;
-      const target = e.currentTarget;
-      const bounds = target.getBoundingClientRect();
-      const localX = e.clientX - bounds.left;
-      const localY = e.clientY - bounds.top;
-
-      const hit = hitTestAutomation(
-        activePoints,
-        bpm,
-        pxPerSec,
-        laneHeight,
-        localX,
-        localY,
-        8,
-        6,
-        minValue,
-        maxValue,
-      );
-
-      // Tool: Eraser
-      if (tool === "eraser") {
-        if (hit.type === "point") {
-          e.preventDefault();
-          const pt = activePoints[hit.pointIndex];
-          void builder.automationPointRemove(
-            songIndex,
-            lane.id,
-            pt.timeBeats,
-            editGesture.id(),
-          );
-        }
-        return;
-      }
-
-      // Check double click for point creation/removal
-      const now = Date.now();
-      const isDoubleClick =
-        now - lastClickRef.current.time < 300 &&
-        Math.hypot(
-          localX - lastClickRef.current.x,
-          localY - lastClickRef.current.y,
-        ) < 8;
-      lastClickRef.current = { time: now, x: localX, y: localY };
-
-      if (isDoubleClick) {
-        e.preventDefault();
-        if (hit.type === "point") {
-          // Double click on point: remove it
-          const pt = activePoints[hit.pointIndex];
-          void builder.automationPointRemove(
-            songIndex,
-            lane.id,
-            pt.timeBeats,
-            editGesture.id(),
-          );
-        } else {
-          // Double click on segment or empty lane: insert point
-          let insertBeat = pixelToBeat(localX, bpm, pxPerSec);
-          if (snapToGrid) {
-            insertBeat = Math.round(insertBeat * 4) / 4; // 16th note snap
-          }
-          const insertVal = pixelToValue(localY, laneHeight, minValue, maxValue);
-          if (lane.id.startsWith("temp:")) {
-            void builder.automationLaneAdd({
-              songIndex,
-              domain: lane.target.domain,
-              entityId: lane.target.entityId,
-              parameterId: lane.target.parameterId,
-              valueType: lane.target.valueType,
-              defaultValue: lane.target.defaultValue,
-              minValue: lane.target.minValue,
-              maxValue: lane.target.maxValue,
-              scope: "track",
-              writeMode: "read",
-              initialTimeBeats: insertBeat,
-              initialValue: insertVal,
-              gestureId: editGesture.id(),
-            });
-          } else {
-            void builder.automationPointAdd({
-              songIndex,
-              laneId: lane.id,
-              timeBeats: insertBeat,
-              value: insertVal,
-              curve: 0,
-              gestureId: editGesture.id(),
-            });
-          }
-        }
-        return;
-      }
-
-      // Alt/Option + click: remove point
-      if (e.altKey && hit.type === "point") {
-        e.preventDefault();
-        const pt = activePoints[hit.pointIndex];
-        void builder.automationPointRemove(
-          songIndex,
-          lane.id,
-          pt.timeBeats,
-          editGesture.id(),
-        );
-        return;
-      }
-
-      // Alt/Option + click on segment: insert point and start dragging
-      if (e.altKey && hit.type === "segment") {
-        e.preventDefault();
-        const insertBeat = hit.timeBeats;
-        const insertVal = hit.interpolatedValue;
-        const { points: newPoints, insertedIndex } = insertAutomationPoint(
-          activePoints,
-          insertBeat,
-          insertVal,
-          0,
-        );
-
-        target.setPointerCapture(e.pointerId);
-        cancellableRef.current = beginCancellableDrag(() => {
-          setDraftPoints(null);
-          sessionRef.current = null;
-        });
-
-        sessionRef.current = {
-          mode: "point",
-          songIndex,
-          laneId: lane.id,
-          gestureId: editGesture.id(),
-          startClientX: e.clientX,
-          startClientY: e.clientY,
-          currentClientX: e.clientX,
-          currentClientY: e.clientY,
-          initialPoints: activePoints,
-          draftPoints: newPoints,
-          selectedIndices: new Set([insertedIndex]),
-          activePointIndex: insertedIndex,
-        };
-        setDraftPoints(newPoints);
-        setSelectedIndices(new Set([insertedIndex]));
-        return;
-      }
-
-      // Pencil tool: freehand draw
-      if (tool === "pencil") {
-        e.preventDefault();
-        target.setPointerCapture(e.pointerId);
-        const beat = pixelToBeat(localX, bpm, pxPerSec);
-        const val = pixelToValue(localY, laneHeight, minValue, maxValue);
-        const { points: initialPoints } = insertAutomationPoint(
-          activePoints,
-          beat,
-          val,
-          0,
-        );
-
-        cancellableRef.current = beginCancellableDrag(() => {
-          setDraftPoints(null);
-          sessionRef.current = null;
-        });
-
-        sessionRef.current = {
-          mode: "draw",
-          songIndex,
-          laneId: lane.id,
-          gestureId: editGesture.id(),
-          startClientX: e.clientX,
-          startClientY: e.clientY,
-          currentClientX: e.clientX,
-          currentClientY: e.clientY,
-          initialPoints: activePoints,
-          draftPoints: initialPoints,
-          selectedIndices: new Set(),
-        };
-        setDraftPoints(initialPoints);
-        return;
-      }
-
-      // Pointer tool: standard point / curve / segment / marquee drag
-      if (hit.type === "point") {
-        e.preventDefault();
-        target.setPointerCapture(e.pointerId);
-        const isMulti = e.shiftKey || e.metaKey || e.ctrlKey;
-        const nextSel = toggleSelectPoint(selectedIndices, hit.pointIndex, isMulti);
-        setSelectedIndices(nextSel);
-
-        cancellableRef.current = beginCancellableDrag(() => {
-          setDraftPoints(null);
-          sessionRef.current = null;
-        });
-
-        sessionRef.current = {
-          mode: nextSel.size > 1 ? "points" : "point",
-          songIndex,
-          laneId: lane.id,
-          gestureId: editGesture.id(),
-          startClientX: e.clientX,
-          startClientY: e.clientY,
-          currentClientX: e.clientX,
-          currentClientY: e.clientY,
-          initialPoints: activePoints,
-          draftPoints: activePoints,
-          selectedIndices: nextSel,
-          activePointIndex: hit.pointIndex,
-        };
-        return;
-      }
-
-      if (hit.type === "curveHandle") {
-        e.preventDefault();
-        target.setPointerCapture(e.pointerId);
-        cancellableRef.current = beginCancellableDrag(() => {
-          setDraftPoints(null);
-          sessionRef.current = null;
-        });
-
-        sessionRef.current = {
-          mode: "curve",
-          songIndex,
-          laneId: lane.id,
-          gestureId: editGesture.id(),
-          startClientX: e.clientX,
-          startClientY: e.clientY,
-          currentClientX: e.clientX,
-          currentClientY: e.clientY,
-          initialPoints: activePoints,
-          draftPoints: activePoints,
-          selectedIndices: new Set(),
-          activeSegmentIndexBefore: hit.segmentIndexBefore,
-          activeSegmentIndexAfter: hit.segmentIndexAfter,
-        };
-        return;
-      }
-
-      if (hit.type === "segment") {
-        e.preventDefault();
-        target.setPointerCapture(e.pointerId);
-        cancellableRef.current = beginCancellableDrag(() => {
-          setDraftPoints(null);
-          sessionRef.current = null;
-        });
-
-        sessionRef.current = {
-          mode: "segment",
-          songIndex,
-          laneId: lane.id,
-          gestureId: editGesture.id(),
-          startClientX: e.clientX,
-          startClientY: e.clientY,
-          currentClientX: e.clientX,
-          currentClientY: e.clientY,
-          initialPoints: activePoints,
-          draftPoints: activePoints,
-          selectedIndices: new Set([
-            hit.segmentIndexBefore,
-            hit.segmentIndexAfter,
-          ]),
-          activeSegmentIndexBefore: hit.segmentIndexBefore,
-          activeSegmentIndexAfter: hit.segmentIndexAfter,
-        };
-        return;
-      }
-
-      // Empty space: Marquee selection or clear selection
-      if (!e.shiftKey) {
-        setSelectedIndices(new Set());
-      }
-      target.setPointerCapture(e.pointerId);
-      cancellableRef.current = beginCancellableDrag(() => {
-        setMarqueeRect(null);
-        sessionRef.current = null;
-      });
-
-      sessionRef.current = {
-        mode: "marquee",
-        songIndex,
-        laneId: lane.id,
-        gestureId: editGesture.id(),
-        startClientX: localX,
-        startClientY: localY,
-        currentClientX: localX,
-        currentClientY: localY,
-        initialPoints: activePoints,
-        draftPoints: activePoints,
-        selectedIndices: e.shiftKey ? selectedIndices : new Set(),
-      };
-    },
-    [
-      activePoints,
-      bpm,
-      editGesture,
-      lane.id,
-      lane.target,
-      laneHeight,
-      maxValue,
-      minValue,
-      pxPerSec,
-      readOnly,
-      selectedIndices,
-      snapToGrid,
-      songIndex,
-      tool,
-    ],
+  const minValue = targetOption?.minValue ?? lane.target.minValue;
+  const maxValue = targetOption?.maxValue ?? lane.target.maxValue;
+  const step = Number.isFinite(snapStepBeats) && snapStepBeats > 0 ? snapStepBeats : 0.25;
+  const snap = (beat: number) => snapToGrid ? Math.round(beat / step) * step : beat;
+  const position = (event: React.MouseEvent<Surface>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+  };
+  const hitAt = (x: number, y: number) => hitTestAutomation(
+    activePoints, bpm, pxPerSec, laneHeight, x, y, 8, 6, minValue, maxValue,
   );
+  const releaseCapture = (session: Session | null) => {
+    if (session?.target.hasPointerCapture?.(session.pointerId)) {
+      session.target.releasePointerCapture(session.pointerId);
+    }
+  };
 
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<SVGSVGElement | HTMLDivElement>) => {
-      const bounds = e.currentTarget.getBoundingClientRect();
-      const localX = e.clientX - bounds.left;
-      const localY = e.clientY - bounds.top;
-
-      const session = sessionRef.current;
-      if (!session) {
-        // Hover inspection
-        const hit = hitTestAutomation(
-          activePoints,
-          bpm,
-          pxPerSec,
-          laneHeight,
-          localX,
-          localY,
-          8,
-          6,
-          minValue,
-          maxValue,
-        );
-        if (hit.type === "point") {
-          const pt = activePoints[hit.pointIndex];
-          setHoverInfo({
-            x: beatToPixel(pt.timeBeats, bpm, pxPerSec),
-            y: valueToPixel(pt.value, laneHeight, minValue, maxValue),
-            timeBeats: pt.timeBeats,
-            value: pt.value,
-            type: "point",
-          });
-        } else if (hit.type === "curveHandle") {
-          setHoverInfo({
-            x: hit.handleX,
-            y: hit.handleY,
-            timeBeats: 0,
-            value: hit.currentCurve,
-            type: "curveHandle",
-          });
-        } else {
-          setHoverInfo(null);
-        }
-        return;
-      }
-
-      session.currentClientX = e.clientX;
-      session.currentClientY = e.clientY;
-
-      if (session.mode === "point" || session.mode === "points") {
-        const deltaPxX = e.clientX - session.startClientX;
-        const deltaPxY = e.clientY - session.startClientY;
-
-        let deltaBeats = pixelToBeat(deltaPxX, bpm, pxPerSec);
-        if (snapToGrid) {
-          deltaBeats = Math.round(deltaBeats * 4) / 4;
-        }
-
-        const deltaValNorm = -deltaPxY / Math.max(1, laneHeight);
-        const deltaValue = deltaValNorm * (maxValue - minValue);
-
-        const moved = moveSelectedPoints(
-          session.initialPoints,
-          session.selectedIndices,
-          deltaBeats,
-          deltaValue,
-          minValue,
-          maxValue,
-        );
-        session.draftPoints = moved;
-        setDraftPoints(moved);
-        return;
-      }
-
-      if (session.mode === "curve" && session.activeSegmentIndexBefore !== undefined) {
-        const deltaPxY = -(e.clientY - session.startClientY);
-        const deltaCurve = (deltaPxY / 50.0) * 1.0;
-        const curved = adjustCurvature(
-          session.initialPoints,
-          session.activeSegmentIndexBefore,
-          deltaCurve,
-        );
-        session.draftPoints = curved;
-        setDraftPoints(curved);
-        return;
-      }
-
-      if (
-        session.mode === "segment" &&
-        session.activeSegmentIndexBefore !== undefined &&
-        session.activeSegmentIndexAfter !== undefined
-      ) {
-        const deltaPxY = -(e.clientY - session.startClientY);
-        const deltaValNorm = deltaPxY / Math.max(1, laneHeight);
-        const deltaValue = deltaValNorm * (maxValue - minValue);
-
-        const moved = moveSegment(
-          session.initialPoints,
-          session.activeSegmentIndexBefore,
-          session.activeSegmentIndexAfter,
-          deltaValue,
-          minValue,
-          maxValue,
-        );
-        session.draftPoints = moved;
-        setDraftPoints(moved);
-        return;
-      }
-
-      if (session.mode === "draw") {
-        const beat = pixelToBeat(localX, bpm, pxPerSec);
-        const val = pixelToValue(localY, laneHeight, minValue, maxValue);
-        const { points: nextPoints } = insertAutomationPoint(
-          session.draftPoints,
-          beat,
-          val,
-          0,
-        );
-        session.draftPoints = nextPoints;
-        setDraftPoints(nextPoints);
-        return;
-      }
-
-      if (session.mode === "marquee") {
-        const left = Math.min(session.startClientX, localX);
-        const top = Math.min(session.startClientY, localY);
-        const width = Math.abs(localX - session.startClientX);
-        const height = Math.abs(localY - session.startClientY);
-        setMarqueeRect({ left, top, width, height });
-
-        const inBox = selectPointsInRect(
-          session.initialPoints,
-          bpm,
-          pxPerSec,
-          laneHeight,
-          { left, top, right: left + width, bottom: top + height },
-          minValue,
-          maxValue,
-        );
-        setSelectedIndices(inBox);
-      }
-    },
-    [
-      activePoints,
-      bpm,
-      laneHeight,
-      maxValue,
-      minValue,
-      pxPerSec,
-      snapToGrid,
-    ],
-  );
-
-  const onPointerUp = useCallback(
-    async (e: React.PointerEvent<SVGSVGElement | HTMLDivElement>) => {
-      const session = sessionRef.current;
-      cancellableRef.current?.end();
-      sessionRef.current = null;
-      setMarqueeRect(null);
-
-      if (!session || !session.draftPoints) {
-        setDraftPoints(null);
-        return;
-      }
-
-      const target = e.currentTarget;
-      try {
-        if (target && "hasPointerCapture" in target && target.hasPointerCapture(e.pointerId)) {
-          target.releasePointerCapture(e.pointerId);
-        }
-      } catch {
-        // Ignore uncaptured pointer
-      }
-
-      // Commit changes to backend under single gesture transaction
-      const finalPoints = session.draftPoints;
-      try {
-        if (lane.id.startsWith("temp:")) {
-          const pt =
-            session.activePointIndex !== undefined &&
-            finalPoints[session.activePointIndex]
-              ? finalPoints[session.activePointIndex]
-              : finalPoints[0];
-          await builder.automationLaneAdd({
-            songIndex,
-            domain: lane.target.domain,
-            entityId: lane.target.entityId,
-            parameterId: lane.target.parameterId,
-            valueType: lane.target.valueType,
-            defaultValue: lane.target.defaultValue,
-            minValue: lane.target.minValue,
-            maxValue: lane.target.maxValue,
-            scope: "track",
-            writeMode: "read",
-            initialTimeBeats: pt?.timeBeats ?? 0,
-            initialValue: pt?.value ?? lane.target.defaultValue,
-            gestureId: session.gestureId,
-          });
-        } else if (
-          session.mode === "point" &&
-          session.activePointIndex !== undefined &&
-          finalPoints[session.activePointIndex]
-        ) {
-          const pt = finalPoints[session.activePointIndex];
-          const initialPt = session.initialPoints[session.activePointIndex];
-          if (initialPt && Math.abs(initialPt.timeBeats - pt.timeBeats) >= 1e-4) {
-            await builder.automationPointRemove(
-              songIndex,
-              lane.id,
-              initialPt.timeBeats,
-              session.gestureId,
-            );
-          }
-          await builder.automationPointAdd({
-            songIndex,
-            laneId: lane.id,
-            timeBeats: pt.timeBeats,
-            value: pt.value,
-            curve: pt.curve,
-            gestureId: session.gestureId,
-          });
-        } else if (
-          session.mode === "curve" &&
-          session.activeSegmentIndexBefore !== undefined &&
-          finalPoints[session.activeSegmentIndexBefore]
-        ) {
-          const pt = finalPoints[session.activeSegmentIndexBefore];
-          await builder.automationPointAdd({
-            songIndex,
-            laneId: lane.id,
-            timeBeats: pt.timeBeats,
-            value: pt.value,
-            curve: pt.curve,
-            gestureId: session.gestureId,
-          });
-        } else if (
-          session.mode === "segment" &&
-          session.activeSegmentIndexBefore !== undefined &&
-          session.activeSegmentIndexAfter !== undefined
-        ) {
-          const p1 = finalPoints[session.activeSegmentIndexBefore];
-          const p2 = finalPoints[session.activeSegmentIndexAfter];
-          if (p1) {
-            await builder.automationPointAdd({
-              songIndex,
-              laneId: lane.id,
-              timeBeats: p1.timeBeats,
-              value: p1.value,
-              curve: p1.curve,
-              gestureId: session.gestureId,
-            });
-          }
-          if (p2) {
-            await builder.automationPointAdd({
-              songIndex,
-              laneId: lane.id,
-              timeBeats: p2.timeBeats,
-              value: p2.value,
-              curve: p2.curve,
-              gestureId: session.gestureId,
-            });
-          }
-        } else if (session.mode === "points") {
-          for (const idx of session.selectedIndices) {
-            const initialPt = session.initialPoints[idx];
-            const pt = finalPoints[idx];
-            if (!pt || !initialPt) continue;
-            if (Math.abs(initialPt.timeBeats - pt.timeBeats) >= 1e-4) {
-              await builder.automationPointRemove(
-                songIndex,
-                lane.id,
-                initialPt.timeBeats,
-                session.gestureId,
-              );
-            }
-            await builder.automationPointAdd({
-              songIndex,
-              laneId: lane.id,
-              timeBeats: pt.timeBeats,
-              value: pt.value,
-              curve: pt.curve,
-              gestureId: session.gestureId,
-            });
-          }
-        } else if (session.mode === "draw") {
-          // Bounded multi-point recording gesture
-          const punchIn = finalPoints[0]?.timeBeats ?? 0;
-          const release = finalPoints[finalPoints.length - 1]?.timeBeats ?? punchIn;
-          const releaseVal = finalPoints[finalPoints.length - 1]?.value ?? 0;
-
-          await builder.automationRecordGesture({
-            songIndex,
-            laneId: lane.id,
-            punchInBeats: punchIn,
-            releaseBeats: release,
-            releaseValue: releaseVal,
-            points: finalPoints.map((p) => ({
-              timeBeats: p.timeBeats,
-              value: p.value,
-            })),
-            gestureId: session.gestureId,
-          });
-        }
-      } catch {
-        // Backend failure: revert optimistic preview safely
-        setDraftPoints(null);
-      } finally {
-        editGesture.end();
-        setDraftPoints(null);
-      }
-    },
-    [editGesture, lane.id, lane.target, songIndex],
-  );
-
-  const onPointerCancel = useCallback(() => {
-    cancellableRef.current?.cancel();
+  const cancel = useCallback(() => {
+    const session = sessionRef.current;
     sessionRef.current = null;
+    cancellableRef.current?.end();
+    cancellableRef.current = null;
+    releaseCapture(session);
+    if (session) setSelectedIndices(session.initialSelection);
     setDraftPoints(null);
     setMarqueeRect(null);
     setHoverInfo(null);
-  }, []);
+    lastClick.current.time = 0;
+    editGesture.end();
+  }, [editGesture, setDraftPoints]);
 
-  return {
-    activePoints,
-    draftPoints,
-    selectedIndices,
-    setSelectedIndices,
-    hoverInfo,
-    marqueeRect,
-    onPointerDown,
-    onPointerMove,
-    onPointerUp,
-    onPointerCancel,
+  useEffect(() => {
+    const onBlur = () => { if (sessionRef.current) cancel(); };
+    window.addEventListener("blur", onBlur);
+    const unsubscribe = subscribeHistoryBoundary(() => {
+      cancel();
+      setSelectedIndices(new Set());
+    });
+    return () => { window.removeEventListener("blur", onBlur); unsubscribe(); cancel(); };
+  }, [cancel]);
+  useEffect(() => {
+    cancel();
+    setSelectedIndices(new Set());
+  }, [songIndex, lane.id, readOnly, cancel]);
+
+  const commitOperation = (points: AutomationPointViewModel[]) => {
+    const id = editGesture.id();
+    editGesture.end();
+    return commitPoints(points, activePoints, id);
   };
+  const deleteSelectedPoints = () => {
+    if (readOnly || pendingRef.current || selectedIndices.size === 0) return;
+    void commitOperation(removeAutomationPoints(activePoints, selectedIndices));
+    setSelectedIndices(new Set());
+  };
+  const smoothSelectedPoints = () => {
+    if (readOnly || pendingRef.current) return;
+    void commitOperation(smoothAutomationSelection(activePoints, selectedIndices, minValue, maxValue));
+  };
+  const setSelectedCurve = (curve: number) => {
+    if (readOnly || pendingRef.current) return;
+    void commitOperation(setAutomationSelectionCurve(activePoints, selectedIndices, curve));
+  };
+  const selectAllPoints = () => setSelectedIndices(new Set(activePoints.map((_, index) => index)));
+  const clearSelection = () => setSelectedIndices(new Set());
+
+  const onPointerDown = (event: PointerEvent) => {
+    // Automation mode claims the complete surface, including empty/read-only
+    // space: bubbling into the arrangement starts its independent marquee.
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    event.preventDefault();
+    if (readOnly || pendingRef.current || sessionRef.current) return;
+    const { x, y } = position(event);
+    const hit = hitAt(x, y);
+    const multi = event.shiftKey || event.metaKey || event.ctrlKey;
+    const now = Date.now();
+    const double = tool === "pointer" && !multi && !event.altKey
+      && now - lastClick.current.time < 300
+      && Math.hypot(x - lastClick.current.x, y - lastClick.current.y) < 8;
+    lastClick.current = { time: now, x, y };
+
+    if ((tool === "eraser" || event.altKey || double) && hit.type === "point") {
+      void commitOperation(removeAutomationPoints(activePoints, [hit.pointIndex]));
+      setSelectedIndices(new Set());
+      return;
+    }
+    if (tool === "eraser") return;
+    if (double) {
+      const inserted = insertAutomationPoint(activePoints, snap(pixelToBeat(x, bpm, pxPerSec)),
+        pixelToValue(y, laneHeight, minValue, maxValue));
+      setSelectedIndices(new Set([inserted.insertedIndex]));
+      void commitOperation(inserted.points);
+      return;
+    }
+
+    let mode: Session["mode"] = "marquee";
+    let selection = multi ? new Set(selectedIndices) : new Set<number>();
+    let segmentBefore: number | undefined;
+    let segmentAfter: number | undefined;
+    let pointIndex: number | undefined;
+    let stroke: AutomationPointViewModel[] = [];
+    if (hit.type === "point") {
+      selection = multi ? toggleSelectPoint(selectedIndices, hit.pointIndex, true)
+        : selectedIndices.has(hit.pointIndex) ? new Set(selectedIndices) : new Set([hit.pointIndex]);
+      setSelectedIndices(selection);
+      if (!selection.has(hit.pointIndex)) return;
+      mode = selection.size > 1 ? "points" : "point";
+      pointIndex = hit.pointIndex;
+    } else if (!event.shiftKey && tool === "pencil") {
+      mode = "draw";
+      stroke = [{ timeBeats: snap(pixelToBeat(x, bpm, pxPerSec)),
+        value: pixelToValue(y, laneHeight, minValue, maxValue), curve: 0 }];
+    } else if (!event.shiftKey && hit.type !== "none") {
+      mode = hit.type === "curveHandle" || event.altKey ? "curve" : "segment";
+      segmentBefore = hit.segmentIndexBefore;
+      segmentAfter = hit.segmentIndexAfter;
+      selection = new Set([segmentBefore, segmentAfter]);
+    }
+
+    const initialSelection = new Set(selectedIndices);
+    setSelectedIndices(selection);
+    const session: Session = {
+      mode, songIndex, laneId: lane.id, gestureId: editGesture.id(),
+      startClientX: event.clientX, startClientY: event.clientY,
+      currentClientX: event.clientX, currentClientY: event.clientY,
+      startLocalX: x, startLocalY: y, pointerId: event.pointerId,
+      target: event.currentTarget, initialPoints: activePoints,
+      draftPoints: mode === "draw" ? replaceAutomationStroke(activePoints, stroke) : activePoints,
+      selectedIndices: selection, initialSelection, additiveMarquee: multi,
+      activePointIndex: pointIndex, activeSegmentIndexBefore: segmentBefore,
+      activeSegmentIndexAfter: segmentAfter, stroke,
+    };
+    sessionRef.current = session;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    cancellableRef.current = beginCancellableDrag(cancel);
+    if (mode === "draw") setDraftPoints(session.draftPoints);
+  };
+
+  const updateSession = (event: PointerEvent, session: Session) => {
+    const { x, y } = position(event);
+    session.currentClientX = event.clientX;
+    session.currentClientY = event.clientY;
+    if (Math.hypot(x - session.startLocalX, y - session.startLocalY) > 4) lastClick.current.time = 0;
+    const deltaValue = -(y - session.startLocalY) / Math.max(1, laneHeight) * (maxValue - minValue);
+    if (session.mode === "marquee") {
+      const rect = { left: Math.min(session.startLocalX, x), top: Math.min(session.startLocalY, y),
+        width: Math.abs(x - session.startLocalX), height: Math.abs(y - session.startLocalY) };
+      setMarqueeRect(rect);
+      const selected = selectPointsInRect(session.initialPoints, bpm, pxPerSec, laneHeight,
+        { ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height }, minValue, maxValue);
+      if (session.additiveMarquee) for (const index of session.initialSelection) selected.add(index);
+      setSelectedIndices(selected);
+      return;
+    }
+    if (session.mode === "point" || session.mode === "points") {
+      const delta = snap(pixelDeltaToBeats(x - session.startLocalX, bpm, pxPerSec));
+      session.draftPoints = moveSelectedPoints(session.initialPoints, session.selectedIndices,
+        delta, deltaValue, minValue, maxValue);
+    } else if (session.mode === "curve" && session.activeSegmentIndexBefore !== undefined) {
+      session.draftPoints = adjustCurvature(session.initialPoints, session.activeSegmentIndexBefore,
+        -(y - session.startLocalY) / 50);
+    } else if (session.mode === "segment" && session.activeSegmentIndexBefore !== undefined
+      && session.activeSegmentIndexAfter !== undefined) {
+      session.draftPoints = moveSegment(session.initialPoints, session.activeSegmentIndexBefore,
+        session.activeSegmentIndexAfter, deltaValue, minValue, maxValue);
+    } else if (session.mode === "draw") {
+      const beat = snap(pixelToBeat(x, bpm, pxPerSec));
+      const value = pixelToValue(y, laneHeight, minValue, maxValue);
+      const exists = session.stroke.some((point) => Math.abs(point.timeBeats - beat) < 1e-6);
+      if (session.stroke.length >= MAX_STROKE_POINTS && !exists) {
+        setError("This stroke reached the point limit. Release and start another stroke.");
+        return;
+      }
+      session.stroke = insertAutomationPoint(session.stroke, beat, value).points;
+      session.draftPoints = replaceAutomationStroke(session.initialPoints, session.stroke);
+    }
+    setDraftPoints(session.draftPoints);
+  };
+
+  const onPointerMove = (event: PointerEvent) => {
+    event.stopPropagation();
+    const session = sessionRef.current;
+    if (session) {
+      if (session.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      updateSession(event, session);
+      return;
+    }
+    const { x, y } = position(event);
+    const hit = hitAt(x, y);
+    if (hit.type === "point") setHoverInfo({
+      x: beatToPixel(hit.point.timeBeats, bpm, pxPerSec),
+      y: valueToPixel(hit.point.value, laneHeight, minValue, maxValue),
+      timeBeats: hit.point.timeBeats, value: hit.point.value, type: "point",
+    });
+    else if (hit.type === "curveHandle") setHoverInfo({ x: hit.handleX, y: hit.handleY,
+      timeBeats: 0, value: hit.currentCurve, type: "curveHandle" });
+    else setHoverInfo(null);
+  };
+
+  const onPointerUp = (event: PointerEvent) => {
+    event.stopPropagation();
+    const session = sessionRef.current;
+    if (!session || session.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    updateSession(event, session);
+    sessionRef.current = null;
+    cancellableRef.current?.end();
+    cancellableRef.current = null;
+    releaseCapture(session);
+    setMarqueeRect(null);
+    editGesture.end();
+    if (session.mode === "marquee") return;
+    void commitPoints(session.draftPoints, session.initialPoints, session.gestureId);
+  };
+  const onPointerCancel = (event?: PointerEvent) => {
+    event?.stopPropagation();
+    // Normal release also emits lostpointercapture; the completed optimistic
+    // edit already belongs to the commit coordinator and must survive it.
+    if (sessionRef.current && (!event || sessionRef.current.pointerId === event.pointerId)) cancel();
+  };
+  const onContextMenu = (event: React.MouseEvent<Surface>) => {
+    event.stopPropagation();
+    event.preventDefault();
+    if (sessionRef.current) cancel();
+    const { x, y } = position(event);
+    const hit = hitAt(x, y);
+    if (hit.type === "point" && !selectedIndices.has(hit.pointIndex)) {
+      setSelectedIndices(new Set([hit.pointIndex]));
+    } else if ((hit.type === "segment" || hit.type === "curveHandle") && selectedIndices.size === 0) {
+      setSelectedIndices(new Set([hit.segmentIndexBefore, hit.segmentIndexAfter]));
+    }
+  };
+
+  return { activePoints, draftPoints, selectedIndices, setSelectedIndices, hoverInfo, marqueeRect,
+    onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onContextMenu,
+    onPointerLeave: () => { if (!sessionRef.current) setHoverInfo(null); },
+    deleteSelectedPoints, smoothSelectedPoints, setSelectedCurve, selectAllPoints, clearSelection,
+    isPending: commit.isPending, error: commit.error, selectionCount: selectedIndices.size };
 }

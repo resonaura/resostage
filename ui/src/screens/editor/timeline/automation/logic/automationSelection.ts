@@ -8,8 +8,8 @@ import {
   beatToPixel,
   clamp,
   valueToPixel,
-} from "./automationCoordinates";
-import type { AutomationPointViewModel } from "./types";
+} from "@/screens/editor/timeline/automation/logic/automationCoordinates";
+import type { AutomationPointViewModel } from "@/screens/editor/timeline/automation/logic/types";
 
 /**
  * Toggles single or multi-point selection.
@@ -90,7 +90,10 @@ export function moveSelectedPoints(
 
   // Clone points
   const updated = points.map((p) => ({ ...p }));
-  const sortedIndices = Array.from(selected).sort((a, b) => a - b);
+  const sortedIndices = Array.from(selected)
+    .filter((index) => Number.isInteger(index) && index >= 0 && index < points.length)
+    .sort((a, b) => a - b);
+  if (sortedIndices.length === 0) return points;
 
   // 1. Calculate permissible deltaBeats bounds for the entire selection block
   let minAllowedDeltaBeats = -Infinity;
@@ -126,13 +129,23 @@ export function moveSelectedPoints(
     maxAllowedDeltaBeats,
   );
 
+  // Clamp the entire group's value displacement, not each point separately:
+  // pinned points must retain their relative values while moving together.
+  let minAllowedDeltaValue = -Infinity;
+  let maxAllowedDeltaValue = Infinity;
+  for (const idx of sortedIndices) {
+    minAllowedDeltaValue = Math.max(minAllowedDeltaValue, minValue - updated[idx].value);
+    maxAllowedDeltaValue = Math.min(maxAllowedDeltaValue, maxValue - updated[idx].value);
+  }
+  const effectiveDeltaValue = clamp(deltaValue, minAllowedDeltaValue, maxAllowedDeltaValue);
+
   for (const idx of sortedIndices) {
     updated[idx].timeBeats = Math.max(
       0,
       updated[idx].timeBeats + effectiveDeltaBeats,
     );
     updated[idx].value = clamp(
-      updated[idx].value + deltaValue,
+      updated[idx].value + effectiveDeltaValue,
       minValue,
       maxValue,
     );
@@ -155,18 +168,7 @@ export function moveSegment(
   maxValue = 1,
 ): AutomationPointViewModel[] {
   if (beforeIdx < 0 || afterIdx >= points.length) return points;
-  const updated = points.map((p) => ({ ...p }));
-  updated[beforeIdx].value = clamp(
-    updated[beforeIdx].value + deltaValue,
-    minValue,
-    maxValue,
-  );
-  updated[afterIdx].value = clamp(
-    updated[afterIdx].value + deltaValue,
-    minValue,
-    maxValue,
-  );
-  return updated;
+  return moveSelectedPoints(points, new Set([beforeIdx, afterIdx]), 0, deltaValue, minValue, maxValue);
 }
 
 /**
