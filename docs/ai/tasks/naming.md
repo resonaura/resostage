@@ -49,6 +49,12 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
 - `ClickGenerator.h`: canonical `currentBPM()` with `currentBpm()` compatibility alias.
 - `PluginPowerManager.h`: canonical `estimatedDSPSavingsPercent` with `estimatedDspSavingsPercent` compatibility alias.
 - `IoPressurePolicy.h`: canonical `IOPressureLevel`, `kIOMinTightFraction`, and `kIOMinCriticalFraction` with legacy aliases.
+- `ProjectSchema.h`: canonical `MIDINote`, `MIDIClipEvent`, `MIDIUmpEvent`, `MIDIRegion`, `MIDITriggerType`, `MIDIMapping`, `MIDIConfig` aliases.
+- `CoreMidiDispatcher.h`: canonical `MIDICommand`, `MIDICommandKind`, `CoreMIDIDispatcher` aliases.
+- `CoreMidiInputListener.h`: canonical `CoreMIDIInputListener` alias.
+- `PluginMidiActivity.h`: canonical `PluginMIDIActivity` alias.
+- `Midi2Compatibility.h`: canonical `MIDI1CompatibleMessage` alias.
+- `WebServer.h` & `WireTypes.h`: canonical `RemoteUDPSubscriber` and `WSubscribeUDPPayload` aliases.
 - Invariants preserved:
   - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
   - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
@@ -56,8 +62,8 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
     macOS/Windows file systems. A future rename needs a two-step Git move and
     reference-aware updates, not ambiguous duplicate paths.
 
-The WAV/UDP/HTTP/DMX/BPM/DSP/IO cleanup and references were built and the native test target
-passed on 2026-10-01. Remaining: continue the repository-wide inventory of
+The WAV/UDP/HTTP/DMX/BPM/DSP/IO/MIDI cleanup and references were built and the native test target
+passed on 2026-10-01 (558 tests / 327,352 assertions). Remaining: continue the repository-wide inventory of
 acronym identifiers and filenames, migrate any remaining internal uses away
 from transitional aliases, and run UI/Electron/script plus supported platform
 build and resolution checks. Preserve external wire/persisted/JUCE spellings

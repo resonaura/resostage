@@ -1055,6 +1055,8 @@ struct WSubscribeUdpPayload {
     int port = 0;
 };
 
+using WSubscribeUDPPayload = WSubscribeUdpPayload;
+
 struct WTrackImportBeginPayload {
     int songIndex = -1;
     int index = -1;

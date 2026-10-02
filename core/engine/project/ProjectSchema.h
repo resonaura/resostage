@@ -600,6 +600,11 @@ struct MidiRegion {
     std::vector<AutomationLane> automationLanes;
 };
 
+using MIDINote = MidiNote;
+using MIDIClipEvent = MidiClipEvent;
+using MIDIUmpEvent = MidiUmpEvent;
+using MIDIRegion = MidiRegion;
+
 struct TempoPoint {
     double beat = 0.0;
     double bpm = 120.0;
@@ -863,6 +868,10 @@ struct MidiMapping {
 struct MidiConfig {
     std::vector<MidiMapping> mappings;
 };
+
+using MIDITriggerType = MidiTriggerType;
+using MIDIMapping = MidiMapping;
+using MIDIConfig = MidiConfig;
 
 struct Project {
     ProjectFormat format;

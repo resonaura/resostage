@@ -119,4 +119,6 @@ private:
     uint32_t sustainedCount = 0;
 };
 
+using PluginMIDIActivity = PluginMidiActivity;
+
 } // namespace resostage

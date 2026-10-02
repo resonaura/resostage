@@ -1427,6 +1427,7 @@ private:
         int port = kUdpTelemetryPort;
         double lastSeenSec = 0.0;
     };
+    using RemoteUDPSubscriber = RemoteUdpSubscriber;
     mutable std::mutex udpSubscribersMutex_;
     std::vector<RemoteUdpSubscriber> udpSubscribers_;
 

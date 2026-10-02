@@ -175,4 +175,8 @@ private:
     double lastAnchoredBpm = 120.0; // worker-thread-owned only
 };
 
+using MIDICommandKind = MidiCommandKind;
+using MIDICommand = MidiCommand;
+using CoreMIDIDispatcher = CoreMidiDispatcher;
+
 } // namespace resostage

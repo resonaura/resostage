@@ -26,6 +26,8 @@ struct Midi1CompatibleMessage {
     uint8_t dataLength = 0;
 };
 
+using MIDI1CompatibleMessage = Midi1CompatibleMessage;
+
 [[nodiscard]] inline uint8_t midi1NoteVelocity(const MidiNote& note, bool noteOn) noexcept {
     if (note.midi2) {
         // M2-115: downscale 16-bit velocity to 7 bits by discarding the nine

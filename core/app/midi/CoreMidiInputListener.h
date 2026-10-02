@@ -107,4 +107,6 @@ private:
     std::vector<MidiMapping> mappings;
 };
 
+using CoreMIDIInputListener = CoreMidiInputListener;
+
 } // namespace resostage
