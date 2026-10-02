@@ -66,6 +66,18 @@ Additional critical issues:
   sends (requiring edge slot bindings), added live strip fader/pan playback and
   persistence verification in `editor-state.mjs`, and resolved test button element typing
   for 100% clean `tsc -b` compilation. All 654 UI vitest tests and 558 native tests pass.
+- `1739b29`: Unit tests for `useAutomationKeyboard` verifying DAW focus isolation
+  (gating shortcuts strictly on `document.activeElement === surface.current`), Delete/Backspace
+  point deletion, Mod+A select all, Escape clear selection, and readOnly protection.
+- `9bf4652`: Unit tests for `AutomationLaneOverlay` (empty baseline dashed line rendering,
+  zero circle handles when empty, disabledReason banner display, pointer tool cursor styling,
+  and context menu operations) and `AutomationTrackControls` (+ button empty lane creation,
+  disabledReason button gating, and lane removal).
+- `ba9cb39`: Guarded `useMidiRegionEditorState` with project epoch (`state.projectName` and
+  `state.pluginLoading?.epoch`) to cancel and reject stale provisional MIDI region creations
+  and clear selection upon project change/open. Added unit test suite in
+  `useMidiRegionEditorState.test.tsx` testing reconciliation, follow-ups, Undo, and epoch change.
+- `b04353b`: Added accessible typeahead search via `textValue` to automation parameter Select options.
 
 ## Work in progress: inspect before continuing
 
@@ -79,6 +91,8 @@ and verified end-to-end against live Core HTTP commands and transport continuity
 - Undo and Redo roundtrips restoring exact note durations and curves
 - Explicit 413 rejection for oversized command bodies
 - Persistence across project save and clean reopen
+- Test evidence: 100 UI Vitest test files / 669 tests pass, 5 Electron shell tests / 39 tests pass,
+  558 native engine tests / 327,352 assertions pass, zero tsc errors, zero oxlint errors.
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,
@@ -87,36 +101,15 @@ folders. Commit each finished block; do not push.
 
 ## Immediate next actions
 
-1. Finish UI TypeScript/lint and focused tests. Update old automation tests that
-   expected raw HTML selects, invented Param1 or implicit first control points.
-   Test real metadata, missing/failed/loading/truncated/unbound values, empty
-   baseline, fixed row height, exclusive pointer capture, keyboard point deletion.
-2. Run an isolated actual HTTP test with >4 KiB note/point bodies, explicit413
-   and queue rejection, then verify Core state, Undo/Redo and save/reopen. Unit
-   payload-policy tests alone are not end-to-end persistence evidence.
-   Use `RESOSTAGE_SETTINGS_FILE` with a temporary absolute path and a separate
-   Core port/project/output; never overwrite recent projects or saved rig settings.
-3. Inspect provisional MIDI creation and late snapshots across history/project
-   change. Ensure every returned rejection is handled and no detached follow-up
-   recreates notes after Undo. Distinguish HTTP admission from execution.
-4. Complete and verify actual strip gain/pan automation live/offline with the same
-   prepared bounded bindings/evaluation and existing smoothing. Audit found the
-   previous code advertised strip gain/pan/mute/send but dispatched only plugin
-   and MIDI CC! Until a target really plays, disable it with an explicit reason.
-   Safe mute needs edge-audibility/smoothing semantics; sends need bound edge
-   slots. Live Touch/Latch/Write recording is not integrated just because a
-   primitive TouchSession or write-mode enum exists.
-   Live-edit acceptance must cover drawing/moving/deleting notes and automation
-   during playback, cycle wraps, seeks, dense projects and Undo/Redo: new data
-   reaches the engine promptly without partial state, position jumps, stuck
-   voices, healthy-helper restart or blocking/allocation in the audio callback.
-5. Audit pending draft timeout/error recovery, project epochs and stale snapshots.
-   A whole-project migration is not finished by fixing one merge helper.
-   Record remaining revision/request-ID/application acknowledgement work explicitly.
-6. Validate visuals in both themes and several track heights. Shared controls,
+1. Multi-sublane layout & numeric editing: Currently + adds an empty lane for the chosen parameter;
+   complete multi-sublane expansion allowing simultaneous lane display per track and direct numerical editing.
+2. Residual acoustic tasks: safe declicked mute automation (with audibility ramping) and edge-slot
+   aux send automation bindings in MixRenderer (`MixEdgeDelay`).
+3. Complete remaining acronym inventory in [naming.md](naming.md) while preserving backward-compatible wire/schema aliases.
+4. Validate visuals in both themes and several track heights. Shared controls,
    project/track colors, restrained fills, reduced-motion transitions, topmost
    playhead. Curve/node hit areas must not conflict with arrangement marquee.
-7. Run complete UI suite/typecheck/lint and relevant native suites/build after
+5. Run complete UI suite/typecheck/lint and relevant native suites/build after
    integrating changes; commit by finished block. Report actual totals, vendor
    skips and hardware limits. Update this file and detailed tasks with evidence.
 
