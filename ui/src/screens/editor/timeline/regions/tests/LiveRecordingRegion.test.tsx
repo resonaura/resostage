@@ -60,7 +60,7 @@ describe("live recording region", () => {
     expect(container.textContent).toBe("");
     const region = container.firstElementChild as HTMLDivElement;
     expect(region.getAttribute("aria-label")).toBe("Audio recording preview");
-    expect(region.style.background).toContain("#30d158");
+    expect(region.style.background).toContain("var(--rs-record)");
     expect(region.style.border).toContain("var(--rs-record)");
     expect(region.className).toContain("overflow-hidden");
     expect(region.style.left).toBe("200px");
@@ -87,7 +87,7 @@ describe("live recording region", () => {
     const note = container.querySelector("[data-active]") as HTMLSpanElement;
     expect(note.style.width).toBe("100px");
     expect(parseFloat(note.style.top) + parseFloat(note.style.height)).toBeLessThanOrEqual(16);
-    expect(note.style.background).toContain("#30d158");
+    expect(note.style.background).toContain("var(--rs-record)");
     await render({ ...midi, midiNotes: [{ ...midi.midiNotes![0], durationBeats: 4 }] }, 22);
     expect((container.querySelector("[data-active]") as HTMLSpanElement).style.width).toBe("200px");
   });
@@ -103,5 +103,53 @@ describe("live recording region", () => {
     fillRect.mockClear();
     await render(audioRecording, 64);
     expect(fillRect).toHaveBeenCalledOnce();
+  });
+
+  it("renders concurrent multi-track recording regions independently", async () => {
+    const track1Audio: Recording = {
+      recordingId: "take-audio-track-1", trackId: "audio::track:1", timelineStartSample: 0,
+      capturedFrames: 480000, channelCount: 2, state: 1, kind: 0,
+    };
+    const track2Midi: Recording = {
+      recordingId: "take-midi-track-2", trackId: "audio::track:2", timelineStartSample: 0,
+      capturedFrames: 480000, channelCount: 1, state: 1, kind: 1,
+      midiNotes: [{ id: 10, pitch: 64, startBeats: 2, durationBeats: 2, velocity: 0.9, active: true }],
+    };
+
+    await act(async () => root.render(
+      createElement("div", null,
+        createElement(LiveRecordingRegion, {
+          key: track1Audio.recordingId,
+          recording: track1Audio, songOffsetSec: 0, sampleRate: 48000, pxPerSec: 100,
+          laneHeight: 56, bpm: 120, rowColor: "#30d158",
+          viewport: { scrollLeft: 200, viewportWidth: 100 },
+        }),
+        createElement(LiveRecordingRegion, {
+          key: track2Midi.recordingId,
+          recording: track2Midi, songOffsetSec: 0, sampleRate: 48000, pxPerSec: 100,
+          laneHeight: 56, bpm: 120, rowColor: "#ff9f0a",
+          viewport: { scrollLeft: 200, viewportWidth: 100 },
+        }),
+      ),
+    ));
+
+    const regions = container.querySelectorAll("[aria-label]");
+    expect(regions.length).toBe(2);
+    expect(regions[0].getAttribute("aria-label")).toBe("Audio recording preview");
+    expect(regions[1].getAttribute("aria-label")).toBe("MIDI recording preview");
+
+    // Both use the red recording branding
+    expect((regions[0] as HTMLElement).style.border).toContain("var(--rs-record)");
+    expect((regions[1] as HTMLElement).style.border).toContain("var(--rs-record)");
+
+    // Audio has a canvas, MIDI has a note element
+    expect(regions[0].querySelector("canvas")).not.toBeNull();
+    expect(regions[1].querySelector("canvas")).toBeNull();
+    expect(regions[1].querySelector("[data-active]")).not.toBeNull();
+
+    // Live peaks called for the audio recording only
+    expect(recordingApi.fetchLivePeaks).toHaveBeenCalledWith(
+      "take-audio-track-1", expect.any(Number), expect.any(Number), expect.any(Number),
+    );
   });
 });

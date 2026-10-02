@@ -36,7 +36,7 @@ export function LiveRecordingRegion({
   pxPerSec,
   laneHeight,
   bpm,
-  rowColor,
+  rowColor: _rowColor,
   viewport,
 }: LiveRecordingRegionProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -119,8 +119,8 @@ export function LiveRecordingRegion({
 
     // Centerline
     const midY = h / 2;
-    ctx.strokeStyle = rowColor;
-    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = "rgba(255, 200, 200, 0.4)";
+    ctx.globalAlpha = 0.35;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, midY);
@@ -132,7 +132,7 @@ export function LiveRecordingRegion({
     if (peaks.length === 0) return;
 
     // Draw min/max peaks
-    ctx.fillStyle = rowColor;
+    ctx.fillStyle = "rgba(255, 245, 245, 0.95)";
     ctx.globalAlpha = 0.95;
 
     // Bins retain their real sample positions as the region grows and scrolls.
@@ -150,7 +150,7 @@ export function LiveRecordingRegion({
       const yBottom = midY - minNorm * amplitude;
       ctx.fillRect(x, Math.min(yTop, yBottom), Math.max(1, step), Math.max(1, Math.abs(yBottom - yTop)));
     }
-  }, [peakChunk, preview.widthPx, preview.offsetPx, contentHeight, recording.kind, recording.recordingId, safeRate, pxPerSec, rowColor]);
+  }, [peakChunk, preview.widthPx, preview.offsetPx, contentHeight, recording.kind, recording.recordingId, safeRate, pxPerSec]);
 
   const isMidi = recording.kind === 1;
   const safeBpm = bpm > 0 ? bpm : 120;
@@ -171,8 +171,8 @@ export function LiveRecordingRegion({
         width: `${preview.widthPx}px`,
         height: `${previewHeight}px`,
         border: "1px solid var(--rs-record)",
-        background: `color-mix(in oklab, ${rowColor} 22%, var(--color-background-secondary))`,
-        boxShadow: "inset 0 2px 0 color-mix(in oklab, var(--rs-record) 55%, transparent)",
+        background: "color-mix(in oklab, var(--rs-record) 28%, var(--color-background-secondary))",
+        boxShadow: "0 0 14px color-mix(in oklab, var(--rs-record) 35%, transparent), inset 0 2px 0 color-mix(in oklab, var(--rs-record) 60%, transparent)",
       }}
     >
       {isMidi ? (
@@ -188,15 +188,15 @@ export function LiveRecordingRegion({
               <span
                 key={`${note.id}:${note.pitch}`}
                 data-active={note.active || undefined}
-                className="absolute rounded-sm"
+                className="absolute rounded-sm border border-white/40"
                 style={{
                   left: `${Math.max(0, noteStartSec * pxPerSec) - preview.offsetPx}px`,
                   width: `${Math.max(3, noteDurationSec * pxPerSec)}px`,
                   top: `${midiLayout.top(note.pitch)}px`,
                   height: `${midiLayout.height}px`,
-                  background: `color-mix(in oklab, ${rowColor} 65%, var(--foreground))`,
-                  boxShadow: note.active ? "inset -2px 0 0 var(--foreground)" : undefined,
-                  opacity: 0.55 + Math.min(1, note.velocity) * 0.45,
+                  background: "color-mix(in oklab, var(--rs-record) 45%, var(--foreground))",
+                  boxShadow: note.active ? "inset -2px 0 0 var(--foreground), 0 0 6px var(--rs-record)" : undefined,
+                  opacity: 0.7 + Math.min(1, note.velocity) * 0.3,
                 }}
               />
             );
