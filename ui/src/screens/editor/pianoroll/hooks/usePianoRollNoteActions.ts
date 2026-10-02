@@ -125,8 +125,9 @@ export function usePianoRollNoteActions({
   }, [selectedNoteIds, playheadBeats, region, snap, getEditableNotes, commitNotes, setSelectedNoteIds]);
 
   // Quantize selected notes (or all if none selected)
-  const handleQuantize = useCallback(() => {
-    const effectiveSnap = snap > 0 ? snap : 0.25;
+  const handleQuantize = useCallback((step?: number) => {
+    const effectiveSnap = step ?? (snap > 0 ? snap : 0.25);
+    if (!Number.isFinite(effectiveSnap) || effectiveSnap <= 0) return;
     const notes = getEditableNotes();
     const targetIds = selectedNoteIds.size > 0
       ? selectedNoteIds
@@ -141,7 +142,8 @@ export function usePianoRollNoteActions({
       return { ...note, startBeats: snappedStart, durationBeats: snappedDuration };
     });
 
-    commitNotes(quantized);
+    if (quantized.some((note, index) => note.startBeats !== notes[index].startBeats
+      || note.durationBeats !== notes[index].durationBeats)) commitNotes(quantized);
   }, [snap, selectedNoteIds, getEditableNotes, commitNotes]);
 
   // Humanize timing and velocity

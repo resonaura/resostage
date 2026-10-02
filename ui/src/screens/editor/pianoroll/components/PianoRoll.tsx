@@ -39,6 +39,7 @@ const DEFAULT_VIEWPORT: PianoRollViewport = {
 
 export function PianoRoll({
   region,
+  resetKey,
   companionRegions = [],
   activeMidiNotes = [],
   track,
@@ -85,11 +86,12 @@ export function PianoRoll({
   );
   const authoritativeNoteIdsRef = useRef({
     regionId: region.id,
+    resetKey,
     ids: new Set(region.notes.map((note) => note.id)),
   });
   const { editableNotes, getEditableNotes, commitNotes, discardDraft,
     retryDraft, error: noteEditError, canRetry } = usePianoRollNoteDraft({
-    regionId: region.id, notes: region.notes, onNotesChange,
+    regionId: region.id, resetKey, notes: region.notes, onNotesChange,
   });
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
@@ -97,13 +99,13 @@ export function PianoRoll({
     setLoopLengthDraft(null);
   }), []);
 
-  useEffect(() => setLoopLengthDraft(null), [region.id, region.loopLengthBeats]);
+  useEffect(() => setLoopLengthDraft(null), [region.id, region.loopLengthBeats, resetKey]);
 
   useEffect(() => {
     const available = new Set(region.notes.map((note) => note.id));
     const previous = authoritativeNoteIdsRef.current;
-    if (previous.regionId !== region.id) {
-      authoritativeNoteIdsRef.current = { regionId: region.id, ids: available };
+    if (previous.regionId !== region.id || previous.resetKey !== resetKey) {
+      authoritativeNoteIdsRef.current = { regionId: region.id, resetKey, ids: available };
       setSelectedNoteIds(new Set());
       return;
     }
@@ -113,14 +115,14 @@ export function PianoRoll({
     // don't clear their selection merely because the next state poll still
     // contains the pre-edit MIDI region.
     const removed = new Set([...previous.ids].filter((id) => !available.has(id)));
-    authoritativeNoteIdsRef.current = { regionId: region.id, ids: available };
+    authoritativeNoteIdsRef.current = { regionId: region.id, resetKey, ids: available };
     if (removed.size > 0) {
       setSelectedNoteIds((current) => {
         const next = new Set([...current].filter((id) => !removed.has(id)));
         return next.size === current.size ? current : next;
       });
     }
-  }, [region.id, region.notes]);
+  }, [region.id, region.notes, resetKey]);
 
   const [viewport, setViewport] = useState<PianoRollViewport>(() => {
     try {

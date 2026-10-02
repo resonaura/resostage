@@ -38,6 +38,7 @@ type Status = "idle" | "sending" | "confirming" | "error" | "uncertain";
 type PendingNotes = { token: number; notes: MidiNoteRow[] };
 type DraftSession = {
   regionId: string;
+  resetKey?: string;
   token: number;
   draft: PendingNotes | null;
   admissionsInFlight: number;
@@ -52,19 +53,23 @@ type DraftSession = {
  * rejected edits remain recoverable drafts. Region/history changes retire the
  * session so late results cannot win.
  */
-export function usePianoRollNoteDraft({ regionId, notes, onNotesChange,
+export function usePianoRollNoteDraft({ regionId, resetKey, notes, onNotesChange,
   confirmationTimeoutMs = 8000 }: {
   regionId: string;
+  /** Project epoch/name identity; IDs may be reused by a reopened project. */
+  resetKey?: string;
   notes: MidiNoteRow[];
   onNotesChange: (notes: MidiNoteRow[]) => void | Promise<void>;
   confirmationTimeoutMs?: number;
 }) {
-  const [draft, setDraft] = useState<{ regionId: string; notes: MidiNoteRow[] } | null>(null);
+  const [draft, setDraft] = useState<{ regionId: string; resetKey?: string; notes: MidiNoteRow[] } | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [admissionsPending, setAdmissionsPending] = useState(0);
   const current = useRef<DraftSession | null>(null);
   const mounted = useRef(true);
+  const identity = useRef({ regionId, resetKey });
+  identity.current = { regionId, resetKey };
   const notesRef = useRef(notes);
   notesRef.current = notes;
   const sender = useRef(onNotesChange);
@@ -84,40 +89,43 @@ export function usePianoRollNoteDraft({ regionId, notes, onNotesChange,
   }, [retire]);
   const dispose = useCallback(() => { mounted.current = false; retire(); }, [retire]);
   useEffect(() => { mounted.current = true; return dispose; }, [dispose]);
-  useEffect(discardDraft, [regionId, discardDraft]);
+  useEffect(discardDraft, [regionId, resetKey, discardDraft]);
   useEffect(() => subscribeHistoryBoundary(discardDraft), [discardDraft]);
 
   const clearTimer = (session: DraftSession) => {
     if (session.timer !== null) clearTimeout(session.timer);
     session.timer = null;
   };
+  const isCurrent = useCallback((session: DraftSession) => mounted.current
+    && current.current === session && session.regionId === identity.current.regionId
+    && session.resetKey === identity.current.resetKey, []);
   const confirm = useCallback((session: DraftSession) => {
-    if (current.current !== session || session.admissionsInFlight > 0 || !session.draft
+    if (!isCurrent(session) || session.admissionsInFlight > 0 || !session.draft
       || session.admittedToken !== session.draft.token
       || !sameEditableNotes(session.draft.notes, notesRef.current)) return;
     discardDraft();
-  }, [discardDraft]);
+  }, [discardDraft, isCurrent]);
   useEffect(() => {
     const session = current.current;
     if (session) confirm(session);
   }, [notes, confirm]);
 
   const sendNotes = useCallback(async (session: DraftSession, pending: PendingNotes): Promise<void> => {
-    if (current.current !== session) return;
+    if (!isCurrent(session)) return;
     ++session.admissionsInFlight;
     setAdmissionsPending(session.admissionsInFlight);
     session.timedOut = false;
     setStatus("sending");
     clearTimer(session);
     session.timer = setTimeout(() => {
-      if (!mounted.current || current.current !== session || session.draft?.token !== pending.token) return;
+      if (!isCurrent(session) || session.draft?.token !== pending.token) return;
       session.timedOut = true;
       setStatus("uncertain");
       setError("Core has not confirmed this note edit. It may still be queued; wait before retrying.");
     }, Math.max(100, confirmationTimeoutMs));
     try {
       await sender.current(pending.notes);
-      if (!mounted.current || current.current !== session) return;
+      if (!isCurrent(session)) return;
       --session.admissionsInFlight;
       setAdmissionsPending(session.admissionsInFlight);
       if (session.draft?.token !== pending.token) { confirm(session); return; }
@@ -125,7 +133,7 @@ export function usePianoRollNoteDraft({ regionId, notes, onNotesChange,
       if (!session.timedOut) setStatus("confirming");
       confirm(session);
     } catch (cause) {
-      if (!mounted.current || current.current !== session) return;
+      if (!isCurrent(session)) return;
       --session.admissionsInFlight;
       setAdmissionsPending(session.admissionsInFlight);
       if (session.draft?.token !== pending.token) { confirm(session); return; }
@@ -133,40 +141,55 @@ export function usePianoRollNoteDraft({ regionId, notes, onNotesChange,
       setStatus("error");
       setError(cause instanceof Error ? cause.message : "Core rejected this note edit. Your draft is preserved.");
     }
-  }, [confirmationTimeoutMs, confirm]);
+  }, [confirmationTimeoutMs, confirm, isCurrent]);
 
   const commitNotes = useCallback((nextNotes: MidiNoteRow[]) => {
     let session = current.current;
-    const before = session?.regionId === regionId && session.draft ? session.draft.notes : notesRef.current;
+    const before = session && isCurrent(session) && session.draft ? session.draft.notes : notesRef.current;
     if (sameEditableNotes(nextNotes, before)) return;
-    if (!session || session.regionId !== regionId) {
-      session = { regionId, token: 0, draft: null, admissionsInFlight: 0,
+    if (!session || !isCurrent(session)) {
+      retire();
+      session = { regionId, resetKey, token: 0, draft: null, admissionsInFlight: 0,
         admittedToken: -1, timedOut: false, timer: null };
       current.current = session;
     }
-    // Snapshot the handed-off array without dropping optional MIDI 2.0 data.
-    const snapshot = nextNotes.map((note) => ({ ...note, ...(note.midi2 ? { midi2: { ...note.midi2 } } : {}) }));
+    // Match the persisted MIDI 2.0 shadow before awaiting a complete echo.
+    // Unedited 16-bit values remain lossless; normalized velocity edits update
+    // only the corresponding shadow, never group or per-note attributes.
+    const authoritative = new Map(notesRef.current.map((note) => [note.id, note]));
+    const snapshot = nextNotes.map((note) => {
+      if (!note.midi2) return { ...note };
+      const midi2 = { ...note.midi2 };
+      const previous = authoritative.get(note.id);
+      if (previous && note.velocity !== previous.velocity)
+        midi2.velocity = Math.max(0, Math.min(0xffff, Math.round(note.velocity * 0xffff)));
+      if (previous && note.releaseVelocity !== previous.releaseVelocity)
+        midi2.releaseVelocity = Math.max(0, Math.min(0xffff, Math.round(note.releaseVelocity * 0xffff)));
+      return { ...note, midi2 };
+    });
     const pending = { token: ++session.token, notes: snapshot };
     session.draft = pending;
-    setDraft({ regionId, notes: snapshot });
+    setDraft({ regionId, resetKey, notes: snapshot });
     setError(null);
     void sendNotes(session, pending);
-  }, [regionId, sendNotes]);
+  }, [regionId, resetKey, sendNotes, isCurrent, retire]);
 
   const retryDraft = useCallback(() => {
     const session = current.current;
-    if (status !== "error" || !session?.draft || session.admissionsInFlight > 0) return;
+    if (status !== "error" || !session?.draft || !isCurrent(session) || session.admissionsInFlight > 0) return;
     session.draft = { ...session.draft, token: ++session.token };
     setError(null);
     void sendNotes(session, session.draft);
-  }, [sendNotes, status]);
-  const editableNotes = draft?.regionId === regionId ? draft.notes : notes;
+  }, [sendNotes, status, isCurrent]);
+  const draftIsCurrent = draft?.regionId === regionId && draft.resetKey === resetKey;
+  const editableNotes = draftIsCurrent ? draft.notes : notes;
   const getEditableNotes = useCallback(() => {
     const session = current.current;
-    return session?.regionId === regionId && session.draft ? session.draft.notes : notesRef.current;
-  }, [regionId]);
+    return session && isCurrent(session) && session.draft ? session.draft.notes : notesRef.current;
+  }, [isCurrent]);
 
   return { editableNotes, getEditableNotes, commitNotes, discardDraft, retryDraft,
-    error, status, canRetry: status === "error" && admissionsPending === 0,
-    isPending: status === "sending" || status === "confirming" };
+    error: draftIsCurrent ? error : null, status: draftIsCurrent ? status : "idle" as Status,
+    canRetry: draftIsCurrent && status === "error" && admissionsPending === 0,
+    isPending: draftIsCurrent && (status === "sending" || status === "confirming") };
 }

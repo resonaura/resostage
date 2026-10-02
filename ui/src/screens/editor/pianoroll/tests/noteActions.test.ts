@@ -265,6 +265,23 @@ describe("Piano Roll Note Actions", () => {
   });
 
   describe("Quantize to grid", () => {
+    it("uses a newly chosen division for the selected group, not the previous render's snap", () => {
+      let actions!: ReturnType<typeof usePianoRollNoteActions>;
+      const notes = [makeNote({ id: 10, pitch: 60, startBeats: 1.26, durationBeats: 0.26 }),
+        makeNote({ id: 20, pitch: 62, startBeats: 2.13, durationBeats: 0.26 })];
+      let committed: MidiNoteRow[] = [];
+      function Harness() {
+        actions = usePianoRollNoteActions({ selectedNoteIds: new Set([10]), setSelectedNoteIds: vi.fn(),
+          getEditableNotes: () => notes, commitNotes: (value) => { committed = value; },
+          snap: 0.25, snapToScale: false, rootNote: 0, scaleMode: "minor" });
+        return null;
+      }
+      act(() => root.render(createElement(Harness)));
+      act(() => actions.handleQuantize(0.5));
+      expect(committed[0].startBeats).toBe(1.5);
+      expect(committed[0].durationBeats).toBe(0.5);
+      expect(committed[1]).toBe(notes[1]);
+    });
     it("quantizes selected notes to active grid division", () => {
       let actions!: ReturnType<typeof usePianoRollNoteActions>;
       let committed: MidiNoteRow[] | null = null;

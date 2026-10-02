@@ -59,11 +59,12 @@ describe("Piano Roll recoverable note drafts", () => {
   let container: HTMLDivElement;
   let result: ReturnType<typeof usePianoRollNoteDraft>;
   let regionId: string;
+  let resetKey: string;
   let serverNotes: MidiNoteRow[];
   let send: ReturnType<typeof vi.fn<(notes: MidiNoteRow[]) => void | Promise<void>>>;
 
   function Harness() {
-    result = usePianoRollNoteDraft({ regionId, notes: serverNotes, onNotesChange: send,
+    result = usePianoRollNoteDraft({ regionId, resetKey, notes: serverNotes, onNotesChange: send,
       confirmationTimeoutMs: 1000 });
     return null;
   }
@@ -79,6 +80,7 @@ describe("Piano Roll recoverable note drafts", () => {
     document.body.append(container);
     root = createRoot(container);
     regionId = "midi-region:1";
+    resetKey = "show:1";
     serverNotes = original;
     send = vi.fn().mockResolvedValue(undefined);
     render();
@@ -222,6 +224,36 @@ describe("Piano Roll recoverable note drafts", () => {
     serverNotes = [note({ pitch: 62, midi2: { ...result.getEditableNotes()[0].midi2! } })];
     render();
     expect(result.status).toBe("idle");
+  });
+
+  it("retires drafts when a project reopens with the same region/note IDs", async () => {
+    const first = deferred();
+    send.mockReturnValueOnce(first.promise);
+    await commit(edited);
+    resetKey = "show:2";
+    serverNotes = [note({ pitch: 80 })];
+    render();
+    expect(result.editableNotes).toEqual(serverNotes);
+    expect(result.getEditableNotes()).toEqual(serverNotes);
+    await act(async () => first.reject(new Error("Old project unavailable")));
+    act(() => vi.advanceTimersByTime(2000));
+    expect(result.error).toBeNull();
+    expect(result.status).toBe("idle");
+  });
+
+  it("updates edited MIDI 2.0 velocity shadows before matching Core's echo", async () => {
+    const midi2 = { group: 4, velocity: 52000, releaseVelocity: 31000, attributeType: 3, attributeData: 14000 };
+    serverNotes = [note({ midi2 })];
+    render();
+    await commit([note({ velocity: 0.3, releaseVelocity: 0.7, midi2 })]);
+    const sent = send.mock.calls[0][0];
+    expect(sent[0].midi2).toEqual({ ...midi2, velocity: Math.round(0.3 * 65535),
+      releaseVelocity: Math.round(0.7 * 65535) });
+    expect(result.editableNotes).toEqual(sent);
+    serverNotes = sent;
+    render();
+    expect(result.status).toBe("idle");
+    expect(result.error).toBeNull();
   });
 
   it("does not submit a no-op and safely discards a failed draft", async () => {

@@ -104,6 +104,8 @@ export interface PianoRollPendingAutomationCommit {
 
 export interface PianoRollProps {
   region: MidiRegionRow;
+  /** Project epoch/name identity: reopen may reuse region/note IDs. */
+  resetKey?: string;
   companionRegions?: MidiRegionRow[];
   activeMidiNotes?: Array<{ trackId: string; pitch: number }>;
   track?: import("@/lib/state/types").TrackRow | null;
@@ -119,7 +121,8 @@ export interface PianoRollProps {
   timeSignatureNumerator?: number;
   isPlaying?: boolean;
   onSeek?: (beats: number) => void;
-  onNotesChange: (notes: MidiNoteRow[]) => void;
+  /** Reliable admission; the editor keeps its draft until a matching Core snapshot. */
+  onNotesChange: (notes: MidiNoteRow[]) => void | Promise<void>;
   onRegionChange?: (region: MidiRegionRow) => void;
   canUndo?: boolean;
   canRedo?: boolean;

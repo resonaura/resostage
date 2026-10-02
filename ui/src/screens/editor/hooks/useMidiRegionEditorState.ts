@@ -15,6 +15,9 @@ export interface PendingMidiRegionCreation {
   notes: MidiNoteRow[];
   followupEdit: boolean;
   startedAt: number;
+  completion: Promise<void>;
+  resolve: () => void;
+  reject: (error: Error) => void;
 }
 
 /** Tracks the selected/visible MIDI regions and reconciles provisional IDs with Core. */
@@ -38,6 +41,8 @@ export function useMidiRegionEditorState(state: WebUiState) {
   useEffect(() => subscribeHistoryBoundary(() => {
     // A provisional create/follow-up from before Undo must never recreate
     // notes after the authoritative region has been removed by history.
+    for (const pending of pendingMidiRegionCreatesRef.current.values())
+      pending.reject(new Error("MIDI edit cancelled by history navigation"));
     pendingMidiRegionCreatesRef.current.clear();
     awaitingRecordedMidiRef.current = false;
   }), []);
@@ -57,10 +62,11 @@ export function useMidiRegionEditorState(state: WebUiState) {
             songIndex: pending.songIndex,
             regionId: created.id,
             notes: pending.notes,
-          });
-        }
+          }).then(pending.resolve, pending.reject);
+        } else pending.resolve();
       } else if (Date.now() - pending.startedAt > 30_000) {
         pendingCreates.delete(placeholderId);
+        pending.reject(new Error("Core did not confirm creation of the MIDI region"));
       }
     }
   }, [state.songs]);
