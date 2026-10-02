@@ -6,7 +6,7 @@ and [dated benchmark evidence](../../performance/PLUGIN_BASELINE.md).
 
 ## Current correctness/performance pass
 
-Root is verifying these source changes before their separate commit:
+The following ownership changes are implemented in `d23fdeb` and retained:
 
 - JUCE-free `PluginDelayBank`: builder never reads live mutable ring samples;
   unchanged topology/rate/delay shares the one DSP owner's ring. Changed
@@ -21,32 +21,23 @@ Root is verifying these source changes before their separate commit:
 Do not claim these are hardware/dropout verified until the final native and
 real AU/VST3 fixture tests finish. No IPC ABI or project schema change is needed.
 
-## Indexed lookahead — next implementation block
+## Indexed lookahead — implemented follow-up
 
-`AudioEngine.cpp` currently calls `prewarmPluginsLookahead` per callback;
-`AudioEngineEventDispatch.cpp` scans every audio/MIDI region and looks up strings
-for overlaps. This is project-size work on the deadline path, including repeated
-requests for a single strip. Prepare the work rather than changing wake timing.
+`ProjectActivityIndex` now prepares all-song merged intervals and owned maps on
+the message thread. `prewarmPluginsLookahead` queries only hosted strip indices;
+missing preparation keeps chains awake, with no raw-region fallback. Fader/pan,
+processor-only and cycle-locator publications reuse the cache. Content edits,
+history, tempo, epoch, routing binding and rate changes invalidate it.
 
-1. Prepare immutable per-hosted-strip merged activity intervals off audio and
-   prebind strip indices. Keys must include project epoch, song/revision,
-   routing layout, tempo-map revision and sample rate. Find every existing
-   mutation/rebuild site first: recording, history, region edits, source trims,
-   tempo changes, project/device replacement, song switching and cycle seeks.
-2. Convert beat-based MIDI geometry through the authoritative TempoMap. Match
-   existing audio/MIDI overlap semantics, including muted/empty/unknown lengths,
-   before deliberately improving them. A stale snapshot must not silently omit
-   a wake; either rebuild at the existing safe publication boundary or reject
-   it through a defined safe path.
-3. Query at most the 32 hosted chains, each with lower_bound on sorted merged
-   interval ends; coalesce one wake per intersecting strip. Preserve current
-   repeated prewarm behavior. Wake-on-entry alone is unsafe when the predictive
-   horizon exceeds a short reported tail: the helper can sleep before playback.
-   A future bounded predictive lease needs explicit protocol/timing tests.
-4. Compare indexed and old results over 10/1,000/100,000 regions, arbitrary
-   seeks, cyclic wrapped cursors, BPM/meter changes and history restoration.
-   Test zero callback allocation, fixed snapshot lifetime, no missed instruments
-   and callback cost independent of total project region count.
+Gapless promotion selects the next song's prepared TempoMap, checks preallocated
+event capacity before touching streams, and retains message-thread ownership of
+retired publications/nested maps. Budget fallback maps have separate owners too.
+See `core/tests/test_song_activity_index.cpp` for timing/interval, compatibility,
+mutation-independent snapshots, nested retirement and preparation-limit tests.
+The 10,000-region lookup comparison is a synthetic microbenchmark, not a full
+audio callback measurement. Still obtain actual heavy saved-state AU/VST3
+measurements, project-history and gapless device traces, and allocator-probe
+evidence for the whole callback before claiming dropout elimination.
 
 ## Remaining host integrations
 

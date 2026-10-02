@@ -335,6 +335,7 @@ void AudioEngine::publishRoutingSnapshot() {
         || publishedGraph->latencyLayoutKey != graph->latencyLayoutKey;
     projectChanged = publishedGraph == nullptr
         || publishedGraph->projectEpoch != graph->projectEpoch;
+    const bool activityChanged = needsActivityPreparation(songActivityDirty, publishedGraph.get(), *graph);
     publishedGraph = graph;
 
     // Atomic shared_ptr swap -- its own synchronisation, no lock needed, and
@@ -343,6 +344,11 @@ void AudioEngine::publishRoutingSnapshot() {
     currentProcessorLayoutKey.store(graph->processorLayoutKey,
                                     std::memory_order_release);
     routing.publish(std::move(graph));
+    // Coefficient edits do not touch content or tempo. In particular, do not
+    // sort every region while dragging a fader. A changed binding/epoch or an
+    // explicit content invalidation prepares all songs once off audio.
+    if (activityChanged)
+        refreshSongActivityIndex();
     if ((processorLayoutChanged || latencyLayoutChanged || projectChanged) && projectLoaded) {
         // A plug-in-only edit keeps using the previous processor and PDC bank
         // until its replacement is atomically ready, so its published latency
@@ -354,11 +360,67 @@ void AudioEngine::publishRoutingSnapshot() {
     }
 }
 
+void AudioEngine::refreshSongActivityIndex() {
+    std::erase_if(retiredStandaloneTempoMaps, [](const auto& retired) { return retired.use_count() == 1; });
+    // Reclaim retired indices whose audio thread references have dropped to 1.
+    // Runs exclusively on the message thread.
+    std::erase_if(retiredSongActivityIndices, [](const auto& retired) {
+        return retired.use_count() == 1 && retired->tempoMapsUnreferenced();
+    });
+
+    const auto graph = publishedGraph;
+    std::shared_ptr<const ProjectActivityIndex> next;
+    if (projectLoaded && graph != nullptr) {
+        try {
+            next = buildProjectActivityIndex(loader.project(), *graph,
+                projectEpoch.load(std::memory_order_acquire), currentSampleRate);
+        } catch (const std::bad_alloc&) {
+            // Preparation is optional: bounded hosted-chain prewarm remains
+            // safe if a huge project cannot allocate this derived cache.
+        }
+        if (next == nullptr)
+            juce::Logger::writeToLog("Plug-in activity preparation unavailable; keeping hosted chains awake");
+    }
+    auto previous = std::atomic_exchange_explicit(
+        &projectActivityIndex,
+        std::move(next),
+        std::memory_order_acq_rel);
+    if (previous != nullptr) {
+        retiredSongActivityIndices.push_back(std::move(previous));
+    }
+    // A content/tempo edit can replace the index without selecting a song.
+    // Bind the active map to the new owner too, so a subsequent gapless hop
+    // never becomes the last releaser of an orphaned TempoMap on audio.
+    // The short owner lock also excludes a concurrent gapless currentSong hop.
+    {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        const auto publication = std::atomic_load_explicit(&projectActivityIndex, std::memory_order_acquire);
+        if (publication && graph && currentSong < loader.project().songs.size()) {
+            if (const auto* prepared = publication->songAt(currentSong, loader.project().songs[currentSong],
+                    *graph, projectEpoch.load(std::memory_order_acquire), currentSampleRate))
+                std::atomic_store_explicit(&activeTempoMap, prepared->tempoMap, std::memory_order_release);
+        }
+    }
+    // Gapless promotion only assigns within this prepared flag capacity.
+    // Larger event lists use the message-thread handoff instead of growing a
+    // vector in the callback. Keep this bounded reserve under its owner lock.
+    size_t eventCapacity = 0;
+    for (const auto& song : loader.project().songs)
+        eventCapacity = std::max(eventCapacity, std::min<size_t>(song.events.size(), 4096));
+    if (eventFiredFlags.capacity() < eventCapacity) {
+        std::lock_guard<std::recursive_mutex> lock(routingMutex);
+        eventFiredFlags.reserve(eventCapacity);
+    }
+    songActivityDirty = false;
+}
+
 void AudioEngine::republishRouting() {
     publishRoutingSnapshot();
 }
 
-void AudioEngine::rebuildBussesFromProject() {
+void AudioEngine::rebuildBussesFromProject(bool contentChanged) {
+    if (contentChanged)
+        songActivityDirty = true;
     publishRoutingSnapshot();
     // Every builder edit lands here, including adding or removing a timeline
     // event -- and the fired-flag vector has to follow the event list or the

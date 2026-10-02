@@ -43,6 +43,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         return false;
     }
     const SongDef& song = proj.songs[songIndex];
+    if (forceRestage) songActivityDirty = true;
 
     // Capture before any stop() — used for same-song restart + prime decisions.
     const bool wasPlaying =
@@ -267,7 +268,7 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         }
 
         auto newTempoMap = std::make_shared<const TempoMap>(song.bpm, song.tempoPoints);
-        std::atomic_store_explicit(&activeTempoMap, std::move(newTempoMap), std::memory_order_release);
+        publishStandaloneTempoMap(std::move(newTempoMap));
 
         auto pluginPub = std::atomic_load_explicit(&activePluginBank, std::memory_order_acquire);
         if (pluginPub != nullptr && pluginPub->bank != nullptr) {
@@ -293,6 +294,10 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
         // there is no audio to protect. That is exactly what makes a knob move
         // different: it must NOT silence anything.
         publishRoutingSnapshot();
+        const auto activity = std::atomic_load_explicit(&projectActivityIndex, std::memory_order_acquire);
+        if (const auto* prepared = activity ? activity->songAt(songIndex, song, *publishedGraph,
+                projectEpoch.load(std::memory_order_acquire), currentSampleRate) : nullptr)
+            std::atomic_store_explicit(&activeTempoMap, prepared->tempoMap, std::memory_order_release);
 
         // Reset playhead + micro-fade state under the same lock the audio
         // thread uses for the whole mix/fade path, so it can never observe

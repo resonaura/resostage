@@ -56,6 +56,7 @@ add_executable(resostage_engine_tests
   test_envelope_follower.cpp
   test_plugin_hardening.cpp
   test_plugin_performance.cpp
+  test_song_activity_index.cpp
   test_plugin_power_manager.cpp
   test_resolink_protocol.cpp
   test_audio_record_worker.cpp

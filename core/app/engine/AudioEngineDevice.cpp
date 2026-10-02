@@ -199,6 +199,7 @@ void AudioEngine::handleSampleRateChanged(double newSampleRate, double previousP
 
     // Re-preps clickGenerator at currentSampleRate using this song's bpm/meter.
     refreshClickState();
+    refreshSongActivityIndex();
 
     const int64_t newStartSample = static_cast<int64_t>(previousPlayheadSeconds * currentSampleRate);
     // audioDeviceAboutToStart already reset hwSamplePosition to 0 for this

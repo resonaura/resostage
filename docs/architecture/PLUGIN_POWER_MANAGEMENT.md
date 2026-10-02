@@ -1,8 +1,8 @@
 # Conservative plug-in power management
 
-Status: tracker/isolated-host ownership hardening implemented in the current
-working tree; focused build/test verification is in progress. Heavy-project
-optimization remains broader work. Source review: 2026-10-01.
+Status: tracker/isolated-host ownership hardening is implemented, with indexed
+all-song lookahead added on 2026-10-01. Heavy-project acoustic acceptance remains
+broader work; synthetic timings must not be promoted to vendor guarantees.
 
 ## Purpose
 
@@ -58,12 +58,26 @@ Read the matching current `PluginHostProtocol.h`; old helpers fail ABI validatio
 These are source-verified ownership/protocol changes, not a completed
 performance/device validation claim. The current task records focused results.
 
-The standalone manager's lookahead helper walks project regions/lanes and uses
-dynamic containers; it is not suitable for a device callback. The live engine
-has a separate callback lookahead path. A future prepared index should be
-published when song/region structure changes, bounded by a documented capacity,
-and deliver wake requests on state edges rather than rescanning the complete
-song every callback.
+The standalone manager's lookahead helper still walks project regions/lanes
+and uses dynamic containers; it is not suitable for a device callback. The live
+engine instead prepares `ProjectActivityIndex` off audio: merged half-open
+intervals, prebound strip IDs, and an owned TempoMap per song. Callback work
+queries only hosted chains and never traverses raw regions. Preparation limits
+are 4096 songs, 1,048,576 audio/MIDI regions, 65,536 plans and 65,536 tempo points.
+A rejected/missing index conservatively keeps all admitted live chains awake,
+without a fallback scan. These are item-count limits, not a fixed byte-budget.
+
+Faders/pans, processor-only edits and locator drags reuse the publication;
+content/history/tempo, epoch, routing layout and device-rate changes prepare a
+replacement. Gapless song hops take a row/map from that same all-song owner.
+Retirement checks both publication references and nested map readers; separate
+message-thread owners cover standalone maps when preparation is unavailable.
+The active map is rebound on replacement, not only song selection.
+
+Repeated predictive wake requests remain deliberate. Wake-on-entry alone can
+let a short-tail vendor suspend again before a long lookahead horizon ends.
+One coalesced request per intersecting hosted strip preserves current timing
+without a project-size scan. Future lease/edge protocol changes need tests.
 
 ## Future work, not shipped guarantees
 

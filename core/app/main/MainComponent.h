@@ -204,7 +204,9 @@ private:
 
     // After structural edits from the web Builder: rebuild routing, stage a
     // song if needed. SPA re-renders from the next telemetry frame.
-    void notifyProjectStructureChanged();
+    // Locator-only publications retain the prepared region activity cache;
+    // ordinary Builder mutations conservatively invalidate it by default.
+    void notifyProjectStructureChanged(bool contentChanged = true);
     void notifyRoutingChanged();
 
     // Shared by WebCommandKind::TimelineUndo/Redo and performAction("undo"/"redo").

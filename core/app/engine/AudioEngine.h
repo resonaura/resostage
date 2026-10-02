@@ -36,6 +36,7 @@
 #include "audio/graph/MixRenderer.h"
 #include "audio/streaming/RegionSourceMap.h"
 #include "audio/graph/RoutingEngine.h"
+#include "audio/graph/SongActivityIndex.h"
 #include "audio/dsp/SincInterpolator.h"
 #include "audio/streaming/StreamingEngine.h"
 #include "events/EventDispatcher.h"

@@ -172,7 +172,9 @@ void MainComponent::builderCycleUpdate(const std::string& json) {
     // Mirror onto audio-thread atomics so loop/skip applies even with no SPA
     // client driving seeks, and every tab hears the same cycle.
     engine.syncTransportCycleFromProject();
-    notifyProjectStructureChanged();
+    // A locator drag changes no source interval or tempo. Keep the prepared
+    // all-song activity index while publishing cycle and structural UI state.
+    notifyProjectStructureChanged(/*contentChanged=*/false);
 }
 
 void MainComponent::builderEventAdd(const std::string& json) {

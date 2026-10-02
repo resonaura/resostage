@@ -506,7 +506,24 @@ Preserve these rules:
   Intelligent power management (`PluginPowerManager`)
   monitors strip signal activity via preallocated envelope followers, automatically
   suspending processing during silence while preserving tail decay and waking up
-  ahead of upcoming audio/MIDI regions. Software Instrument slot on instrument tracks
+  ahead of upcoming audio/MIDI regions. The message thread prepares one immutable
+  `ProjectActivityIndex` with merged, strip-bound intervals and owned TempoMaps
+  for every song. Audio queries only the admitted hosted chains, using binary
+  searches rather than scanning regions or resolving track strings. The cache
+  bounds preparation to 4096 songs, 1,048,576 regions, 65,536 strip plans and
+  65,536 tempo points. Missing/rejected preparation keeps hosted chains awake;
+  it must never fall back to source scans on audio. Fader/pan, processor-only
+  and cycle-locator publications reuse preparation; content/history/tempo,
+  project epoch, routing binding or device-rate changes invalidate it.
+  Repeated prewarm within the two-bar horizon is intentional: a short-tail
+  vendor must not sleep before the predicted region arrives. Gapless promotion
+  selects the next prepared map/index and never grows its event flag capacity;
+  unavailable preparation/capacity uses the established message-thread handoff.
+  Retired publications and standalone map owners are reclaimed on the message
+  thread, only after both audio references and nested active-map references
+  have gone. Content publication also rebinds the active map so editing an
+  inactive song followed by selection cannot retain its old tempo.
+  Software Instrument slot on instrument tracks
   provides dedicated AU/VST3 generator selection via categorized context menus grouped
   by manufacturer (with 'Open UI' and 'No Plug-in' removal options), and `pluginSlotAdd`
   atomically replaces existing slot 0 instruments or prepends them before existing audio insert FX.

@@ -1288,6 +1288,11 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             bank->maximumTailSeconds, stripOutputTails[strip]);
     }
 
+    // Build the bounded hosted-only traversal once. A large graph can contain
+    // thousands of non-hosted strips; callback prewarm must not walk them.
+    for (uint32_t strip = 0; strip < bank->chains.size(); ++strip)
+        if (bank->chains[strip] != nullptr)
+            bank->hostedStripIndices.push_back(strip);
     bank->stripProcessorLatencySamples = std::move(stripProcessorLatencies);
     result.delayBank = PluginDelayBank::build(
         graph, bank->stripProcessorLatencySamples, sampleRate,
@@ -1684,6 +1689,11 @@ void PluginProcessorBank::prewarmStrip(size_t stripIndex) noexcept {
             node->powerTracker.forceAwake();
         }
     }
+}
+
+void PluginProcessorBank::prewarmAllStrips() noexcept {
+    for (const auto strip : hostedStripIndices)
+        prewarmStrip(strip);
 }
 
 void PluginProcessorBank::prewarmSlot(const std::string& slotId) noexcept {

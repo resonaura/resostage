@@ -167,8 +167,10 @@
 
     void refreshClickState();
 
-    // Rebuild global bus list after Builder adds/removes busses (message thread).
-    void rebuildBussesFromProject();
+    // Message-thread Builder publication. Content edits invalidate prepared
+    // region activity; locator-only edits reuse it. Routing layout changes
+    // still invalidate through publishRoutingSnapshot regardless of this flag.
+    void rebuildBussesFromProject(bool contentChanged = true);
 
     // Push current song BPM + Song Position Pointer to MIDI clock followers.
     // Call after song hop / seek / live bpm edit while transport is live.

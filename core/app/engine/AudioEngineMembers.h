@@ -97,6 +97,14 @@
     // second, drifting implementation of the grouping rule.
     std::shared_ptr<const MixGraph> publishedGraph;
     std::shared_ptr<const TempoMap> activeTempoMap;
+    std::shared_ptr<const ProjectActivityIndex> projectActivityIndex;
+    bool songActivityDirty = true; // Message-thread only; never checked by audio.
+    // Message-thread retirement queue for ProjectActivityIndex so audio-thread
+    // local references never drop the refcount to zero during rendering.
+    std::vector<std::shared_ptr<const ProjectActivityIndex>> retiredSongActivityIndices;
+    // Standalone maps (for budget-exhausted preparation) need the same
+    // message-thread last-release guarantee as maps owned by a cached index.
+    std::vector<std::shared_ptr<const TempoMap>> retiredStandaloneTempoMaps;
 
     std::vector<LoadedBus> busses; // global, built once per loadProject()
     std::unordered_map<std::string, size_t> busIndexById;
@@ -424,7 +432,7 @@
     std::atomic<bool> streamHandoff{false};
 
     // Audio-thread gapless promote when precache is warm (no message-thread wait).
-    bool tryGaplessPromoteOnAudioThread(size_t nextSongIndex);
+    bool tryGaplessPromoteOnAudioThread(size_t nextSongIndex, const MixGraph& graph);
     void resetMetersSilent();
 
     double currentSampleRate = 48000.0;
@@ -571,6 +579,8 @@
     void handleSampleRateChanged(double newSampleRate, double previousPlayheadSeconds, bool wasPlaying);
 
     void publishRoutingSnapshot(); // message-thread: build RoutingSnapshot from Project
+    void refreshSongActivityIndex();
+    void publishStandaloneTempoMap(std::shared_ptr<const TempoMap> map);
     void ensureTrackMeters(size_t count);
     bool selectSongInternal(size_t songIndex, std::string& error, bool fireOnLoadEvents, bool gaplessKeepPlaying, bool forceRestage = false);
 

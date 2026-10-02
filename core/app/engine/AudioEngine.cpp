@@ -1977,7 +1977,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             // wait, no multi-file re-open -- just shared_ptr swap + playhead 0.
             // Falls back to message-thread switchToSongGapless if precache miss.
             streamHandoff.store(true, std::memory_order_release);
-            if (!tryGaplessPromoteOnAudioThread(nextIdx)) {
+            if (!tryGaplessPromoteOnAudioThread(nextIdx, graph)) {
                 // Warm miss: message-thread stage. Keep handoff silent until
                 // done — callAsync immediately (don't wait 30 Hz timer).
                 clock.stop();

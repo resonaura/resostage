@@ -176,6 +176,17 @@ void AudioEngine::prewarmPluginsLookahead(const SongDef& song,
         return;
 
     const double safeRate = sampleRate > 0.0 ? sampleRate : 48000.0;
+    const auto publication = std::atomic_load_explicit(&projectActivityIndex, std::memory_order_acquire);
+    const auto* activity = publication ? publication->songAt(currentSong, song, *graph,
+        projectEpoch.load(std::memory_order_acquire), safeRate) : nullptr;
+    if (activity == nullptr) {
+        // Missing/budget-exhausted preparation must not turn into a full
+        // project scan on audio or silently omit a wake. At most 32 live
+        // chains remain awake until a matching preparation is available.
+        pluginBank->prewarmAllStrips();
+        return;
+    }
+    tempoMap = activity->tempoMap.get();
     const double currentSeconds = static_cast<double>(playheadSample) / safeRate;
     const double currentBeat = tempoMap != nullptr
         ? tempoMap->samplesToBeats(playheadSample, safeRate)
@@ -189,33 +200,21 @@ void AudioEngine::prewarmPluginsLookahead(const SongDef& song,
         ? tempoMap->beatsToSeconds(lookaheadEndBeat)
         : lookaheadEndBeat * (60.0 / std::max(1.0, song.bpm));
 
-    // Check audio regions within 2-bar horizon
-    for (const auto& reg : song.regions) {
-        const double regStart = reg.startSeconds;
-        const double regEnd = (reg.durationSeconds > 0.0)
-                                  ? (reg.startSeconds + reg.durationSeconds)
-                                  : std::numeric_limits<double>::infinity();
-        if (regEnd > currentSeconds && regStart < lookaheadEndSeconds) {
-            const uint32_t stripIdx = graph->find(reg.trackId);
-            if (stripIdx != MixGraph::kNoStrip) {
-                pluginBank->prewarmStrip(stripIdx);
-            }
-        }
-    }
+    const bool isCycleLoop = cycleActive.load(std::memory_order_relaxed)
+                          && !cycleSkip.load(std::memory_order_relaxed);
+    const double loopLeft = cycleLeftSec.load(std::memory_order_relaxed);
+    const double loopRight = cycleRightSec.load(std::memory_order_relaxed);
+    const bool wrapsCycle = isCycleLoop
+                         && (loopRight > loopLeft + 0.05)
+                         && (currentSeconds >= loopLeft && currentSeconds < loopRight && lookaheadEndSeconds > loopRight);
+    const double wrapEndSeconds = wrapsCycle ? (loopLeft + (lookaheadEndSeconds - loopRight)) : loopLeft;
 
-    // Check MIDI regions within 2-bar horizon
-    for (const auto& mreg : song.midiRegions) {
-        if (mreg.muted) continue;
-        const double mregStart = mreg.startBeats;
-        const double mregEnd = (mreg.durationBeats > 0.0)
-                                   ? (mreg.startBeats + mreg.durationBeats)
-                                   : std::numeric_limits<double>::infinity();
-        if (mregEnd > currentBeat && mregStart < lookaheadEndBeat) {
-            const uint32_t stripIdx = graph->find(mreg.trackId);
-            if (stripIdx != MixGraph::kNoStrip) {
-                pluginBank->prewarmStrip(stripIdx);
-            }
-        }
+    // Only hosted strips are queried; repeated wake requests preserve a
+    // predictive lease when the two-bar horizon exceeds the vendor's tail.
+    for (const auto strip : pluginBank->activeStripIndices()) {
+        if (activity->intersects(strip, currentSeconds, lookaheadEndSeconds)
+            || (wrapsCycle && activity->intersects(strip, loopLeft, wrapEndSeconds)))
+            pluginBank->prewarmStrip(strip);
     }
 }
 

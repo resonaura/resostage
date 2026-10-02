@@ -566,8 +566,8 @@ void MainComponent::setStatus(const juce::String& text) {
     lastStatusMessage = text.toStdString();
 }
 
-void MainComponent::notifyProjectStructureChanged() {
-    engine.rebuildBussesFromProject();
+void MainComponent::notifyProjectStructureChanged(bool contentChanged) {
+    engine.rebuildBussesFromProject(contentChanged);
     ensureSongSelected();
     engine.notifyLightEngineProjectChanged();
     setStatus("Project structure updated");

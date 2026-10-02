@@ -26,12 +26,27 @@ namespace resostage {
 
 using audio_engine_detail::kRingBufferSeconds;
 
+void AudioEngine::publishStandaloneTempoMap(std::shared_ptr<const TempoMap> map) {
+    // Message-thread only: retain the new standalone owner before publishing,
+    // even if a later cache publication replaces it while audio still reads it.
+    std::erase_if(retiredStandaloneTempoMaps, [](const auto& retired) { return retired.use_count() == 1; });
+    retiredStandaloneTempoMaps.push_back(map);
+    std::atomic_store_explicit(&activeTempoMap, std::move(map), std::memory_order_release);
+}
+
 void AudioEngine::refreshActiveTempoMap() {
     if (!projectLoaded || currentSong >= loader.project().songs.size())
         return;
     const auto& song = loader.project().songs[currentSong];
-    auto next = std::make_shared<const TempoMap>(song.bpm, song.tempoPoints);
-    std::atomic_store_explicit(&activeTempoMap, std::move(next), std::memory_order_release);
+    songActivityDirty = true;
+    refreshSongActivityIndex();
+    const auto publication = std::atomic_load_explicit(&projectActivityIndex, std::memory_order_acquire);
+    const auto* prepared = publication && publishedGraph ? publication->songAt(currentSong, song,
+        *publishedGraph, projectEpoch.load(std::memory_order_acquire), currentSampleRate) : nullptr;
+    if (prepared)
+        std::atomic_store_explicit(&activeTempoMap, prepared->tempoMap, std::memory_order_release);
+    else
+        publishStandaloneTempoMap(std::make_shared<const TempoMap>(song.bpm, song.tempoPoints));
 }
 
 void AudioEngine::syncTransportCycleFromProject() {
@@ -85,13 +100,19 @@ int64_t AudioEngine::songLengthFrames(double endSeconds,
     return songLengthFramesFor(endSeconds, contentFrames, sampleRate);
 }
 
-bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
+bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex, const MixGraph& graph) {
     if (!projectLoaded || nextSongIndex >= loader.project().songs.size())
+        return false;
+    const SongDef& song = loader.project().songs[nextSongIndex];
+    const auto publication = std::atomic_load_explicit(&projectActivityIndex, std::memory_order_acquire);
+    const auto* prepared = publication ? publication->songAt(nextSongIndex, song,
+        graph, projectEpoch.load(std::memory_order_acquire), currentSampleRate) : nullptr;
+    // Missing preparation takes the established message-thread handoff before
+    // touching streams. Never allocate a TempoMap or grow event flags on audio.
+    if (prepared == nullptr || song.events.size() > eventFiredFlags.capacity())
         return false;
     if (!streaming.tryPromotePrecached(nextSongIndex))
         return false;
-
-    const SongDef& song = loader.project().songs[nextSongIndex];
 
     // Length from the just-promoted buffers (device domain).
     int64_t newLen = 0;
@@ -120,6 +141,7 @@ bool AudioEngine::tryGaplessPromoteOnAudioThread(size_t nextSongIndex) {
     }
 
     currentSong = nextSongIndex;
+    std::atomic_store_explicit(&activeTempoMap, prepared->tempoMap, std::memory_order_release);
     currentSongLengthFrames = newLen;
     eventFiredFlags.assign(song.events.size(), 0);
     // Gapless hop: new BPM + full meter; playhead 0 = strong downbeat.

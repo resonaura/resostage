@@ -15,7 +15,9 @@
 #include "plugins/PluginMIDIBuffer.h"
 #endif
 
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <vector>
 

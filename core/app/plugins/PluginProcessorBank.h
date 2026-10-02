@@ -18,6 +18,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -186,6 +187,9 @@ public:
     std::vector<ParameterInfo> parametersForSlot(const std::string& slotId) const;
     void setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept;
     void prewarmStrip(size_t stripIndex) noexcept;
+    /** Prepared hosted indices only (at most 128 slots/32 live chains). */
+    std::span<const uint32_t> activeStripIndices() const noexcept { return hostedStripIndices; }
+    void prewarmAllStrips() noexcept;
     void prewarmSlot(const std::string& slotId) noexcept;
     void parkSlot(const std::string& slotId) noexcept;
     void unparkSlot(const std::string& slotId) noexcept;
@@ -209,6 +213,7 @@ private:
     // node must therefore share this playhead's lifetime as well.
     std::shared_ptr<PluginPlayHead> playHead = std::make_shared<PluginPlayHead>();
     std::vector<std::unique_ptr<StripChain>> chains;
+    std::vector<uint32_t> hostedStripIndices;
     std::vector<MixStripProcessor> processorEntries;
     std::vector<uint32_t> stripProcessorLatencySamples;
     int maximumLatencySamples = 0;

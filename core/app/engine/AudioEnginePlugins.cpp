@@ -48,6 +48,7 @@ void AudioEngine::beginProjectMutation() {
     projectTransitioning.store(true);
     while (audioCallbacksInFlight.load() != 0)
         std::this_thread::yield();
+    songActivityDirty = true;
 }
 
 void AudioEngine::beginProjectReplacement() {
