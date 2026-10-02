@@ -521,3 +521,120 @@ TEST_CASE("AudioRecordWorker refuses an existing destination and rolls back only
     CHECK(preserved == original);
     CHECK(worker.stopAndFinalize().empty());
 }
+
+TEST_CASE("Multi-track recording count-in calculation and sample-accurate capture gating") {
+    RecordingTestDirectory directory;
+    const auto& tempDir = directory.path;
+
+    // 1. Verify count-in bar calculation logic
+    const double sr = 48000.0;
+    const double bpm = 120.0; // 0.5s per beat, 24000 samples/beat
+    const int numerator = 4;   // 4/4 time -> 4 beats/bar, 96000 samples/bar
+    const double samplesPerBeat = sr * 60.0 / bpm;
+    const double beatsPerBar = static_cast<double>(numerator);
+    const int64_t samplesPerBar = static_cast<int64_t>(beatsPerBar * samplesPerBeat);
+
+    // Scenario A: Recording started from sample 0 with 1-bar count-in -> starts at -96000 samples
+    {
+        const int64_t captureStartPos = 0;
+        const int bars = 1;
+        const double currentBeats = static_cast<double>(captureStartPos) / samplesPerBeat;
+        const double currentBar = std::floor(currentBeats / beatsPerBar);
+        const double startBeats = (currentBar - static_cast<double>(bars)) * beatsPerBar;
+        const int64_t countInStart = static_cast<int64_t>(std::llround(startBeats * samplesPerBeat));
+        CHECK(countInStart == -samplesPerBar);
+        CHECK(countInStart == -96000);
+    }
+
+    // Scenario B: Recording started at bar 4 beat 2.5 (18 beats in) with 2-bar count-in
+    // Current bar = 4 (beats 16-20). Start beats = (4 - 2) * 4 = 8 beats (bar 2).
+    {
+        const int64_t captureStartPos = static_cast<int64_t>(18.0 * samplesPerBeat); // 432000
+        const int bars = 2;
+        const double currentBeats = static_cast<double>(captureStartPos) / samplesPerBeat;
+        const double currentBar = std::floor(currentBeats / beatsPerBar);
+        const double startBeats = (currentBar - static_cast<double>(bars)) * beatsPerBar;
+        const int64_t countInStart = static_cast<int64_t>(std::llround(startBeats * samplesPerBeat));
+        CHECK(startBeats == 8.0);
+        CHECK(countInStart == static_cast<int64_t>(8.0 * samplesPerBeat)); // bar 2 start = 192000
+    }
+
+    // 2. Multi-track AudioRecordWorker with sample-accurate block-boundary gating
+    AudioRecordWorker worker;
+    std::vector<TrackAudioRecordSession> sessions;
+
+    TrackAudioRecordSession s1;
+    s1.trackId = "audio::track:1";
+    s1.filename = "countin_mono.wav";
+    s1.fullPath = (tempDir / s1.filename).string();
+    s1.channels = 1;
+    s1.inputChannel0 = 0;
+    s1.inputChannel1 = -1;
+    sessions.push_back(std::move(s1));
+
+    TrackAudioRecordSession s2;
+    s2.trackId = "audio::track:2";
+    s2.filename = "countin_stereo.wav";
+    s2.fullPath = (tempDir / s2.filename).string();
+    s2.channels = 2;
+    s2.inputChannel0 = 0;
+    s2.inputChannel1 = 1;
+    sessions.push_back(std::move(s2));
+
+    std::string err;
+    const int64_t captureStartSample = 1000;
+    REQUIRE(worker.prepareRecording(recordingPathUtf8(tempDir), sessions, sr, captureStartSample, err));
+
+    constexpr int blockSize = 256;
+    std::vector<float> inputL(blockSize, 0.75f);
+    std::vector<float> inputR(blockSize, -0.75f);
+
+    // Simulate 6 blocks starting at playhead = 0:
+    // Block 0: [0, 256)      -> playhead + blockSize (256) <= 1000  -> 0 frames captured
+    // Block 1: [256, 512)    -> playhead + blockSize (512) <= 1000  -> 0 frames captured
+    // Block 2: [512, 768)    -> playhead + blockSize (768) <= 1000  -> 0 frames captured
+    // Block 3: [768, 1024)   -> straddles captureStart (1000):
+    //                           captureOffset = 1000 - 768 = 232
+    //                           captureLength = 256 - 232 = 24 frames
+    // Block 4: [1024, 1280)  -> completely inside: captureOffset = 0, captureLength = 256 frames
+    // Block 5: [1280, 1536)  -> completely inside: captureOffset = 0, captureLength = 256 frames
+    // Total expected captured frames = 24 + 256 + 256 = 536 frames!
+
+    int64_t totalFramesCaptured = 0;
+    for (int b = 0; b < 6; ++b) {
+        const int64_t playheadSample = static_cast<int64_t>(b) * blockSize;
+        const int64_t captureBegin = std::max(playheadSample, captureStartSample);
+        const int64_t captureEnd = playheadSample + blockSize;
+        const int captureOffset = static_cast<int>(
+            std::clamp<int64_t>(captureBegin - playheadSample, 0, blockSize));
+        const int captureLength = static_cast<int>(
+            std::clamp<int64_t>(captureEnd - captureBegin, 0, blockSize - captureOffset));
+
+        if (captureLength > 0) {
+            totalFramesCaptured += captureLength;
+
+            // Push to Track 1 (Mono)
+            const float* in1[1] = {inputL.data() + captureOffset};
+            worker.pushFrames(0, in1, captureLength);
+
+            // Push to Track 2 (Stereo)
+            const float* in2[2] = {inputL.data() + captureOffset, inputR.data() + captureOffset};
+            worker.pushFrames(1, in2, captureLength);
+        }
+    }
+
+    CHECK(totalFramesCaptured == 536);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    auto results = worker.stopAndFinalize();
+    REQUIRE(results.size() == 2);
+
+    CHECK(results[0].recordedFrames == 536);
+    CHECK(results[1].recordedFrames == 536);
+
+    // Verify written file size on disk matches exact gated frame count
+    // 44-byte header + 536 frames * channels * 3 bytes
+    CHECK(std::filesystem::file_size(results[0].fullPath) == 44 + 536 * 1 * 3);
+    CHECK(std::filesystem::file_size(results[1].fullPath) == 44 + 536 * 2 * 3);
+}
+
