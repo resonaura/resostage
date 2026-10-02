@@ -29,6 +29,9 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
     plan->songs.resize(project.songs.size());
     size_t admittedLanes = 0;
     size_t admittedPoints = 0;
+    const auto reportSkippedLane = [&error](const char* message) {
+        if (error.empty()) error = message;
+    };
     std::vector<uint8_t> boundParameters(graph.strips.size());
     std::vector<bool> boundEdges(graph.edges.size(), false);
     for (size_t songIndex = 0; songIndex < project.songs.size(); ++songIndex) {
@@ -125,24 +128,29 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
             }
             if (admittedLanes == kMaximumLanes
                 || lane.points.size() > kMaximumPoints - admittedPoints) {
-                error = "Strip automation exceeds the prepared envelope budget";
-                return nullptr;
+                reportSkippedLane("Strip automation exceeds the prepared envelope budget; excess lanes were skipped");
+                continue;
             }
             if (!std::isfinite(lane.target.minValue)
                 || !std::isfinite(lane.target.maxValue)
                 || lane.target.maxValue < lane.target.minValue) {
-                error = "Strip automation has an invalid parameter range";
-                return nullptr;
+                reportSkippedLane("Strip automation has an invalid parameter range; that lane was skipped");
+                continue;
             }
             double previousBeat = -std::numeric_limits<double>::infinity();
+            bool validPoints = true;
             for (const auto& point : lane.points) {
                 if (!std::isfinite(point.timeBeats) || point.timeBeats < 0.0
                     || point.timeBeats <= previousBeat || !std::isfinite(point.value)
                     || !std::isfinite(point.curve) || std::abs(point.curve) > 1.0f) {
-                    error = "Strip automation has invalid or unordered envelope points";
-                    return nullptr;
+                    validPoints = false;
+                    break;
                 }
                 previousBeat = point.timeBeats;
+            }
+            if (!validPoints) {
+                reportSkippedLane("Strip automation has invalid or unordered envelope points; that lane was skipped");
+                continue;
             }
             bindings.push_back({stripIndex, targetEdgeIndex, parameter, lane.target.minValue,
                                 lane.target.maxValue, lane.points});

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 using namespace resostage;
 
@@ -379,19 +380,24 @@ TEST_CASE("automation retains coefficient smoothing and invalid override protect
     CHECK(audio.left == doctest::Approx(0.25f).epsilon(1e-5));
 }
 
-TEST_CASE("malformed envelopes fail preparation and physical bounds contain imported gain") {
+TEST_CASE("malformed envelopes are isolated and physical bounds contain imported gain") {
     auto project = automationProject();
     project.songs[0].automationLanes = {envelope("faderGainDb", -6.0f)};
     auto graph = preparedGraph(project);
     std::string error;
     SUBCASE("unordered points") {
         project.songs[0].automationLanes[0].points = {{1.0, 0.0f, 0.0f}, {0.0, 1.0f, 0.0f}};
-        CHECK(StripAutomationPlan::prepare(project, graph, error) == nullptr);
+        const auto plan = StripAutomationPlan::prepare(project, graph, error);
+        REQUIRE(plan != nullptr);
+        CHECK(plan->bindingCount(0) == 0);
         CHECK_FALSE(error.empty());
     }
     SUBCASE("nonfinite value") {
         project.songs[0].automationLanes[0].points[0].value = std::numeric_limits<float>::infinity();
-        CHECK(StripAutomationPlan::prepare(project, graph, error) == nullptr);
+        const auto plan = StripAutomationPlan::prepare(project, graph, error);
+        REQUIRE(plan != nullptr);
+        CHECK(plan->bindingCount(0) == 0);
+        CHECK_FALSE(error.empty());
     }
     SUBCASE("song admission limit") {
         project.songs.resize(StripAutomationPlan::kMaximumSongs + 1);
@@ -404,6 +410,45 @@ TEST_CASE("malformed envelopes fail preparation and physical bounds contain impo
         audio.block(graph, 0, 0.0);
         CHECK(audio.right == doctest::Approx(0.00025f).epsilon(1e-5));
     }
+}
+
+TEST_CASE("a malformed automation lane does not disable valid sibling lanes") {
+    auto project = automationProject();
+    auto invalid = envelope("faderGainDb", -6.0f);
+    invalid.points = {{1.0, -6.0f, 0.0f}, {0.0, -3.0f, 0.0f}};
+    project.songs[0].automationLanes = {invalid, envelope("pan", 0.75f)};
+    OutputLaneConfig output{.totalChannels = 2};
+    auto graph = buildMixGraph(project, output);
+    std::string error;
+    graph.stripAutomation = StripAutomationPlan::prepare(project, graph, error);
+    REQUIRE(graph.stripAutomation != nullptr);
+    CHECK_FALSE(error.empty());
+    CHECK(graph.stripAutomation->bindingCount(0) == 1);
+
+    AutomationRender audio(graph);
+    audio.settle(graph, 0, 0.0);
+    CHECK(audio.left == doctest::Approx(0.0625f).epsilon(1e-5));
+    CHECK(audio.right == doctest::Approx(0.25f).epsilon(1e-5));
+}
+
+TEST_CASE("an over-budget envelope is skipped without disabling prepared sibling lanes") {
+    auto project = automationProject();
+    auto oversized = envelope("faderGainDb", -6.0f);
+    oversized.points.resize(StripAutomationPlan::kMaximumPoints + 1);
+    project.songs[0].automationLanes.push_back(std::move(oversized));
+    project.songs[0].automationLanes.push_back(envelope("pan", 0.75f));
+    OutputLaneConfig output{.totalChannels = 2};
+    auto graph = buildMixGraph(project, output);
+    std::string error;
+    graph.stripAutomation = StripAutomationPlan::prepare(project, graph, error);
+    REQUIRE(graph.stripAutomation != nullptr);
+    CHECK_FALSE(error.empty());
+    CHECK(graph.stripAutomation->bindingCount(0) == 1);
+
+    AutomationRender audio(graph);
+    audio.settle(graph, 0, 0.0);
+    CHECK(audio.left == doctest::Approx(0.0625f).epsilon(1e-5));
+    CHECK(audio.right == doctest::Approx(0.25f).epsilon(1e-5));
 }
 
 TEST_CASE("StripAutomationPlan: Write mode suppresses playback so new values overwrite cleanly") {

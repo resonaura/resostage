@@ -278,7 +278,7 @@ void AudioEngine::publishRoutingSnapshot() {
         }
         if (!error.empty())
             juce::Logger::writeToLog(juce::String(error)
-                + "; retaining manual gain/pan coefficients");
+                + "; valid prepared automation lanes remain active");
     }
     std::shared_ptr<const MixGraph> graph = std::move(mutableGraph);
     const uint32_t clickStrip = graph->find("audio::click");
