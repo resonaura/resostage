@@ -70,8 +70,12 @@ evidence for the whole callback before claiming dropout elimination.
   merged into WebUiState, and displayed in HealthSettingsTab with real-time operator alerts
   for missed deadlines. Bounded IPC copies are preserved.
 - Changed-latency PDC refill continuity is verified by `Dynamic PDC changed-latency refill continuity and alignment during active rendering`
-  in `test_plugin_performance.cpp`: zero allocations on the audio thread across latency transitions (64 -> 128 samples),
-  bounded refill transient without NaN/Inf, and sample-accurate steady-state phase alignment matching the new latency.
+  in `test_plugin_performance.cpp` across all standard hardware block sizes (64, 128, 256, 512 frames):
+  zero allocations on the audio thread across latency transitions (64 -> 128 samples), bounded refill transient without NaN/Inf,
+  and sample-accurate steady-state phase alignment matching the new latency.
+- Multi-buffer device transition continuity is verified by `MixRenderer multi-buffer device transitions (64, 128, 256, 512 frames) with PDC maintain zero allocations and phase continuity`
+  in `test_plugin_performance.cpp`: verifies zero heap allocations across varying hardware buffer sizes (cycling 64, 128, 256, 512, 64, 256...),
+  zero NaN/Inf, and sample-accurate phase continuity across non-uniform buffer boundaries.
 
 ## Acceptance and measurements
 

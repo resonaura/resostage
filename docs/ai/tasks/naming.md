@@ -79,6 +79,10 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
 - `MainComponent.h`: canonical `handleMIDILearnMessage()` wrapper.
 - `MidiTransform.h`: canonical `MIDITakeoverMode` and `MIDIRelativeEncoding` with test coverage in `test_midi_takeover.cpp`.
 - `CoreMidiDispatcher.h` and `CoreMidiInputListener.h`: cross-platform canonical `MIDIClientRef`, `MIDIPortRef`, and `MIDIEndpointRef` aliases.
+- `ProjectSchema.h`: canonical `EventType::MIDINoteOn`, `MIDINoteOff`, `MIDICC`, `MIDIProgramChange`, `HTTP`, `DMX` and `MidiNote::MIDI2Data` alias.
+- `PluginHostProtocol.h`: canonical `MIDIEvent` alias.
+- `WebServer.h`: canonical `MIDIRegionRow`, `MIDI2Data`, `MIDIEvent`, `UMPEvent`, and `MIDIBinding` aliases.
+- `WireTypes.h`: canonical `MIDINote` alias.
 - Invariants preserved:
   - Wire formats, persisted `.rsnraset` JSON keys, and HTTP REST endpoint paths remain stable for zero backwards-incompatibility.
   - Vendor JUCE library interfaces (`juce::MidiBuffer`, `juce::MidiMessage`) preserved.
@@ -87,7 +91,7 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
     reference-aware updates, not ambiguous duplicate paths.
 
 The WAV/UDP/HTTP/DMX/BPM/DSP/IO/MIDI cleanup and references were built and verified on 2026-10-02:
-- Native engine tests: 565 passed / 333,249 assertions (`core/build/tests/resostage_engine_tests`).
+- Native engine tests: 566 passed / 378,188 assertions (`core/build/tests/resostage_engine_tests`).
 - Native application target: built and verified with embedded scanner and host helpers.
 - Verification harness: `scripts/verification/editor-state.mjs` PASS.
 - UI Vitest: 103 test files / 706 tests passed.
