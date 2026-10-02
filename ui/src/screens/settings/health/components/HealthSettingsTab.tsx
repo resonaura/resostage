@@ -152,6 +152,41 @@ export function HealthSettingsTab({ state }: { state: WebUiState }) {
           </div>
         )}
       </SettingsSection>
+
+      <SettingsSection
+        title="Plug-in Engine"
+        description="Real-time deadline misses and queue overflow across isolated AU/VST3 helper processes. Nonzero missed deadlines indicate a third-party plug-in failed to finish DSP before the hardware buffer deadline."
+      >
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <SettingsStat
+            label="Missed audio deadlines"
+            value={String(health.pluginMissedOutputBlocks ?? 0)}
+          />
+          <SettingsStat
+            label="Dropped inputs"
+            value={String(health.pluginMissedInputBlocks ?? 0)}
+          />
+          <SettingsStat
+            label="Dropped controls"
+            value={String(health.pluginMissedControlEvents ?? 0)}
+          />
+          <SettingsStat
+            label="Rejected MIDI"
+            value={String(health.pluginRejectedMidiEvents ?? 0)}
+          />
+        </div>
+        {((health.pluginMissedOutputBlocks ?? 0) > 0 || (health.pluginMissedInputBlocks ?? 0) > 0) && (
+          <Alert>
+            <Alert.Content>
+              <Alert.Description>
+                One or more plug-ins exceeded the hardware render deadline. The host
+                emitted safe silence for late blocks and resynchronized automatically.
+                Consider increasing buffer size or checking high-load plug-ins.
+              </Alert.Description>
+            </Alert.Content>
+          </Alert>
+        )}
+      </SettingsSection>
     </div>
   );
 }

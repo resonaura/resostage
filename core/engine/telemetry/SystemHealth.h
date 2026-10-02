@@ -56,6 +56,10 @@ struct SystemHealthSnapshot {
     // transpose doing anything at all" is to listen -- which cannot be
     // checked in a log, a bug report or a test.
     uint64_t pitchBlockCount = 0;
+    uint64_t pluginMissedOutputBlocks = 0;
+    uint64_t pluginMissedInputBlocks = 0;
+    uint64_t pluginMissedControlEvents = 0;
+    uint64_t pluginRejectedMidiEvents = 0;
     int webClientCount = 0;
     // Disk throughput this app is causing, averaged over the sample interval.
     //
@@ -91,6 +95,14 @@ public:
 
     void setWebClientCount(int count) { webClientCount.store(count, std::memory_order_relaxed); }
 
+    void setPluginDiagnostics(uint64_t missedOutput, uint64_t missedInput,
+                             uint64_t missedControl, uint64_t rejectedMidi) noexcept {
+        pluginMissedOutputBlocksCount.store(missedOutput, std::memory_order_relaxed);
+        pluginMissedInputBlocksCount.store(missedInput, std::memory_order_relaxed);
+        pluginMissedControlEventsCount.store(missedControl, std::memory_order_relaxed);
+        pluginRejectedMidiEventsCount.store(rejectedMidi, std::memory_order_relaxed);
+    }
+
     // Message-thread / web-thread: samples process + system memory and folds
     // in the atomic counters. May take a few syscalls -- not for audio RT.
     SystemHealthSnapshot sample() const;
@@ -100,6 +112,10 @@ private:
     std::atomic<uint64_t> audioCallbackCount{0};
     std::atomic<uint64_t> silentBlockCount{0};
     std::atomic<uint64_t> pitchBlockCount{0};
+    std::atomic<uint64_t> pluginMissedOutputBlocksCount{0};
+    std::atomic<uint64_t> pluginMissedInputBlocksCount{0};
+    std::atomic<uint64_t> pluginMissedControlEventsCount{0};
+    std::atomic<uint64_t> pluginRejectedMidiEventsCount{0};
     std::atomic<int> webClientCount{0};
 
     // CPU estimation state (message-thread sample() only).

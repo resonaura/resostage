@@ -637,6 +637,39 @@ uint64_t PluginProcessorBank::rejectedMidiEvents() const noexcept {
     return rejected;
 }
 
+uint64_t PluginProcessorBank::missedOutputBlocks() const noexcept {
+    uint64_t total = 0;
+    for (const auto& chain : chains) {
+        if (chain != nullptr && chain->hostedProcess != nullptr
+            && chain->hostedProcess->process != nullptr) {
+            total += chain->hostedProcess->process->missedOutputBlocks();
+        }
+    }
+    return total;
+}
+
+uint64_t PluginProcessorBank::missedInputBlocks() const noexcept {
+    uint64_t total = 0;
+    for (const auto& chain : chains) {
+        if (chain != nullptr && chain->hostedProcess != nullptr
+            && chain->hostedProcess->process != nullptr) {
+            total += chain->hostedProcess->process->missedInputBlocks();
+        }
+    }
+    return total;
+}
+
+uint64_t PluginProcessorBank::missedControlEvents() const noexcept {
+    uint64_t total = 0;
+    for (const auto& chain : chains) {
+        if (chain != nullptr && chain->hostedProcess != nullptr
+            && chain->hostedProcess->process != nullptr) {
+            total += chain->hostedProcess->process->missedControlEvents();
+        }
+    }
+    return total;
+}
+
 void PluginProcessorBank::clearStripMidi(size_t stripIndex) noexcept {
     if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
         return;

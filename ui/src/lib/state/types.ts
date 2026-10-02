@@ -804,6 +804,11 @@ export interface HealthState {
   diskWriteBytesPerSec?: number;
   audioCallbackCount: number;
   webClientCount: number;
+  /** Nonzero counts indicate isolated plug-in child missed hardware buffer deadlines. */
+  pluginMissedOutputBlocks?: number;
+  pluginMissedInputBlocks?: number;
+  pluginMissedControlEvents?: number;
+  pluginRejectedMidiEvents?: number;
   processes: ProcessHealthEntry[];
 }
 
@@ -1156,6 +1161,10 @@ export const emptyState: WebUiState = {
     diskWriteBytesPerSec: 0,
     audioCallbackCount: 0,
     webClientCount: 0,
+    pluginMissedOutputBlocks: 0,
+    pluginMissedInputBlocks: 0,
+    pluginMissedControlEvents: 0,
+    pluginRejectedMidiEvents: 0,
     processes: [],
   },
   settings: {

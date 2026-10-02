@@ -770,6 +770,10 @@ struct WHealthTelemetry {
     uint64_t silentBlockCount = 0;
     uint64_t pitchBlockCount = 0;
     uint64_t streamStarveCount = 0;
+    uint64_t pluginMissedOutputBlocks = 0;
+    uint64_t pluginMissedInputBlocks = 0;
+    uint64_t pluginMissedControlEvents = 0;
+    uint64_t pluginRejectedMidiEvents = 0;
     // Render-callback timing -- see WebUiState's HealthRow for what these mean
     // and why the compute/preempted split is the point of them.
     double callbackWorstRatio = 0.0;

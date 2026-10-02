@@ -228,6 +228,10 @@ SystemHealthSnapshot SystemHealth::sample() const {
         cachedSnapshot.silentBlockCount = silentBlockCount.load(std::memory_order_relaxed);
         cachedSnapshot.pitchBlockCount = pitchBlockCount.load(std::memory_order_relaxed);
         cachedSnapshot.webClientCount = webClientCount.load(std::memory_order_relaxed);
+        cachedSnapshot.pluginMissedOutputBlocks = pluginMissedOutputBlocksCount.load(std::memory_order_relaxed);
+        cachedSnapshot.pluginMissedInputBlocks = pluginMissedInputBlocksCount.load(std::memory_order_relaxed);
+        cachedSnapshot.pluginMissedControlEvents = pluginMissedControlEventsCount.load(std::memory_order_relaxed);
+        cachedSnapshot.pluginRejectedMidiEvents = pluginRejectedMidiEventsCount.load(std::memory_order_relaxed);
         return cachedSnapshot;
     }
 
@@ -329,6 +333,10 @@ SystemHealthSnapshot SystemHealth::sample() const {
     snap.audioCallbackCount = audioCallbackCount.load(std::memory_order_relaxed);
     snap.silentBlockCount = silentBlockCount.load(std::memory_order_relaxed);
     snap.pitchBlockCount = pitchBlockCount.load(std::memory_order_relaxed);
+    snap.pluginMissedOutputBlocks = pluginMissedOutputBlocksCount.load(std::memory_order_relaxed);
+    snap.pluginMissedInputBlocks = pluginMissedInputBlocksCount.load(std::memory_order_relaxed);
+    snap.pluginMissedControlEvents = pluginMissedControlEventsCount.load(std::memory_order_relaxed);
+    snap.pluginRejectedMidiEvents = pluginRejectedMidiEventsCount.load(std::memory_order_relaxed);
     snap.webClientCount = webClientCount.load(std::memory_order_relaxed);
 
     // Disk throughput over the interval just closed. The very first sample has

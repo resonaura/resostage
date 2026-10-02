@@ -35,6 +35,17 @@ namespace resostage {
 void MainComponent::publishWebState() {
     WebUiState state;
     const auto& transport = engine.transport();
+    const auto activeBank = engine.hasCurrentPluginProcessorBank()
+        ? engine.activePluginProcessorBank() : nullptr;
+    if (activeBank != nullptr) {
+        engine.health().setPluginDiagnostics(
+            activeBank->missedOutputBlocks(),
+            activeBank->missedInputBlocks(),
+            activeBank->missedControlEvents(),
+            activeBank->rejectedMidiEvents());
+    } else {
+        engine.health().setPluginDiagnostics(0, 0, 0, 0);
+    }
     const auto health = engine.health().sample();
 
     state.playheadSeconds = transport.playheadSeconds.load(std::memory_order_relaxed);
@@ -62,8 +73,6 @@ void MainComponent::publishWebState() {
         loading.blocksPlayback, loading.showDialog, loading.playRequested,
         loading.total, loading.completed, loading.failed,
         loading.currentName, loading.error};
-    const auto activeBank = engine.hasCurrentPluginProcessorBank()
-        ? engine.activePluginProcessorBank() : nullptr;
     const auto copyPluginSlots = [&activeBank, &loading](const std::vector<PluginSlot>& slots) {
         std::vector<WebUiState::PluginSlotRow> rows;
         rows.reserve(slots.size());
@@ -856,6 +865,10 @@ void MainComponent::publishWebState() {
     state.audioCallbackCount = health.audioCallbackCount;
     state.silentBlockCount = health.silentBlockCount;
     state.pitchBlockCount = health.pitchBlockCount;
+    state.pluginMissedOutputBlocks = health.pluginMissedOutputBlocks;
+    state.pluginMissedInputBlocks = health.pluginMissedInputBlocks;
+    state.pluginMissedControlEvents = health.pluginMissedControlEvents;
+    state.pluginRejectedMidiEvents = health.pluginRejectedMidiEvents;
     // Sourced from the streaming layer rather than SystemHealth so telemetry/
     // keeps no dependency on audio/.
     state.streamStarveCount = engine.streamStarveCount();

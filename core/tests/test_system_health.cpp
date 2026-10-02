@@ -108,3 +108,20 @@ TEST_CASE("SystemHealth: pitch blocks are how transpose is observed at all") {
     health.noteSilentBlock();
     CHECK(health.sample().pitchBlockCount == 1527);
 }
+
+TEST_CASE("SystemHealth: plug-in deadline misses and queue overflow diagnostics are preserved") {
+    SystemHealth health;
+    const auto initial = health.sample();
+    CHECK(initial.pluginMissedOutputBlocks == 0);
+    CHECK(initial.pluginMissedInputBlocks == 0);
+    CHECK(initial.pluginMissedControlEvents == 0);
+    CHECK(initial.pluginRejectedMidiEvents == 0);
+
+    health.setPluginDiagnostics(5, 3, 2, 7);
+    const auto sampled = health.sample();
+    CHECK(sampled.pluginMissedOutputBlocks == 5);
+    CHECK(sampled.pluginMissedInputBlocks == 3);
+    CHECK(sampled.pluginMissedControlEvents == 2);
+    CHECK(sampled.pluginRejectedMidiEvents == 7);
+}
+

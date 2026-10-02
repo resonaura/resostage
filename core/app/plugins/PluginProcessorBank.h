@@ -157,6 +157,10 @@ public:
     void clearStripMidi(size_t stripIndex) noexcept;
     /** Non-realtime diagnostics for malformed/oversized/capacity-rejected MIDI events. */
     uint64_t rejectedMidiEvents() const noexcept;
+    /** Non-realtime diagnostics for isolated helper audio deadline misses and queue overflow. */
+    uint64_t missedOutputBlocks() const noexcept;
+    uint64_t missedInputBlocks() const noexcept;
+    uint64_t missedControlEvents() const noexcept;
 
     void requestAllNotesOff() noexcept {
         allNotesOffPending.store(true, std::memory_order_release);

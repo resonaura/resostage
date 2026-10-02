@@ -49,6 +49,14 @@ function buildMergedState(
             next.health.audioCallbackCount ?? prev.health.audioCallbackCount,
           webClientCount:
             next.health.webClientCount ?? prev.health.webClientCount,
+          pluginMissedOutputBlocks:
+            next.health.pluginMissedOutputBlocks ?? prev.health.pluginMissedOutputBlocks,
+          pluginMissedInputBlocks:
+            next.health.pluginMissedInputBlocks ?? prev.health.pluginMissedInputBlocks,
+          pluginMissedControlEvents:
+            next.health.pluginMissedControlEvents ?? prev.health.pluginMissedControlEvents,
+          pluginRejectedMidiEvents:
+            next.health.pluginRejectedMidiEvents ?? prev.health.pluginRejectedMidiEvents,
           freeBytes: next.health.freeBytes ?? prev.health.freeBytes,
           processes: prev.health.processes ?? [],
         }
