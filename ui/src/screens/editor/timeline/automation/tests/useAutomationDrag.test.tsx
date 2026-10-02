@@ -189,4 +189,18 @@ describe("automation pointer ownership and history", () => {
     expect(result.isPending).toBe(false);
     expect(result.activePoints).toEqual(lane.points);
   });
+
+  it("clears an admission timeout when the matching delayed Core echo arrives", async () => {
+    vi.useFakeTimers();
+    act(() => result.setSelectedIndices(new Set([1])));
+    await act(async () => result.deleteSelectedPoints());
+    const points = vi.mocked(builder.automationPointsReplace).mock.calls[0][0].points;
+    act(() => vi.advanceTimersByTime(3000));
+    expect(result.isPending).toBe(false);
+    expect(result.error).toContain("may still be queued");
+    expect(result.draftPoints).toBeNull();
+    render({ lane: { ...lane, points } });
+    expect(result.error).toBeNull();
+    expect(result.activePoints).toEqual(points);
+  });
 });

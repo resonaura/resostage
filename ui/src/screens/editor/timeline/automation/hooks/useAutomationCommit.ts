@@ -72,7 +72,13 @@ export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, 
     // A late response cannot revive a draft invalidated by history or timeout.
     timer.current = setTimeout(() => {
       if (!mounted.current || generation.current !== token) return;
-      reset();
+      ++generation.current;
+      clearTimer();
+      pendingRef.current = false;
+      setPending(false);
+      setDraftPoints(null);
+      // Retain just the expected bounded snapshot: a delayed Core echo can
+      // clear the uncertainty message without resurrecting an optimistic edit.
       setError("Core did not confirm the automation edit. It may still be queued.");
     }, 3000);
     try {
@@ -94,7 +100,7 @@ export function useAutomationCommit(songIndex: number, lane: AutomationLaneRow, 
       reset();
       setError(cause instanceof Error ? cause.message : "Automation edit failed. Please retry.");
     }
-  }, [lane.id, lane.scope, lane.target, readOnly, reset, songIndex]);
+  }, [clearTimer, lane.id, lane.scope, lane.target, readOnly, reset, songIndex]);
 
   return { draftPoints, setDraftPoints, isPending, pendingRef, error, setError, commitPoints };
 }
