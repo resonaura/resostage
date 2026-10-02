@@ -55,7 +55,7 @@ wide naming pass remains incomplete. Source inventory reviewed 2026-10-01.
 - `WebServer.{h,cpp}` & `WebServerTelemetry.cpp`: canonical `kUDPTelemetryPort` and `registerUDPSubscriber()` with `kUdpTelemetryPort` and `registerUdpSubscriber()` compatibility aliases.
 - `LightHardwareServer.{h,cpp}`: canonical `sendFrameOverUDP()` with `sendFrameOverUdp()` compatibility alias.
 - `ArtNetPacket.h`: canonical `kArtNetUDPPort` with `kArtNetUdpPort` compatibility alias.
-- `PluginPowerManager.h`: canonical `estimatedDSPSavingsPercent` with `estimatedDspSavingsPercent` compatibility alias.
+- `PluginPowerManager.h` & `PluginProcessorBank.cpp`: canonical `estimatedDSPSavingsPercent` with `estimatedDspSavingsPercent` compatibility alias and dual assignment.
 - `IoPressurePolicy.h`: canonical `IOPressureLevel`, `kIOMinTightFraction`, and `kIOMinCriticalFraction` with legacy aliases.
 - `ProjectSchema.h`: canonical `MIDINote`, `MIDIClipEvent`, `MIDIUmpEvent`, `MIDIRegion`, `MIDITriggerType`, `MIDIMapping`, `MIDIConfig` aliases.
 - `CoreMidiDispatcher.h`: canonical `MIDICommand`, `MIDICommandKind`, `CoreMIDIDispatcher` aliases.
