@@ -395,7 +395,9 @@ The design removes unbounded latency from the deadline path:
   revisions and a track-layout generation fence stale lookups/scratch layouts.
   Snapshot preparation is bounded and happens off audio. If it fails or
   exceeds its budget, retain the last valid graph, report the failure, and do
-  not fall back to mutable project reads. This preserves callback safety.
+  not fall back to mutable project reads. `RoutingEngine` rejects a graph
+  candidate without a prepared playback snapshot, preserving the last-good
+  publication. This preserves callback safety.
   Project-scoped commands are fenced by Core session/project epoch. Audio/MIDI
   region CRUD and automation lane/point edits have exact project-revision
   outcomes that additionally report whether the matching playback graph was

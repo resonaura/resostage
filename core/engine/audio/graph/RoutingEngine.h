@@ -24,7 +24,9 @@ public:
     RoutingEngine(const RoutingEngine&) = delete;
     RoutingEngine& operator=(const RoutingEngine&) = delete;
 
-    // Called from the message/UI thread. Takes ownership of the graph.
+    // Called from the message/UI thread. Takes ownership of a fully prepared
+    // graph. An incomplete candidate is rejected so failed preparation never
+    // replaces the last-good graph observed by the audio callback.
     // Retires previous graphs and reclaims any whose audio-thread reference
     // has completed (use_count == 1).
     void publish(std::shared_ptr<const MixGraph> next);

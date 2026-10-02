@@ -16,6 +16,9 @@ RoutingEngine::~RoutingEngine() {
 }
 
 void RoutingEngine::publish(std::shared_ptr<const MixGraph> next) {
+    if (next == nullptr || next->playbackState == nullptr)
+        return;
+
     auto previous = std::atomic_exchange_explicit(&active, std::move(next), std::memory_order_acq_rel);
     if (previous != nullptr) {
         retiredGraphs.push_back(std::move(previous));

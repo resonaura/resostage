@@ -21,7 +21,10 @@ explicit:
 - Project-history mutation is distinct from proof that the matching immutable
   audio playback snapshot was prepared and published (`playbackApplied`).
 - A last-good audio graph must remain safe if snapshot preparation fails, while
-  the exact originating edit receives a rejection/recovery result.
+  the exact originating edit receives a rejection/recovery result. Native tests
+  now reject an oversized snapshot and prove `RoutingEngine` will not replace
+  a valid publication with an incomplete candidate; AudioEngine/callback
+  continuity under injected failure still needs end-to-end evidence.
 - Live edits must not stop transport, reset the clock, or restart a healthy
   plug-in chain.
 
@@ -154,10 +157,11 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   event/bus/song edits, concurrent exact ACKs, 257-edit result-ring eviction,
   playback-revision checks, active-playback Undo/Redo, stale upload/edit,
   stale destructive New Project rejection, Core-session rejection after
-  restart with request-ID reuse, 413, and save/reopen. Focused UI
-  tests prove an expired result triggers one refetch, stays unknown and is not
+  restart with request-ID reuse, 413, and save/reopen. Native `ctest` also
+  verifies bounded snapshot rejection cannot replace the last-good routing
+  publication. Focused UI tests prove an expired result triggers one refetch, stays unknown and is not
   resent, and fire-and-forget rejection is surfaced without retry. No full
-  Electron run, acoustic/vendor proof, injected snapshot
+  Electron run, acoustic/vendor proof, AudioEngine-level injected snapshot
   failure, HTTP/deferred queue-saturation stress, or callback-deadline evidence
   in this block. Exact result coverage remains incomplete; see [audit.md](audit.md).
 
@@ -170,14 +174,17 @@ folders. Commit each finished block; do not push.
 
 ## Immediate next actions
 
-1. Add deterministic fault injection for playback-snapshot preparation
-   failure. Prove the old graph stays live, the exact result separates stored
-   project edit from stale audio revision, UI refreshes without blind retry,
-   and transport continues. Do not claim rollback; gesture coalescing makes an
-   unscoped Undo unsafe.
-2. Stress Core HTTP queue saturation, deferred queue exhaustion, Core restart
-   and same-Core project replacement. Expired results stay unknown. High-rate
-   controls remain latest-wins and do not await per-sample ACKs.
+1. Add actual Core-level fault injection for playback-snapshot preparation
+   failure. Native coverage rejects an oversized snapshot and proves
+   `RoutingEngine` retains its last-good publication when a candidate lacks
+   playback state; this does not yet exercise AudioEngine transport/callback
+   continuity or the matching exact HTTP command result. Do not claim rollback;
+   gesture coalescing makes an unscoped Undo unsafe.
+2. Stress Core HTTP queue saturation, deferred queue exhaustion, same-Core
+   project replacement, Core restart during an in-flight command, and late
+   responses. Old-session post-restart requests and numeric request-ID reuse
+   are now covered. Expired results stay unknown. High-rate controls remain
+   latest-wins and do not await per-sample ACKs.
 3. Finish publication acceptance: sanitizer/concurrency coverage, callback
    allocation/deadline measurement, and loaded AU/VST3 continuity proof. Do not
    conceal failures by stopping transport or restarting healthy helpers.

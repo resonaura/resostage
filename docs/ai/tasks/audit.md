@@ -199,7 +199,9 @@ Latest continuation verification (2026-10-02): UI TypeScript passed and the
 complete UI suite passed 744 tests across 108 files; production UI build passed;
 lint had zero errors and
 12 existing warnings. The optimized Core target built and `ctest --test-dir
-core/build --output-on-failure` passed 1/1 native targets. The real-Core
+core/build --output-on-failure` passed 1/1 native targets, including a
+deterministic bounded-snapshot rejection test proving an incomplete graph
+cannot replace the last-good routing publication. The real-Core
 `editor-state.mjs` harness passed audio/MIDI region CRUD, song/bus/event/section/
 cycle structural outcomes, concurrent request IDs, 257-edit result-ring
 eviction, playback graph revision checks, project-epoch fences, active-playback
@@ -217,8 +219,12 @@ Still open; do not call this full editor transactionality:
   exists because repeated gesture IDs intentionally coalesce several commands
   into one history entry. Do not undo a whole gesture to compensate for a
   single graph failure. Recovery currently refreshes state and tells the user
-  audio remains on the last-good graph; transactional rollback/retry needs an
-  isolated edit transaction model.
+  audio remains on the last-good graph. Native tests prove the existing
+  bounded validator rejects an oversized snapshot and `RoutingEngine` refuses
+  an incomplete candidate while retaining the last-good graph; still add an
+  actual Core-level failure-injection test that observes transport/callback
+  continuity and the matching exact command result. Transactional rollback or
+  retry needs an isolated edit transaction model.
 - Exact outcomes now cover the structural/audio/MIDI/automation route families
   listed above, but not plug-in lifecycle, lighting, import-job completion,
   active-document save/open completion, or most scalar/mixer controls. The
@@ -230,14 +236,16 @@ Still open; do not call this full editor transactionality:
   unknown, triggers one state refetch, and never resends the accepted command.
   Still verify Core message-queue saturation/HTTP 503, deferred queue
   exhaustion, same-Core reopen/reused IDs, Core restart during a pending edit,
-  and late responses. Queue admission failure remains explicit but has no
+  and late responses. A process restart now proves old-session requests get
+  HTTP 409 while a new session may safely reuse the same numeric request ID.
+  Queue admission failure remains explicit but has no
   editor-result ring entry because the command was never accepted.
 - Admission result rings remain bounded and process-local. A client that misses
   an exact result does not infer success from field coincidence or a later
   revision; after its bounded wait it refreshes state and reports the outcome
   as unknown. The operator must not retry blindly.
 - Verify stale/reordered behavior for the remaining project-scoped command
-  families, Core restart/session change, late replies, ring eviction, bounded
+  families, same-Core project replacement, late replies, ring eviction, bounded
   queue exhaustion, plugin/project loading overlap, and upload-ticket expiry.
   Refine route classification if a new project mutation endpoint is added.
 

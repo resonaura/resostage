@@ -6,6 +6,7 @@
 
 #include "doctest.h"
 
+#include "audio/graph/ProjectPlaybackSnapshot.h"
 #include "audio/graph/RoutingEngine.h"
 
 #include <atomic>
@@ -42,6 +43,7 @@ std::shared_ptr<const MixGraph> makeGraph(uint32_t marker) {
     edge.from = 0;
     edge.to = 1;
     graph->edges.push_back(edge);
+    graph->playbackState = std::make_shared<ProjectPlaybackSnapshot>();
     return graph;
 }
 
@@ -64,6 +66,31 @@ TEST_CASE("RoutingEngine: acquireForRender sees the most recent publish") {
     auto held = engine.acquireForRender();
     REQUIRE(held.get() != nullptr);
     CHECK(held->strips[0].projectIndex == 2);
+}
+
+TEST_CASE("RoutingEngine: a failed prepared snapshot cannot replace the last-good graph") {
+    RoutingEngine engine;
+    auto lastGood = std::make_shared<MixGraph>(*makeGraph(4));
+    lastGood->projectHistoryRevision = 17;
+    engine.publish(lastGood);
+
+    Project oversized;
+    oversized.tracks.resize(ProjectPlaybackSnapshot::kMaximumTracks + 1);
+    auto candidateGraph = std::make_shared<MixGraph>(*makeGraph(5));
+    const auto rejectedSnapshot = buildProjectPlaybackSnapshot(
+        oversized, *candidateGraph, 2, 18, lastGood->playbackState, true);
+    REQUIRE(rejectedSnapshot.snapshot == nullptr);
+    CHECK_FALSE(rejectedSnapshot.error.empty());
+
+    candidateGraph->projectHistoryRevision = 18;
+    candidateGraph->playbackState = rejectedSnapshot.snapshot;
+    engine.publish(candidateGraph);
+
+    const auto stillActive = engine.acquireForRender();
+    REQUIRE(stillActive != nullptr);
+    CHECK(stillActive->strips[0].projectIndex == 4);
+    CHECK(stillActive->projectHistoryRevision == 17);
+    CHECK(stillActive->playbackState == lastGood->playbackState);
 }
 
 TEST_CASE("RoutingEngine: a reader's graph stays alive across later publishes") {
