@@ -74,7 +74,7 @@ using audio_engine_detail::streamingIoThreadStart;
 using audio_engine_detail::streamingIoThreadStop;
 using audio_engine_detail::residentIoYield;
 
-void AudioEngine::importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
+void AudioEngine::importWAVForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
                                          std::function<void(bool, std::string)> onComplete,
                                          double startSeconds) {
     auto fail = [&onComplete](std::string msg) {

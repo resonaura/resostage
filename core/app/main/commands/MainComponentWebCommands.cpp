@@ -85,7 +85,7 @@ void MainComponent::drainWebCommands() {
                 deferredWebCommands.push_back(cmd);
                 deferredWebCommandBytes += bytes;
             } else {
-                if (cmd.kind == WebCommandKind::BuilderTrackImportWavUpload) {
+                if (cmd.kind == WebCommandKind::BuilderTrackImportWAVUpload) {
                     std::remove(cmd.path.c_str());
                     glz::generic payload;
                     std::string requestId;
@@ -403,9 +403,9 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderTrackRemove: builderTrackRemove(cmd.json); break;
             case WebCommandKind::BuilderTrackMove: builderTrackMove(cmd.json); break;
             case WebCommandKind::BuilderTrackUpdate: builderTrackUpdate(cmd.json); break;
-            case WebCommandKind::BuilderTrackImportWavBegin:
+            case WebCommandKind::BuilderTrackImportWAVBegin:
                 break;
-            case WebCommandKind::BuilderTrackImportWavUpload:
+            case WebCommandKind::BuilderTrackImportWAVUpload:
                 {
                     double startSeconds = 0.0;
                     std::string requestId;
@@ -414,16 +414,16 @@ void MainComponent::drainWebCommands() {
                         builder_json::getDouble(importOptions, "startSeconds", startSeconds);
                         builder_json::getString(importOptions, "requestId", requestId);
                     }
-                    builderTrackImportWavUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path, startSeconds, requestId);
+                    builderTrackImportWAVUpload(cmd.arg, static_cast<int>(cmd.value), cmd.path, startSeconds, requestId);
                 }
                 break;
-            case WebCommandKind::BuilderTrackImportWavDialog: builderTrackImportWavDialog(cmd.json); break;
+            case WebCommandKind::BuilderTrackImportWAVDialog: builderTrackImportWAVDialog(cmd.json); break;
             case WebCommandKind::BuilderRegionAdd: builderRegionAdd(cmd.json); break;
             case WebCommandKind::BuilderRegionRemove: builderRegionRemove(cmd.json); break;
             case WebCommandKind::BuilderRegionUpdate: builderRegionUpdate(cmd.json); break;
-            case WebCommandKind::BuilderMidiRegionAdd: builderMidiRegionAdd(cmd.json); break;
-            case WebCommandKind::BuilderMidiRegionRemove: builderMidiRegionRemove(cmd.json); break;
-            case WebCommandKind::BuilderMidiRegionUpdate: builderMidiRegionUpdate(cmd.json); break;
+            case WebCommandKind::BuilderMIDIRegionAdd: builderMIDIRegionAdd(cmd.json); break;
+            case WebCommandKind::BuilderMIDIRegionRemove: builderMIDIRegionRemove(cmd.json); break;
+            case WebCommandKind::BuilderMIDIRegionUpdate: builderMIDIRegionUpdate(cmd.json); break;
             case WebCommandKind::BuilderAutomationLaneAdd: builderAutomationLaneAdd(cmd.json); break;
             case WebCommandKind::BuilderAutomationLaneRemove: builderAutomationLaneRemove(cmd.json); break;
             case WebCommandKind::BuilderAutomationLaneUpdate: builderAutomationLaneUpdate(cmd.json); break;
@@ -473,18 +473,18 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::ShowAudioControlPanel: settingsShowAudioControlPanel(); break;
             case WebCommandKind::SetSampleRate: settingsSetSampleRate(cmd.json); break;
             case WebCommandKind::SetBufferSize: settingsSetBufferSize(cmd.json); break;
-            case WebCommandKind::SetMidiOutput: settingsSetMidiOutput(cmd.json); break;
-            case WebCommandKind::SetMidiInput: settingsSetMidiInput(cmd.json); break;
-            case WebCommandKind::SetMidiVirtualPort: settingsSetMidiVirtualPort(cmd.json); break;
+            case WebCommandKind::SetMIDIOutput: settingsSetMIDIOutput(cmd.json); break;
+            case WebCommandKind::SetMIDIInput: settingsSetMIDIInput(cmd.json); break;
+            case WebCommandKind::SetMIDIVirtualPort: settingsSetMIDIVirtualPort(cmd.json); break;
             case WebCommandKind::SetUiRenderEngine: settingsSetUiRenderEngine(cmd.json); break;
             case WebCommandKind::SetTheme: settingsSetTheme(cmd.json); break;
             case WebCommandKind::SetKeybinding: settingsSetKeybinding(cmd.json); break;
             case WebCommandKind::SetCountInBars: settingsSetCountInBars(cmd.json); break;
             case WebCommandKind::SetOutputChannels: settingsSetOutputChannels(cmd.json); break;
             case WebCommandKind::SetInputChannels: settingsSetInputChannels(cmd.json); break;
-            case WebCommandKind::MidiLearn: settingsMidiLearn(cmd.json); break;
-            case WebCommandKind::MidiLearnCancel: settingsMidiLearnCancel(); break;
-            case WebCommandKind::MidiClear: settingsMidiClear(cmd.json); break;
+            case WebCommandKind::MIDILearn: settingsMIDILearn(cmd.json); break;
+            case WebCommandKind::MIDILearnCancel: settingsMIDILearnCancel(); break;
+            case WebCommandKind::MIDIClear: settingsMIDIClear(cmd.json); break;
             case WebCommandKind::Seek: transportSeek(cmd.json); break;
             case WebCommandKind::QuitDecision: handleQuitDecision(cmd.arg); break;
             case WebCommandKind::OpenDecision: handleOpenDecision(cmd.arg); break;

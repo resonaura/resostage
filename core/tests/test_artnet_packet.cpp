@@ -36,9 +36,9 @@ constexpr SockT INVALID_SOCK_CAST = -1;
 
 using namespace resostage;
 
-TEST_CASE("buildArtDmxPacket layout and round-trip parse") {
+TEST_CASE("buildArtDMXPacket layout and round-trip parse") {
     std::vector<uint8_t> data = {1, 2, 3, 4, 255, 0, 128};
-    const auto packet = buildArtDmxPacket(0x0102, data);
+    const auto packet = buildArtDMXPacket(0x0102, data);
     REQUIRE(packet.size() == 18 + data.size());
     CHECK(std::memcmp(packet.data(), "Art-Net", 7) == 0);
     CHECK(packet[7] == 0);
@@ -51,25 +51,34 @@ TEST_CASE("buildArtDmxPacket layout and round-trip parse") {
 
     int universe = -1;
     std::vector<uint8_t> out;
-    REQUIRE(parseArtDmxPacket(packet.data(), packet.size(), universe, out));
+    REQUIRE(parseArtDMXPacket(packet.data(), packet.size(), universe, out));
     CHECK(universe == 0x0102);
     CHECK(out == data);
+
+    // Verify backward-compatible alias produces identical result
+    const auto legacyPacket = buildArtDmxPacket(0x0102, data);
+    CHECK(legacyPacket == packet);
+    int legacyUniverse = -1;
+    std::vector<uint8_t> legacyOut;
+    REQUIRE(parseArtDmxPacket(legacyPacket.data(), legacyPacket.size(), legacyUniverse, legacyOut));
+    CHECK(legacyUniverse == 0x0102);
+    CHECK(legacyOut == data);
 }
 
-TEST_CASE("buildArtDmxPacket writes a non-zero per-universe Sequence byte") {
+TEST_CASE("buildArtDMXPacket writes a non-zero per-universe Sequence byte") {
     std::vector<uint8_t> data = {1, 2, 3};
-    const auto packet = buildArtDmxPacket(1, data, 0xAB);
+    const auto packet = buildArtDMXPacket(1, data, 0xAB);
     REQUIRE(packet.size() == 18 + data.size());
     CHECK(packet[12] == 0xAB); // Sequence byte, offset 12.
 }
 
-TEST_CASE("buildArtDmxPacket truncates to 512 channels") {
+TEST_CASE("buildArtDMXPacket truncates to 512 channels") {
     std::vector<uint8_t> big(600, 7);
-    const auto packet = buildArtDmxPacket(0, big);
+    const auto packet = buildArtDMXPacket(0, big);
     CHECK(packet.size() == 18 + 512);
     int universe = 0;
     std::vector<uint8_t> out;
-    REQUIRE(parseArtDmxPacket(packet.data(), packet.size(), universe, out));
+    REQUIRE(parseArtDMXPacket(packet.data(), packet.size(), universe, out));
     CHECK(out.size() == 512);
 }
 
@@ -101,7 +110,7 @@ TEST_CASE("Art-Net UDP loopback delivers a valid ArtDMX frame") {
     const uint16_t port = ntohs(addr.sin_port);
 
     std::vector<uint8_t> data = {10, 20, 30, 40};
-    const auto packet = buildArtDmxPacket(3, data);
+    const auto packet = buildArtDMXPacket(3, data);
 
     const Sock tx = socket(AF_INET, SOCK_DGRAM, 0);
     REQUIRE(tx != INVALID_SOCK_CAST);
@@ -128,7 +137,7 @@ TEST_CASE("Art-Net UDP loopback delivers a valid ArtDMX frame") {
 
     int universe = -1;
     std::vector<uint8_t> out;
-    REQUIRE(parseArtDmxPacket(buf, static_cast<size_t>(n), universe, out));
+    REQUIRE(parseArtDMXPacket(buf, static_cast<size_t>(n), universe, out));
     CHECK(universe == 3);
     CHECK(out == data);
 }

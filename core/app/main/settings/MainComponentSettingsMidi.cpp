@@ -14,7 +14,7 @@ namespace resostage {
 
 using namespace builder_json;
 
-void MainComponent::settingsSetMidiOutput(const std::string& json) {
+void MainComponent::settingsSetMIDIOutput(const std::string& json) {
     invalidateHardwareSettingsCache();
     glz::generic doc;
     std::vector<std::string> names;
@@ -47,7 +47,7 @@ void MainComponent::settingsSetMidiOutput(const std::string& json) {
     }
 }
 
-void MainComponent::settingsSetMidiInput(const std::string& json) {
+void MainComponent::settingsSetMIDIInput(const std::string& json) {
     invalidateHardwareSettingsCache();
     glz::generic doc;
     std::vector<std::string> names;
@@ -90,7 +90,7 @@ void MainComponent::settingsSetMidiInput(const std::string& json) {
         : "MIDI input devices: " + juce::String(static_cast<int>(appSettings.midiInputNames.size())));
 }
 
-void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
+void MainComponent::settingsSetMIDIVirtualPort(const std::string& json) {
     invalidateHardwareSettingsCache();
     glz::generic doc;
     bool enabled = false;
@@ -112,7 +112,7 @@ void MainComponent::settingsSetMidiVirtualPort(const std::string& json) {
     saveAppSettingsToDisk();
 }
 
-void MainComponent::settingsMidiLearn(const std::string& json) {
+void MainComponent::settingsMIDILearn(const std::string& json) {
     glz::generic doc;
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))
@@ -123,14 +123,14 @@ void MainComponent::settingsMidiLearn(const std::string& json) {
     setStatus("MIDI learn armed: " + juce::String(action) + " -- press a pad/CC");
 }
 
-void MainComponent::settingsMidiLearnCancel() {
+void MainComponent::settingsMIDILearnCancel() {
     if (midiLearnAction.empty())
         return;
     midiLearnAction.clear();
     setStatus("MIDI learn cancelled");
 }
 
-void MainComponent::settingsMidiClear(const std::string& json) {
+void MainComponent::settingsMIDIClear(const std::string& json) {
     glz::generic doc;
     std::string action;
     if (!parseJson(json, doc) || !getString(doc, "action", action))

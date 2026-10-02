@@ -11,7 +11,7 @@
 
 namespace resostage {
 
-std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data, uint8_t sequence) {
+std::vector<uint8_t> buildArtDMXPacket(int universe, const std::vector<uint8_t>& data, uint8_t sequence) {
     std::vector<uint8_t> packet;
     packet.reserve(18 + 512);
 
@@ -47,13 +47,13 @@ std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>&
     return packet;
 }
 
-std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data) {
-    // Backwards-compatible entry point: sequence 0 disables receiver ordering,
+std::vector<uint8_t> buildArtDMXPacket(int universe, const std::vector<uint8_t>& data) {
+    // Canonical entry point: sequence 0 disables receiver ordering,
     // preserving the prior behaviour for callers (or tests) that don't opt in.
-    return buildArtDmxPacket(universe, data, 0);
+    return buildArtDMXPacket(universe, data, 0);
 }
 
-bool parseArtDmxPacket(const uint8_t* packet, size_t size,
+bool parseArtDMXPacket(const uint8_t* packet, size_t size,
                        int& outUniverse, std::vector<uint8_t>& outData) {
     outUniverse = 0;
     outData.clear();

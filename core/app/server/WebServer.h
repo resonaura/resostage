@@ -173,19 +173,25 @@ enum class WebCommandKind : uint8_t {
     // (see beginTrackImport()), then Upload's raw-byte POST is handled the
     // same way project upload is (streamed straight to a temp file, no size
     // cap) and just needs to recall which track it was for.
-    BuilderTrackImportWavBegin,
-    BuilderTrackImportWavUpload,
+    BuilderTrackImportWAVBegin,
+    BuilderTrackImportWAVUpload,
     // Native "Open Audio File" picker (embedded webview only -- pencil-tool
     // import): `json` carries {songIndex, index} parsed message-thread-side;
     // MainComponent pops a JUCE FileChooser and imports the picked file
     // straight from disk (no upload step).
-    BuilderTrackImportWavDialog,
+    BuilderTrackImportWAVDialog,
+    BuilderTrackImportWavBegin = BuilderTrackImportWAVBegin,
+    BuilderTrackImportWavUpload = BuilderTrackImportWAVUpload,
+    BuilderTrackImportWavDialog = BuilderTrackImportWAVDialog,
     BuilderRegionAdd,
     BuilderRegionRemove,
     BuilderRegionUpdate,
-    BuilderMidiRegionAdd,
-    BuilderMidiRegionRemove,
-    BuilderMidiRegionUpdate,
+    BuilderMIDIRegionAdd,
+    BuilderMIDIRegionRemove,
+    BuilderMIDIRegionUpdate,
+    BuilderMidiRegionAdd = BuilderMIDIRegionAdd,
+    BuilderMidiRegionRemove = BuilderMIDIRegionRemove,
+    BuilderMidiRegionUpdate = BuilderMIDIRegionUpdate,
     BuilderAutomationLaneAdd,
     BuilderAutomationLaneRemove,
     BuilderAutomationLaneUpdate,
@@ -248,11 +254,14 @@ enum class WebCommandKind : uint8_t {
     ShowAudioControlPanel,
     SetSampleRate,
     SetBufferSize,
-    SetMidiOutput,
-    SetMidiInput,
+    SetMIDIOutput,
+    SetMIDIInput,
     // Toggles CoreMidiDispatcher's virtual "ResoStage Sync" MIDI source on/
     // off (see its doc comment) -- `json` carries { "enabled": bool }.
-    SetMidiVirtualPort,
+    SetMIDIVirtualPort,
+    SetMidiOutput = SetMIDIOutput,
+    SetMidiInput = SetMIDIInput,
+    SetMidiVirtualPort = SetMIDIVirtualPort,
     SetUiRenderEngine,
     SetTheme,
     SetKeybinding,
@@ -262,9 +271,12 @@ enum class WebCommandKind : uint8_t {
     // MIDI learn / clear for a named action (see Project::midiMappings).
     // Learn arms the next Note On / CC from the remote input; Clear drops
     // any existing mapping for that action. Both take JSON { "action": "..." }.
-    MidiLearn,
-    MidiLearnCancel,
-    MidiClear,
+    MIDILearn,
+    MIDILearnCancel,
+    MIDIClear,
+    MidiLearn = MIDILearn,
+    MidiLearnCancel = MIDILearnCancel,
+    MidiClear = MIDIClear,
     // Timeline parity -- `value` is the target position in seconds. Mirrors
     // TimelineView.cpp's click/drag-to-seek (see AudioEngine::seekToSeconds);
     // the frontend throttles drag updates itself, same reason TimelineView's

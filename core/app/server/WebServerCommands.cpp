@@ -114,14 +114,14 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/builder/track/remove", WebCommandKind::BuilderTrackRemove},
     {"/api/v1/builder/track/move", WebCommandKind::BuilderTrackMove},
     {"/api/v1/builder/track/update", WebCommandKind::BuilderTrackUpdate},
-    {"/api/v1/builder/track/import-wav/begin", WebCommandKind::BuilderTrackImportWavBegin},
-    {"/api/v1/builder/track/import-wav/dialog", WebCommandKind::BuilderTrackImportWavDialog},
+    {"/api/v1/builder/track/import-wav/begin", WebCommandKind::BuilderTrackImportWAVBegin},
+    {"/api/v1/builder/track/import-wav/dialog", WebCommandKind::BuilderTrackImportWAVDialog},
     {"/api/v1/builder/region/add", WebCommandKind::BuilderRegionAdd},
     {"/api/v1/builder/region/remove", WebCommandKind::BuilderRegionRemove},
     {"/api/v1/builder/region/update", WebCommandKind::BuilderRegionUpdate},
-    {"/api/v1/builder/midi-region/add", WebCommandKind::BuilderMidiRegionAdd},
-    {"/api/v1/builder/midi-region/remove", WebCommandKind::BuilderMidiRegionRemove},
-    {"/api/v1/builder/midi-region/update", WebCommandKind::BuilderMidiRegionUpdate},
+    {"/api/v1/builder/midi-region/add", WebCommandKind::BuilderMIDIRegionAdd},
+    {"/api/v1/builder/midi-region/remove", WebCommandKind::BuilderMIDIRegionRemove},
+    {"/api/v1/builder/midi-region/update", WebCommandKind::BuilderMIDIRegionUpdate},
     {"/api/v1/builder/automation-lane/add", WebCommandKind::BuilderAutomationLaneAdd},
     {"/api/v1/builder/automation-lane/remove", WebCommandKind::BuilderAutomationLaneRemove},
     {"/api/v1/builder/automation-lane/update", WebCommandKind::BuilderAutomationLaneUpdate},
@@ -161,18 +161,18 @@ constexpr BuilderRoute kBuilderRoutes[] = {
     {"/api/v1/settings/audio-control-panel", WebCommandKind::ShowAudioControlPanel},
     {"/api/v1/settings/sample-rate", WebCommandKind::SetSampleRate},
     {"/api/v1/settings/buffer-size", WebCommandKind::SetBufferSize},
-    {"/api/v1/settings/midi-output", WebCommandKind::SetMidiOutput},
-    {"/api/v1/settings/midi-input", WebCommandKind::SetMidiInput},
-    {"/api/v1/settings/midi-virtual-port", WebCommandKind::SetMidiVirtualPort},
+    {"/api/v1/settings/midi-output", WebCommandKind::SetMIDIOutput},
+    {"/api/v1/settings/midi-input", WebCommandKind::SetMIDIInput},
+    {"/api/v1/settings/midi-virtual-port", WebCommandKind::SetMIDIVirtualPort},
     {"/api/v1/settings/ui-render-engine", WebCommandKind::SetUiRenderEngine},
     {"/api/v1/settings/theme", WebCommandKind::SetTheme},
     {"/api/v1/settings/keybinding", WebCommandKind::SetKeybinding},
     {"/api/v1/settings/count-in", WebCommandKind::SetCountInBars},
     {"/api/v1/settings/output-channels", WebCommandKind::SetOutputChannels},
     {"/api/v1/settings/input-channels", WebCommandKind::SetInputChannels},
-    {"/api/v1/settings/midi-learn", WebCommandKind::MidiLearn},
-    {"/api/v1/settings/midi-learn-cancel", WebCommandKind::MidiLearnCancel},
-    {"/api/v1/settings/midi-clear", WebCommandKind::MidiClear},
+    {"/api/v1/settings/midi-learn", WebCommandKind::MIDILearn},
+    {"/api/v1/settings/midi-learn-cancel", WebCommandKind::MIDILearnCancel},
+    {"/api/v1/settings/midi-clear", WebCommandKind::MIDIClear},
     {"/api/v1/transport/seek", WebCommandKind::Seek},
     {"/api/v1/mixer/track/send", WebCommandKind::SetTrackSend},
     {"/api/v1/mixer/track/send/remove", WebCommandKind::RemoveTrackSend},
@@ -393,7 +393,7 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
                 }
             }
         }
-        if (builderKind == WebCommandKind::BuilderTrackImportWavBegin) {
+        if (builderKind == WebCommandKind::BuilderTrackImportWAVBegin) {
             wire::WTrackImportBeginPayload p;
             if (glz::read_json(p, std::string_view(body, bodyLen)))
                 writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid media import target");

@@ -231,9 +231,12 @@ private:
     void builderRegionAdd(const std::string& json);
     void builderRegionRemove(const std::string& json);
     void builderRegionUpdate(const std::string& json);
-    void builderMidiRegionAdd(const std::string& json);
-    void builderMidiRegionRemove(const std::string& json);
-    void builderMidiRegionUpdate(const std::string& json);
+    void builderMIDIRegionAdd(const std::string& json);
+    void builderMIDIRegionRemove(const std::string& json);
+    void builderMIDIRegionUpdate(const std::string& json);
+    void builderMidiRegionAdd(const std::string& json) { builderMIDIRegionAdd(json); }
+    void builderMidiRegionRemove(const std::string& json) { builderMIDIRegionRemove(json); }
+    void builderMidiRegionUpdate(const std::string& json) { builderMIDIRegionUpdate(json); }
     void builderAutomationLaneAdd(const std::string& json);
     void builderAutomationLaneRemove(const std::string& json);
     void builderAutomationLaneUpdate(const std::string& json);
@@ -244,10 +247,18 @@ private:
     void setTrackSendFromJson(const std::string& json);
     void removeTrackSendFromJson(const std::string& json);
     void setProjectNameFromJson(const std::string& json);
-    void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath,
+    void builderTrackImportWAVUpload(int songIndex, int trackIndex, const std::string& tempWavPath,
                                      double startSeconds = 0.0,
                                      const std::string& requestId = {});
-    void builderTrackImportWavDialog(const std::string& json);
+    void builderTrackImportWAVDialog(const std::string& json);
+    void builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath,
+                                     double startSeconds = 0.0,
+                                     const std::string& requestId = {}) {
+        builderTrackImportWAVUpload(songIndex, trackIndex, tempWavPath, startSeconds, requestId);
+    }
+    void builderTrackImportWavDialog(const std::string& json) {
+        builderTrackImportWAVDialog(json);
+    }
     void builderBusAdd();
     void builderBusRemove(const std::string& json);
     void builderBusMove(const std::string& json);
@@ -284,18 +295,24 @@ private:
     void rememberCurrentDeviceProfile();
     void settingsSetSampleRate(const std::string& json);
     void settingsSetBufferSize(const std::string& json);
-    void settingsSetMidiOutput(const std::string& json);
-    void settingsSetMidiInput(const std::string& json);
-    void settingsSetMidiVirtualPort(const std::string& json);
+    void settingsSetMIDIOutput(const std::string& json);
+    void settingsSetMIDIInput(const std::string& json);
+    void settingsSetMIDIVirtualPort(const std::string& json);
+    void settingsSetMidiOutput(const std::string& json) { settingsSetMIDIOutput(json); }
+    void settingsSetMidiInput(const std::string& json) { settingsSetMIDIInput(json); }
+    void settingsSetMidiVirtualPort(const std::string& json) { settingsSetMIDIVirtualPort(json); }
     void settingsSetUiRenderEngine(const std::string& json);
     void settingsSetTheme(const std::string& json);
     void settingsSetKeybinding(const std::string& json);
     void settingsSetCountInBars(const std::string& json);
     void settingsSetOutputChannels(const std::string& json);
     void settingsSetInputChannels(const std::string& json);
-    void settingsMidiLearn(const std::string& json);
-    void settingsMidiLearnCancel();
-    void settingsMidiClear(const std::string& json);
+    void settingsMIDILearn(const std::string& json);
+    void settingsMIDILearnCancel();
+    void settingsMIDIClear(const std::string& json);
+    void settingsMidiLearn(const std::string& json) { settingsMIDILearn(json); }
+    void settingsMidiLearnCancel() { settingsMIDILearnCancel(); }
+    void settingsMidiClear(const std::string& json) { settingsMIDIClear(json); }
     void populateSettingsState(WebUiState::SettingsRow& out);
     // Snapshot of everything in the settings payload that has to be asked of
     // the OS -- audio device enumeration (a full CoreAudio HAL rescan) and the

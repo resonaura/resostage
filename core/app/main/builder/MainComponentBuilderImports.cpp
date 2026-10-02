@@ -30,7 +30,7 @@ struct UploadedMediaCleanup {
 };
 } // namespace
 
-void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, const std::string& tempWavPath,
+void MainComponent::builderTrackImportWAVUpload(int songIndex, int trackIndex, const std::string& tempWavPath,
                                                 double startSeconds, const std::string& requestId) {
     if (songIndex < 0 || trackIndex < 0) {
         std::remove(tempWavPath.c_str());
@@ -60,7 +60,7 @@ void MainComponent::builderTrackImportWavUpload(int songIndex, int trackIndex, c
     }, startSeconds);
 }
 
-void MainComponent::builderTrackImportWavDialog(const std::string& json) {
+void MainComponent::builderTrackImportWAVDialog(const std::string& json) {
     if (!engine.isProjectLoaded())
         return;
     glz::generic doc;

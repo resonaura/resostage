@@ -617,7 +617,7 @@ void MainComponent::builderRegionUpdate(const std::string& json) {
     setStatus("Region updated");
 }
 
-void MainComponent::builderMidiRegionAdd(const std::string& json) {
+void MainComponent::builderMIDIRegionAdd(const std::string& json) {
     glz::generic doc;
     int songIndex = -1;
     std::string trackId;
@@ -673,7 +673,7 @@ void MainComponent::builderMidiRegionAdd(const std::string& json) {
     setStatus("MIDI region added");
 }
 
-void MainComponent::builderMidiRegionRemove(const std::string& json) {
+void MainComponent::builderMIDIRegionRemove(const std::string& json) {
     glz::generic doc;
     int songIndex = -1;
     std::string regionId;
@@ -697,7 +697,7 @@ void MainComponent::builderMidiRegionRemove(const std::string& json) {
     }
 }
 
-void MainComponent::builderMidiRegionUpdate(const std::string& json) {
+void MainComponent::builderMIDIRegionUpdate(const std::string& json) {
     glz::generic doc;
     int songIndex = -1;
     std::string regionId;

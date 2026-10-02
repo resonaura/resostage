@@ -550,7 +550,7 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                     options.requestId = pss->importRequestId;
                     std::string optionsJson;
                     (void)glz::write_json(options, optionsJson);
-                    if (!server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWavUpload, pss->importSongIndex,
+                    if (!server->enqueueCommand(WebCommand{WebCommandKind::BuilderTrackImportWAVUpload, pss->importSongIndex,
                                                       static_cast<double>(pss->importTrackIndex), finalPath,
                                                       std::move(optionsJson)})) {
                         std::remove(finalPath.c_str());

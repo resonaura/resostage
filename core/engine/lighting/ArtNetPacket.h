@@ -31,13 +31,25 @@ namespace resostage {
 // UDP frames only when this is non-zero and increments per-universe, so callers
 // should pass a counter cycling 0x01..0xFF (per universe). 0 disables ordering
 // checks on the receiver.
-std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data, uint8_t sequence);
-std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data);
+std::vector<uint8_t> buildArtDMXPacket(int universe, const std::vector<uint8_t>& data, uint8_t sequence);
+std::vector<uint8_t> buildArtDMXPacket(int universe, const std::vector<uint8_t>& data);
 
 // True if packet has a valid Art-Net ID, ArtDMX opcode, and length field that
 // matches the payload size (within 0..512). Used by unit / loopback tests.
-bool parseArtDmxPacket(const uint8_t* packet, size_t size,
+bool parseArtDMXPacket(const uint8_t* packet, size_t size,
                        int& outUniverse, std::vector<uint8_t>& outData);
+
+// Backward-compatible wrappers for ArtDmx acronym
+inline std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data, uint8_t sequence) {
+    return buildArtDMXPacket(universe, data, sequence);
+}
+inline std::vector<uint8_t> buildArtDmxPacket(int universe, const std::vector<uint8_t>& data) {
+    return buildArtDMXPacket(universe, data);
+}
+inline bool parseArtDmxPacket(const uint8_t* packet, size_t size,
+                              int& outUniverse, std::vector<uint8_t>& outData) {
+    return parseArtDMXPacket(packet, size, outUniverse, outData);
+}
 
 static constexpr uint16_t kArtNetUDPPort = 6454;
 static constexpr uint16_t kArtNetUdpPort = kArtNetUDPPort;

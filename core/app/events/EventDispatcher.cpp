@@ -175,11 +175,11 @@ void EventDispatcher::sendDMX(const DMXTriggerCommand& cmd) {
         seq = 1;
     seq = (seq < 255) ? static_cast<uint8_t>(seq + 1) : 1;
 
-    const std::vector<uint8_t> packet = buildArtDmxPacket(cmd.universe, cmd.data, seq);
+    const std::vector<uint8_t> packet = buildArtDMXPacket(cmd.universe, cmd.data, seq);
     // Fire and forget. A light frame that misses is replaced by the next one a
     // few milliseconds later, and blocking this thread to guarantee one frame
     // would delay every frame behind it.
-    dmxSocket->write(resolvedArtNetTarget(), kArtNetUdpPort, packet.data(),
+    dmxSocket->write(resolvedArtNetTarget(), kArtNetUDPPort, packet.data(),
                      static_cast<int>(packet.size()));
 }
 

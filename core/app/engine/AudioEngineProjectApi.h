@@ -80,9 +80,14 @@
     // other code touch this AudioEngine's project/loader state (BuilderPanel
     // disables further edits and shows a spinner) -- see
     // ProjectLoader::saveAsWithExtras's projectOverride parameter doc for why.
-    void importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
+    void importWAVForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
                                 std::function<void(bool success, std::string error)> onComplete,
                                 double startSeconds = 0.0);
+    void importWavForTrackAsync(size_t songIndex, size_t trackIndex, const std::string& filesystemPath,
+                                std::function<void(bool success, std::string error)> onComplete,
+                                double startSeconds = 0.0) {
+        importWAVForTrackAsync(songIndex, trackIndex, filesystemPath, std::move(onComplete), startSeconds);
+    }
 
     // Imports 1–256 WAV/RF64 stems (<=20 GiB each) in one background pass.
     // Each item targets a distinct existing track in the song. Assets get
