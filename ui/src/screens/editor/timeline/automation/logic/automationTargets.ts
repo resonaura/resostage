@@ -108,7 +108,7 @@ export function getTrackAutomationTargets(
         maxValue: 1.0,
         unit: "%",
         currentValue: send.level / 100,
-        disabledReason: !send.bus ? "Send bus removed or disconnected"
+        disabledReason: !send.bus || (buses !== undefined && !bus) ? "Send bus removed or disconnected"
           : !send.enabled ? "Send is disabled"
           : enabledMatches.length !== 1 ? "Ambiguous: multiple enabled sends target this bus" : undefined,
       });

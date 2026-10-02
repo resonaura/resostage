@@ -141,6 +141,14 @@ describe("automationTargets", () => {
     expect(targets[3].disabledReason).toContain("disconnected");
   });
 
+  it("disables a stale send when the authoritative bus list no longer exposes its destination", () => {
+    const targets = getTrackAutomationTargets(baseTrack, []).find((group) => group.category === "send")!.targets;
+    expect(targets[0].parameterId).toBe("send:audio::send:1");
+    expect(targets[0].disabledReason).toBe("Send bus removed or disconnected");
+    // An omitted list is unknown, not authoritative absence.
+    expect(getTrackAutomationTargets(baseTrack).find((group) => group.category === "send")!.targets[0].disabledReason).toBeUndefined();
+  });
+
   it("retains existing lane parameters for active plug-in slots", () => {
     const groups = getTrackAutomationTargets(baseTrack, undefined, [
       {
