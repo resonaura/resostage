@@ -41,6 +41,7 @@ public:
     bool openEditor(uint32_t slotIndex);
     bool closeEditor(uint32_t slotIndex);
     void closeAllEditors();
+    bool hasVisibleEditors() const noexcept;
     void publishSlotStatuses(plugin_host::SharedArea& area) const noexcept;
     /** Writes bounded parameter names before the shared host becomes Ready. */
     void publishParameterDescriptors(plugin_host::SharedArea& area) const noexcept;

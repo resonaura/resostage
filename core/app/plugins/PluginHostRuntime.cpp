@@ -256,6 +256,13 @@ void PluginHostRuntime::closeAllEditors() {
             editor->setVisible(false);
 }
 
+bool PluginHostRuntime::hasVisibleEditors() const noexcept {
+    for (const auto& editor : editors)
+        if (editor != nullptr && editor->isVisible())
+            return true;
+    return false;
+}
+
 void PluginHostRuntime::publishSlotStatuses(
     plugin_host::SharedArea& area) const noexcept {
     const auto& slots = projectLoader.project().tracks.front().plugins;

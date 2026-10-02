@@ -149,9 +149,17 @@ public:
                            uint64_t parentPid)
         : area(sharedArea), runtime(pluginRuntime), parentProcessId(parentPid) {}
 
-    void start() { startTimer(8); }
+    void start() { startTimer(kActiveIntervalMs); }
+
+    void triggerImmediateEvaluation() {
+        if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+            timerCallback();
+    }
 
 private:
+    static constexpr int kActiveIntervalMs = 8;
+    static constexpr int kIdleIntervalMs = 50;
+
     void timerCallback() override {
         if (area.hostState.load(std::memory_order_acquire)
             == static_cast<uint32_t>(resostage::plugin_host::HostState::Stopping)) {
@@ -184,35 +192,44 @@ private:
 
         const uint64_t request =
             area.commandRequest.load(std::memory_order_acquire);
-        if (request == area.commandComplete.load(std::memory_order_acquire))
-            return;
+        const bool commandPending = (request != area.commandComplete.load(std::memory_order_acquire));
 
-        const auto command = static_cast<resostage::plugin_host::HostCommand>(
-            area.command.load(std::memory_order_acquire));
-        const uint32_t slotIndex =
-            area.commandSlotIndex.load(std::memory_order_relaxed);
-        bool succeeded = false;
-        if (runtime != nullptr) {
-            if (command == resostage::plugin_host::HostCommand::OpenEditor)
-                succeeded = runtime->openEditor(slotIndex);
-            else if (command == resostage::plugin_host::HostCommand::CloseEditor)
-                succeeded = runtime->closeEditor(slotIndex);
-            else if (command == resostage::plugin_host::HostCommand::CloseAllEditors) {
-                runtime->closeAllEditors();
-                succeeded = true;
+        if (commandPending) {
+            const auto command = static_cast<resostage::plugin_host::HostCommand>(
+                area.command.load(std::memory_order_acquire));
+            const uint32_t slotIndex =
+                area.commandSlotIndex.load(std::memory_order_relaxed);
+            bool succeeded = false;
+            if (runtime != nullptr) {
+                if (command == resostage::plugin_host::HostCommand::OpenEditor)
+                    succeeded = runtime->openEditor(slotIndex);
+                else if (command == resostage::plugin_host::HostCommand::CloseEditor)
+                    succeeded = runtime->closeEditor(slotIndex);
+                else if (command == resostage::plugin_host::HostCommand::CloseAllEditors) {
+                    runtime->closeAllEditors();
+                    succeeded = true;
+                }
+            }
+
+            if (command == resostage::plugin_host::HostCommand::OpenEditor
+                || command == resostage::plugin_host::HostCommand::CloseEditor
+                || command == resostage::plugin_host::HostCommand::CloseAllEditors) {
+                area.commandResult.store(succeeded ? 1u : 0u,
+                                         std::memory_order_relaxed);
+                area.commandComplete.store(request, std::memory_order_release);
+                area.command.store(
+                    static_cast<uint32_t>(resostage::plugin_host::HostCommand::None),
+                    std::memory_order_release);
             }
         }
 
-        if (command == resostage::plugin_host::HostCommand::OpenEditor
-            || command == resostage::plugin_host::HostCommand::CloseEditor
-            || command == resostage::plugin_host::HostCommand::CloseAllEditors) {
-            area.commandResult.store(succeeded ? 1u : 0u,
-                                     std::memory_order_relaxed);
-            area.commandComplete.store(request, std::memory_order_release);
-            area.command.store(
-                static_cast<uint32_t>(resostage::plugin_host::HostCommand::None),
-                std::memory_order_release);
-        }
+        // Adaptive polling: when an editor is visible or a command was just processed,
+        // run at 8 ms for responsive UI and parameter tracking. When completely idle,
+        // relax to 50 ms to eliminate unnecessary wakeups and background CPU draw.
+        const bool active = (runtime != nullptr && runtime->hasVisibleEditors()) || commandPending;
+        const int targetInterval = active ? kActiveIntervalMs : kIdleIntervalMs;
+        if (getTimerInterval() != targetInterval)
+            startTimer(targetInterval);
     }
 
     resostage::plugin_host::SharedArea& area;
@@ -334,7 +351,6 @@ public:
     }
 
     void shutdown() override {
-        controlTimer.reset();
         auto* area = sharedMemory.area();
         if (ready && area != nullptr) {
             area->hostState.store(
@@ -349,6 +365,7 @@ public:
         (void)sharedMemory.signalControlWake();
         if (commandWorker.joinable())
             commandWorker.join();
+        controlTimer.reset();
         if (runtime != nullptr) {
             runtime->closeAllEditors();
             runtime.reset();
@@ -399,20 +416,30 @@ private:
             const auto command = static_cast<resostage::plugin_host::HostCommand>(
                 area.command.load(std::memory_order_acquire));
             if (request != lastRequest
-                && request != area.commandComplete.load(std::memory_order_acquire)
-                && command == resostage::plugin_host::HostCommand::CaptureStates) {
-                lastRequest = request;
-                std::string commandError;
-                const bool succeeded = runtime != nullptr
-                    && runtime->captureStateFiles(commandError);
-                if (!commandError.empty())
-                    std::cerr << commandError << '\n';
-                area.commandResult.store(succeeded ? 1u : 0u,
-                                         std::memory_order_relaxed);
-                area.commandComplete.store(request, std::memory_order_release);
-                area.command.store(
-                    static_cast<uint32_t>(resostage::plugin_host::HostCommand::None),
-                    std::memory_order_release);
+                && request != area.commandComplete.load(std::memory_order_acquire)) {
+                if (command == resostage::plugin_host::HostCommand::CaptureStates) {
+                    lastRequest = request;
+                    std::string commandError;
+                    const bool succeeded = runtime != nullptr
+                        && runtime->captureStateFiles(commandError);
+                    if (!commandError.empty())
+                        std::cerr << commandError << '\n';
+                    area.commandResult.store(succeeded ? 1u : 0u,
+                                             std::memory_order_relaxed);
+                    area.commandComplete.store(request, std::memory_order_release);
+                    area.command.store(
+                        static_cast<uint32_t>(resostage::plugin_host::HostCommand::None),
+                        std::memory_order_release);
+                } else if (command == resostage::plugin_host::HostCommand::OpenEditor
+                           || command == resostage::plugin_host::HostCommand::CloseEditor
+                           || command == resostage::plugin_host::HostCommand::CloseAllEditors) {
+                    lastRequest = request;
+                    juce::MessageManager::callAsync([this]() {
+                        if (controlTimer != nullptr) {
+                            controlTimer->triggerImmediateEvaluation();
+                        }
+                    });
+                }
             }
         }
     }
