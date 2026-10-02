@@ -936,7 +936,7 @@ export const builder = {
     gestureId?: string;
   }) => post("/api/v1/builder/automation/record-gesture", patch),
 
-  async trackImportWav(
+  async trackImportWAV(
     songIndex: number,
     index: number,
     file: File,
@@ -946,13 +946,26 @@ export const builder = {
     _triggerRefetch();
   },
 
+  trackImportWav(
+    songIndex: number,
+    index: number,
+    file: File,
+    startSeconds = 0,
+  ): Promise<void> {
+    return this.trackImportWAV(songIndex, index, file, startSeconds);
+  },
+
   // Native "Open Audio File" picker (embedded webview only -- see
   // IS_EMBEDDED gating in AudioTrackLanes.tsx; a plain browser tab has no
   // native window to show the dialog in and keeps the file-input fallback).
   // The Core side pops a JUCE FileChooser and imports the picked file
   // straight from disk, so no upload round-trip happens here.
-  trackImportWavDialog: (songIndex: number, index: number) =>
+  trackImportWAVDialog: (songIndex: number, index: number) =>
     post("/api/v1/builder/track/import-wav/dialog", { songIndex, index }),
+
+  trackImportWavDialog(songIndex: number, index: number) {
+    return this.trackImportWAVDialog(songIndex, index);
+  },
 
   busAdd: () => post("/api/v1/builder/bus/add"),
   busRemove: (index: number) => post("/api/v1/builder/bus/remove", { index }),
@@ -1220,13 +1233,22 @@ export const settings = {
     post("/api/v1/settings/sample-rate", { value }),
   setBufferSize: (value: number) =>
     post("/api/v1/settings/buffer-size", { value }),
-  setMidiOutput: (names: string[] | string) =>
+  setMIDIOutput: (names: string[] | string) =>
     post("/api/v1/settings/midi-output", Array.isArray(names) ? { names } : { name: names }),
-  setMidiInput: (names: string[] | string) =>
+  setMidiOutput(names: string[] | string) {
+    return this.setMIDIOutput(names);
+  },
+  setMIDIInput: (names: string[] | string) =>
     post("/api/v1/settings/midi-input", Array.isArray(names) ? { names } : { name: names }),
+  setMidiInput(names: string[] | string) {
+    return this.setMIDIInput(names);
+  },
   /** Toggles the "ResoStage Sync" virtual MIDI source, for testing DAW clock/transport sync. */
-  setMidiVirtualPort: (enabled: boolean) =>
+  setMIDIVirtualPort: (enabled: boolean) =>
     post("/api/v1/settings/midi-virtual-port", { enabled }),
+  setMidiVirtualPort(enabled: boolean) {
+    return this.setMIDIVirtualPort(enabled);
+  },
   setUiRenderEngine: (engine: "browser" | "electron") =>
     post("/api/v1/settings/ui-render-engine", { engine }),
   setTheme: (theme: string) => post("/api/v1/settings/theme", { theme }),

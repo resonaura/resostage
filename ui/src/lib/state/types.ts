@@ -392,6 +392,11 @@ export interface MidiRegionRow {
   automationLanes?: AutomationLaneRow[];
 }
 
+export type MIDINoteRow = MidiNoteRow;
+export type MIDIClipEventRow = MidiClipEventRow;
+export type MIDIUmpEventRow = MidiUmpEventRow;
+export type MIDIRegionRow = MidiRegionRow;
+
 export interface TempoPointRow {
   beat: number;
   bpm: number;
@@ -846,6 +851,8 @@ export interface MidiBindingRow {
   channel: number;
   number: number;
 }
+
+export type MIDIBindingRow = MidiBindingRow;
 
 export interface RecentProjectEntry {
   path: string;

@@ -144,3 +144,8 @@ export class UdpTelemetryTracker {
     };
   }
 }
+
+export type UDPTelemetryStats = UdpTelemetryStats;
+export const UDPTelemetryTracker = UdpTelemetryTracker;
+export type UDPTelemetryTracker = UdpTelemetryTracker;
+
