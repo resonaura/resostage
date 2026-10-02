@@ -29,17 +29,19 @@ export async function verifyEditorState(coreExecutable, inspect) {
   await new Promise((done) => probe.close(done));
   const origin = `http://127.0.0.1:${port}`;
   let child, exited = true, diagnostic = "";
-  const output = { type: "main", target: "audio::main", sends: [] };
+  const output = { type: "main", target: "audio::main", sends: [{ bus: "audio::send:1", level: 100, enabled: true }] };
   const regionId = "midi::region:fixture";
   mkdirSync(project);
   writeFileSync(settingsPath, JSON.stringify({ audioInputDisabled: true, inputDeviceName: "",
     midiInputNames: [], midiOutputNames: [], recentProjects: [] }));
   writeFileSync(metadataPath, JSON.stringify({ format: { version: 10 }, name: "Editor State Acceptance", sampleRate: 48000,
     tracks: [{ id: "audio::track:1", name: "Fixture MIDI", kind: "externalMidi", channels: 2,
-      gainDb: 0, pan: 0, mute: false, solo: false, output }], sends: [],
+      gainDb: 0, pan: 0, mute: false, solo: false, output }],
+    sends: [{ id: "audio::send:1", name: "Reverb", channels: 2, gainDb: 0, pan: 0, mute: false, solo: false,
+      output: { type: "ext-out", target: "audio::out:1,audio::out:2" } }],
     main: { enabled: true, name: "Main", channels: 2, gainDb: 0, pan: 0, mute: false,
       solo: false, output: { type: "ext-out", target: "audio::out:1,audio::out:2" } },
-    click: { enabled: false, soloSafe: true, channels: 2, gainDb: 0, pan: 0, output },
+    click: { enabled: false, soloSafe: true, channels: 2, gainDb: 0, pan: 0, output: { type: "main", target: "audio::main", sends: [] } },
     songs: [{ id: "meta::song:1", name: "Fixture", bpm: 120,
       timeSignature: { numerator: 4, denominator: 4 }, endSeconds: 90, onEnded: "stop", regions: [], events: [],
       midiRegions: [{ id: regionId, trackId: "audio::track:1", name: "Pattern", startBeats: 0,
@@ -144,6 +146,26 @@ export async function verifyEditorState(coreExecutable, inspect) {
     state = await waitFor((current) => current.songs?.[0]?.automationLanes?.length === 3, "strip pan lane creation");
     assert.equal(state.songs[0].automationLanes[2].target.parameterId, "pan");
 
+    // Mute automation lane live during playback
+    await request("/api/v1/builder/automation-lane/add", { songIndex: 0, domain: "strip", entityId: "audio::track:1",
+      parameterId: "mute", valueType: "boolean", defaultValue: 0, minValue: 0, maxValue: 1, points: [
+        { timeBeats: 0, value: 1, curve: 0 },
+        { timeBeats: 4, value: 0, curve: 0 },
+      ] });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.length === 4, "strip mute lane creation");
+    assert.equal(state.songs[0].automationLanes[3].target.parameterId, "mute");
+    assert.equal(state.playing, true, "Mute automation edit must not stop playback");
+
+    // Aux send automation lane live during playback
+    await request("/api/v1/builder/automation-lane/add", { songIndex: 0, domain: "strip", entityId: "audio::track:1",
+      parameterId: "send:0", valueType: "floatNormalized", defaultValue: 1, minValue: 0, maxValue: 1, points: [
+        { timeBeats: 0, value: 0.5, curve: 0 },
+        { timeBeats: 4, value: 0.0, curve: 0 },
+      ] });
+    state = await waitFor((current) => current.songs?.[0]?.automationLanes?.length === 5, "strip send lane creation");
+    assert.equal(state.songs[0].automationLanes[4].target.parameterId, "send:0");
+    assert.equal(state.playing, true, "Send automation edit must not stop playback");
+
     await request("/api/v1/transport/stop", {});
     await waitFor((s) => !s.playing, "Stop after strip automation");
 
@@ -158,10 +180,12 @@ export async function verifyEditorState(coreExecutable, inspect) {
     for (let attempt = 0; attempt < 100; ++attempt) {
       const saved = JSON.parse(readFileSync(metadataPath, "utf8"));
       if (saved.songs?.[0]?.midiRegions?.[0]?.notes.length === notes.length
-          && saved.songs[0].automationLanes?.length === 3
+          && saved.songs[0].automationLanes?.length === 5
           && saved.songs[0].automationLanes?.[0]?.points.length === points.length
           && saved.songs[0].automationLanes?.[1]?.points.length === 3
-          && saved.songs[0].automationLanes?.[2]?.points.length === 2) break;
+          && saved.songs[0].automationLanes?.[2]?.points.length === 2
+          && saved.songs[0].automationLanes?.[3]?.points.length === 2
+          && saved.songs[0].automationLanes?.[4]?.points.length === 2) break;
       if (attempt === 99) throw new Error("Project save did not persist edited collections");
       await sleep(50);
     }
@@ -175,8 +199,12 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(state.songs[0].automationLanes[1].points.length, 3);
     assert.equal(state.songs[0].automationLanes[2].target.parameterId, "pan");
     assert.equal(state.songs[0].automationLanes[2].points.length, 2);
+    assert.equal(state.songs[0].automationLanes[3].target.parameterId, "mute");
+    assert.equal(state.songs[0].automationLanes[3].points.length, 2);
+    assert.equal(state.songs[0].automationLanes[4].target.parameterId, "send:0");
+    assert.equal(state.songs[0].automationLanes[4].points.length, 2);
     if (inspect) await inspect(origin);
-    console.log("PASS: large MIDI/automation HTTP edits, strip fader/pan playback, live transport continuity, Undo/Redo, 413, save/reopen");
+    console.log("PASS: large MIDI/automation HTTP edits, strip fader/pan/mute/send playback, live transport continuity, Undo/Redo, 413, save/reopen");
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.

@@ -20,15 +20,15 @@ struct MixGraph;
 class MixRenderer;
 
 /**
- * Immutable, pre-bound track-scope gain/pan envelopes for a mix publication.
+ * Immutable, pre-bound track-scope envelopes for a mix publication.
  *
- * Preparation copies project points and resolves strip IDs off audio. The
- * MixGraph owns this plan and retires it through the graph's existing lifetime
- * mechanism; a callback never becomes the last owner of these point vectors.
- * Evaluation takes the actual segment beat, not an accumulated phase, so
- * seeks, tempo changes and exact cycle splits all select the same envelope.
- * Empty/muted/disabled lanes do not override the manual mixer coefficient.
- * Mute, sends and region scopes deliberately remain outside this contract.
+ * Preparation copies project points and resolves strip and edge IDs off audio.
+ * The MixGraph owns this plan and retires it through the graph's existing
+ * lifetime mechanism; a callback never becomes the last owner of these point
+ * vectors. Evaluation takes the actual segment beat, not an accumulated phase,
+ * so seeks, tempo changes and exact cycle splits all select the same envelope.
+ * Empty/muted/disabled lanes do not override manual mixer coefficients.
+ * Region scopes and plug-in vendor parameters remain outside this contract.
  */
 class StripAutomationPlan {
 public:
@@ -49,9 +49,10 @@ public:
     [[nodiscard]] size_t bindingCount(size_t songIndex) const noexcept;
 
 private:
-    enum class Parameter : uint8_t { GainDb, Pan };
+    enum class Parameter : uint8_t { GainDb, Pan, Mute, SendGain };
     struct Binding {
         uint32_t stripIndex = 0;
+        uint32_t edgeIndex = 0;
         Parameter parameter = Parameter::GainDb;
         float minValue = 0.0f;
         float maxValue = 1.0f;

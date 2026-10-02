@@ -74,11 +74,12 @@ describe("automationTargets", () => {
     ]);
     expect(stripGroup.targets[0].disabledReason).toBeUndefined();
     expect(stripGroup.targets[1].disabledReason).toBeUndefined();
-    expect(stripGroup.targets[2].disabledReason).toContain("Mute automation playback is not available yet");
+    expect(stripGroup.targets[2].disabledReason).toBeUndefined();
 
     // Send group points to Reverb
     const sendGroup = groups.find((g) => g.category === "send")!;
     expect(sendGroup.targets[0].label).toContain("Reverb");
+    expect(sendGroup.targets[0].disabledReason).toBeUndefined();
 
     // Plugin group has slot
     const pluginGroup = groups.find((g) => g.category === "plugin")!;

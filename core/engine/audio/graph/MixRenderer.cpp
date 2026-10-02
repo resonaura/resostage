@@ -30,6 +30,7 @@ void MixRenderer::prepare(double sampleRate, int maxBlockSize, size_t maxStrips,
     stripLevels.assign(stripCapacity, StripLevels{});
     stripSmoothers.assign(stripCapacity, Smoother{});
     automationOverrides.assign(stripCapacity, AutomationOverride{});
+    automationEdgeOverrides.assign(edgeCapacity, AutomationEdgeOverride{});
     edgeSmoothers.assign(edgeCapacity, -1.0f);
 }
 
@@ -92,8 +93,12 @@ void MixRenderer::beginBlock(const MixGraph& graph, int numSamples) {
     for (uint32_t s = 0; s < graph.strips.size(); ++s) {
         automationOverrides[s].gainActive = false;
         automationOverrides[s].panActive = false;
+        automationOverrides[s].muteActive = false;
         std::fill_n(preRow(s, 0), span, 0.0f);
         std::fill_n(preRow(s, 1), span, 0.0f);
+    }
+    for (size_t e = 0; e < graph.edges.size() && e < automationEdgeOverrides.size(); ++e) {
+        automationEdgeOverrides[e].active = false;
     }
 }
 
@@ -112,6 +117,22 @@ void MixRenderer::setAutomationPan(uint32_t stripIndex, float pan) noexcept {
     auto& value = automationOverrides[stripIndex];
     value.pan = std::clamp(pan, -1.0f, 1.0f);
     value.panActive = true;
+}
+
+void MixRenderer::setAutomationMute(uint32_t stripIndex, bool mute) noexcept {
+    if (stripIndex >= automationOverrides.size())
+        return;
+    auto& value = automationOverrides[stripIndex];
+    value.mute = mute;
+    value.muteActive = true;
+}
+
+void MixRenderer::setAutomationEdgeGain(uint32_t edgeIndex, float gainLinear) noexcept {
+    if (edgeIndex >= automationEdgeOverrides.size() || !std::isfinite(gainLinear) || gainLinear < 0.0f)
+        return;
+    auto& value = automationEdgeOverrides[edgeIndex];
+    value.gainLinear = gainLinear;
+    value.active = true;
 }
 
 float* MixRenderer::sourceChannel(uint32_t stripIndex, int channel) {
@@ -198,9 +219,22 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
             if (!edge.active)
                 continue;
 
+            const auto& srcAutomation = automationOverrides[edge.from];
+            const bool srcMutedByAutomation = (effectiveTap != SendTap::PreFader)
+                                              && srcAutomation.muteActive
+                                              && srcAutomation.mute;
+
+            float baseEdgeGain = edge.gainLinear;
+            if (edgeIndex < automationEdgeOverrides.size()
+                && automationEdgeOverrides[edgeIndex].active) {
+                baseEdgeGain = automationEdgeOverrides[edgeIndex].gainLinear;
+            }
+
+            const float targetEdgeGain = srcMutedByAutomation ? 0.0f : baseEdgeGain;
+
             float& smoothed = edgeSmoothers[edgeIndex];
             if (smoothed < 0.0f)
-                smoothed = edge.gainLinear;
+                smoothed = targetEdgeGain;
 
             // Settled send level -- true for every block in which nobody has a
             // hand on that fader, i.e. almost all of them. Once `smoothed`
@@ -210,7 +244,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
             // that matters because this is the loop that runs once per send
             // per source (tracks x sends, the thing that grows fastest on a
             // big rig).
-            if (smoothed == edge.gainLinear) {
+            if (smoothed == targetEdgeGain) {
                 const float g = smoothed;
                 if (destStereo) {
                     for (int i = 0; i < span; ++i) {
@@ -232,7 +266,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
 
             const float smoothedAtBlockStart = smoothed;
             for (int i = 0; i < span; ++i) {
-                smoothed += alpha * (edge.gainLinear - smoothed);
+                smoothed += alpha * (targetEdgeGain - smoothed);
                 if (destStereo) {
                     destL[i] += srcL[i] * smoothed;
                     destR[i] += srcR[i] * smoothed;
@@ -256,7 +290,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
             // nowhere means the step taken here is, by construction, one the
             // float could not represent anyway.
             if (smoothed == smoothedAtBlockStart)
-                smoothed = edge.gainLinear;
+                smoothed = targetEdgeGain;
         }
 
         // Input conditioning (gain trim and polarity inversion).

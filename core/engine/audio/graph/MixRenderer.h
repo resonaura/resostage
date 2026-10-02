@@ -111,6 +111,8 @@ public:
     // and 10 ms glide. They never mutate the immutable graph or manual state.
     void setAutomationGain(uint32_t stripIndex, float gainLinear) noexcept;
     void setAutomationPan(uint32_t stripIndex, float pan) noexcept;
+    void setAutomationMute(uint32_t stripIndex, bool mute) noexcept;
+    void setAutomationEdgeGain(uint32_t edgeIndex, float gainLinear) noexcept;
 
     // Audio thread. Where the caller writes a source strip's decoded audio.
     // Always 2 channels: a stereo source writes both, a mono file writes the
@@ -146,8 +148,14 @@ private:
     struct AutomationOverride {
         float gainLinear = 1.0f;
         float pan = 0.0f;
+        bool mute = false;
         bool gainActive = false;
         bool panActive = false;
+        bool muteActive = false;
+    };
+    struct AutomationEdgeOverride {
+        float gainLinear = 1.0f;
+        bool active = false;
     };
     struct Smoother {
         float gainL = 1.0f;
@@ -179,6 +187,7 @@ private:
     std::vector<StripLevels> stripLevels;
     std::vector<Smoother> stripSmoothers;
     std::vector<AutomationOverride> automationOverrides;
+    std::vector<AutomationEdgeOverride> automationEdgeOverrides;
     // Glide state for edge gains, keyed by edge index. Rebuilt implicitly
     // whenever the edge count changes; -1 means "not primed yet".
     std::vector<float> edgeSmoothers;

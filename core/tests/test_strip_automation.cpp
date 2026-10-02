@@ -117,7 +117,7 @@ TEST_CASE("empty disabled muted unbound and unsupported lanes leave manual coeff
     auto region = envelope("pan", 1.0f);
     region.scope = AutomationScope::Region;
     project.songs[0].automationLanes = {empty, disabled, muted, unbound, region,
-                                      envelope("mute", 1.0f), envelope("send:0", 0.0f)};
+                                        envelope("unsupported", 1.0f)};
     auto graph = preparedGraph(project);
     CHECK(graph.stripAutomation->bindingCount(0) == 0);
     CHECK(graph.stripAutomation->bindingCount(10) == 0);
@@ -125,6 +125,91 @@ TEST_CASE("empty disabled muted unbound and unsupported lanes leave manual coeff
     audio.settle(graph, 0, 0.0);
     CHECK(audio.left == doctest::Approx(0.25f));
     CHECK(audio.right == doctest::Approx(0.25f));
+}
+
+TEST_CASE("mute automation smoothly silences track and unmutes without clicks") {
+    auto project = automationProject();
+    auto muteLane = envelope("mute", 1.0f);
+    muteLane.points = {{0.0, 1.0f, 0.0f}, {4.0, 0.0f, 0.0f}};
+    project.songs[0].automationLanes = {muteLane};
+    auto graph = preparedGraph(project);
+    REQUIRE(graph.stripAutomation->bindingCount(0) == 1);
+    AutomationRender audio(graph);
+
+    const auto track = graph.find("audio::track:1");
+    const auto mainStrip = graph.find("audio::main");
+    REQUIRE(mainStrip != MixGraph::kNoStrip);
+
+    // At beat 0, track is muted by automation: main mix receives 0, track strip still meters
+    audio.settle(graph, 0, 0.0);
+    CHECK(audio.renderer.postChannel(mainStrip, 0)[kSamples - 1] == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(audio.renderer.postChannel(mainStrip, 1)[kSamples - 1] == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(audio.left == doctest::Approx(0.25f).epsilon(1e-4));
+    CHECK(audio.right == doctest::Approx(0.25f).epsilon(1e-4));
+    CHECK(project.tracks[0].mute == false);
+    CHECK(graph.strips[track].mute == false);
+
+    // At beat 4, track is unmuted by automation: main mix receives audio
+    audio.settle(graph, 0, 4.0);
+    CHECK(audio.renderer.postChannel(mainStrip, 0)[kSamples - 1] == doctest::Approx(0.25f).epsilon(1e-4));
+    CHECK(audio.renderer.postChannel(mainStrip, 1)[kSamples - 1] == doctest::Approx(0.25f).epsilon(1e-4));
+    CHECK(audio.left == doctest::Approx(0.25f).epsilon(1e-4));
+    CHECK(audio.right == doctest::Approx(0.25f).epsilon(1e-4));
+
+    // When automation is stopped/cleared, audio remains at manual state (unmuted)
+    audio.settle(graph, 0, 0.0, false);
+    CHECK(audio.renderer.postChannel(mainStrip, 0)[kSamples - 1] == doctest::Approx(0.25f).epsilon(1e-4));
+    CHECK(audio.renderer.postChannel(mainStrip, 1)[kSamples - 1] == doctest::Approx(0.25f).epsilon(1e-4));
+}
+
+TEST_CASE("aux send automation smoothly modifies send edge gain") {
+    auto project = automationProject();
+    SendBus sendBus;
+    sendBus.id = "audio::send:1";
+    sendBus.name = "Reverb";
+    project.sends.push_back(sendBus);
+
+    SendConfig sendConfig;
+    sendConfig.bus = "audio::send:1";
+    sendConfig.level = 100.0;
+    sendConfig.enabled = true;
+    project.tracks[0].output.sends.push_back(sendConfig);
+
+    auto sendLane = envelope("send:0", 0.5f);
+    sendLane.target.minValue = 0.0f;
+    sendLane.target.maxValue = 1.0f;
+    sendLane.points = {{0.0, 0.5f, 0.0f}, {4.0, 0.0f, 0.0f}};
+    project.songs[0].automationLanes = {sendLane};
+
+    auto graph = preparedGraph(project);
+    REQUIRE(graph.stripAutomation->bindingCount(0) == 1);
+
+    AutomationRender audio(graph);
+    const auto track = graph.find("audio::track:1");
+    const auto sendStrip = graph.find("audio::send:1");
+    REQUIRE(sendStrip != MixGraph::kNoStrip);
+
+    // At beat 0, send level is automated to 0.5
+    for (int i = 0; i < 40; ++i) {
+        audio.renderer.beginBlock(graph, kSamples);
+        graph.stripAutomation->apply(0, 0.0, audio.renderer);
+        std::fill_n(audio.renderer.sourceChannel(track, 0), kSamples, 0.25f);
+        std::fill_n(audio.renderer.sourceChannel(track, 1), kSamples, 0.25f);
+        audio.renderer.process(graph, kSamples);
+    }
+    CHECK(audio.renderer.postChannel(sendStrip, 0)[kSamples - 1] == doctest::Approx(0.125f).epsilon(1e-4));
+    CHECK(audio.renderer.postChannel(sendStrip, 1)[kSamples - 1] == doctest::Approx(0.125f).epsilon(1e-4));
+
+    // At beat 4, send level is automated to 0.0
+    for (int i = 0; i < 40; ++i) {
+        audio.renderer.beginBlock(graph, kSamples);
+        graph.stripAutomation->apply(0, 4.0, audio.renderer);
+        std::fill_n(audio.renderer.sourceChannel(track, 0), kSamples, 0.25f);
+        std::fill_n(audio.renderer.sourceChannel(track, 1), kSamples, 0.25f);
+        audio.renderer.process(graph, kSamples);
+    }
+    CHECK(audio.renderer.postChannel(sendStrip, 0)[kSamples - 1] == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(audio.renderer.postChannel(sendStrip, 1)[kSamples - 1] == doctest::Approx(0.0f).epsilon(1e-4));
 }
 
 TEST_CASE("plan owns points and preserves curve and first matching lane semantics") {

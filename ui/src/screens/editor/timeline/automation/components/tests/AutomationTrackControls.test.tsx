@@ -227,13 +227,30 @@ describe("AutomationTrackControls", () => {
   });
 
   it("disables + button when target has disabledReason", () => {
+    const trackWithFailedPlugin: TrackRow = {
+      ...mockTrack,
+      plugins: [
+        {
+          id: "slot:crash",
+          pluginId: "vst3.crash",
+          format: "vst3",
+          name: "CrashPlugin",
+          manufacturer: "Crash",
+          instrument: false,
+          loadState: "failed",
+          bypassed: false,
+          hasState: false,
+        },
+      ],
+    };
+
     act(() => {
       root.render(
         createElement(AutomationTrackControls, {
           songIndex: 0,
-          track: mockTrack,
+          track: trackWithFailedPlugin,
           lanes: [],
-          activeLaneId: "strip:track-1:mute",
+          activeLaneId: "plugin:slot:crash:status",
           onSelectLane: vi.fn(),
         }),
       );

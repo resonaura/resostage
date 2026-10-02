@@ -75,7 +75,6 @@ export function getTrackAutomationTargets(
       maxValue: 1.0,
       unit: "",
       currentValue: track.mute ? 1 : 0,
-      disabledReason: "Mute automation playback is not available yet (requires audibility smoothing)",
     },
   ];
 
@@ -104,7 +103,6 @@ export function getTrackAutomationTargets(
         maxValue: 1.0,
         unit: "%",
         currentValue: send.level / 100,
-        disabledReason: "Send automation playback is not available yet",
       });
     });
   }
