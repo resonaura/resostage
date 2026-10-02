@@ -47,29 +47,32 @@ Additional critical issues:
   empty lane creation, helper protocol8 and actual Track · Plug-in startup progress.
   Legacy `param:<index>` lanes remain compatible; new targets use
   `id:<vendor-id>` where the vendor exposes one.
-- Native Core/test/helper build passed for that block. Focused19 native cases /
+- Native Core/test/helper build passed for that block. Focused 19 native cases /
   3794 assertions include actual Apple AUDelay metadata/current-value control.
-  Plugin API10 UI tests passed. These are not heavy-vendor acoustic acceptance.
+  Plugin API 10 UI tests passed. These are not heavy-vendor acoustic acceptance.
+- `918ca4b`: native zero-allocation strip fader and pan automation in `MixRenderer`,
+  `MixGraph`, and `OfflineRenderer` (`StripAutomationPlan.h/.cpp`). 558 native
+  test cases and 327,352 assertions passed in `resostage_engine_tests`.
+- `9f63e0b`: Piano Roll note draft persistence (`usePianoRollNoteDraft.ts`),
+  selected-note quantization on snap change (`usePianoRollNoteActions.ts`),
+  and provisional region admission tracking.
+- `250d59f`: Modernized arrangement automation with shared HeroUI controls
+  (`Select`, `Button`, `Tooltip`), DAW keyboard focus isolation (`tabIndex={-1}`),
+  real parameter discovery, and end-to-end verification script
+  (`scripts/verification/editor-state.mjs`). All 654 UI tests (98 test files)
+  and 37 Electron shell tests passed.
 
 ## Work in progress: inspect before continuing
 
-The current working tree contains UI integration and Piano Roll parent changes:
-- `ui/src/screens/editor/timeline/automation/`: shared Button/Select/Tooltip
-  chrome, + lane creation without initial points, real target binding/current
-  baseline, keyboard/context point edits, animated header/overlay transitions.
-- `tracks/components/{TimelineSidebar,AudioTrackLanes}.tsx` and
-  `timeline/components/Timeline.tsx`: shared discovery data, slot-owned lanes,
-  fixed-height headers and removal of fabricated fallback points.
-- `pianoroll/hooks/usePianoRollNoteDraft.ts`: draft retained until matching full
-  Core snapshot, visible rejection/confirmation timeout, no stale async overwrite,
-  safe retry only after known rejection, history/region cancellation.
-- `PianoRollEditorTab.tsx` / `useMidiRegionEditorState.ts`: reliable admission
-  and provisional-region completion/follow-up tracking.
-- `usePianoRollNoteActions.ts` and `PianoRoll.tsx`: explicit new snap division,
-  selected-only automatic quantization, no-op edit filtering.
-- `AGENTS.md`: stricter shared-component, gesture-owner and draft-authority rules.
-- A native gain/pan automation implementation is being prepared. Confirm its
-  final commit/tests before claiming playback support.
+The native strip automation and modernized arrangement UI have been integrated
+and verified end-to-end against live Core HTTP commands and transport continuity.
+`scripts/verification/editor-state.mjs` confirms:
+- >4 KiB note and automation updates over HTTP without socket termination
+- Live note quantize during active playback without stopping or resetting clock
+- Continuous sample transport advancement through live project edits
+- Undo and Redo roundtrips restoring exact note durations and curves
+- Explicit 413 rejection for oversized command bodies
+- Persistence across project save and clean reopen
 
 Concurrent agent work must be merged and checked rather than overwritten.
 Every source keeps the standard license header. English comments/commits,

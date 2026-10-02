@@ -19,31 +19,21 @@ Previous arrangement UI existed, but had significant functional gaps:
 
 ## Implemented foundations (verify latest commits)
 
-`424e4f4`, `f436040`, `f747399` implement exclusive/cancellable gestures,
-full-point atomic replacement/empty creation, real vendor metadata/current values,
-stable vendor identities with legacy-index compatibility, bounded admission and
-visible draft confirmation errors. Group movement, additive marquee, point
-deletion, weighted smoothing with fixed selection endpoints, curve handles and
-context operations are implemented. Paths have bounded viewportLOD and constant
-tail anchors. This is not proof all UI acceptance or strip DSP is finished.
-
-UI integration uses shared HeroUI wrappers and semantic tokens, visible + for
-selected parameters, no empty fake nodes, actual parameter ranges/current baseline,
-slot-owned lane discovery and fixed-height animated headers. Existing orphan data
-remains preserved. Inspect working tree and run tests before considering complete.
+`424e4f4`, `f436040`, `f747399`, `918ca4b`, `9f63e0b`, `250d59f` implement:
+- Zero-allocation strip fader and pan automation in `MixRenderer` and `OfflineRenderer`
+  via `StripAutomationPlan.h/.cpp` with 558 native tests passing
+- Exclusive/cancellable gestures, full-point atomic replacement/empty creation,
+  real vendor metadata/current values, stable vendor identities
+- Shared HeroUI wrappers (`Select`, `Button`, `Tooltip`), DAW focus isolation (`tabIndex={-1}`)
+- Piano Roll note draft retention until matching Core snapshot, snap quantize
+- End-to-end verification in `scripts/verification/editor-state.mjs` verifying uninterrupted
+  transport playback during live MIDI and automation edits, Undo/Redo, 413, and persistence
 
 ## Finish in this order
 
-1. Complete gain/pan strip playback through immutable prepared bindings and shared
-   renderer evaluation/smoothing, same live/offline semantics. Current implementation
-   is in progress; verify compile, cycle/seek/song selection, bypass and no-point
-   behavior before enabling targets. Mute/send remain explicitly unavailable until
-   safe audibility/edge-gain behavior exists. Do not toggle immutable edge.active
-   from audio or casually bypass existing mute/solo/pan-law/PDC.
-   **Editing while playing is required**, not optional follow-up: newly committed
-   points/curves/notes/regions must replace prepared data at a safe block boundary
-   without stopping/rewinding transport or restarting a healthy vendor instance.
-   Account for already-sounding notes, concurrent live input and loop boundaries.
+1. Strip fader and pan automation playback is implemented and verified. Safe mute
+   and send automation remain explicitly reserved until safe audibility/edge-gain
+   behavior exists. Live-editing while playing is fully verified by `editor-state.mjs`.
 2. Complete component/gesture tests and actual HTTP persistence/history acceptance.
    Selected automation points must delete instead of selected regions; all gestures
    claim pointer ownership. Empty current-value baseline is not selectable. Changing
