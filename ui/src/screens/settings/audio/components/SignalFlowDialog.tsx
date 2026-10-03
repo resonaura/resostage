@@ -11,20 +11,48 @@ import { fetchMixGraph } from "@/lib/state/api";
 import { SignalFlowGraph } from "@/screens/settings/audio/components/SignalFlowGraph";
 import type { MixGraphPayload } from "@/screens/settings/audio/logic/signalFlowLayout";
 import type { WebUiState } from "@/lib/state/types";
-import { buildSignalFlowModel } from "@/screens/settings/audio/logic/signalFlowModel";
+import {
+  buildSignalFlowModel,
+  resolveSignalFlowFocus,
+} from "@/screens/settings/audio/logic/signalFlowModel";
 
 /** How often the open diagram re-reads the graph. Routing only changes when
  *  someone turns a knob, so this is about staying live during a soundcheck,
  *  not about frame rate. */
 const REFRESH_MS = 700;
 
-export function SignalFlowDialog({ state, onClose }: { state: WebUiState; onClose: () => void }) {
+export function SignalFlowDialog({
+  state,
+  onClose,
+  focusStripId,
+  focusStripName,
+}: {
+  state: WebUiState;
+  onClose: () => void;
+  /** Stable Core strip identity; never use the strip's current row index. */
+  focusStripId?: string;
+  focusStripName?: string;
+}) {
   const latestState = useRef(state);
   latestState.current = state;
+  const openedProject = useRef({
+    stateSessionId: state.stateSessionId,
+    projectEpoch: state.projectEpoch,
+  });
   const [snapshot, setSnapshot] = useState<{ graph: MixGraphPayload; state: WebUiState } | null>(null);
   const [error, setError] = useState(false);
   const [live, setLive] = useState(true);
+  const [focusedView, setFocusedView] = useState(Boolean(focusStripId));
   const model = useMemo(() => snapshot ? buildSignalFlowModel(snapshot.graph, snapshot.state) : null, [snapshot]);
+  const focus = resolveSignalFlowFocus(model, focusStripId, focusedView,
+    openedProject.current, state);
+  const focusProjectMatches = focus.projectMatches;
+  const focusTargetExists = focus.targetExists;
+  const showingFocusedView = focus.focusNodeId !== undefined && focus.focusNodeId !== null;
+
+  useEffect(() => {
+    setFocusedView(Boolean(focusStripId));
+  }, [focusStripId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,11 +93,25 @@ export function SignalFlowDialog({ state, onClose }: { state: WebUiState; onClos
                   Signal flow
                 </Modal.Heading>
                 <p className="truncate text-[11px] text-foreground/45">
-                  Core audio graph and configured MIDI paths · physical destinations on the right.
+                  {focusStripId
+                    ? `Core audio routes around ${focusStripName || focusStripId} · physical destinations on the right.`
+                    : "Core audio graph and configured MIDI paths · physical destinations on the right."}
                 </p>
               </div>
 
               <div className="ml-auto flex flex-wrap items-center gap-3">
+                {focusStripId && (
+                  <Button
+                    size="sm"
+                    variant={showingFocusedView ? "secondary" : "outline"}
+                    onPress={() => setFocusedView((value) => !value)}
+                    isDisabled={!focusTargetExists}
+                    className="h-7! min-h-0! px-2! text-[11px]"
+                    aria-label={showingFocusedView ? "Show full signal-flow tree" : `Focus signal flow on ${focusStripName || focusStripId}`}
+                  >
+                    {showingFocusedView ? "Focused path" : "Full tree"}
+                  </Button>
+                )}
                 <span className="text-[10px] text-foreground/55">Track and mixer colours</span>
                 <span className="text-[10px] text-foreground/55">Solid = audio · dotted = MIDI</span>
                 <Button
@@ -100,7 +142,18 @@ export function SignalFlowDialog({ state, onClose }: { state: WebUiState; onClos
                   Reading routing…
                 </div>
               ) : (
-                <SignalFlowGraph model={model} />
+                <div className="flex h-full min-h-0 flex-col">
+                  {focusStripId && !focusTargetExists && (
+                    <div role="status" className="shrink-0 border-b border-warning/25 bg-warning/5 px-4 py-2 text-xs text-warning">
+                      {focusProjectMatches
+                        ? `${focusStripName || "Focused bus"} is no longer present in the current routing graph. Showing the full graph.`
+                        : "The Core project/session changed while Signal Flow was open. The original bus focus was cleared; showing the full graph."}
+                    </div>
+                  )}
+                  <div className="min-h-0 flex-1">
+                    <SignalFlowGraph model={model} focusNodeId={focus.focusNodeId} />
+                  </div>
+                </div>
               )}
             </Modal.Body>
 

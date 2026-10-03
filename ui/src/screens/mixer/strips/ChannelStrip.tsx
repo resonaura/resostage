@@ -59,6 +59,9 @@ export function ChannelStrip({
   shortTermLufs: _shortTermLufs,
   onRecordArm,
   onInputMonitor,
+  onShowSignalFlow,
+  audioFlowOpen = false,
+  audioFlowLabel,
   formatToggle,
   inputRouting,
   pluginSlots = [],
@@ -280,6 +283,9 @@ export function ChannelStrip({
         isFocused={isFocused}
         onRecordArm={onRecordArm}
         onInputMonitor={onInputMonitor}
+        onShowSignalFlow={onShowSignalFlow}
+        audioFlowOpen={audioFlowOpen}
+        audioFlowLabel={audioFlowLabel ?? name}
         mute={mute}
         solo={solo}
         soloSafe={soloSafe}

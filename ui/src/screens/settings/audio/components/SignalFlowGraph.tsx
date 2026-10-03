@@ -28,10 +28,17 @@ function edgeLabel(edge: SignalFlowEdge): string {
 }
 
 /** Audio wiring comes from Core verbatim; dotted MIDI paths describe published configuration. */
-export const SignalFlowGraph = memo(function SignalFlowGraph({ model }: { model: SignalFlowModel }) {
+export const SignalFlowGraph = memo(function SignalFlowGraph({
+  model,
+  focusNodeId,
+}: {
+  model: SignalFlowModel;
+  /** `null` explicitly shows the whole graph; undefined keeps interactive focus. */
+  focusNodeId?: string | null;
+}) {
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
-  const focusId = pinnedId ?? hoverId;
+  const focusId = focusNodeId !== undefined ? focusNodeId : pinnedId ?? hoverId;
   const themeVersion = useThemeVersion();
   const colors = useMemo(() => {
     const ink = resolveCssVar("--foreground", "#ffffff");

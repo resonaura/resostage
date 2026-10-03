@@ -29,6 +29,8 @@ function BusStripInner({
   density = "standard",
   targetPluginSlots,
   onOpenPlugins,
+  onShowSignalFlow,
+  signalFlowOpenId,
 }: {
   b: BusRow;
   index: number;
@@ -41,6 +43,8 @@ function BusStripInner({
   density?: "narrow" | "standard" | "wide";
   targetPluginSlots?: number;
   onOpenPlugins: (stripId: string, stripName: string) => void;
+  onShowSignalFlow?: (stripId: string, stripName: string) => void;
+  signalFlowOpenId?: string | null;
 }) {
   const meter = meters.find((m) => m.id === b.id);
   const color = isMaster ? masterColor() : sendColor();
@@ -96,6 +100,8 @@ function BusStripInner({
       pluginSlots={b.plugins ?? []}
       pluginCatalog={pluginCatalog}
       onPlugins={() => onOpenPlugins(b.id, b.name || b.id)}
+      onShowSignalFlow={onShowSignalFlow ? () => onShowSignalFlow(b.id, b.name || b.id) : undefined}
+      audioFlowOpen={signalFlowOpenId === b.id}
       onGain={(v) => mixer.setBusGain(index, v)}
       onPan={(v) => mixer.setBusPan(index, v)}
       onMute={() => mixer.setBusMute(index, !b.mute)}
@@ -123,6 +129,8 @@ export const BusStrip = memo(BusStripInner, (prev, next) => {
     prev.anySoloInGroup === next.anySoloInGroup &&
     prev.settings === next.settings &&
     prev.onOpenPlugins === next.onOpenPlugins &&
+    prev.onShowSignalFlow === next.onShowSignalFlow &&
+    prev.signalFlowOpenId === next.signalFlowOpenId &&
     prev.pluginCatalog === next.pluginCatalog &&
     sameExceptLevels(prev.b, next.b) &&
     sameExceptLevels(prev.master, next.master) &&

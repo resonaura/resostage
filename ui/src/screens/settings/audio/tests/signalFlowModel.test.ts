@@ -7,7 +7,11 @@
 import { describe, expect, it } from "vitest";
 import type { MixGraphPayload, MixGraphStrip } from "@/lib/audio/mixGraph";
 import { emptyState, type SongRow, type TrackRow } from "@/lib/state/types";
-import { buildSignalFlowModel } from "@/screens/settings/audio/logic/signalFlowModel";
+import {
+  buildSignalFlowModel,
+  resolveSignalFlowFocus,
+  type SignalFlowModel,
+} from "@/screens/settings/audio/logic/signalFlowModel";
 import { layerStrips, pathThrough } from "@/screens/settings/audio/logic/signalFlowLayout";
 
 function track(id: string, kind: TrackRow["kind"] = "instrument", extra: Partial<TrackRow> = {}): TrackRow {
@@ -22,6 +26,25 @@ const graphFor = (tracks: TrackRow[]): MixGraphPayload => ({ strips: tracks.map(
 const song = (): SongRow => ({ name: "Current song", bpm: 120, mode: "auto", tsNum: 4, tsDen: 4, click: false, clickBusId: "audio::main", clickSends: [], events: [] });
 
 describe("signal flow model", () => {
+  it("clears a bus focus when its stable ID disappears or the project epoch changes", () => {
+    const model: SignalFlowModel = {
+      strips: [{ id: "bus-1", kind: "send", strip: strip("bus-1", { kind: "send" }) }],
+      edges: [],
+      midiConnections: 0,
+    };
+    const openedProject = { stateSessionId: "core-session", projectEpoch: 4 };
+    const unchangedProject = { stateSessionId: "core-session", projectEpoch: 4 };
+    expect(resolveSignalFlowFocus(model, "bus-1", true, openedProject, unchangedProject))
+      .toEqual({ projectMatches: true, targetExists: true, focusNodeId: "bus-1" });
+    expect(resolveSignalFlowFocus(model, "bus-1", false, openedProject, unchangedProject).focusNodeId)
+      .toBeNull();
+    expect(resolveSignalFlowFocus(model, "deleted-bus", true, openedProject, unchangedProject))
+      .toEqual({ projectMatches: true, targetExists: false, focusNodeId: null });
+    expect(resolveSignalFlowFocus(model, "bus-1", true, openedProject,
+      { stateSessionId: "core-session", projectEpoch: 5 }))
+      .toEqual({ projectMatches: false, targetExists: false, focusNodeId: null });
+  });
+
   it("preserves direct L/R, bus physical routes and shadow lanes from Core", () => {
     const graph: MixGraphPayload = {
       strips: [strip("track"), strip("aux", { kind: "send" }), strip("main", { kind: "main" }),
@@ -44,6 +67,28 @@ describe("signal flow model", () => {
     expect(columns.get("audio::out:2")).toBe(destinationColumn);
     expect(destinationColumn).toBeGreaterThan(columns.get("aux")!);
     expect(pathThrough(model.edges, "track").strips.has("audio::out:9")).toBe(true);
+  });
+
+  it("focuses a bus by stable ID and keeps its reachable source and destination path", () => {
+    const model: MixGraphPayload = {
+      strips: [strip("track-a"), strip("track-b"), strip("send-a", { kind: "send" }),
+        strip("send-b", { kind: "send" }), strip("main", { kind: "main" }),
+        strip("audio::out:1", { kind: "output", physicalChannel: 0 })],
+      edges: [
+        { from: "track-a", to: "send-a", level: 35, preFader: true, active: true, sourceChannel: -1 },
+        { from: "track-a", to: "main", level: 100, preFader: false, active: true, sourceChannel: -1 },
+        { from: "track-b", to: "send-b", level: 50, preFader: false, active: true, sourceChannel: -1 },
+        { from: "send-a", to: "main", level: 100, preFader: false, active: true, sourceChannel: -1 },
+        { from: "send-b", to: "main", level: 100, preFader: false, active: true, sourceChannel: -1 },
+        { from: "main", to: "audio::out:1", level: 100, preFader: false, active: true, sourceChannel: -1 },
+      ],
+    };
+    const focused = pathThrough(model.edges, "send-a");
+    expect([...focused.strips]).toEqual(expect.arrayContaining(["send-a", "track-a", "main", "audio::out:1"]));
+    expect(focused.strips.has("track-b")).toBe(false);
+    expect(focused.strips.has("send-b")).toBe(false);
+    expect([...focused.edges].map((index) => model.edges[index].from + "->" + model.edges[index].to))
+      .toEqual(expect.arrayContaining(["track-a->send-a", "send-a->main", "main->audio::out:1"]));
   });
 
   it("routes selected inputs through the shared queue to focused, armed and monitored tracks", () => {

@@ -70,6 +70,9 @@ export type ChannelStripProps = {
   shortTermLufs?: number;
   onRecordArm?: () => void;
   onInputMonitor?: () => void;
+  onShowSignalFlow?: () => void;
+  audioFlowOpen?: boolean;
+  audioFlowLabel?: string;
   formatToggle?: StripFormatToggle;
   inputRouting?: StripInputRouting;
   pluginSlots?: PluginSlotRow[];

@@ -27,6 +27,8 @@ export function MixerClickMasterLane({
   masterBusses,
   onDirectOutput,
   onOpenPlugins,
+  onShowSignalFlow,
+  signalFlowOpenId,
   onMenuTarget,
 }: {
   state: WebUiState;
@@ -37,6 +39,8 @@ export function MixerClickMasterLane({
   masterBusses: BusRow[];
   onDirectOutput: (startChannel: number, pair: boolean) => void;
   onOpenPlugins: (stripId: string, stripName: string) => void;
+  onShowSignalFlow: (stripId: string, stripName: string) => void;
+  signalFlowOpenId: string | null;
   onMenuTarget: (target: StripMenuTarget) => void;
 }) {
   const clickSends = state.click
@@ -105,6 +109,8 @@ export function MixerClickMasterLane({
             density={density}
             targetPluginSlots={targetPluginSlots}
             onOpenPlugins={onOpenPlugins}
+            onShowSignalFlow={onShowSignalFlow}
+            signalFlowOpenId={signalFlowOpenId}
           />
         </div>
       ))}

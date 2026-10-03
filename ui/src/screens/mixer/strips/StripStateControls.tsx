@@ -5,6 +5,7 @@
  */
 
 import { StripButton } from "@/screens/mixer/strips/StripButton";
+import { Workflow } from "lucide-react";
 
 export function StripStateControls({
   isNarrow,
@@ -14,6 +15,9 @@ export function StripStateControls({
   isFocused = false,
   onRecordArm,
   onInputMonitor,
+  onShowSignalFlow,
+  audioFlowOpen = false,
+  audioFlowLabel = "this bus",
   mute,
   solo,
   soloSafe,
@@ -29,6 +33,9 @@ export function StripStateControls({
   isFocused?: boolean;
   onRecordArm?: () => void;
   onInputMonitor?: () => void;
+  onShowSignalFlow?: () => void;
+  audioFlowOpen?: boolean;
+  audioFlowLabel?: string;
   mute: boolean;
   solo: boolean;
   soloSafe: boolean;
@@ -120,6 +127,24 @@ export function StripStateControls({
       )}
 
       <div className="flex w-full gap-1">
+        {onShowSignalFlow && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={onShowSignalFlow}
+            title={`Show audio flow for ${audioFlowLabel}`}
+            aria-label={`Show audio flow for ${audioFlowLabel}`}
+            aria-pressed={audioFlowOpen}
+            className={`relative flex h-6 flex-1 items-center justify-center rounded border transition-all select-none ${
+              audioFlowOpen
+                ? "border-accent/50 bg-accent/15 text-accent"
+                : "border-default/30 bg-surface/60 text-foreground/75 hover:bg-surface hover:text-foreground"
+            }`}
+          >
+            <Workflow size={12} strokeWidth={2} aria-hidden="true" />
+          </button>
+        )}
         <StripButton
           active={mute}
           variant="mute"

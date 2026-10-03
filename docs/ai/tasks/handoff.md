@@ -547,10 +547,12 @@ are in [audit.md](audit.md).
   remain rig-wide AppSettings, so target IDs that recur across projects still
   need an explicit project/song scoping policy before this feature is fully
   generalized to project-bound controls.
-- useChannelClipHold stores clip state inside each hook instance; Timeline's
-  MeterFader does not consume that latch.
-- Audio Flow exists in Settings > Audio, but Mixer has no bus-origin focus and
-  the current graph/project route model has no sidechain input edges.
+- useChannelClipHold reads a bounded external store keyed by Core/project
+  identity and stable strip ID. Timeline and Mixer controls share it and the
+  same reset. Inspector wiring and cross-surface live acceptance remain open.
+- Mixer aux/main bus strips now open the Settings Audio Flow dialog with a
+  stable bus focus and a full-tree toggle. Plugin sidechain input edges and
+  actual sidechain processing remain absent; see audio-flow.md.
 - Song BPM, base time signature, tempo/signature markers, and song update
   routes already exist; SongTempoControl is already in the global transport
   header. Regression coverage for active-song routing and point-map semantics

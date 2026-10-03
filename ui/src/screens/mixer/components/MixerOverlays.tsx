@@ -4,6 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
+import { lazy, Suspense } from "react";
 import type { RenderDialogIntent } from "@/transfer/render/components/RenderAudioDialog";
 import type { WebUiState } from "@/lib/state/types";
 import { PluginChainModal } from "@/screens/mixer/plugins/PluginChainModal";
@@ -12,10 +13,17 @@ import {
   type StripMenuTarget,
 } from "@/screens/mixer/strips/StripContextMenu";
 
-export interface PluginTarget {
+const SignalFlowDialog = lazy(() =>
+  import("@/screens/settings/audio/components/SignalFlowDialog").then((module) => ({
+    default: module.SignalFlowDialog,
+  })),
+);
+
+export interface MixerStripTarget {
   stripId: string;
   stripName: string;
 }
+export type PluginTarget = MixerStripTarget;
 
 /** Context-menu and plug-in-chain overlays owned by the Mixer screen. */
 export function MixerOverlays({
@@ -23,17 +31,21 @@ export function MixerOverlays({
   songIndex,
   menu,
   pluginTarget,
+  signalFlowTarget,
   onRender,
   onCloseMenu,
   onClosePlugins,
+  onCloseSignalFlow,
 }: {
   state: WebUiState;
   songIndex: number;
   menu: StripMenuTarget | null;
   pluginTarget: PluginTarget | null;
+  signalFlowTarget: MixerStripTarget | null;
   onRender: (intent: RenderDialogIntent) => void;
   onCloseMenu: () => void;
   onClosePlugins: () => void;
+  onCloseSignalFlow: () => void;
 }) {
   return (
     <>
@@ -65,6 +77,16 @@ export function MixerOverlays({
           }
           onClose={onClosePlugins}
         />
+      )}
+      {signalFlowTarget && (
+        <Suspense fallback={null}>
+          <SignalFlowDialog
+            state={state}
+            focusStripId={signalFlowTarget.stripId}
+            focusStripName={signalFlowTarget.stripName}
+            onClose={onCloseSignalFlow}
+          />
+        </Suspense>
       )}
     </>
   );

@@ -1090,15 +1090,18 @@ acceptance is split into [automation.md](automation.md),
   track/bus/master/click pan and track/click send level. Remaining: expose the
   policy to any future rotary widget through its shared owner, and define
   project/song scope for currently rig-wide MIDI mappings.
-- useChannelClipHold stores its latch in each React hook instance. Mixer
-  components sharing a stable track ID can still own separate holds, and the
-  Timeline's MeterFader does not use the same latch store. This is a confirmed
-  ownership mismatch, not yet proof of the exact user's Inspector symptom.
+- useChannelClipHold now reads the bounded shared store in
+  `ui/src/lib/audio/channelClipHold.ts`; decoded meter telemetry publishes
+  once under Core origin/session/project epoch plus stable strip ID. Timeline
+  `TrackGainControl` and Mixer `ChannelStrip` share the same latch and clear
+  action. The Inspector still needs integration and real cross-surface
+  acceptance for the reported stale peak symptom.
 - Audio Flow already exists under Settings > Audio and reads Core's MixGraph,
-  with MIDI configuration shown as separate dotted routes. Mixer bus strips do
-  not yet open it focused on their bus. Current MixGraph edges do not encode
-  plugin sidechain/aux-input edges; true sidechain audio is not present in the
-  inspected project/schema path.
+  with MIDI configuration shown as separate dotted routes. Mixer aux/main bus
+  strips now open it focused on their stable ID and can toggle the full graph;
+  regression coverage is documented in `audio-flow.md`. Current MixGraph
+  edges do not encode plugin sidechain/aux-input edges; true sidechain audio is
+  not present in the inspected project/schema path.
 - Active-song BPM and signature are already shown and edited in the global
   transport header through SongTempoControl's popover; Tap Tempo also writes
   the active song. `patchClickFields` reaches the reliable song-update route.

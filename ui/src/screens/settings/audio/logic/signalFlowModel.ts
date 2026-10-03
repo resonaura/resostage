@@ -34,6 +34,24 @@ export interface SignalFlowModel {
   midiConnections: number;
 }
 
+export function resolveSignalFlowFocus(
+  model: SignalFlowModel | null,
+  focusStripId: string | undefined,
+  focusedView: boolean,
+  openedProject: Pick<WebUiState, "stateSessionId" | "projectEpoch">,
+  currentProject: Pick<WebUiState, "stateSessionId" | "projectEpoch">,
+): { projectMatches: boolean; targetExists: boolean; focusNodeId: string | null | undefined } {
+  const projectMatches = openedProject.stateSessionId === currentProject.stateSessionId &&
+    openedProject.projectEpoch === currentProject.projectEpoch;
+  const targetExists = Boolean(focusStripId && projectMatches &&
+    model?.strips.some((node) => node.id === focusStripId));
+  return {
+    projectMatches,
+    targetExists,
+    focusNodeId: focusStripId ? (focusedView && targetExists ? focusStripId : null) : undefined,
+  };
+}
+
 const INPUT_ROUTER = "midi::live-input";
 const OUTPUT_ROUTER = "midi::dispatcher";
 

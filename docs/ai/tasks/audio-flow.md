@@ -69,9 +69,10 @@ cache positions by topology identity, retain the last complete route set while
 re-layout runs, and never recompute route paths for meter/fader telemetry.
 
 The existing implementation already caches layout positions by graph topology,
-but uses a general React Flow graph and does not yet provide bus-origin focus,
-sidechain-port semantics or proof that edge curves/labels remain legible in
-dense crossed routing. Improve the route strategy with deterministic
+and bus-origin focus/full-tree viewing is now wired through the Mixer. It still
+uses a general React Flow graph and does not provide sidechain-port semantics
+or proof that edge curves/labels remain legible in dense crossed routing.
+Improve the route strategy with deterministic
 crossing-reduction, obstacle-clearance and parallel-lane separation; avoid
 adding an unbounded graph worker or introducing visual routes that disagree
 with Core's published MixGraph.
@@ -93,3 +94,23 @@ with Core's published MixGraph.
   real compatible VST3 and AU, channel mapping, PDC, bypass, plugin load failure,
   source deletion, cycle rejection and active playback edits. Synthetic graph
   tests do not prove signal reaches a plugin's auxiliary input.
+
+## Implemented block — mixer bus-origin focus (2026-10-03)
+
+Bus strips (aux and main, including the fixed master lane) now show a compact
+icon-only Audio Flow control immediately before Mute/Solo. The selected bus
+uses its stable Core strip ID; opening it reuses the Settings graph snapshot,
+layout cache, colours and refresh/freeze behaviour. Focus view highlights all
+reachable upstream and downstream audio routes and dims unrelated branches;
+the header toggles to the un-dimmed full graph. MIDI configuration is retained
+in the full graph and is not mislabeled as an audio edge. If a refresh no longer
+contains the focused ID, the dialog reports that explicitly and shows the full
+graph instead of following a replacement row at the old index.
+
+Added regressions for the icon action being bus-only, its pressed state and
+activation, stable-ID path reachability around a send bus, target deletion and
+project-epoch/session changes during the dialog lifetime. UI TypeScript passed;
+the full UI suite passed 827 tests in 125 files; lint exited 0 with 12 existing
+warnings in unrelated files; `git diff --check` passed. This block changes no
+Core graph data and makes no sidechain claim. Remote Core, visual density,
+stale in-flight graph response and hardware audio acceptance remain open.

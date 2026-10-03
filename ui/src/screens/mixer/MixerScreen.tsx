@@ -52,10 +52,14 @@ export function MixerScreen({
     useMixerDirectOutput(state);
   const [menu, setMenu] = useState<StripMenuTarget | null>(null);
   const [pluginTarget, setPluginTarget] = useState<PluginTarget | null>(null);
+  const [signalFlowTarget, setSignalFlowTarget] = useState<PluginTarget | null>(null);
   const effectCatalog = usePluginCatalog(active);
 
   const openPlugins = useCallback((stripId: string, stripName: string) => {
     setPluginTarget({ stripId, stripName });
+  }, []);
+  const openSignalFlow = useCallback((stripId: string, stripName: string) => {
+    setSignalFlowTarget({ stripId, stripName });
   }, []);
 
   const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
@@ -113,6 +117,8 @@ export function MixerScreen({
               visibleWindow={sendWindow.window}
               onAddSend={requestAddSend}
               onOpenPlugins={openPlugins}
+              onShowSignalFlow={openSignalFlow}
+              signalFlowOpenId={signalFlowTarget?.stripId ?? null}
               onMenuTarget={setMenu}
             />
 
@@ -127,6 +133,8 @@ export function MixerScreen({
               masterBusses={masterBusses}
               onDirectOutput={requestClickDirectOutput}
               onOpenPlugins={openPlugins}
+              onShowSignalFlow={openSignalFlow}
+              signalFlowOpenId={signalFlowTarget?.stripId ?? null}
               onMenuTarget={setMenu}
             />
           </>
@@ -138,9 +146,11 @@ export function MixerScreen({
         songIndex={songIndex}
         menu={menu}
         pluginTarget={pluginTarget}
+        signalFlowTarget={signalFlowTarget}
         onRender={onRender}
         onCloseMenu={() => setMenu(null)}
         onClosePlugins={() => setPluginTarget(null)}
+        onCloseSignalFlow={() => setSignalFlowTarget(null)}
       />
     </div>
   );

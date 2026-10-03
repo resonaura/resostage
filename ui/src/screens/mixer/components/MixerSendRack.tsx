@@ -31,6 +31,8 @@ export function MixerSendRack({
   visibleWindow,
   onAddSend,
   onOpenPlugins,
+  onShowSignalFlow,
+  signalFlowOpenId,
   onMenuTarget,
 }: {
   state: SendRackState;
@@ -45,6 +47,8 @@ export function MixerSendRack({
   visibleWindow: WindowResult;
   onAddSend: () => void;
   onOpenPlugins: (stripId: string, stripName: string) => void;
+  onShowSignalFlow: (stripId: string, stripName: string) => void;
+  signalFlowOpenId: string | null;
   onMenuTarget: (target: StripMenuTarget) => void;
 }) {
   const stripWidth =
@@ -105,6 +109,8 @@ export function MixerSendRack({
             density={density}
             targetPluginSlots={targetPluginSlots}
             onOpenPlugins={onOpenPlugins}
+            onShowSignalFlow={onShowSignalFlow}
+            signalFlowOpenId={signalFlowOpenId}
           />
         </div>
       ))}
