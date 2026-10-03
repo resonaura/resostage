@@ -214,6 +214,7 @@ export function AudioTrackLanes({
           ? getAutomationLanesForTrack(
               track,
               state.songs[state.songIndex ?? 0]?.automationLanes ?? [],
+              state.tracks,
             )
           : [];
         const activeAutomationLaneId = track ? activeAutomationLaneIds?.[track.id] : undefined;
@@ -318,7 +319,9 @@ export function AudioTrackLanes({
               const peakEntryFor = (r: RegionRow) =>
                 peakLookupPerSong[i]?.forRegion(r, track?.id);
 
-              const trackLanes = track ? getAutomationLanesForTrack(track, song.automationLanes ?? []) : [];
+              const trackLanes = track
+                ? getAutomationLanesForTrack(track, song.automationLanes ?? [], state.tracks)
+                : [];
               const targets = track ? getTrackAutomationTargets(track, state.busses, trackLanes, automationParameters)
                 .flatMap((group) => group.targets) : [];
               const chosenTarget = targets.find((target) => target.id === activeAutomationLaneId);

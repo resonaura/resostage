@@ -7,10 +7,14 @@
 import type {
   AutomationLaneRow,
   BusRow,
-  PluginParameterList,
   SongRow,
   TrackRow,
 } from "@/lib/state/types";
+import {
+  getPluginParameterList,
+  pluginParameterKey,
+  type AutomationPluginParameterCatalog,
+} from "@/screens/editor/timeline/automation/logic/pluginParameterIdentity";
 import type {
   AutomationTargetCategory,
   AutomationTargetOption,
@@ -25,7 +29,7 @@ export interface GroupedAutomationTargets {
 export interface DetachedPluginAutomationLane {
   lane: AutomationLaneRow;
   location: string;
-  reason: "slot-missing" | "plugin-unavailable" | "parameter-unbound";
+  reason: "slot-missing" | "slot-ambiguous" | "plugin-unavailable" | "parameter-unbound";
 }
 
 /**
@@ -37,11 +41,15 @@ export interface DetachedPluginAutomationLane {
 export function getDetachedPluginAutomationLanes(
   tracks: TrackRow[],
   song: SongRow | undefined,
-  parameters: Readonly<Record<string, PluginParameterList>> = {},
+  parameters: AutomationPluginParameterCatalog = {},
 ): DetachedPluginAutomationLane[] {
   if (!song) return [];
-  const slotsById = new Map((tracks ?? []).flatMap((track) =>
-    (track.plugins ?? []).map((slot) => [slot.id, slot] as const)));
+  const slotsById = new Map<string, Array<{ slot: NonNullable<TrackRow["plugins"]>[number]; track: TrackRow }>>();
+  for (const track of tracks ?? []) for (const slot of track.plugins ?? []) {
+    const matches = slotsById.get(slot.id) ?? [];
+    matches.push({ slot, track });
+    slotsById.set(slot.id, matches);
+  }
   const locatedLanes: Array<{ lane: AutomationLaneRow; location: string }> = [
     ...(song.automationLanes ?? []).map((lane) => ({ lane, location: "Song automation" })),
     ...(song.regions ?? []).flatMap((region) => (region.automationLanes ?? []).map((lane) => ({
@@ -56,13 +64,18 @@ export function getDetachedPluginAutomationLanes(
   const detached: DetachedPluginAutomationLane[] = [];
   for (const { lane, location } of locatedLanes) {
     if (lane.target.domain !== "plugin") continue;
-    const slot = slotsById.get(lane.target.entityId);
-    if (!slot) {
+    const matchingSlots = slotsById.get(lane.target.entityId) ?? [];
+    if (matchingSlots.length === 0) {
       detached.push({ lane, location, reason: "slot-missing" });
       continue;
     }
+    if (matchingSlots.length > 1) {
+      detached.push({ lane, location, reason: "slot-ambiguous" });
+      continue;
+    }
+    const { slot, track } = matchingSlots[0];
 
-    const metadata = parameters[slot.id];
+    const metadata = getPluginParameterList(parameters, track.stripId ?? track.id, slot.id);
     if (metadata?.loadState === "failed" || metadata?.loadState === "missing"
       || slot.loadState === "failed" || slot.loadState === "missing") {
       detached.push({ lane, location, reason: "plugin-unavailable" });
@@ -89,7 +102,7 @@ export function getTrackAutomationTargets(
   track: TrackRow,
   buses?: BusRow[],
   existingLanes?: AutomationLaneRow[],
-  parameters: Readonly<Record<string, PluginParameterList>> = {},
+  parameters: AutomationPluginParameterCatalog = {},
 ): GroupedAutomationTargets[] {
   const groups: GroupedAutomationTargets[] = [];
 
@@ -187,13 +200,18 @@ export function getTrackAutomationTargets(
   const pluginTargets: AutomationTargetOption[] = [];
   if (track.plugins && track.plugins.length > 0) {
     track.plugins.forEach((slot, slotIdx) => {
-      const metadata = parameters[slot.id];
+      const stripId = track.stripId ?? track.id;
+      const metadata = getPluginParameterList(parameters, stripId, slot.id);
       const loadState = metadata?.loadState ?? slot.loadState ?? "loading";
       const slotName = slot.name || `Insert ${slotIdx + 1}`;
+      const targetSlotId = pluginParameterKey(stripId, slot.id);
+      const disabledReason = metadata?.scopeAmbiguous
+        ? "Plug-in slot ID is duplicated; this legacy automation target cannot identify one strip."
+        : undefined;
 
       // Discover actual vendor parameters. Never substitute an invented Param 1.
       for (const parameter of metadata?.parameters ?? []) pluginTargets.push({
-        id: `plugin:${slot.id}:${parameter.parameterId}`,
+        id: `plugin:${targetSlotId}:${parameter.parameterId}`,
         domain: "plugin",
         entityId: slot.id,
         parameterId: parameter.parameterId,
@@ -206,15 +224,18 @@ export function getTrackAutomationTargets(
         minValue: 0.0,
         maxValue: 1.0,
         unit: "",
-        disabledReason: loadState !== "loaded" ? `Plug-in ${loadState}`
-          : !parameter.automatable ? "Parameter cannot be automated" : undefined,
+        disabledReason: disabledReason ?? (
+          loadState !== "loaded" ? `Plug-in ${loadState}`
+            : !parameter.automatable ? "Parameter cannot be automated" : undefined
+        ),
       });
       if (!metadata?.parameters.length) pluginTargets.push({
-        id: `plugin:${slot.id}:status`, domain: "plugin", entityId: slot.id,
+        id: `plugin:${targetSlotId}:status`, domain: "plugin", entityId: slot.id,
         parameterId: "", label: `${slotName} · ${loadState === "loaded" ? "No automatable parameters" : loadState}`,
         category: "plugin", valueType: "floatNormalized", defaultValue: 0,
         minValue: 0, maxValue: 1, unit: "",
-        disabledReason: metadata?.loadError || (loadState === "loaded" ? "No parameters exposed" : `Plug-in ${loadState}`),
+        disabledReason: disabledReason ?? metadata?.loadError
+          ?? (loadState === "loaded" ? "No parameters exposed" : `Plug-in ${loadState}`),
       });
 
       // Retain any other parameters already automated in existingLanes for this slot
@@ -235,7 +256,7 @@ export function getTrackAutomationTargets(
                 paramLabel = Number.isFinite(idx) ? `Param ${idx + 1}` : paramLabel;
               }
               pluginTargets.push({
-                id: `plugin:${slot.id}:${lane.target.parameterId}`,
+                id: `plugin:${targetSlotId}:${lane.target.parameterId}`,
                 domain: "plugin",
                 entityId: slot.id,
                 parameterId: lane.target.parameterId,
@@ -247,9 +268,11 @@ export function getTrackAutomationTargets(
                 maxValue: lane.target.maxValue ?? 1.0,
                 unit: "",
                 currentValue: lane.target.defaultValue,
-                disabledReason: loadState !== "loaded" ? `Plug-in ${loadState}`
-                  : metadata?.truncated ? "Parameter unavailable in bounded metadata"
-                  : "Unbound: parameter no longer exposed by this plug-in",
+                disabledReason: disabledReason ?? (
+                  loadState !== "loaded" ? `Plug-in ${loadState}`
+                    : metadata?.truncated ? "Parameter unavailable in bounded metadata"
+                      : "Unbound: parameter no longer exposed by this plug-in"
+                ),
               });
             }
           }
@@ -457,9 +480,25 @@ export function matchesAutomationTarget(option: AutomationTargetOption, target: 
 }
 
 /** Slot ownership must be included; plugin lanes target a slot UUID, not a track. */
-export function getAutomationLanesForTrack(track: TrackRow, lanes: AutomationLaneRow[]): AutomationLaneRow[] {
-  const owned = new Set([track.id, track.stripId, ...(track.plugins ?? []).map((slot) => slot.id)]);
-  return lanes.filter((lane) => owned.has(lane.target.entityId));
+export function getAutomationLanesForTrack(
+  track: TrackRow,
+  lanes: AutomationLaneRow[],
+  projectTracks: TrackRow[] = [track],
+): AutomationLaneRow[] {
+  const trackOwned = new Set([track.id, track.stripId]);
+  const slotOwners = new Map<string, TrackRow[]>();
+  for (const candidate of projectTracks) for (const slot of candidate.plugins ?? []) {
+    const owners = slotOwners.get(slot.id) ?? [];
+    owners.push(candidate);
+    slotOwners.set(slot.id, owners);
+  }
+  const ownedSlotIds = new Set((track.plugins ?? []).map((slot) => slot.id));
+  return lanes.filter((lane) => {
+    if (lane.target.domain !== "plugin") return trackOwned.has(lane.target.entityId);
+    if (!ownedSlotIds.has(lane.target.entityId)) return false;
+    const owners = slotOwners.get(lane.target.entityId) ?? [];
+    return owners.length === 1 && owners[0].id === track.id;
+  });
 }
 
 /**

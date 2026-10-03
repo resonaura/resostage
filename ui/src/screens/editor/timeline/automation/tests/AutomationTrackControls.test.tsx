@@ -409,7 +409,7 @@ describe("AutomationTrackControls", () => {
           songIndex: 0,
           track: trackWithFailedPlugin,
           lanes: [],
-          activeLaneId: "plugin:slot:crash:status",
+          activeLaneId: 'plugin:["track-1","slot:crash"]:status',
           onSelectLane: vi.fn(),
         }),
       );

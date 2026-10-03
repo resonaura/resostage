@@ -135,7 +135,7 @@ describe("DetachedAutomationRecovery", () => {
     const select = container.querySelector<HTMLSelectElement>("select[aria-label='Rebind id:old-filter']");
     expect(select).not.toBeNull();
     act(() => {
-      select!.value = "plugin:slot:loaded:id:cutoff";
+      select!.value = 'plugin:["track:keys","slot:loaded"]:id:cutoff';
       select!.dispatchEvent(new Event("change", { bubbles: true }));
     });
     const rebindButton = [...container.querySelectorAll("button")]

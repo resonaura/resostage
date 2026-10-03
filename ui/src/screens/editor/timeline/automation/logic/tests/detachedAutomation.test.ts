@@ -84,6 +84,19 @@ describe("getDetachedPluginAutomationLanes", () => {
     ]);
   });
 
+  it("surfaces lanes with duplicate slot identities for explicit recovery", () => {
+    const ambiguousLane = lane("ambiguous", "slot:duplicate");
+    const song = { automationLanes: [ambiguousLane], regions: [], midiRegions: [] } as unknown as SongRow;
+    const tracks = [
+      { id: "track:one", plugins: [{ id: "slot:duplicate" }] },
+      { id: "track:two", plugins: [{ id: "slot:duplicate" }] },
+    ] as unknown as TrackRow[];
+
+    expect(getDetachedPluginAutomationLanes(tracks, song)).toEqual([
+      { lane: ambiguousLane, location: "Song automation", reason: "slot-ambiguous" },
+    ]);
+  });
+
   it("returns no detached lanes without a song", () => {
     expect(getDetachedPluginAutomationLanes([], undefined)).toEqual([]);
   });

@@ -407,7 +407,11 @@ export function TimelineSidebar({
                   >
                     <AutomationTrackHeader height={laneH} visible={showAutomation}
                       songIndex={state.songIndex ?? 0} track={state.tracks[trackIdx]}
-                      lanes={getAutomationLanesForTrack(state.tracks[trackIdx], state.songs[state.songIndex ?? 0]?.automationLanes ?? [])}
+                      lanes={getAutomationLanesForTrack(
+                        state.tracks[trackIdx],
+                        state.songs[state.songIndex ?? 0]?.automationLanes ?? [],
+                        state.tracks,
+                      )}
                       activeLaneId={activeAutomationLaneIds?.[state.tracks[trackIdx]?.id ?? ""]}
                       collapseScope={automationCollapseScope}
                       collapsedLaneKeys={collapsedAutomationLaneKeys}

@@ -175,9 +175,22 @@ inside the exact processor chain; the old slot-only route remains compatible.
 Focused UI/API tests passed 26/26; full UI passed 881 tests across 136 files;
 TypeScript and production build passed. Core/native targets built, CTest
 passed, and actual-Core acceptance verified the exact pair and an exact
-missing slot. Timeline's bulk `useAutomationParameters` still uses the old
-slot-only query, so arrangement automation is not yet covered by the exact
-identity fix. No live duplicated-vendor-slot bank fixture was run.
+missing slot. At the time of this entry, Timeline's bulk
+`useAutomationParameters` still used the old slot-only query; the arrangement
+follow-up below closes that gap. No live duplicated-vendor-slot bank fixture
+was run.
+
+Arrangement parameter identity follow-up (2026-10-03): Timeline descriptor
+and latest-value requests now use exact `(stripId, slotId)` lookups and a
+pair-keyed cache. Responses with a wrong slot/strip are rejected; an older
+Core response without `stripId` is accepted only when the slot ID is unique in
+the current project. Because persisted automation targets still store only a
+slot ID, duplicate IDs are treated as ambiguous: existing lanes are surfaced
+for recovery rather than shown against the wrong track, and creation/rebind is
+disabled for those targets. Focused regression tests passed 45/45; the full UI
+suite passed 887/887 across 136 files; TypeScript, production build and
+changed-file lint passed. A persisted target identity migration remains open
+if independent automation of duplicate-ID slots is required.
 
 Still open: end-to-end Touch/Latch/Write ownership on all surfaces; real
 AU/VST3 and remote-session visual/playback acceptance; and deciding whether

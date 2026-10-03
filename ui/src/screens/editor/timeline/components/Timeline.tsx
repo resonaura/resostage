@@ -671,7 +671,7 @@ export function Timeline({
         ? state.tracks[row.headerIndex]
         : state.tracks.find((candidate) => (candidate.name || candidate.id) === row.name || candidate.id === row.name);
       const lanes = automationVisible && track
-        ? getAutomationLanesForTrack(track, currentSongLanes)
+        ? getAutomationLanesForTrack(track, currentSongLanes, state.tracks)
         : [];
       return automationTrackHeightPx(
         laneHeight,

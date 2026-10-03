@@ -33,9 +33,16 @@ Latest verified changes:
   for older callers. Actual-Core acceptance verified pair echo and exact
   missing-slot behavior. Focused UI/API tests passed 26/26; full UI passed
   881 tests / 136 files; Core/native build and CTest, TypeScript, production
-  build, targeted lint and diff check passed. Timeline
-  `useAutomationParameters` remains slot-only and needs migration. This is not
-  sample-accurate telemetry or real AU/VST3/remote acceptance.
+  build, targeted lint and diff check passed. Timeline `useAutomationParameters`
+  was then migrated to exact pair queries and a pair-keyed cache. It rejects
+  mismatched echoes and only tolerates legacy responses without `stripId` if
+  the slot ID is unique in the project. Duplicate IDs make legacy automation
+  lanes ambiguous: the lanes are surfaced for recovery, not attached to either
+  track, and cannot be created/rebound silently. The persisted target schema
+  still lacks `stripId`, so independent automation for duplicate IDs needs a
+  future migration. Focused tests passed 45/45; full UI passed 887/887 across
+  136 files; TypeScript, production build and changed-file lint passed. This is
+  not sample-accurate telemetry or real AU/VST3/remote acceptance.
 
 Continue from open items in `performance.md`, `automation.md`, `audio-flow.md`
 and `audit.md`. Per-plugin preset persistence and true AU/VST3 sidechain

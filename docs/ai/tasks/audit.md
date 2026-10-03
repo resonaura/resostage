@@ -60,8 +60,19 @@ with an exact strip and a nonexistent slot, asserting the echoed pair and
 `missing` rather than cross-chain fallback. Core/native build, CTest, 26
 focused UI/API tests, full UI 881/881, TypeScript and production build passed.
 No live vendor duplicated-slot bank fixture ran. Timeline's bulk
-`useAutomationParameters` caller still uses slot-only queries; migrate it
-before claiming exact chain identity throughout the arrangement.
+`useAutomationParameters` caller still used slot-only queries at the time of
+this chain-API entry; the arrangement follow-up below closes that gap.
+
+Arrangement follow-up (2026-10-03): `useAutomationParameters` now requests and
+caches catalogs and current values by `(stripId, slotId)`, validates response
+identity, and accepts an older unscoped response only when that slot ID is
+unique in the current project. Duplicate slot IDs are marked ambiguous: their
+legacy persisted automation lanes are not attached to either track, are listed
+for recovery, and cannot be newly bound until identity is repaired. The
+persisted automation target schema still stores only `entityId=slotId`; a
+future schema change is required to automate two duplicate-ID slots
+independently. Focused tests passed 45/45, full UI passed 887/887 across 136
+files, TypeScript and production build passed, and changed-file lint passed.
 
 ### Latest continuation addendum — foldable automation lanes (2026-10-03)
 

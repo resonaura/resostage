@@ -12,6 +12,7 @@ import {
   getAutomationLanesForTrack,
 } from "@/screens/editor/timeline/automation/logic/automationTargets";
 import type { AutomationLaneRow, PluginParameterList, TrackRow } from "@/lib/state/types";
+import { pluginParameterKey } from "@/screens/editor/timeline/automation/logic/pluginParameterIdentity";
 
 describe("automationTargets", () => {
   const baseTrack: TrackRow = {
@@ -193,10 +194,42 @@ describe("automationTargets", () => {
     expect(matchesAutomationTarget(target, { ...target, parameterId: "param:3" })).toBe(false);
   });
 
+  it("disables plug-in automation when a slot ID cannot identify one strip", () => {
+    const otherTrack = { ...baseTrack, id: "track:2", stripId: "strip:2" };
+    const metadata: PluginParameterList = {
+      stripId: "strip:1", slotId: "slot:1", loadState: "loaded", loadError: "", truncated: false,
+      parameters: [{ index: 0, parameterId: "id:cutoff", name: "Cutoff", label: "Hz",
+        defaultValue: 0.5, currentValue: 0.5, steps: 0, automatable: true }],
+    };
+    const catalog = {
+      [pluginParameterKey("strip:1", "slot:1")]: { ...metadata, scopeAmbiguous: true },
+      [pluginParameterKey("strip:2", "slot:1")]: { ...metadata, stripId: "strip:2", scopeAmbiguous: true },
+    };
+    const firstTarget = getTrackAutomationTargets({ ...baseTrack, stripId: "strip:1" }, undefined, [], catalog)
+      .find((group) => group.category === "plugin")!.targets[0];
+    const secondTarget = getTrackAutomationTargets(otherTrack, undefined, [], catalog)
+      .find((group) => group.category === "plugin")!.targets[0];
+
+    expect(firstTarget.id).not.toBe(secondTarget.id);
+    expect(firstTarget.disabledReason).toContain("duplicated");
+    expect(secondTarget.disabledReason).toContain("duplicated");
+  });
+
   it("includes slot-owned lanes instead of filtering plugin lanes out of their track", () => {
-    const lanes = [{ id: "owned", target: { entityId: "slot:1" } },
+    const lanes = [{ id: "owned", target: { domain: "plugin", entityId: "slot:1" } },
       { id: "other", target: { entityId: "slot:2" } }, { id: "strip", target: { entityId: "track:1" } }] as AutomationLaneRow[];
     expect(getAutomationLanesForTrack(baseTrack, lanes).map((lane) => lane.id)).toEqual(["owned", "strip"]);
+  });
+
+  it("does not attach legacy plug-in lanes to either track when a slot ID is duplicated", () => {
+    const otherTrack = { ...baseTrack, id: "track:2", stripId: "strip:2" };
+    const pluginLane = {
+      id: "ambiguous",
+      target: { domain: "plugin", entityId: "slot:1", parameterId: "id:cutoff" },
+    } as AutomationLaneRow;
+
+    expect(getAutomationLanesForTrack(baseTrack, [pluginLane], [baseTrack, otherTrack])).toEqual([]);
+    expect(getAutomationLanesForTrack(otherTrack, [pluginLane], [baseTrack, otherTrack])).toEqual([]);
   });
 
   it("detects orphan plug-in and send lanes when entities are removed", () => {

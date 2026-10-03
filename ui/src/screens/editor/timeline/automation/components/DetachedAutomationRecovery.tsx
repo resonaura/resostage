@@ -13,6 +13,7 @@ import {
   getDetachedPluginAutomationLanes,
   getTrackAutomationTargets,
 } from "@/screens/editor/timeline/automation/logic/automationTargets";
+import { getPluginParameterList } from "@/screens/editor/timeline/automation/logic/pluginParameterIdentity";
 import type { AutomationTargetOption } from "@/screens/editor/timeline/automation/logic/types";
 
 type RebindTarget = AutomationTargetOption & { section: string };
@@ -46,10 +47,12 @@ export function DetachedAutomationRecovery({
     ...(song?.midiRegions ?? []).flatMap((region) => region.automationLanes ?? []),
   ].filter((lane) => lane.target.domain === "plugin"), [song]);
   const checkingBindings = expanded && pluginLanes.some((lane) => {
-    const slot = tracks.flatMap((track) => track.plugins ?? [])
-      .find((candidate) => candidate.id === lane.target.entityId);
-    if (!slot) return false;
-    const metadata = parameters[slot.id];
+    const matches = tracks.flatMap((track) => (track.plugins ?? [])
+      .filter((candidate) => candidate.id === lane.target.entityId)
+      .map((slot) => ({ track, slot })));
+    if (matches.length !== 1) return false;
+    const { track, slot } = matches[0];
+    const metadata = getPluginParameterList(parameters, track.stripId ?? track.id, slot.id);
     return !metadata || metadata.loadState === "loading";
   });
   const targets = useMemo<RebindTarget[]>(() => tracks.flatMap((track) =>
@@ -159,8 +162,9 @@ export function DetachedAutomationRecovery({
                   </div>
                   <div className="text-muted">
                     {reason === "slot-missing" ? "Plug-in slot is no longer in this project"
-                      : reason === "plugin-unavailable" ? "Plug-in is missing or failed to load"
-                        : "Parameter is no longer exposed as automatable"}
+                      : reason === "slot-ambiguous" ? "Plug-in slot ID is duplicated; this lane cannot identify its original strip"
+                        : reason === "plugin-unavailable" ? "Plug-in is missing or failed to load"
+                          : "Parameter is no longer exposed as automatable"}
                     {` · ${lane.points.length} points preserved`}
                   </div>
                 </div>

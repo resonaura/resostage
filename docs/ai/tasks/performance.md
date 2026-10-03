@@ -100,9 +100,16 @@ open.
   slot remaining `missing` rather than resolving by a matching slot ID on a
   different chain. Full UI passed 881 tests / 136 files; Core/native targets
   built, CTest passed, and actual-Core editor-state acceptance passed.
-  Timeline `useAutomationParameters` still uses the legacy slot-only query and
-  must be migrated before claiming exact identity for all automation surfaces.
-  No live duplicated-vendor-slot fixture was run.
+  Timeline `useAutomationParameters` was migrated in the arrangement follow-up
+  below. No live duplicated-vendor-slot fixture was run.
+- Arrangement follow-up: Timeline descriptor/value queries now use exact
+  `(stripId, slotId)` requests and a pair-keyed cache; mismatched echoes are
+  rejected. Duplicate slot IDs mark the persisted slot-only automation target
+  ambiguous, so lanes are surfaced for recovery and cannot be silently shown
+  or rebound to the wrong strip. The project target schema still needs a future
+  `stripId` identity migration to support independent automation of duplicate
+  IDs. Focused tests passed 45/45; full UI passed 887/887 across 136 files;
+  TypeScript, production build and changed-file lint passed.
 - Remaining: define and implement per-plugin preset save/load. Decide whether
   each operation changes a slot's project state or writes a user preset
   library before choosing persistence. Validate identity, byte size, format
