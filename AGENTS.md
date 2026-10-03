@@ -1186,6 +1186,11 @@ the existing native menu items in place. Electron exposes a built
 menu from the current `MenuModel` rather than mutating the existing submenu.
 Menu-state updates must not rebuild the menu for action echoes or unchanged
 recent-project lists.
+Remote Save As writes the controller-side archive to an exclusively-created
+sibling staging file, flushes it, then renames it into the user-selected
+destination. A failed write/publication must remove only its own staging file
+and leave an existing destination intact; never truncate the selected project
+before the replacement bytes are ready.
 
 `useLiveState.ts` merges two classes of data:
 

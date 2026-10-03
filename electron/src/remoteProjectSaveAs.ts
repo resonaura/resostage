@@ -4,6 +4,10 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
+import { randomUUID } from "node:crypto";
+import { open, rename, unlink } from "node:fs/promises";
+import path from "node:path";
+
 export interface RemoteProjectExportStatus {
   fileName?: string;
 }
@@ -16,7 +20,7 @@ export interface RemoteProjectSaveAsDependencies {
     filePath?: string;
   }>;
   downloadExport(): Promise<{ ok: boolean; status: number; bytes?: Uint8Array }>;
-  writeFile(path: string, bytes: Uint8Array): void;
+  writeFile(path: string, bytes: Uint8Array): Promise<void> | void;
   showError(title: string, message: string): Promise<unknown>;
   cancelPendingSaveAs(): Promise<unknown>;
 }
@@ -71,7 +75,7 @@ export async function exportRemoteProjectAs(
       return;
     }
 
-    dependencies.writeFile(selection.filePath, download.bytes ?? new Uint8Array());
+    await dependencies.writeFile(selection.filePath, download.bytes ?? new Uint8Array());
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     await showError("Remote project Save As failed", detail);
@@ -83,5 +87,31 @@ export async function exportRemoteProjectAs(
     } catch {
       // The remote Core may already be unreachable; it cannot be settled here.
     }
+  }
+}
+
+/** Publishes a downloaded project beside its destination, then atomically swaps it in. */
+export async function writeRemoteProjectExportAtomically(
+  destination: string,
+  bytes: Uint8Array,
+): Promise<void> {
+  const absoluteDestination = path.resolve(destination);
+  const directory = path.dirname(absoluteDestination);
+  const temporaryPath = path.join(
+    directory,
+    "." + path.basename(absoluteDestination) + ".resostage-" + randomUUID() + ".part",
+  );
+  let file: Awaited<ReturnType<typeof open>> | undefined =
+    await open(temporaryPath, "wx", 0o666);
+  try {
+    await file.writeFile(bytes);
+    await file.sync();
+    await file.close();
+    file = undefined;
+    await rename(temporaryPath, absoluteDestination);
+  } catch (error) {
+    if (file) await file.close().catch(() => {});
+    await unlink(temporaryPath).catch(() => {});
+    throw error;
   }
 }

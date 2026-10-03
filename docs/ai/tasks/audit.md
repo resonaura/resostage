@@ -422,7 +422,10 @@ to clear the remote Core's pending callback on cancel or several error paths.
 That flow now sends a cancellation request to the original captured Core in
 `finally` on every terminal path and never adopts the controller path as the
 remote project's path. If the remote Core is disconnected, application cannot
-be confirmed.
+be confirmed. The downloaded package is written to an exclusive sibling
+staging file, flushed, and renamed into the selected destination so an
+interrupted write cannot truncate the existing project. Failed publication
+cleans only the staging file and preserves the selected destination.
 
 The Electron state watcher also catches local native dialog Promise rejection,
 sends the same `cancel_save_as` action as explicit dismissal, best-effort shows
@@ -430,17 +433,17 @@ an error, and clears its active guard in `finally`. It latches one dialog
 launch per `saveAsPending` interval, so stale frames cannot reopen it before
 Core settles the callback.
 
-Verification (2026-10-03): Electron typecheck passed; 37 Vitest tests and both
-Node alias-resolution tests passed at the initial recovery change. The expanded
-suite passes 45 Vitest tests and both Node alias-resolution tests; UI-independent
-tests cover remote export success, start failure, timeout, destination cancel,
-native dialog rejection, download rejection, write failure and message-box
-failure. The actual-Core harness verifies direct Save As publishes its pending
-state, a duplicate does not replace it, and cancellation clears it without
-changing project identity. Core production build and the full actual-Core
-harness pass. Native OS dialog rejection and actual disk-full behaviour remain
-platform smoke-test limits; injected tests do not emulate AppKit/Win32 dialogs
-or guarantee crash-safe replacement of a pre-existing destination.
+Verification (2026-10-03): Electron typecheck/build passed; 47 Vitest tests and
+both Node alias-resolution tests pass. UI-independent tests cover remote export
+success, start failure, timeout, destination cancel, native dialog rejection,
+download rejection, write failure and message-box failure. Filesystem tests
+verify atomic replacement and that a failed rename preserves the existing
+destination and cleans the staging file. The actual-Core harness verifies
+direct Save As publishes its pending state, a duplicate does not replace it,
+and cancellation clears it without changing project identity. Core production
+build and the full actual-Core harness pass. Native OS dialog rejection and
+actual disk-full behaviour remain platform smoke-test limits; power-loss
+durability and actual AppKit/Win32 dialog behaviour are not emulated.
 
 Next implementation:
 

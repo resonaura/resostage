@@ -4,9 +4,13 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
+import { mkdtemp, readFile, readdir, rm, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   exportRemoteProjectAs,
+  writeRemoteProjectExportAtomically,
   type RemoteProjectSaveAsDependencies,
 } from "@/remoteProjectSaveAs.js";
 
@@ -129,5 +133,38 @@ describe("Remote project Save As lifecycle", () => {
     });
     await expect(exportRemoteProjectAs(dependencies)).resolves.toBeUndefined();
     expect(dependencies.cancelPendingSaveAs).toHaveBeenCalledOnce();
+  });
+
+  it("atomically replaces the selected project and removes its staging file", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "resostage-remote-save-as-"));
+    try {
+      const destination = path.join(directory, "Project.rsnraset");
+      await writeFile(destination, "old package");
+      await writeRemoteProjectExportAtomically(destination, new TextEncoder().encode("new package"));
+
+      expect(await readFile(destination, "utf8")).toBe("new package");
+      expect(await readdir(directory)).toEqual(["Project.rsnraset"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves an existing destination and cleans staging data when publication fails", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "resostage-remote-save-as-failure-"));
+    try {
+      const destination = path.join(directory, "Project.rsnraset");
+      await mkdir(destination);
+      await writeFile(path.join(destination, "keep.txt"), "existing data");
+
+      await expect(writeRemoteProjectExportAtomically(
+        destination,
+        new TextEncoder().encode("replacement"),
+      )).rejects.toBeDefined();
+
+      expect(await readFile(path.join(destination, "keep.txt"), "utf8")).toBe("existing data");
+      expect(await readdir(directory)).toEqual(["Project.rsnraset"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

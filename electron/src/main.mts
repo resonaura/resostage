@@ -68,7 +68,10 @@ import {
 } from "@/discovery.js";
 import { UdpTelemetryTracker } from "@/udpTelemetry.js";
 import { chooseAudioRenderDirectory } from "@/audioRenderDirectory.js";
-import { exportRemoteProjectAs } from "@/remoteProjectSaveAs.js";
+import {
+  exportRemoteProjectAs,
+  writeRemoteProjectExportAtomically,
+} from "@/remoteProjectSaveAs.js";
 import {
   createPlatformAdapter,
   type PlatformAdapter,
@@ -1226,7 +1229,7 @@ async function handleFileDialogAction(action: string): Promise<boolean> {
           });
           return { ok: result.ok, status: result.status, bytes: result.rawBody };
         },
-        writeFile: (filePath, bytes) => writeFileSync(filePath, bytes),
+        writeFile: writeRemoteProjectExportAtomically,
         showError: async (title, message) => {
           if (!mainWindow || mainWindow.isDestroyed()) return;
           await dialog.showMessageBox(mainWindow, {
