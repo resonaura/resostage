@@ -117,6 +117,7 @@ void MainComponent::publishWebState() {
             row.id = lane.id;
             row.target.domain = automationDomainToString(lane.target.domain);
             row.target.entityId = lane.target.entityId;
+            row.target.stripId = lane.target.stripId;
             row.target.parameterId = lane.target.parameterId;
             row.target.valueType = parameterValueTypeToString(lane.target.valueType);
             row.target.defaultValue = lane.target.defaultValue;

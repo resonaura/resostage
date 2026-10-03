@@ -149,7 +149,7 @@ describe("useAutomationParameters", () => {
     expect(latest[pluginParameterKey("track-1", "slot-1")].parameters[0].currentValue).toBe(0.4);
   });
 
-  it("keeps duplicate slot IDs isolated by strip and prevents ambiguous automation targets", async () => {
+  it("keeps duplicate slot IDs isolated by exact strip identity", async () => {
     vi.mocked(pluginChains.parameters).mockImplementation(async (stripId) => metadata("loaded", stripId));
     vi.mocked(pluginChains.parameterValues).mockImplementation(async (stripId) =>
       values(stripId === "track-1" ? 0.2 : 0.8, stripId));
@@ -162,8 +162,22 @@ describe("useAutomationParameters", () => {
     expect(pluginChains.parameters).toHaveBeenNthCalledWith(2, "track-2", "slot-1");
     expect(first.parameters[0].currentValue).toBe(0.2);
     expect(second.parameters[0].currentValue).toBe(0.8);
-    expect(first.scopeAmbiguous).toBe(true);
-    expect(second.scopeAmbiguous).toBe(true);
+    expect(first.stripId).toBe("track-1");
+    expect(second.stripId).toBe("track-2");
+  });
+
+  it("requests a shared physical strip slot once even when several tracks reference it", async () => {
+    vi.mocked(pluginChains.parameters).mockResolvedValue(metadata("loaded", "shared-strip"));
+    vi.mocked(pluginChains.parameterValues).mockResolvedValue(values(0.6, "shared-strip"));
+    const first = { ...track(), stripId: "shared-strip" };
+    const second = { ...track("loaded", "track-2"), stripId: "shared-strip" };
+
+    await render([first, second]);
+
+    expect(pluginChains.parameters).toHaveBeenCalledTimes(1);
+    expect(pluginChains.parameters).toHaveBeenCalledWith("shared-strip", "slot-1");
+    expect(pluginChains.parameterValues).toHaveBeenCalledTimes(1);
+    expect(latest[pluginParameterKey("shared-strip", "slot-1")].parameters[0].currentValue).toBe(0.6);
   });
 
   it("rejects a parameter catalog returned for another strip", async () => {

@@ -1286,6 +1286,7 @@ export const builder = {
     regionId?: string;
     domain: import("@/lib/state/types").AutomationDomain;
     entityId: string;
+    stripId?: string;
     parameterId: string;
     valueType?: import("@/lib/state/types").ParameterValueType;
     defaultValue?: number;

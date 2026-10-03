@@ -110,6 +110,17 @@ open.
   `stripId` identity migration to support independent automation of duplicate
   IDs. Focused tests passed 45/45; full UI passed 887/887 across 136 files;
   TypeScript, production build and changed-file lint passed.
+- Implemented follow-up: plug-in AutomationTarget now persists exact
+  stripId + slot entityId + parameterId through project JSON, Core state,
+  Timeline add/rebind, live automation, offline rendering and track-with-
+  content duplication. Missing strip IDs remain loadable and resolve only
+  when one physical strip owns that slot. Track aliases sharing one physical
+  strip are deduplicated; duplicate slots on distinct chains remain explicit
+  recovery cases. Live dispatch uses one bounded bank/node scan before
+  queueing a helper parameter event. Focused automation UI passed 52/52 across
+  five files; full UI passed 894/894 across 136 files. TypeScript, production
+  build, targeted lint, Core/native build and CTest passed. Real vendor playback
+  and remote Core behavior remain unverified.
 - Remaining: define and implement per-plugin preset save/load. Decide whether
   each operation changes a slot's project state or writes a user preset
   library before choosing persistence. Validate identity, byte size, format

@@ -370,6 +370,8 @@ export type AutomationScope = "track" | "region" | "modulation";
 export interface AutomationTargetRow {
   domain: AutomationDomain;
   entityId: string;
+  /** Exact owning chain for plug-in targets; absent in pre-scoped project lanes. */
+  stripId?: string;
   parameterId: string;
   valueType: ParameterValueType;
   defaultValue: number;

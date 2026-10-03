@@ -366,6 +366,7 @@ struct WRegionPlayback {
 struct WAutomationTarget {
     std::string domain = "strip";
     std::string entityId;
+    std::string stripId;
     std::string parameterId;
     std::string valueType = "floatNormalized";
     double defaultValue = 0.0;
@@ -706,6 +707,7 @@ WAutomationTarget toWireAutomationTarget(const AutomationTarget& t) {
     WAutomationTarget wt;
     wt.domain = automationDomainToString(t.domain);
     wt.entityId = t.entityId;
+    wt.stripId = t.stripId;
     wt.parameterId = t.parameterId;
     wt.valueType = parameterValueTypeToString(t.valueType);
     wt.defaultValue = finiteOrZero(t.defaultValue);
@@ -718,6 +720,7 @@ AutomationTarget fromWireAutomationTarget(const WAutomationTarget& wt) {
     AutomationTarget t;
     t.domain = automationDomainFromString(wt.domain);
     t.entityId = wt.entityId;
+    t.stripId = wt.stripId;
     t.parameterId = wt.parameterId;
     t.valueType = parameterValueTypeFromString(wt.valueType);
     t.defaultValue = static_cast<float>(wt.defaultValue);

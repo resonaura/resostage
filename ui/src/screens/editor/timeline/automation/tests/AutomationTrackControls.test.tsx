@@ -10,6 +10,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutomationLaneRow, TrackRow } from "@/lib/state/types";
 import { builder } from "@/lib/state/api";
+import { pluginParameterKey } from "@/screens/editor/timeline/automation/logic/pluginParameterIdentity";
 import { AutomationTrackControls } from "@/screens/editor/timeline/automation/components/AutomationTrackControls";
 
 vi.mock("@/lib/state/api", () => ({
@@ -383,6 +384,59 @@ describe("AutomationTrackControls", () => {
       points: [],
     });
     expect(onSelectLane).toHaveBeenCalledWith("strip:track-1:gain");
+  });
+
+  it("persists the exact strip identity for plug-in parameter automation", async () => {
+    const pluginTrack: TrackRow = {
+      ...mockTrack,
+      stripId: "instrument-strip",
+      plugins: [{
+        id: "slot:shared",
+        pluginId: "vst3.synth",
+        format: "vst3",
+        name: "Synth",
+        manufacturer: "Vendor",
+        instrument: true,
+        bypassed: false,
+        hasState: true,
+        loadState: "loaded",
+      }],
+    };
+    const parameters = {
+      [pluginParameterKey("instrument-strip", "slot:shared")]: {
+        stripId: "instrument-strip",
+        slotId: "slot:shared",
+        loadState: "loaded" as const,
+        loadError: "",
+        truncated: false,
+        parameters: [{ index: 2, parameterId: "id:cutoff", name: "Cutoff", label: "Hz",
+          defaultValue: 0.5, currentValue: 0.25, steps: 0, automatable: true }],
+      },
+    };
+    const targetId = `plugin:${pluginParameterKey("instrument-strip", "slot:shared")}:id:cutoff`;
+
+    act(() => {
+      root.render(createElement(AutomationTrackControls, {
+        songIndex: 0,
+        track: pluginTrack,
+        lanes: [],
+        activeLaneId: targetId,
+        parameters,
+        onSelectLane: vi.fn(),
+      }));
+    });
+
+    const addButton = container.querySelector<HTMLButtonElement>("button[aria-label='Add automation']");
+    expect(addButton?.disabled).toBe(false);
+    await act(async () => { addButton?.click(); });
+
+    expect(builder.automationLaneAdd).toHaveBeenCalledWith(expect.objectContaining({
+      songIndex: 0,
+      domain: "plugin",
+      entityId: "slot:shared",
+      stripId: "instrument-strip",
+      parameterId: "id:cutoff",
+    }));
   });
 
   it("disables + button when target has disabledReason", () => {

@@ -48,6 +48,19 @@ Continue from open items in `performance.md`, `automation.md`, `audio-flow.md`
 and `audit.md`. Per-plugin preset persistence and true AU/VST3 sidechain
 routing remain unimplemented. Do not push.
 
+Verified implementation block — persisted plug-in automation identity: source now
+stores the exact strip ID with each plug-in automation target and carries it
+through add/rebind, project serialization, telemetry, live/offline dispatch,
+and duplicate-track content copying. Legacy projects still load with an empty
+strip ID; Core resolves those only for a unique physical chain, while UI
+recovery keeps ambiguous slot IDs visible. Track aliases sharing one strip are
+not counted as separate chains, including recovery destination choices. Focused
+automation UI passed 52/52 across five files; full UI passed 894/894 across 136
+files; TypeScript/production build, targeted lint, Core/native build and CTest
+passed. No vendor or remote audio acceptance was run. This closes only the
+identity-migration block; continue from the remaining items above and do not
+push unless explicitly requested.
+
 Latest verified UI display block (see recent git history):
 Timeline and Mixer numeric fader-gain/pan labels use the shared
 `components/daw/EasedReadout.tsx`, which eases authoritative automation display

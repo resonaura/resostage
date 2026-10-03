@@ -329,6 +329,7 @@ export function AudioTrackLanes({
                 id: `temp:${chosenTarget?.id ?? `${track?.id ?? row.name}:gain`}`,
                 target: chosenTarget ? {
                   domain: chosenTarget.domain, entityId: chosenTarget.entityId,
+                  stripId: chosenTarget.stripId,
                   parameterId: chosenTarget.parameterId, valueType: chosenTarget.valueType,
                   defaultValue: chosenTarget.defaultValue, minValue: chosenTarget.minValue, maxValue: chosenTarget.maxValue,
                 } : {

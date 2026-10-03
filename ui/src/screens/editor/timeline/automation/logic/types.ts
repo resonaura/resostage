@@ -19,6 +19,8 @@ export interface AutomationTargetOption {
   id: string;
   domain: AutomationDomain;
   entityId: string;
+  /** Exact owning chain for plug-in parameters. */
+  stripId?: string;
   parameterId: string;
   label: string;
   category: AutomationTargetCategory;

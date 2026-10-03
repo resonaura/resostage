@@ -196,6 +196,14 @@ public:
     /** Real-time parameter automation methods (zero-allocation, non-blocking). */
     void setPluginParameter(size_t stripIndex, size_t slotIndex, int paramIndex, float value) noexcept;
     bool setPluginParameterBySlotId(const std::string& slotId, int paramIndex, float value) noexcept;
+    bool setPluginParameterBySlotId(const std::string& stripId,
+                                    const std::string& slotId,
+                                    int paramIndex, float value) noexcept;
+    /** Prepared parameter-ID lookup and write in one bounded bank traversal. */
+    bool setPluginParameterByTarget(const std::string& stripId,
+                                    const std::string& slotId,
+                                    std::string_view parameterId,
+                                    float value) noexcept;
     /** Message-thread bypass update; preserves the live vendor instance. */
     bool setSlotBypassed(const std::string& slotId, bool bypassed) noexcept;
     /** Message-thread update of the track's recording/monitoring power guards. */
@@ -230,6 +238,10 @@ public:
     /** Prepared ID lookup, bounded and allocation-free on live/offline DSP. */
     int resolvePluginParameterIndex(const std::string& slotId,
                                     std::string_view parameterId) const noexcept;
+    /** Exact strip/slot binding; an empty strip accepts only a unique legacy slot ID. */
+    int resolvePluginParameterIndex(const std::string& stripId,
+                                    const std::string& slotId,
+                                    std::string_view parameterId) const noexcept;
     /** Helper startup only: mapping stays valid until the bank is destroyed. */
     void bindParameterValueTelemetry(const std::string& slotId, uint32_t parameterIndex,
                                      std::atomic<float>& destination);
@@ -249,6 +261,8 @@ private:
     struct StripChain;
 
     PluginProcessorBank() = default;
+    bool setPluginParameterOnNode(StripChain& chain, Node& node, size_t slotIndex,
+                                  int paramIndex, float value) noexcept;
     static void processChain(void* context, float* left, float* right,
                              int numSamples) noexcept;
     void audioProcessorParameterChanged(juce::AudioProcessor*, int,

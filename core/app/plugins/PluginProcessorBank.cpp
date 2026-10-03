@@ -1554,7 +1554,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 // metadata copy. Dispatch never asks vendors to enumerate or
                 // allocate a parameter list on the audio callback.
                 if (!node->bindingsPrepared) {
-                    for (const auto& parameter : bank->parametersForSlot(node->slotId))
+                    for (const auto& parameter : bank->parametersForSlot(
+                             chain->stripId, node->slotId))
                         node->parameterBindings.push_back({parameter.parameterId, parameter.index});
                     std::sort(node->parameterBindings.begin(), node->parameterBindings.end(),
                         [](const PluginParameterBinding& a, const PluginParameterBinding& b) {
@@ -1729,62 +1730,112 @@ void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex
 
 bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
                                                     int paramIndex, float value) noexcept {
+    return setPluginParameterBySlotId({}, slotId, paramIndex, value);
+}
+
+bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& stripId,
+                                                    const std::string& slotId,
+                                                    int paramIndex, float value) noexcept {
+    StripChain* targetChain = nullptr;
+    Node* targetNode = nullptr;
+    size_t targetSlotIndex = 0;
     for (const auto& chain : chains) {
-        if (chain == nullptr)
+        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
             continue;
         for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node != nullptr && node->slotId == slotId) {
-                if (chain->hostedProcess != nullptr
-                    && chain->hostedProcess->process != nullptr) {
-                    if (slotIndex > std::numeric_limits<uint16_t>::max())
-                        return false;
-                    plugin_host::ParameterEvent event;
-                    event.slotIndex = static_cast<uint16_t>(slotIndex);
-                    event.parameterIndex = paramIndex;
-                    event.normalizedValue = std::clamp(value, 0.0f, 1.0f);
-                    const bool queued = chain->hostedProcess->process
-                        ->enqueueParameterEvent(event);
-                    return queued;
-                }
-                if (node->instance != nullptr) {
-                    if (node->stateCaptureRequested.load(std::memory_order_acquire))
-                        return false;
-                    node->activeCalls.fetch_add(1, std::memory_order_acq_rel);
-                    if (node->stateCaptureRequested.load(std::memory_order_acquire)) {
-                        node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
-                        return false;
-                    }
-                    bool succeeded = true;
-                    try {
-                        const auto& params = node->instance->getParameters();
-                        if (paramIndex >= 0 && paramIndex < params.size()) {
-                            if (auto* param = params[paramIndex]) {
-                                hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
-                                try {
-                                    param->setValue(std::clamp(value, 0.0f, 1.0f));
-                                    if (static_cast<size_t>(paramIndex) < node->valueListeners.size()
-                                        && node->valueListeners[static_cast<size_t>(paramIndex)] != nullptr)
-                                        node->valueListeners[static_cast<size_t>(paramIndex)]->parameterValueChanged(
-                                            paramIndex, param->getValue());
-                                } catch (...) {
-                                    hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
-                                    throw;
-                                }
-                                hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
-                            }
-                        }
-                    } catch (...) {
-                        node->faulted.store(true, std::memory_order_relaxed);
-                        succeeded = false;
-                    }
-                    node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
-                    return succeeded;
-                }
-            }
+            auto* node = chain->nodes[slotIndex].get();
+            if (node == nullptr || node->slotId != slotId)
+                continue;
+            if (targetNode != nullptr)
+                return false; // A legacy/unscoped ID must never write an arbitrary duplicate.
+            targetChain = chain.get();
+            targetNode = node;
+            targetSlotIndex = slotIndex;
         }
     }
-    return false;
+    if (targetChain == nullptr || targetNode == nullptr)
+        return false;
+
+    return setPluginParameterOnNode(
+        *targetChain, *targetNode, targetSlotIndex, paramIndex, value);
+}
+
+bool PluginProcessorBank::setPluginParameterByTarget(
+    const std::string& stripId, const std::string& slotId,
+    std::string_view parameterId, float value) noexcept {
+    StripChain* targetChain = nullptr;
+    Node* targetNode = nullptr;
+    size_t targetSlotIndex = 0;
+    for (const auto& chain : chains) {
+        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
+            continue;
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            auto* node = chain->nodes[slotIndex].get();
+            if (node == nullptr || node->slotId != slotId)
+                continue;
+            if (targetNode != nullptr)
+                return false; // Never dispatch an ambiguous legacy target.
+            targetChain = chain.get();
+            targetNode = node;
+            targetSlotIndex = slotIndex;
+        }
+    }
+    if (targetChain == nullptr || targetNode == nullptr)
+        return false;
+    const int parameterIndex = resolvePluginParameterBinding(
+        targetNode->parameterBindings, parameterId);
+    if (parameterIndex < 0)
+        return false;
+    return setPluginParameterOnNode(
+        *targetChain, *targetNode, targetSlotIndex, parameterIndex, value);
+}
+
+bool PluginProcessorBank::setPluginParameterOnNode(
+    StripChain& chain, Node& node, size_t slotIndex,
+    int paramIndex, float value) noexcept {
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr) {
+        if (slotIndex > std::numeric_limits<uint16_t>::max())
+            return false;
+        plugin_host::ParameterEvent event;
+        event.slotIndex = static_cast<uint16_t>(slotIndex);
+        event.parameterIndex = paramIndex;
+        event.normalizedValue = std::clamp(value, 0.0f, 1.0f);
+        return chain.hostedProcess->process->enqueueParameterEvent(event);
+    }
+    if (node.instance == nullptr)
+        return false;
+    if (node.stateCaptureRequested.load(std::memory_order_acquire))
+        return false;
+    node.activeCalls.fetch_add(1, std::memory_order_acq_rel);
+    if (node.stateCaptureRequested.load(std::memory_order_acquire)) {
+        node.activeCalls.fetch_sub(1, std::memory_order_acq_rel);
+        return false;
+    }
+    bool succeeded = true;
+    try {
+        const auto& params = node.instance->getParameters();
+        if (paramIndex >= 0 && paramIndex < params.size()) {
+            if (auto* param = params[paramIndex]) {
+                hostParameterWrites.fetch_add(1, std::memory_order_acq_rel);
+                try {
+                    param->setValue(std::clamp(value, 0.0f, 1.0f));
+                    if (static_cast<size_t>(paramIndex) < node.valueListeners.size()
+                        && node.valueListeners[static_cast<size_t>(paramIndex)] != nullptr)
+                        node.valueListeners[static_cast<size_t>(paramIndex)]->parameterValueChanged(
+                            paramIndex, param->getValue());
+                } catch (...) {
+                    hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+                    throw;
+                }
+                hostParameterWrites.fetch_sub(1, std::memory_order_acq_rel);
+            }
+        }
+    } catch (...) {
+        node.faulted.store(true, std::memory_order_relaxed);
+        succeeded = false;
+    }
+    node.activeCalls.fetch_sub(1, std::memory_order_acq_rel);
+    return succeeded;
 }
 
 void PluginProcessorBank::setTrackPowerGuards(
@@ -2057,13 +2108,26 @@ bool PluginProcessorBank::parameterMetadataTruncated(const std::string& stripId,
 
 int PluginProcessorBank::resolvePluginParameterIndex(const std::string& slotId,
                                                      std::string_view parameterId) const noexcept {
+    return resolvePluginParameterIndex({}, slotId, parameterId);
+}
+
+int PluginProcessorBank::resolvePluginParameterIndex(const std::string& stripId,
+                                                     const std::string& slotId,
+                                                     std::string_view parameterId) const noexcept {
+    const Node* target = nullptr;
     for (const auto& chain : chains) {
-        if (chain == nullptr) continue;
-        for (const auto& node : chain->nodes)
-            if (node != nullptr && node->slotId == slotId)
-                return resolvePluginParameterBinding(node->parameterBindings, parameterId);
+        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
+            continue;
+        for (const auto& node : chain->nodes) {
+            if (node == nullptr || node->slotId != slotId)
+                continue;
+            if (target != nullptr)
+                return -1; // Never resolve an ambiguous legacy ID to the first chain.
+            target = node.get();
+        }
     }
-    return -1;
+    return target != nullptr
+        ? resolvePluginParameterBinding(target->parameterBindings, parameterId) : -1;
 }
 
 void PluginProcessorBank::bindParameterValueTelemetry(const std::string& slotId,

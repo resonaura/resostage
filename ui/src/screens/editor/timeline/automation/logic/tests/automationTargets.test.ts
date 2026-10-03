@@ -202,8 +202,8 @@ describe("automationTargets", () => {
         defaultValue: 0.5, currentValue: 0.5, steps: 0, automatable: true }],
     };
     const catalog = {
-      [pluginParameterKey("strip:1", "slot:1")]: { ...metadata, scopeAmbiguous: true },
-      [pluginParameterKey("strip:2", "slot:1")]: { ...metadata, stripId: "strip:2", scopeAmbiguous: true },
+      [pluginParameterKey("strip:1", "slot:1")]: metadata,
+      [pluginParameterKey("strip:2", "slot:1")]: { ...metadata, stripId: "strip:2" },
     };
     const firstTarget = getTrackAutomationTargets({ ...baseTrack, stripId: "strip:1" }, undefined, [], catalog)
       .find((group) => group.category === "plugin")!.targets[0];
@@ -211,8 +211,10 @@ describe("automationTargets", () => {
       .find((group) => group.category === "plugin")!.targets[0];
 
     expect(firstTarget.id).not.toBe(secondTarget.id);
-    expect(firstTarget.disabledReason).toContain("duplicated");
-    expect(secondTarget.disabledReason).toContain("duplicated");
+    expect(firstTarget.stripId).toBe("strip:1");
+    expect(secondTarget.stripId).toBe("strip:2");
+    expect(firstTarget.disabledReason).toBeUndefined();
+    expect(secondTarget.disabledReason).toBeUndefined();
   });
 
   it("includes slot-owned lanes instead of filtering plugin lanes out of their track", () => {
@@ -230,6 +232,44 @@ describe("automationTargets", () => {
 
     expect(getAutomationLanesForTrack(baseTrack, [pluginLane], [baseTrack, otherTrack])).toEqual([]);
     expect(getAutomationLanesForTrack(otherTrack, [pluginLane], [baseTrack, otherTrack])).toEqual([]);
+  });
+
+  it("treats track rows sharing one physical strip as one plug-in automation owner", () => {
+    const first = { ...baseTrack, stripId: "shared-strip" };
+    const second = { ...baseTrack, id: "track:2", stripId: "shared-strip" };
+    const lane = {
+      id: "shared-chain-lane",
+      target: { domain: "plugin", entityId: "slot:1", stripId: "shared-strip" },
+    } as AutomationLaneRow;
+
+    expect(getAutomationLanesForTrack(first, [lane], [first, second])).toEqual([lane]);
+    expect(getAutomationLanesForTrack(second, [lane], [first, second])).toEqual([lane]);
+  });
+
+  it("does not offer a persisted parameter from another strip as this track's unbound target", () => {
+    const foreignLane: AutomationLaneRow = {
+      id: "foreign",
+      target: {
+        domain: "plugin",
+        entityId: "slot:1",
+        stripId: "strip:other",
+        parameterId: "id:foreign-parameter",
+        valueType: "floatNormalized",
+        defaultValue: 0.5,
+        minValue: 0,
+        maxValue: 1,
+      },
+      scope: "track",
+      writeMode: "read",
+      enabled: true,
+      muted: false,
+      points: [],
+    };
+
+    const targets = getTrackAutomationTargets(
+      { ...baseTrack, stripId: "strip:current" }, undefined, [foreignLane],
+    ).find((group) => group.category === "plugin")!.targets;
+    expect(targets.some((target) => target.parameterId === "id:foreign-parameter")).toBe(false);
   });
 
   it("detects orphan plug-in and send lanes when entities are removed", () => {

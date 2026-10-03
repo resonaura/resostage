@@ -109,11 +109,12 @@ describe("DetachedAutomationRecovery", () => {
     lanes: AutomationLaneRow[] = [orphanLane],
     parameterMetadata = parameters,
     onRevealAutomation = vi.fn(),
+    tracks: TrackRow[] = [track],
   ) {
     act(() => root.render(createElement(DetachedAutomationRecovery, {
       songIndex: 0,
       song: { automationLanes: lanes, regions: [], midiRegions: [] } as unknown as SongRow,
-      tracks: [track],
+      tracks,
       parameters: parameterMetadata,
       readOnly: false,
       onRevealAutomation,
@@ -151,6 +152,7 @@ describe("DetachedAutomationRecovery", () => {
       target: {
         domain: "plugin",
         entityId: "slot:loaded",
+        stripId: "track:keys",
         parameterId: "id:cutoff",
         valueType: "floatNormalized",
         defaultValue: 0.4,
@@ -173,6 +175,40 @@ describe("DetachedAutomationRecovery", () => {
       await Promise.resolve();
     });
     expect(builder.automationLaneRemove).toHaveBeenCalledWith(0, "lane:detached");
+  });
+
+  it("waits for metadata once when multiple rows share the lane's physical strip", () => {
+    const sharedLane: AutomationLaneRow = {
+      ...orphanLane,
+      id: "lane:shared",
+      target: { ...orphanLane.target, entityId: "slot:loaded", stripId: "shared-strip" },
+    };
+    const sharedTracks = [
+      { ...track, id: "track:one", stripId: "shared-strip" },
+      { ...track, id: "track:two", stripId: "shared-strip" },
+    ];
+    render([sharedLane], {}, vi.fn(), sharedTracks);
+
+    const reviewButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Review and recover"));
+    act(() => reviewButton?.click());
+    expect(container.textContent).toContain("Waiting for plug-in parameter descriptors");
+  });
+
+  it("lists one recovery destination for a plug-in strip shared by multiple rows", () => {
+    const sharedTracks = [
+      { ...track, id: "track:one", stripId: "shared-strip" },
+      { ...track, id: "track:two", stripId: "shared-strip" },
+    ];
+    render([orphanLane], parameters, vi.fn(), sharedTracks);
+    const reviewButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Review and recover"));
+    act(() => reviewButton?.click());
+
+    const targetId = 'plugin:["shared-strip","slot:loaded"]:id:cutoff';
+    const matchingOptions = [...container.querySelectorAll("option")]
+      .filter((option) => option.value === targetId);
+    expect(matchingOptions).toHaveLength(1);
   });
 
   it("reveals and recovers a lane whose loaded plug-in no longer exposes its parameter", () => {

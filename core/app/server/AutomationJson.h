@@ -201,12 +201,15 @@ inline bool parseAutomationLanes(const glz::generic& doc,
             }
             if ((target.contains("entityId")
                  && !getString(target, "entityId", lane.target.entityId))
+                || (target.contains("stripId")
+                    && !getString(target, "stripId", lane.target.stripId))
                 || (target.contains("parameterId")
                     && !getString(target, "parameterId", lane.target.parameterId))) {
                 error = "Embedded automation target identifiers must be strings";
                 return false;
             }
-            if (lane.target.entityId.size() > 1024 || lane.target.parameterId.size() > 1024) {
+            if (lane.target.entityId.size() > 1024 || lane.target.stripId.size() > 1024
+                || lane.target.parameterId.size() > 1024) {
                 error = "Embedded automation target identifiers exceed 1,024 characters";
                 return false;
             }

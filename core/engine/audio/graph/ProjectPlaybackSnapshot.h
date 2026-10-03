@@ -112,6 +112,7 @@ inline bool accountLane(size_t& bytes, size_t& points, const AutomationLane& lan
     if (!addItems(bytes, 1, sizeof(AutomationLane))
         || !addText(bytes, lane.id)
         || !addText(bytes, lane.target.entityId)
+        || !addText(bytes, lane.target.stripId)
         || !addText(bytes, lane.target.parameterId)
         || lane.points.size() > ProjectPlaybackSnapshot::kMaximumAutomationPoints - points
         || !addItems(bytes, lane.points.size(), sizeof(AutomationPoint)))

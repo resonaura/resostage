@@ -102,6 +102,14 @@ public:
             (void)bank->setPluginParameterBySlotId(slotId, index, normalizedValue);
     }
 
+    void setPluginParameterById(const std::string& stripId, const std::string& slotId,
+                               std::string_view parameterId,
+                               float normalizedValue) noexcept override {
+        if (bank != nullptr)
+            (void)bank->setPluginParameterByTarget(
+                stripId, slotId, parameterId, normalizedValue);
+    }
+
     double declaredTailSeconds() const noexcept override {
         return bank != nullptr ? bank->tailSeconds() : 0.0;
     }

@@ -192,6 +192,26 @@ suite passed 887/887 across 136 files; TypeScript, production build and
 changed-file lint passed. A persisted target identity migration remains open
 if independent automation of duplicate-ID slots is required.
 
+### Implemented follow-up — persist exact plug-in target strip identity (2026-10-03)
+
+This supersedes the preceding note that the target identity migration remained
+open. The project AutomationTarget now carries additive stripId; entityId remains
+the slot ID. Core normalizes unique legacy slot-only adds and rebinds to an
+exact strip, rejects ambiguous IDs across distinct physical strips, and
+validates the currently loaded automatable parameter. Project serialization,
+state telemetry, live block dispatch, offline rendering, and track-with-content
+duplication all carry the exact pair. Older project JSON without stripId still
+parses as an unscoped legacy target. Timeline metadata queries deduplicate
+several UI track rows that share one physical strip, while recovery still
+catches slot IDs duplicated across distinct strips.
+
+Recovery lists one destination per exact `(stripId, slotId, parameterId)` even
+when multiple timeline rows alias the same physical strip. Focused automation
+UI tests passed 52/52 across five files; the full UI suite passed 894/894 across
+136 files. TypeScript, production build, changed-file
+lint, Core/native build and CTest passed; diff review is complete. No real
+AU/VST3 playback was tested.
+
 Still open: end-to-end Touch/Latch/Write ownership on all surfaces; real
 AU/VST3 and remote-session visual/playback acceptance; and deciding whether
 hosted-plugin values need a dedicated telemetry channel if low-rate polling

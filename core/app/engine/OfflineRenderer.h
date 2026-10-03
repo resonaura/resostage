@@ -131,6 +131,14 @@ public:
     virtual void setPluginParameterById(const std::string& slotId,
                                       std::string_view parameterId,
                                       float normalizedValue) noexcept;
+    /** Exact strip/slot identity for new lanes; legacy sessions use the compatible slot-only route. */
+    virtual void setPluginParameterById(const std::string& stripId,
+                                      const std::string& slotId,
+                                      std::string_view parameterId,
+                                      float normalizedValue) noexcept {
+        (void)stripId;
+        setPluginParameterById(slotId, parameterId, normalizedValue);
+    }
     /** Conservative serial-path tail used as a Leave minimum, in seconds. */
     virtual double declaredTailSeconds() const noexcept { return 0.0; }
     virtual std::vector<std::string> warnings() const { return {}; }

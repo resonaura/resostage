@@ -97,6 +97,19 @@ describe("getDetachedPluginAutomationLanes", () => {
     ]);
   });
 
+  it("does not report duplicate timeline rows for the same physical strip as ambiguous", () => {
+    const sharedLane = lane("shared", "slot:shared");
+    sharedLane.target.stripId = "shared-strip";
+    const legacyLane = lane("legacy-shared", "slot:shared");
+    const song = { automationLanes: [sharedLane, legacyLane], regions: [], midiRegions: [] } as unknown as SongRow;
+    const tracks = [
+      { id: "track:one", stripId: "shared-strip", plugins: [{ id: "slot:shared" }] },
+      { id: "track:two", stripId: "shared-strip", plugins: [{ id: "slot:shared" }] },
+    ] as unknown as TrackRow[];
+
+    expect(getDetachedPluginAutomationLanes(tracks, song)).toEqual([]);
+  });
+
   it("returns no detached lanes without a song", () => {
     expect(getDetachedPluginAutomationLanes([], undefined)).toEqual([]);
   });

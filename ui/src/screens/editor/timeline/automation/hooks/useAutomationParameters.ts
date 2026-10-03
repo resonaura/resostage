@@ -59,7 +59,6 @@ function sameParameterCatalog(
     && left.loadState === right.loadState
     && left.loadError === right.loadError
     && left.truncated === right.truncated
-    && left.scopeAmbiguous === right.scopeAmbiguous
     && left.parameters === right.parameters;
 }
 
@@ -106,8 +105,13 @@ function mergeParameterValues(
  * than synchronous vendor calls on the audio callback.
  */
 export function useAutomationParameters(tracks: TrackRow[], enabled: boolean, projectKey: string) {
-  const slotKey = JSON.stringify(tracks.flatMap((track) => (track.plugins ?? [])
-    .map((slot) => [track.stripId ?? track.id, slot.id, slot.pluginId, slot.loadState ?? "loading"] as PluginSlotIdentity)));
+  const slotIdentities = new Map<string, PluginSlotIdentity>();
+  for (const track of tracks) for (const slot of track.plugins ?? []) {
+    const identity: PluginSlotIdentity = [track.stripId || track.id, slot.id,
+      slot.pluginId, slot.loadState ?? "loading"];
+    slotIdentities.set(pluginParameterKey(identity[0], identity[1]), identity);
+  }
+  const slotKey = JSON.stringify([...slotIdentities.values()]);
   const key = `${projectKey}:${slotKey}`;
   const [snapshot, setSnapshot] = useState<{ key: string; values: AutomationPluginParameterCatalog }>({ key: "", values: {} });
   useEffect(() => {
@@ -115,6 +119,9 @@ export function useAutomationParameters(tracks: TrackRow[], enabled: boolean, pr
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     const slots = JSON.parse(slotKey) as PluginSlotIdentity[];
+    // Duplicate rows may point to one shared physical strip. The slot list was
+    // deduplicated by (stripId, slotId) above, so this count is the number of
+    // distinct chains carrying the legacy slot ID, not the number of rows.
     const slotIdCounts = new Map<string, number>();
     for (const [, slotId] of slots) slotIdCounts.set(slotId, (slotIdCounts.get(slotId) ?? 0) + 1);
     async function refresh() {
@@ -192,10 +199,7 @@ export function useAutomationParameters(tracks: TrackRow[], enabled: boolean, pr
       }
 
       for (const [identity, entry] of metadataByIdentity) {
-        values[identity] = {
-          ...entry.metadata,
-          scopeAmbiguous: slotIdCounts.get(entry.slotId) !== 1,
-        };
+        values[identity] = entry.metadata;
       }
       if (cancelled) return;
       setSnapshot((previous) => {

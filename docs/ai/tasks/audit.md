@@ -74,6 +74,30 @@ future schema change is required to automate two duplicate-ID slots
 independently. Focused tests passed 45/45, full UI passed 887/887 across 136
 files, TypeScript and production build passed, and changed-file lint passed.
 
+### Latest continuation addendum — persisted plug-in automation identity (2026-10-03)
+
+This supersedes the earlier note above that the project target schema still
+lacked strip identity. The project AutomationTarget now persists additive
+stripId alongside the existing slot entityId and stable parameterId. Add and
+rebind commands resolve the pair against the current project and loaded
+automatable descriptor; successful legacy unique-slot targets are normalized
+to the exact strip. Core telemetry and project JSON round-trip the field, and
+old files that omit it remain readable. Live block dispatch uses one bounded
+strip/slot scan and the node's prepared parameter binding before queueing the
+helper event; offline rendering applies the same exact pair. Neither path may
+select the first of duplicate slots on different chains.
+
+Timeline catalog requests and recovery destinations deduplicate alias rows
+that share one physical effectiveStripId; legacy slot-only metadata is
+considered unique across physical chains, not UI rows. Recovery counts distinct
+strips and still surfaces old ambiguous lanes. Existing unbound targets are
+filtered by exact strip so one chain's parameter cannot appear in another
+chain's selector. Focused automation UI tests passed 52/52 across five files;
+full UI passed 894/894 across 136 files; TypeScript/production build and
+changed-file lint passed. Core and native tests built; CTest passed 1/1.
+Project JSON round-tripping confirms old targets without stripId still load
+unscoped. No vendor AU/VST3 playback or remote-Core acceptance was exercised.
+
 ### Latest continuation addendum — foldable automation lanes (2026-10-03)
 
 The Timeline now shows simultaneous independent track-scope automation lanes

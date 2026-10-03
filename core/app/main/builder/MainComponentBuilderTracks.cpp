@@ -308,6 +308,7 @@ void MainComponent::builderTrackDuplicate(const std::string& json) {
         else for (const auto& [oldId, newId] : pluginIdRemap)
             if (lane.target.entityId == oldId) {
                 lane.target.entityId = newId;
+                lane.target.stripId = duplicate.effectiveStripId();
                 break;
             }
     };

@@ -75,7 +75,9 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
     if (existing) { onSelectLane(existing.id); return; }
     void run(async () => {
       await builder.automationLaneAdd({ songIndex, domain: targetToAdd.domain,
-        entityId: targetToAdd.entityId, parameterId: targetToAdd.parameterId,
+        entityId: targetToAdd.entityId,
+        ...(targetToAdd.stripId ? { stripId: targetToAdd.stripId } : {}),
+        parameterId: targetToAdd.parameterId,
         valueType: targetToAdd.valueType, defaultValue: targetToAdd.defaultValue,
         minValue: targetToAdd.minValue, maxValue: targetToAdd.maxValue, scope: "track",
         writeMode: "read", points: [] });
@@ -132,6 +134,7 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
             target: {
               domain: selected.domain,
               entityId: selected.entityId,
+              ...(selected.stripId ? { stripId: selected.stripId } : {}),
               parameterId: selected.parameterId,
               valueType: selected.valueType,
               defaultValue: selected.defaultValue,

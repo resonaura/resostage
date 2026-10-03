@@ -622,7 +622,7 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                         lane.points, laneBeat, lane.target.defaultValue);
                     if (lane.target.domain == AutomationDomain::Plugin) {
                         processorSession->setPluginParameterById(
-                            lane.target.entityId, lane.target.parameterId,
+                            lane.target.stripId, lane.target.entityId, lane.target.parameterId,
                             normalizedAutomationValue(lane, value));
                     } else if (lane.target.domain == AutomationDomain::MidiCC
                                && processorSession->stripHasInstrument(strip)) {

@@ -30,6 +30,53 @@ namespace resostage {
 
 using namespace builder_json;
 
+namespace {
+
+bool resolvePluginAutomationStrip(const Project& project, AutomationTarget& target,
+                                  std::string& error) {
+    std::string resolvedStripId;
+    for (const auto& track : project.tracks) {
+        if (!target.stripId.empty() && track.effectiveStripId() != target.stripId)
+            continue;
+        const bool hasSlot = std::any_of(track.plugins.begin(), track.plugins.end(),
+            [&](const PluginSlot& slot) { return slot.id == target.entityId; });
+        if (!hasSlot)
+            continue;
+        const auto& candidateStripId = track.effectiveStripId();
+        if (!resolvedStripId.empty() && resolvedStripId != candidateStripId) {
+            error = "Plug-in slot identity is ambiguous; choose an exact strip and slot";
+            return false;
+        }
+        resolvedStripId = candidateStripId;
+    }
+    if (resolvedStripId.empty()) {
+        error = "Plug-in slot does not exist on the requested strip";
+        return false;
+    }
+    if (target.stripId.empty())
+        target.stripId = resolvedStripId;
+    return true;
+}
+
+bool isAutomatablePluginTarget(const PluginProcessorBank* bank,
+                               const AutomationTarget& target) {
+    if (bank == nullptr || target.domain != AutomationDomain::Plugin
+        || target.valueType != ParameterValueType::FloatNormalized
+        || std::abs(target.minValue) > 1.0e-4f
+        || std::abs(target.maxValue - 1.0f) > 1.0e-4f)
+        return false;
+    const int index = bank->resolvePluginParameterIndex(
+        target.stripId, target.entityId, target.parameterId);
+    if (index < 0)
+        return false;
+    const auto parameters = bank->parametersForSlot(target.stripId, target.entityId);
+    return std::any_of(parameters.begin(), parameters.end(), [&](const auto& parameter) {
+        return parameter.index == static_cast<uint32_t>(index) && parameter.automatable;
+    });
+}
+
+} // namespace
+
 void MainComponent::builderAutomationLaneAdd(const std::string& json) {
     glz::generic doc;
     int songIndex = -1;
@@ -49,6 +96,7 @@ void MainComponent::builderAutomationLaneAdd(const std::string& json) {
     std::string domainStr, valueTypeStr, scopeStr, writeModeStr;
     if (getString(doc, "domain", domainStr)) lane.target.domain = automationDomainFromString(domainStr);
     getString(doc, "entityId", lane.target.entityId);
+    getString(doc, "stripId", lane.target.stripId);
     getString(doc, "parameterId", lane.target.parameterId);
     if (getString(doc, "valueType", valueTypeStr)) lane.target.valueType = parameterValueTypeFromString(valueTypeStr);
     double defVal = 0.0, minVal = 0.0, maxVal = 1.0;
@@ -59,6 +107,23 @@ void MainComponent::builderAutomationLaneAdd(const std::string& json) {
         || !std::isfinite(lane.target.maxValue) || lane.target.minValue > lane.target.maxValue) {
         setStatus("Could not add automation lane: invalid target range");
         return;
+    }
+    if (lane.target.domain == AutomationDomain::Plugin) {
+        if (lane.target.entityId.empty() || lane.target.entityId.size() > 128
+            || lane.target.stripId.size() > 128 || lane.target.parameterId.empty()
+            || lane.target.parameterId.size() > 1024) {
+            setStatus("Could not add automation lane: plug-in target identity is malformed");
+            return;
+        }
+        std::string identityError;
+        if (!resolvePluginAutomationStrip(proj, lane.target, identityError)
+            || !isAutomatablePluginTarget(engine.activePluginProcessorBank().get(), lane.target)) {
+            setStatus("Could not add automation lane: " + juce::String(
+                identityError.empty()
+                    ? "plug-in parameter is not loaded or automatable"
+                    : identityError));
+            return;
+        }
     }
     if (doc.contains("points")) {
         std::string error;
@@ -206,6 +271,8 @@ void MainComponent::builderAutomationLaneUpdate(const std::string& json) {
         if (!targetDoc.is_object()
             || !getString(targetDoc, "domain", domain)
             || !getString(targetDoc, "entityId", target.entityId)
+            || (targetDoc.contains("stripId")
+                && !getString(targetDoc, "stripId", target.stripId))
             || !getString(targetDoc, "parameterId", target.parameterId)
             || !getString(targetDoc, "valueType", valueType)
             || !getDouble(targetDoc, "defaultValue", defaultValue)
@@ -220,6 +287,7 @@ void MainComponent::builderAutomationLaneUpdate(const std::string& json) {
             || (domain != "plugin" && domain != "strip" && domain != "midiCC")
             || !knownType
             || target.entityId.empty() || target.entityId.size() > 128
+            || target.stripId.size() > 128
             || target.parameterId.empty() || target.parameterId.size() > 1024
             || !std::isfinite(defaultValue) || !std::isfinite(minValue)
             || !std::isfinite(maxValue) || minValue < -1.0e9 || maxValue > 1.0e9
@@ -237,6 +305,13 @@ void MainComponent::builderAutomationLaneUpdate(const std::string& json) {
         target.minValue = static_cast<float>(minValue);
         target.maxValue = static_cast<float>(maxValue);
 
+        std::string identityError;
+        if (target.domain == AutomationDomain::Plugin
+            && !resolvePluginAutomationStrip(proj, target, identityError)) {
+            setStatus("Could not rebind automation lane: " + juce::String(identityError));
+            return;
+        }
+
         const auto targetTrack = std::find_if(proj.tracks.begin(), proj.tracks.end(),
             [&](const TrackDef& track) { return track.id == target.entityId; });
         const auto hasRange = [&](float min, float max) {
@@ -246,27 +321,9 @@ void MainComponent::builderAutomationLaneUpdate(const std::string& json) {
         };
         bool supported = false;
         if (domain == "plugin") {
-            const bool slotExists = std::any_of(proj.tracks.begin(), proj.tracks.end(),
-                [&](const TrackDef& track) {
-                    return std::any_of(track.plugins.begin(), track.plugins.end(),
-                        [&](const PluginSlot& slot) { return slot.id == target.entityId; });
-                });
             const auto bank = engine.activePluginProcessorBank();
-            const int resolvedParameter = bank != nullptr
-                ? bank->resolvePluginParameterIndex(target.entityId,
-                                                     target.parameterId) : -1;
-            const auto parameterInfo = bank != nullptr
-                ? bank->parametersForSlot(target.entityId)
-                : std::vector<PluginProcessorBank::ParameterInfo>{};
-            const bool automatableParameter = std::any_of(
-                parameterInfo.begin(), parameterInfo.end(), [&](const auto& info) {
-                    return resolvedParameter >= 0
-                        && info.index == static_cast<uint32_t>(resolvedParameter)
-                        && info.automatable;
-                });
-            supported = slotExists && target.valueType == ParameterValueType::FloatNormalized
-                && hasRange(0.0f, 1.0f)
-                && automatableParameter;
+            supported = hasRange(0.0f, 1.0f)
+                && isAutomatablePluginTarget(bank.get(), target);
         } else if (domain == "strip" && targetTrack != proj.tracks.end()) {
             if (target.parameterId == "faderGainDb") {
                 supported = target.valueType == ParameterValueType::Decibels

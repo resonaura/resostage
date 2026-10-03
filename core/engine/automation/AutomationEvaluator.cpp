@@ -146,6 +146,7 @@ float AutomationEvaluator::resolveMultiScopeValue(
             continue;
         if (lane.target.domain == target.domain &&
             lane.target.entityId == target.entityId &&
+            lane.target.stripId == target.stripId &&
             lane.target.parameterId == target.parameterId) {
             effectiveValue = evaluatePoints(lane.points, songPlayheadBeats, target.defaultValue);
             break;
@@ -171,6 +172,7 @@ float AutomationEvaluator::resolveMultiScopeValue(
                         continue;
                     if (rLane.target.domain == target.domain &&
                         rLane.target.entityId == target.entityId &&
+                        rLane.target.stripId == target.stripId &&
                         rLane.target.parameterId == target.parameterId) {
                         if (rLane.scope == AutomationScope::Region) {
                             effectiveValue = evaluatePoints(rLane.points, relBeats, effectiveValue);

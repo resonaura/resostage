@@ -723,9 +723,21 @@ Preserve these rules:
   requested pair when a strip scope is supplied; an exact miss stays missing
   instead of falling through to another strip's matching slot ID.
   The editor can create and draw normalized track-level plug-in automation
-  against stable slot/parameter IDs. Live block dispatch queues parameter
-  changes to the isolated host; offline rendering evaluates track and audio-/
-  MIDI-region plug-in lanes on its private render session. MIDI CC and channel
+  against stable strip/slot/parameter IDs. Persist AutomationTarget.stripId
+  for plug-in lanes; entityId remains the slot ID and parameterId is the
+  stable vendor ID (or a legacy parameter index). Missing stripId is a
+  pre-migration target: resolve it only when its slot ID identifies one
+  physical strip across the project. Repeated track rows with the same
+  effectiveStripId() are one chain; duplicate slot IDs on distinct strips are
+  ambiguous, must not be applied to either chain, and must remain visible for
+  explicit recovery. New lane creation and rebind must persist an exact strip
+  and validate the loaded, automatable parameter on that pair.
+  Live block dispatch performs one bounded lookup over the prepared bank and
+  queues parameter changes to the matching isolated host; it must never fall
+  back to a different strip or allocate on the callback. Offline rendering
+  resolves the same exact pair on its private render session. Missing legacy
+  strip identity remains backward-compatible in project JSON but must not
+  cause ambiguous automation to choose the first match. MIDI CC and channel
   pitch-bend lanes on MIDI regions are dispatched to the track instrument (and
   scheduled external MIDI output where applicable), at audio-block granularity.
   These channel lanes are not per-note MIDI 2.0 glide.

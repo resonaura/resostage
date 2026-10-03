@@ -29,6 +29,7 @@ inline bool sameTarget(const AutomationTarget& left,
                        const AutomationTarget& right) noexcept {
     return left.domain == right.domain
         && left.entityId == right.entityId
+        && left.stripId == right.stripId
         && left.parameterId == right.parameterId
         && left.valueType == right.valueType;
 }

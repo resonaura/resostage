@@ -120,11 +120,8 @@ void AudioEngine::dispatchAutomationForBlock(const PlaybackSongState& song,
 
         if (lane.target.domain == AutomationDomain::Plugin) {
             if (pluginBank != nullptr) {
-                const int parameterIndex = pluginBank->resolvePluginParameterIndex(
-                    lane.target.entityId, lane.target.parameterId);
-                if (parameterIndex >= 0)
-                    pluginBank->setPluginParameterBySlotId(
-                        lane.target.entityId, parameterIndex, value);
+                pluginBank->setPluginParameterByTarget(
+                    lane.target.stripId, lane.target.entityId, lane.target.parameterId, value);
             }
         } else if (lane.target.domain == AutomationDomain::MidiCC) {
             sendMidiAutomation(lane, value, lane.target.entityId);
@@ -151,11 +148,8 @@ void AudioEngine::dispatchAutomationForBlock(const PlaybackSongState& song,
                 lane.points, relBeats, lane.target.defaultValue);
 
             if (lane.target.domain == AutomationDomain::Plugin && pluginBank != nullptr) {
-                const int parameterIndex = pluginBank->resolvePluginParameterIndex(
-                    lane.target.entityId, lane.target.parameterId);
-                if (parameterIndex >= 0)
-                    pluginBank->setPluginParameterBySlotId(
-                        lane.target.entityId, parameterIndex, value);
+                pluginBank->setPluginParameterByTarget(
+                    lane.target.stripId, lane.target.entityId, lane.target.parameterId, value);
             } else if (lane.target.domain == AutomationDomain::MidiCC) {
                 sendMidiAutomation(lane, value, mr.trackId);
             }
@@ -185,14 +179,10 @@ void AudioEngine::dispatchAutomationForBlock(const PlaybackSongState& song,
                 || pluginBank == nullptr)
                 continue;
 
-            const int parameterIndex = pluginBank->resolvePluginParameterIndex(
-                lane.target.entityId, lane.target.parameterId);
-            if (parameterIndex < 0)
-                continue;
             const float value = AutomationEvaluator::evaluatePoints(
                 lane.points, regionBeat, lane.target.defaultValue);
-            pluginBank->setPluginParameterBySlotId(
-                lane.target.entityId, parameterIndex, value);
+            pluginBank->setPluginParameterByTarget(
+                lane.target.stripId, lane.target.entityId, lane.target.parameterId, value);
         }
     }
 }

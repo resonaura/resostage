@@ -6,10 +6,7 @@
 
 import type { PluginParameterList } from "@/lib/state/types";
 
-/** UI-derived warning: persisted automation still identifies a plug-in by slot ID. */
-export type AutomationPluginParameterList = PluginParameterList & {
-  scopeAmbiguous?: boolean;
-};
+export type AutomationPluginParameterList = PluginParameterList;
 
 export type AutomationPluginParameterCatalog = Readonly<
   Record<string, AutomationPluginParameterList>

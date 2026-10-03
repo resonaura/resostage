@@ -47,23 +47,41 @@ export function DetachedAutomationRecovery({
     ...(song?.midiRegions ?? []).flatMap((region) => region.automationLanes ?? []),
   ].filter((lane) => lane.target.domain === "plugin"), [song]);
   const checkingBindings = expanded && pluginLanes.some((lane) => {
-    const matches = tracks.flatMap((track) => (track.plugins ?? [])
-      .filter((candidate) => candidate.id === lane.target.entityId)
-      .map((slot) => ({ track, slot })));
-    if (matches.length !== 1) return false;
-    const { track, slot } = matches[0];
-    const metadata = getPluginParameterList(parameters, track.stripId ?? track.id, slot.id);
+    const matchesByStrip = new Map<string, {
+      track: TrackRow;
+      slot: NonNullable<TrackRow["plugins"]>[number];
+    }>();
+    for (const track of tracks) {
+      const stripId = track.stripId || track.id;
+      if (lane.target.stripId && stripId !== lane.target.stripId) continue;
+      for (const slot of track.plugins ?? []) {
+        if (slot.id === lane.target.entityId && !matchesByStrip.has(stripId)) {
+          matchesByStrip.set(stripId, { track, slot });
+        }
+      }
+    }
+    if (matchesByStrip.size !== 1) return false;
+    const { track, slot } = matchesByStrip.values().next().value!;
+    const metadata = getPluginParameterList(parameters, track.stripId || track.id, slot.id);
     return !metadata || metadata.loadState === "loading";
   });
-  const targets = useMemo<RebindTarget[]>(() => tracks.flatMap((track) =>
-    getTrackAutomationTargets(track, buses, [], parameters)
-      .flatMap((group) => group.targets)
-      .filter((target) => target.category === "plugin" && !target.disabledReason)
-      .map((target) => ({
-        ...target,
-        label: `${track.name} · ${target.label}`,
-        section: track.name,
-      }))), [tracks, buses, parameters]);
+  const targets = useMemo<RebindTarget[]>(() => {
+    const uniqueTargets = new Map<string, RebindTarget>();
+    for (const track of tracks) {
+      for (const group of getTrackAutomationTargets(track, buses, [], parameters)) {
+        for (const target of group.targets) {
+          if (target.category !== "plugin" || target.disabledReason
+            || uniqueTargets.has(target.id)) continue;
+          uniqueTargets.set(target.id, {
+            ...target,
+            label: `${track.name} · ${target.label}`,
+            section: track.name,
+          });
+        }
+      }
+    }
+    return [...uniqueTargets.values()];
+  }, [tracks, buses, parameters]);
   const targetsById = useMemo(() => new Map(targets.map((target) => [target.id, target])), [targets]);
   const options = useMemo(() => targets.map((target) => ({
     id: target.id,
@@ -86,6 +104,7 @@ export function DetachedAutomationRecovery({
         target: {
           domain: "plugin",
           entityId: target.entityId,
+          stripId: target.stripId,
           parameterId: target.parameterId,
           valueType: target.valueType,
           defaultValue: target.defaultValue,

@@ -357,6 +357,7 @@ struct WebUiState {
         struct Target {
             std::string domain = "strip";
             std::string entityId;
+            std::string stripId;
             std::string parameterId;
             std::string valueType = "floatNormalized";
             double defaultValue = 0.0;

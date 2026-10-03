@@ -501,6 +501,7 @@ inline AutomationScope automationScopeFromString(const std::string& s) {
 struct AutomationTarget {
     AutomationDomain domain = AutomationDomain::Strip;
     std::string entityId;       // Strip ID ("audio::track:1"), Plugin Slot UUID, or Fixture ID
+    std::string stripId;        // Plug-in chain strip identity; empty only for legacy/unscoped lanes
     std::string parameterId;    // "faderGainDb", "pan", "mute", "send:0", "param:104", "cc:1", "intensity"
     ParameterValueType valueType = ParameterValueType::FloatNormalized;
     float defaultValue = 0.0f;

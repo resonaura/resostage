@@ -43,6 +43,7 @@ WAutomationLaneTelemetry automationLaneToWire(const WebUiState::AutomationLaneRo
     wire.id = lane.id;
     wire.target.domain = lane.target.domain;
     wire.target.entityId = lane.target.entityId;
+    wire.target.stripId = lane.target.stripId;
     wire.target.parameterId = lane.target.parameterId;
     wire.target.valueType = lane.target.valueType;
     wire.target.defaultValue = finiteOrZero(lane.target.defaultValue);

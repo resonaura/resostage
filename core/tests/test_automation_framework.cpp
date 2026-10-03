@@ -598,6 +598,7 @@ TEST_CASE("ProjectJson: Lossless roundtrip of AutomationLanes") {
     regionLane.id = "lane:synth:cutoff";
     regionLane.target.domain = AutomationDomain::Plugin;
     regionLane.target.entityId = "slot:vst3:synth";
+    regionLane.target.stripId = "audio::track:1";
     regionLane.target.parameterId = "param:104";
     regionLane.target.valueType = ParameterValueType::FloatNormalized;
     regionLane.target.defaultValue = 0.5f;
@@ -646,11 +647,73 @@ TEST_CASE("ProjectJson: Lossless roundtrip of AutomationLanes") {
     CHECK(parsedMr.automationLanes[0].id == "lane:synth:cutoff");
     CHECK(parsedMr.automationLanes[0].target.domain == AutomationDomain::Plugin);
     CHECK(parsedMr.automationLanes[0].target.entityId == "slot:vst3:synth");
+    CHECK(parsedMr.automationLanes[0].target.stripId == "audio::track:1");
     CHECK(parsedMr.automationLanes[0].target.parameterId == "param:104");
     CHECK(parsedMr.automationLanes[0].scope == AutomationScope::Region);
     CHECK(parsedMr.automationLanes[0].points.size() == 2);
     CHECK(parsedMr.automationLanes[0].points[1].value == doctest::Approx(0.9f));
     CHECK(parsedMr.automationLanes[0].points[1].curve == doctest::Approx(0.8f));
+
+    // Older project files omit the additive plug-in strip identity. They must
+    // still load as explicitly unscoped legacy targets for safe unique-ID use.
+    std::string legacyJson = json;
+    size_t searchFrom = 0;
+    bool removedScopedStrip = false;
+    while (true) {
+        const auto key = legacyJson.find(R"json("stripId")json", searchFrom);
+        if (key == std::string::npos)
+            break;
+        const auto colon = legacyJson.find(':', key);
+        const auto comma = legacyJson.find(',', colon);
+        const auto close = legacyJson.find('}', colon);
+        const auto fieldEnd = comma == std::string::npos
+            || (close != std::string::npos && close < comma) ? close : comma;
+        const auto valueStart = legacyJson.find_first_not_of(" \t\r\n", colon + 1);
+        const auto valueEnd = valueStart == std::string::npos
+            ? std::string::npos : legacyJson.find('"', valueStart + 1);
+        if (fieldEnd != std::string::npos && valueStart < fieldEnd
+            && valueEnd != std::string::npos
+            && legacyJson.compare(valueStart + 1, valueEnd - valueStart - 1,
+                                  "audio::track:1") == 0) {
+            legacyJson.erase(key, fieldEnd - key + (fieldEnd == comma ? 1 : 0));
+            removedScopedStrip = true;
+            break;
+        }
+        searchFrom = key + 1;
+    }
+    REQUIRE(removedScopedStrip);
+    Project legacyProject;
+    REQUIRE(parseProjectJson(legacyJson, legacyProject, parseError));
+    REQUIRE(legacyProject.songs.size() == 1);
+    REQUIRE(legacyProject.songs[0].midiRegions.size() == 1);
+    REQUIRE(legacyProject.songs[0].midiRegions[0].automationLanes.size() == 1);
+    CHECK(legacyProject.songs[0].midiRegions[0].automationLanes[0].target.stripId.empty());
+}
+
+TEST_CASE("AutomationTarget: plugin parameter identity distinguishes strips") {
+    AutomationTarget firstTarget;
+    firstTarget.domain = AutomationDomain::Plugin;
+    firstTarget.entityId = "slot:duplicate";
+    firstTarget.stripId = "strip:first";
+    firstTarget.parameterId = "id:cutoff";
+    firstTarget.defaultValue = 0.0f;
+
+    AutomationLane firstLane;
+    firstLane.target = firstTarget;
+    firstLane.points = {{0.0, 0.25f, 0.0f}};
+
+    AutomationLane secondLane = firstLane;
+    secondLane.target.stripId = "strip:second";
+    secondLane.points[0].value = 0.75f;
+
+    SongDef song;
+    song.automationLanes = {firstLane, secondLane};
+    CHECK(AutomationEvaluator::resolveMultiScopeValue(
+        song, firstTarget, 0.0, 0.0) == doctest::Approx(0.25f));
+
+    firstTarget.stripId = "strip:second";
+    CHECK(AutomationEvaluator::resolveMultiScopeValue(
+        song, firstTarget, 0.0, 0.0) == doctest::Approx(0.75f));
 }
 
 TEST_CASE("AutomationTarget: Slot UUID retention, orphan lane recovery, and paramID parsing") {
