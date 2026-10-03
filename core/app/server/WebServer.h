@@ -300,6 +300,7 @@ enum class WebCommandKind : uint8_t {
 #if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
     // Routed only when RESOSTAGE_ENABLE_TEST_HOOKS is enabled.
     TestFailNextPlaybackSnapshot,
+    TestCommandQueueNoop,
 #endif
 };
 
@@ -1441,6 +1442,11 @@ private:
     moodycamel::ReaderWriterQueue<WebCommand> commands{
         command_body::kMaximumQueuedCommands};
     command_body::CommandAdmissionBudget commandAdmission;
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    // The loopback-only saturation fixture pauses dequeue without changing
+    // queue admission, allowing the HTTP 503 boundary to be exercised.
+    std::atomic<bool> pauseCommandPollingForTesting{false};
+#endif
 
     mutable std::mutex exportMutex;
     bool exportReady = false;

@@ -1026,6 +1026,10 @@ uint64_t WebServer::frameGeneration() const {
 }
 
 bool WebServer::pollCommand(WebCommand& out) {
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    if (pauseCommandPollingForTesting.load(std::memory_order_acquire))
+        return false;
+#endif
     if (!commands.try_dequeue(out)) return false;
     commandAdmission.release(out.path.size() + out.json.size()
         + out.expectedStateSessionId.size());
@@ -1041,7 +1045,11 @@ bool WebServer::enqueueCommand(WebCommand cmd) {
     }
     // Wake the message thread immediately so all incoming web commands
     // (transport, mixer faders, mutes, solos, actions, cues, settings) apply instantly.
-    if (urgentCommandHook)
+    bool commandPollingPaused = false;
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    commandPollingPaused = pauseCommandPollingForTesting.load(std::memory_order_acquire);
+#endif
+    if (!commandPollingPaused && urgentCommandHook)
         urgentCommandHook();
     return true;
 }

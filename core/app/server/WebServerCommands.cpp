@@ -38,6 +38,17 @@ int parseSelectIndex(const char* body, size_t len) {
     return p.index;
 }
 
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+bool isLoopbackTestPeer(lws* wsi) {
+    char clientIp[64] = {};
+    lws_get_peer_simple(wsi, clientIp, sizeof(clientIp));
+    return std::strncmp(clientIp, "127.", 4) == 0
+        || std::strcmp(clientIp, "::1") == 0
+        || std::strcmp(clientIp, "0:0:0:0:0:0:0:1") == 0
+        || std::strncmp(clientIp, "::ffff:127.", 11) == 0;
+}
+#endif
+
 // Body parse for {"index": N, "value": X} using Glaze.
 // X is either a number or a JSON boolean (mute/solo send booleans; gain/pan send numbers).
 bool parseIndexAndValue(const char* body, size_t len, int& outIndex, double& outValue) {
@@ -307,12 +318,46 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     if (std::strcmp(method, "POST") != 0)
         return false;
 
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    if (std::strncmp(path, "/api/v1/test/", 12) == 0
+        && !isLoopbackTestPeer(wsi)) {
+        writeJsonError(wsi, 403, "Test hooks are available only over loopback");
+        return true;
+    }
+#endif
+
     WebCommand cmd;
     bool ok = true;
 
 #if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
     if (std::strcmp(path, "/api/v1/test/fail-next-playback-snapshot") == 0) {
         cmd = {WebCommandKind::TestFailNextPlaybackSnapshot, 0};
+    } else if (std::strcmp(path, "/api/v1/test/command-queue-control") == 0) {
+        glz::generic payload;
+        std::string action;
+        if (body == nullptr || glz::read_json(payload, std::string_view(body, bodyLen))
+            || !builder_json::getString(payload, "action", action)
+            || (action != "pause" && action != "resume" && action != "status")) {
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "action must be pause, resume, or status");
+            return true;
+        }
+        if (action == "pause") {
+            pauseCommandPollingForTesting.store(true, std::memory_order_release);
+        } else if (action == "resume") {
+            const bool wasPaused = pauseCommandPollingForTesting.exchange(
+                false, std::memory_order_acq_rel);
+            if (wasPaused && urgentCommandHook)
+                urgentCommandHook();
+        }
+        const bool paused = pauseCommandPollingForTesting.load(std::memory_order_acquire);
+        const std::string status = "{\"paused\":" + std::string(paused ? "true" : "false")
+            + ",\"queuedCommands\":" + std::to_string(commandAdmission.usedCommands())
+            + ",\"queuedBytes\":" + std::to_string(commandAdmission.usedBytes()) + "}";
+        webserver_http::writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
+                                          status.data(), status.size());
+        return true;
+    } else if (std::strcmp(path, "/api/v1/test/command-queue-noop") == 0) {
+        cmd = {WebCommandKind::TestCommandQueueNoop, 0};
     } else
 #endif
     if (std::strcmp(path, "/api/v1/transport/play") == 0) {

@@ -586,6 +586,9 @@ void MainComponent::drainWebCommands() {
                 break;
             }
 #if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+            case WebCommandKind::TestCommandQueueNoop:
+                // Saturation acceptance must not mutate project or transport state.
+                break;
             case WebCommandKind::TestFailNextPlaybackSnapshot:
                 engine.failNextPlaybackSnapshotForTesting();
                 setStatus("Test-only playback snapshot failure armed");

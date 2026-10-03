@@ -276,12 +276,15 @@ Still open; do not call this full editor transactionality:
   real-Core harness. A 257-edit run proves the exact result ring retains only
   the latest 256 request IDs. A UI test proves an expired result remains
   unknown, triggers one state refetch, and never resends the accepted command.
-  Still verify Core message-queue saturation/HTTP 503, deferred queue
-  exhaustion, same-Core reopen/reused IDs, Core restart during a pending edit,
-  and late responses. A process restart now proves old-session requests get
-  HTTP 409 while a new session may safely reuse the same numeric request ID.
-  Queue admission failure remains explicit but has no
-  editor-result ring entry because the command was never accepted.
+  The real-Core harness now also pauses dequeue through test-only loopback
+  hooks, fills all 1024 command slots, confirms the next HTTP request gets 503,
+  then drains and confirms admission recovers. This does not exercise the
+  separate message-thread deferred queue: exhaustion while project I/O keeps
+  the Core busy remains open. Same-Core reopen/reused IDs, Core restart during
+  a pending edit, and late responses remain additional stress cases. A process
+  restart already proves old-session requests get HTTP 409 while a new session
+  may safely reuse the same numeric request ID. Queue admission failure has no
+  editor-result ring entry because that command was never accepted.
 - Admission result rings remain bounded and process-local. A client that misses
   an exact result does not infer success from field coincidence or a later
   revision; after its bounded wait it refreshes state and reports the outcome
@@ -293,9 +296,10 @@ Still open; do not call this full editor transactionality:
 
 Next implementation:
 
-1. Exercise HTTP command-queue and deferred-message-queue exhaustion. Show
-   accepted-result expiry as unknown and never infer application from another
-   request's later state.
+1. Exercise deferred-message-queue exhaustion while real project I/O keeps the
+   message thread busy. Preserve the already-verified HTTP 503 slot-saturation
+   result. Keep accepted-result expiry unknown and never infer application from
+   another request's later state.
 2. Complete same-Core reopen/reused-ID, Core restart during pending edits, and
    late-response cases. Add exact completion only to remaining structural
    mutations that truly participate in history. Do not make high-rate fader or

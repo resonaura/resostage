@@ -98,6 +98,21 @@ in scope after this transaction boundary is trustworthy.
   with TimelineSidebar wiring, final gesture requests, return-ramp helpers and
   Write safety revert. The audit found actual Touch/Latch ownership, other
   surfaces, cycle/TempoMap/epoch wiring and rejection handling incomplete.
+- `11b031e`: Core arbitration for live Timeline gain/pan Touch/Latch/Write;
+  per-lane manual owners suppress only matching playback while the physical
+  control value is applied, and clear on Stop/song or project replacement.
+- `1e54bf3`: UI regression drives an exact playback-snapshot failure result
+  through the real editor mutation API and verifies refresh, rejection, no
+  resend, and footer error. This is separate from the real-Core injector run.
+- `621d4c4`: Escape, pointer cancellation, lost capture, and control unmount
+  now discard the in-progress automation gesture; normal pointer release
+  commits. Faders, knobs, track pan, and gain share cancel-vs-end semantics.
+  Full UI suite: 781 tests / 117 files; TypeScript/build pass; lint has zero
+  errors and the same 12 existing warnings.
+- Current block adds test-only loopback queue controls and a real Core HTTP
+  saturation scenario: 1024 commands admitted, the next request returns 503,
+  all slots drain, and admission recovers. Deferred-message-queue exhaustion is
+  still unverified.
 - `fdc32a2`: Unit test for dense sustain and panic traffic during deferred MIDI queue capture in `test_plugin_host_protocol.cpp` (582 assertions verifying pedal CC 64, notes, pitch bend across channels 1..4, overflow degradation to 48-event 16-channel panic, and clean recovery).
 - `75c3eb0`: Canonicalized ArtDMX (`buildArtDMXPacket`, `parseArtDMXPacket`), WebCommandKind values (`BuilderTrackImportWAV*`, `BuilderMIDIRegion*`, `SetMIDI*`, `MIDILearn*`), builder/settings methods (`builderMIDIRegion*`, `builderTrackImportWAV*`, `settingsSetMIDI*`, `settingsMIDI*`), and `importWAVForTrackAsync` across Core with backward-compatible aliases.
 - `e214318`: Exposed canonical acronym types and method aliases in UI (`MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow`, `trackImportWAV`, `setMIDI*`) and Electron (`UDPTelemetryStats`, `UDPTelemetryTracker`).
@@ -287,8 +302,8 @@ gestures, playback crossing and save/reopen; UI tests are not device proof.
    not allocation-failure injection, rollback, acoustic, vendor or deadline
    proof. Do not compensate with unscoped Undo; gesture coalescing makes that
    unsafe.
-2. Stress Core HTTP queue saturation, deferred queue exhaustion, same-Core
-   project replacement, Core restart during an in-flight command, and late
+2. Stress deferred queue exhaustion, same-Core project replacement, Core
+   restart during an in-flight command, and late
    responses. The Core now has a fixed 1024-command/32 MiB admission ceiling;
    unit tests prove command and byte reservations reject and recover. Old-session
    post-restart requests and numeric request-ID reuse are also covered. Expired

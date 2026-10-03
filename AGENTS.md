@@ -86,6 +86,11 @@ collections. Media/project uploads remain streamed. The single message-thread
 command queue is preallocated for at most 1024 pending commands and also has a
 32 MiB aggregate payload budget; failure is explicit 413/503, never a silently
 truncated or unbounded accepted edit.
+Deterministic HTTP fault-injection routes exist only when
+`RESOSTAGE_ENABLE_TEST_HOOKS=ON` (default `OFF`), and every `/api/v1/test/*`
+request must verify a loopback peer before mutating test state. Queue-saturation
+fixtures pause only dequeue, use a non-mutating probe command, and resume before
+checking recovery; never expose these controls in a normal Core build.
 libwebsockets protocol storage has C++ construction/destruction at HTTP bind/drop
 boundaries. Reliable editor posts expose rejection, and local drafts remain
 distinct from authoritative snapshots until a matching Core echo. An HTTP

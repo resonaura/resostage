@@ -77,6 +77,12 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.ok(response.ok, `${path}: ${response.status} ${text}`);
     return JSON.parse(text);
   };
+  const postRaw = async (path, body) => fetch(origin + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
+  });
   const waitFor = async (predicate, description) => {
     let lastObserved = null;
     for (let attempt = 0; attempt < 160; ++attempt) {
@@ -428,6 +434,49 @@ export async function verifyEditorState(coreExecutable, inspect) {
     let laneCreation;
     let state;
     if (process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE === "1") {
+      const queueControl = async (action) => {
+        const response = await postRaw("/api/v1/test/command-queue-control", { action });
+        const text = await response.text();
+        assert.equal(response.status, 200, `test command-queue ${action}: ${text}`);
+        return JSON.parse(text);
+      };
+      const waitForQueueEmpty = async (description) => {
+        for (let attempt = 0; attempt < 160; ++attempt) {
+          const status = await queueControl("status");
+          if (status.queuedCommands === 0) return status;
+          await sleep(50);
+        }
+        assert.fail(`command queue did not drain: ${description}`);
+      };
+      const queueBefore = await queueControl("pause");
+      assert.equal(queueBefore.queuedCommands, 0, "test queue must be empty before saturation");
+      for (let first = 0; first < 1024; first += 32) {
+        const responses = await Promise.all(Array.from({ length: 32 }, () =>
+          postRaw("/api/v1/test/command-queue-noop", {})));
+        for (const response of responses) {
+          const text = await response.text();
+          assert.equal(response.status, 200, `command should be admitted while capacity remains: ${text}`);
+        }
+      }
+      const fullQueue = await queueControl("status");
+      assert.equal(fullQueue.queuedCommands, 1024,
+        "all fixed command slots must be occupied before rejecting the next request");
+      assert.equal(fullQueue.queuedBytes, 0,
+        "empty saturation probes must not consume the payload byte budget");
+      const rejectedQueueCommand = await postRaw("/api/v1/test/command-queue-noop", {});
+      const rejectedQueueBody = await rejectedQueueCommand.text();
+      assert.equal(rejectedQueueCommand.status, 503,
+        `HTTP must explicitly reject a full queue, not acknowledge it: ${rejectedQueueBody}`);
+      assert.match(rejectedQueueBody, /queue is full/i);
+      await queueControl("resume");
+      const drainedQueue = await waitForQueueEmpty("recovery after saturation");
+      assert.equal(drainedQueue.queuedCommands, 0);
+      const recoveredQueueCommand = await postRaw("/api/v1/test/command-queue-noop", {});
+      const recoveredQueueBody = await recoveredQueueCommand.text();
+      assert.equal(recoveredQueueCommand.status, 200,
+        `commands must be admitted again after drain: ${recoveredQueueBody}`);
+      await waitForQueueEmpty("post-recovery probe dequeue");
+
       await request("/api/v1/transport/play", {});
       const beforeInjectedFailure = await waitFor((current) => current.playing,
         "play before injected playback-snapshot failure");
@@ -782,7 +831,10 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "stale project edits must not create a history revision");
     assert.equal(staleEdit.state.songs[0].midiRegions[0].name, fencedRegion.name,
       "stale project edits must not mutate entities with reused/indexed targets");
-    console.log("PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction, audio/MIDI region CRUD and embedded-automation rejection, detached plug-in automation rebind rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
+    const queueAcceptance = process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE === "1"
+      ? ", command queue 1024-slot saturation/503/drain/recovery"
+      : "";
+    console.log(`PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction${queueAcceptance}, audio/MIDI region CRUD and embedded-automation rejection, detached plug-in automation rebind rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)`);
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.
