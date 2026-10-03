@@ -45,8 +45,8 @@ in scope after this transaction boundary is trustworthy.
   and bounded viewport paths. 49 focused UI tests and TypeScript passed at commit.
 - `f436040`: HTTP silently disconnected JSON bodies beyond 4096 bytes while the
   client swallowed the failure. MIDI add/update now allow16 MiB, whole automation
-  collections4 MiB, scalar commands64 KiB; queue byte admission is bounded32 MiB
-  with explicit rejection. HTTP session C++ body storage now follows lws bind/drop
+  collections4 MiB, scalar commands64 KiB; queue admission is bounded to 1024
+  commands and32 MiB of payload with explicit rejection. HTTP session C++ body storage now follows lws bind/drop
   lifetime. `postReliable` exposes failures for MIDI and automation.
 - Same backend commit: real plugin metadata/current values/stable vendor IDs,
   atomic whole-lane replacement (one history gesture, curves preserved),
@@ -161,7 +161,8 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   stale destructive New Project rejection, Core-session rejection after
   restart with request-ID reuse, 413, and save/reopen. Native `ctest` also
   verifies bounded snapshot rejection cannot replace the last-good routing
-  publication. Focused UI tests prove an expired result triggers one refetch,
+  publication and 1024-slot/32 MiB command admission recovery. Focused UI tests
+  prove an expired result triggers one refetch,
   stays unknown and is not resent, rejects an apparently newer revision from
   the wrong playback epoch, and surfaces fire-and-forget rejection without
   retry. No full Electron run, acoustic/vendor proof, AudioEngine-level injected snapshot
@@ -185,9 +186,11 @@ folders. Commit each finished block; do not push.
    gesture coalescing makes an unscoped Undo unsafe.
 2. Stress Core HTTP queue saturation, deferred queue exhaustion, same-Core
    project replacement, Core restart during an in-flight command, and late
-   responses. Old-session post-restart requests and numeric request-ID reuse
-   are now covered. Expired results stay unknown. High-rate controls remain
-   latest-wins and do not await per-sample ACKs.
+   responses. The Core now has a fixed 1024-command/32 MiB admission ceiling;
+   unit tests prove command and byte reservations reject and recover. Old-session
+   post-restart requests and numeric request-ID reuse are also covered. Expired
+   results stay unknown. High-rate controls remain latest-wins and do not await
+   per-sample ACKs.
 3. Finish publication acceptance: sanitizer/concurrency coverage, callback
    allocation/deadline measurement, and loaded AU/VST3 continuity proof. Do not
    conceal failures by stopping transport or restarting healthy helpers.

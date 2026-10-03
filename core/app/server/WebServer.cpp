@@ -1022,15 +1022,16 @@ uint64_t WebServer::frameGeneration() const {
 
 bool WebServer::pollCommand(WebCommand& out) {
     if (!commands.try_dequeue(out)) return false;
-    commandBytes.release(out.path.size() + out.json.size() + out.expectedStateSessionId.size());
+    commandAdmission.release(out.path.size() + out.json.size()
+        + out.expectedStateSessionId.size());
     return true;
 }
 
 bool WebServer::enqueueCommand(WebCommand cmd) {
     const auto size = cmd.path.size() + cmd.json.size() + cmd.expectedStateSessionId.size();
-    if (!commandBytes.reserve(size)) return false;
+    if (!commandAdmission.reserve(size)) return false;
     if (!commands.try_enqueue(std::move(cmd))) {
-        commandBytes.release(size);
+        commandAdmission.release(size);
         return false;
     }
     // Wake the message thread immediately so all incoming web commands

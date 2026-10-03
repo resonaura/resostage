@@ -187,6 +187,9 @@ Implemented in the current continuation block (2026-10-02):
   identity is included in coalescing keys for continuous values. Deferred-Core
   queue exhaustion and stale-epoch rejection now settle exact history/editor
   outcomes and media-job failure instead of leaving accepted requests pending.
+- Core HTTP command admission is capped at 1024 preallocated queue entries as
+  well as 32 MiB of aggregate payload. Exhaustion is explicit `503`; the queue
+  implementation's larger-block growth is no longer an unbounded fallback.
 - Verification on 2026-10-02: `pnpm --dir ui test` passed 741 tests in 108
   files; `pnpm --dir ui exec tsc -b --pretty false` passed; optimized Core
   target built with `cmake --build core/build --target ResoStage -j2`; the real
@@ -203,7 +206,8 @@ lint had zero errors and
 12 existing warnings. The optimized Core target built and `ctest --test-dir
 core/build --output-on-failure` passed 1/1 native targets, including a
 deterministic bounded-snapshot rejection test proving an incomplete graph
-cannot replace the last-good routing publication. The real-Core
+cannot replace the last-good routing publication and fixed command/byte
+admission reservation tests. The real-Core
 `editor-state.mjs` harness passed audio/MIDI region CRUD, song/bus/event/section/
 cycle structural outcomes, concurrent request IDs, 257-edit result-ring
 eviction, playback graph revision checks, project-epoch fences, active-playback

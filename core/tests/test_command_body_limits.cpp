@@ -46,3 +46,24 @@ TEST_CASE("Command byte admission is bounded and recovers after dequeue or rejec
     producer.join();
     CHECK(budget.used() == 0);
 }
+
+TEST_CASE("Command admission has a hard slot cap in addition to its byte cap") {
+    CommandAdmissionBudget admission;
+    for (std::size_t i = 0; i < kMaximumQueuedCommands; ++i)
+        REQUIRE(admission.reserve(1));
+
+    CHECK(admission.usedCommands() == kMaximumQueuedCommands);
+    CHECK(admission.usedBytes() == kMaximumQueuedCommands);
+    CHECK_FALSE(admission.reserve(0));
+    CHECK(admission.usedCommands() == kMaximumQueuedCommands);
+
+    admission.release(1);
+    CHECK(admission.reserve(0));
+    CHECK(admission.usedCommands() == kMaximumQueuedCommands);
+    CHECK(admission.usedBytes() == kMaximumQueuedCommands - 1);
+
+    for (std::size_t i = 0; i < kMaximumQueuedCommands; ++i)
+        admission.release(i == 0 ? 0 : 1);
+    CHECK(admission.usedCommands() == 0);
+    CHECK(admission.usedBytes() == 0);
+}

@@ -83,8 +83,9 @@ publishing a complete UI build.
 HTTP JSON command admission is bounded by route:64 KiB for scalar controls,
 16 MiB for MIDI-region add/update collections, and4 MiB for complete automation
 collections. Media/project uploads remain streamed. The single message-thread
-command queue has a32 MiB aggregate payload budget in addition to its fixed slot
-capacity; failure is explicit413/503, never a silently truncated accepted edit.
+command queue is preallocated for at most 1024 pending commands and also has a
+32 MiB aggregate payload budget; failure is explicit 413/503, never a silently
+truncated or unbounded accepted edit.
 libwebsockets protocol storage has C++ construction/destruction at HTTP bind/drop
 boundaries. Reliable editor posts expose rejection, and local drafts remain
 distinct from authoritative snapshots until a matching Core echo. An HTTP

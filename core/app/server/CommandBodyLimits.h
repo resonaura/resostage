@@ -18,6 +18,7 @@ inline constexpr std::size_t kScalarLimit = 64 * 1024;
 inline constexpr std::size_t kMidiLimit = 16 * 1024 * 1024;
 inline constexpr std::size_t kAutomationLimit = 4 * 1024 * 1024;
 inline constexpr std::size_t kQueueLimit = 32 * 1024 * 1024;
+inline constexpr std::size_t kMaximumQueuedCommands = 1024;
 
 constexpr std::size_t limitForPath(std::string_view path) noexcept {
     if (path == "/api/v1/builder/midi-region/add"
@@ -51,6 +52,39 @@ public:
     std::size_t used() const noexcept { return bytes.load(std::memory_order_relaxed); }
 private:
     std::atomic<std::size_t> bytes{0};
+};
+
+/** Reserves both bounded payload bytes and a fixed command slot before queueing. */
+class CommandAdmissionBudget {
+public:
+    bool reserve(std::size_t size) noexcept {
+        auto current = commands.load(std::memory_order_relaxed);
+        do {
+            if (current >= kMaximumQueuedCommands)
+                return false;
+        } while (!commands.compare_exchange_weak(current, current + 1,
+                                                  std::memory_order_relaxed));
+
+        if (bytes.reserve(size))
+            return true;
+
+        commands.fetch_sub(1, std::memory_order_relaxed);
+        return false;
+    }
+
+    void release(std::size_t size) noexcept {
+        bytes.release(size);
+        commands.fetch_sub(1, std::memory_order_relaxed);
+    }
+
+    std::size_t usedBytes() const noexcept { return bytes.used(); }
+    std::size_t usedCommands() const noexcept {
+        return commands.load(std::memory_order_relaxed);
+    }
+
+private:
+    ByteBudget bytes;
+    std::atomic<std::size_t> commands{0};
 };
 
 } // namespace resostage::command_body

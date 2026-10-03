@@ -1428,8 +1428,9 @@ private:
     mutable std::mutex clientViewMutex;
     std::string clientView;
 
-    moodycamel::ReaderWriterQueue<WebCommand> commands{64};
-    command_body::ByteBudget commandBytes;
+    moodycamel::ReaderWriterQueue<WebCommand> commands{
+        command_body::kMaximumQueuedCommands};
+    command_body::CommandAdmissionBudget commandAdmission;
 
     mutable std::mutex exportMutex;
     bool exportReady = false;
