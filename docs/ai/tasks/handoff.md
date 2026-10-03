@@ -720,3 +720,22 @@ LIMITED`. The rendering is read-only and does not change MIDI region data.
 Focused tests passed 10/10; full UI passed 845 tests across 128 files; UI
 TypeScript, changed-file lint and production build passed. There was no manual
 visual or device test. Arbitrary CC lanes and editing remain open.
+
+### Completed block — control motion and active-song tempo regression (2026-10-03)
+
+Commit `d5a70e26` centralizes CSS-only easing for Timeline/Mixer gain faders,
+shared pan knobs and send arcs. Pointer gestures bypass the easing, reduced
+motion disables it, and there is no React animation loop or telemetry feedback
+to Core. Numeric readouts, Inspector automation and hosted plug-in parameter
+controls are not covered yet.
+
+Added `mixerUtils.test.ts` to verify a header BPM/meter edit posts to the
+currently active song index and preserves the current project-global click
+configuration. The tempo/signature header editor and Tap Tempo already existed;
+this test adds regression coverage rather than a duplicate UI implementation.
+The test validates frontend routing/payload only, not Core tempo-map application.
+
+Focused motion test passed 9/9; focused active-song test passed 1/1; full UI
+passed 847 tests across 129 files; UI TypeScript, production build,
+changed-file lint and `git diff --check` passed. No hardware/remote session or
+manual visual acceptance was performed.

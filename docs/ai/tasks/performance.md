@@ -262,7 +262,7 @@ motion preference is checked at render time and reduced-motion users get no
 interpolation. This adds no React animation loop, telemetry-to-Core feedback,
 or audio-callback work.
 
-Focused control-value tests passed 9/9; full UI passed 846 tests across 128
+Focused control-value tests passed 9/9; full UI passed 847 tests across 129
 files; UI TypeScript and production build passed; changed-file lint and
 `git diff --check` passed. This smooths painted fader/knob geometry only;
 numeric readout text is still updated at telemetry cadence, and Inspector or
