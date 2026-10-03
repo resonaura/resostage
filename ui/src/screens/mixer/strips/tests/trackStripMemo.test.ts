@@ -115,6 +115,19 @@ describe("areTrackStripPropsEqual", () => {
     expect(areTrackStripPropsEqual(current, updated)).toBe(true);
   });
 
+  it("re-renders when Core publishes a new evaluated automation value", () => {
+    const current = props({
+      t: { ...track, automatedGainDb: -12, automatedPan: -0.25 },
+    });
+
+    expect(
+      areTrackStripPropsEqual(current, {
+        ...current,
+        t: { ...current.t, automatedGainDb: -6, automatedPan: 0.5 },
+      }),
+    ).toBe(false);
+  });
+
   it("invalidates when structural track or routing fields change", () => {
     const current = props({ destinationBusses: [bus] });
     expect(

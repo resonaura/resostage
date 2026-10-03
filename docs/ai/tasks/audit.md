@@ -10,6 +10,25 @@ UI entry paths abbreviated as `timeline/...` below are relative to
 
 ## Evidence and limits
 
+### Latest continuation addendum — plug-in editor bypass and Inspector automation (2026-10-03)
+
+Commit `8535b290` adds a Bypass control to isolated and in-process native
+plug-in editor windows. Isolated windows submit a bounded per-slot intent with
+the exact bypass-state token shown by the editor; Core applies only a current
+request on its message thread through the ordinary history-backed bypass path,
+then publishes the new state. This prevents a helper UI from mutating project
+or DSP state. Protocol tests cover latest-wins behavior, stale tokens and
+bounds; Core/helper builds and native CTest passed. Real AU/VST3 editor-window
+visual/acoustic acceptance remains open.
+
+The Inspector automation path uses the shared track/bus strips. New UI
+regressions verify stable selected-track forwarding and ensure live automation
+gain/pan changes remain render-significant across the strip memo boundary,
+while meter-only fields remain ignored. Full UI Vitest passed 867 tests across
+134 files; UI TypeScript, changed-file lint and `git diff --check` passed.
+This does not prove mounted visual easing, reconnect handling or remote Core
+behavior. Hosted-plugin parameter value controls remain open.
+
 ### Latest continuation addendum — foldable automation lanes (2026-10-03)
 
 The Timeline now shows simultaneous independent track-scope automation lanes

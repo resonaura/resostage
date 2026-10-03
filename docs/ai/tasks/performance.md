@@ -138,12 +138,13 @@ open.
 - Implemented 2026-10-03 subset: Core publishes graph-evaluated gain/pan as
   separate optional per-view values for track, click, main and aux strips. The
   evaluator skips manually owned lanes and visits only prepared gain/pan
-  bindings. Timeline and Mixer controls display them with reduced-motion-aware
-  transitions while retaining manual/optimistic values as edit and Esc-cancel
-  baselines. This uses existing JSON view state, not UDP meter frames, and
-  never writes interpolated values back to Core. Automated sends,
-  Inspector/plugin parameters, and device/remote acceptance remain open; do not
-  report all automatable displays as complete.
+  bindings. Timeline, Mixer and the shared Inspector strip controls display
+  them with reduced-motion-aware transitions while retaining
+  manual/optimistic values as edit and Esc-cancel baselines. This uses existing
+  JSON view state, not UDP meter frames, and never writes interpolated values
+  back to Core. Automated send levels were added in the subsequent per-edge
+  block below. Hosted-plugin parameter value surfaces and device/remote
+  acceptance remain open; do not report all automatable displays as complete.
 - Implemented 2026-10-03 follow-up: Timeline and Mixer numeric gain/pan labels
   now use the shared `EasedReadout` UI component. It writes text through one
   rAF-owned DOM node rather than triggering per-frame React renders, shares the
@@ -154,9 +155,11 @@ open.
   displayed/interpolated value back to Core.
   Verification: UI Vitest passed 853 tests / 130 files, `tsc -b` and
   production build passed, lint had zero errors and 12 existing unrelated
-  warnings, and `git diff --check` passed. This does not include Inspector,
-  plug-in parameter controls, automated-send numbers, a multi-strip frame-cost
-  benchmark, or remote-device visual acceptance.
+  warnings, and `git diff --check` passed. A later Inspector identity test
+  verifies that the selected row's automation fields are forwarded through its
+  shared strip path; automated-send values are covered by the per-edge block
+  above. A multi-strip frame-cost benchmark, hosted plug-in parameter controls,
+  mounted Inspector visual acceptance and remote-device acceptance remain open.
 - Test same-strip values and peak reset in Timeline/Inspector/Mixer simultaneously,
   track switching with reused components, remote Core/session changes, delayed
   and reordered telemetry, disconnected/stale telemetry, clipping on either

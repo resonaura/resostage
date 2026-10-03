@@ -1,8 +1,11 @@
 # Architecture Specification: Unified Automation & Modulation Framework
 
-**Status**: domain/schema, arrangement editing and track-scope strip DSP are
-implemented; complete live console ownership/recording acceptance remains in
-progress. Source review: 2026-10-02. See [the current audit](../ai/tasks/audit.md).
+**Status**: the project schema, track-scope arrangement editing, foldable
+automation rows, strip DSP and gain/pan/send control telemetry are implemented.
+Cross-surface manual Touch/Latch/Write ownership, hosted-plugin value display,
+and platform/audio acceptance remain in progress. See
+[the current audit](../ai/tasks/audit.md) and
+[the detailed implementation ledger](../ai/tasks/automation.md).
 
 ## Implemented scope
 
@@ -38,11 +41,23 @@ entries and 65,536 points per song and evicts oldest entries first. It is
 project content, not callback state or local UI storage. The external project
 migrator adds an empty cache when upgrading older documents (format v11).
 
-The current Timeline still presents one automation-control row per audio
-track. The backend target-swap/cache contract is implemented, but independent
-foldable pseudo-track rows and the UI wiring from each row's selector to this
-Core transaction remain unfinished; do not claim the user-facing multi-lane
-workflow is complete until that layout and its geometry/selection tests land.
+The Timeline presents each track-scope lane as an independent foldable
+pseudo-track row. Every row owns its selector and lane identity; `+` explicitly
+creates a lane, and target changes rebind that lane through one reliable
+Core-history transaction. Fold state is bounded UI state scoped to project,
+song and lane, while detached curves are portable project data in the v11
+bounded cache. Shared row geometry keeps the timeline body, sidebar and
+gesture/drop hit testing aligned. UI layout and hit-testing regressions pass;
+manual Electron animation inspection and live Core multi-lane Undo/Redo plus
+save/reopen acceptance remain open, so this workflow is not platform-accepted.
+
+During playback, Core publishes evaluated track/click/main/aux gain and pan,
+plus source-send levels, as separate optional view values from the exact active
+graph revision. Timeline and Mixer controls display those values while keeping
+manual/optimistic values as edit and Escape-cancel baselines. Inspector track
+and bus strips reuse the same controls and selected stable rows. These fields
+are display observations, never written back as audio authority. Hosted-plugin
+parameter values are not yet part of this strip-control telemetry contract.
 
 The type excerpts below are design summaries. The schema is the source of
 truth and includes `AutomationLane::scope` in addition to the abbreviated fields.

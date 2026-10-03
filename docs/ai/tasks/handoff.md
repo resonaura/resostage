@@ -7,6 +7,24 @@ agent. Read the complete repository `AGENTS.md` first. Check `git status` and
 recent commits before acting: code changes after this snapshot take precedence.
 Do not redo completed implementation from obsolete chat history.
 
+Latest verified changes:
+
+- `8535b290 Add bypass controls to plugin editor windows`: isolated plug-in
+  editors publish a bounded, token-fenced bypass intent to Core; Core applies
+  it on the message thread through project history and mirrors authoritative
+  state back to the editor. In-process fallback windows use the same project
+  mutation. Core/helper builds and full native CTest passed; real vendor-window
+  visual/acoustic acceptance remains open.
+- Inspector automation identity regression verifies that the selected track's
+  current Core gain/pan values are forwarded through the shared strip path and
+  that strip memoization does not drop automation value changes. Full UI passed
+  867 tests / 134 files; UI TypeScript, changed-file lint and diff check passed.
+  This is not mounted visual or remote-device acceptance.
+
+Continue from open items in `performance.md`, `automation.md`, `audio-flow.md`
+and `audit.md`. Per-plugin preset persistence and true AU/VST3 sidechain
+routing remain unimplemented. Do not push.
+
 Latest verified UI display block (see recent git history):
 Timeline and Mixer numeric fader-gain/pan labels use the shared
 `components/daw/EasedReadout.tsx`, which eases authoritative automation display

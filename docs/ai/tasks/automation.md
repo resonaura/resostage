@@ -139,10 +139,20 @@ gesture and Esc-cancel baselines remain the manual values. Short transitions
 honor reduced motion. These values travel through the existing per-view JSON
 state path, not the binary meter UDP frame, and are never sent back to Core.
 
-Still open: Inspector and hosted-plugin parameter controls, end-to-end
-Touch/Latch/Write ownership on all surfaces, and visual/remote-session playback
-acceptance. This does not complete all control-display requirements in this
-document.
+The Editor Inspector passes the selected stable track row (including its
+optional Core-evaluated gain/pan fields) through the same `TrackStrip`,
+`ChannelStrip`, fader and pan-control path as the Mixer. A regression now
+selects a second track and verifies that its evaluated values, or absence of
+an active automation value, are passed without retaining the first track's
+values. The strip memo comparator also explicitly keeps automation value
+changes render-significant while continuing to ignore meter-only changes.
+This verifies source-level Inspector selection and prop forwarding, not a
+mounted device/remote visual run.
+
+Still open: live displayed-value integration for hosted-plugin parameter
+controls; end-to-end Touch/Latch/Write ownership on all surfaces; and
+visual/remote-session playback acceptance. This does not complete all
+control-display requirements in this document.
 
 Verification on 2026-10-03: `ResoStage` and `resostage_engine_tests` built;
 focused native automation telemetry passed 1 case / 19 assertions; the full
