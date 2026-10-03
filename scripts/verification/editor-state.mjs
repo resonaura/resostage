@@ -289,6 +289,14 @@ export async function verifyEditorState(coreExecutable, inspect) {
     const initialMidiEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", patch);
     assert.equal(getRegion(initialMidiEdit.state)?.notes.length, notes.length, "large note update");
 
+    const missingPluginEdit = await confirmEditorMutation(
+      "/api/v1/plugins/slot/remove",
+      { stripId: "audio::track:2", slotId: "missing-plugin-slot" },
+      false,
+    );
+    assert.match(missingPluginEdit.result.error, /Project edit did not create a new revision|slot no longer exists/i,
+      "a rejected plug-in slot mutation must settle its exact request instead of silently looking applied");
+
     const beforeInvalidEmbeddedAutomation = await request("/api/v1/state");
     commandState = beforeInvalidEmbeddedAutomation;
     const invalidEmbeddedAutomation = await fetch(`${origin}/api/v1/builder/midi-region/update`, {
@@ -1131,6 +1139,33 @@ export async function verifyEditorState(coreExecutable, inspect) {
     });
     assert.equal(afterSameCoreReopenEdit.accepted.requestId, lateAcceptedEdit.requestId + 1,
       "same-Core reopen must not reset the process-local exact request sequence");
+    const stalePluginEdit = await fetch(origin + "/api/v1/plugins/slot/remove", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-ResoStage-Session": beforeSameCoreReopen.stateSessionId,
+        "X-ResoStage-Project-Epoch": String(beforeSameCoreReopen.projectEpoch),
+      },
+      body: JSON.stringify({ stripId: "audio::track:2", slotId: "stale-project-slot" }),
+      signal: AbortSignal.timeout(8000),
+    });
+    assert.equal(stalePluginEdit.status, 202,
+      "a stale project identity is admitted, then fenced on Core's mutation thread");
+    const stalePluginAdmission = await stalePluginEdit.json();
+    assert.ok(Number.isSafeInteger(stalePluginAdmission.requestId),
+      "a stale queued plug-in edit must have an exact terminal result");
+    state = await waitFor((snapshot) => snapshot.editorCommandResults?.some(
+      (result) => result.requestId === stalePluginAdmission.requestId,
+    ), "stale project-scoped plug-in edit rejection");
+    commandState = state;
+    const stalePluginResult = state.editorCommandResults.find(
+      (result) => result.requestId === stalePluginAdmission.requestId,
+    );
+    assert.equal(stalePluginResult.applied, false,
+      "an old-project plug-in-chain command cannot be reported as applied");
+    assert.match(stalePluginResult.error, /Project changed before this command was applied/i);
+    assert.equal(state.stateRevision, afterSameCoreReopenEdit.state.stateRevision,
+      "a stale plug-in command cannot mutate the replacement project");
 
     const detachedAutomation = await confirmEditorMutation("/api/v1/builder/automation-lane/add", {
       songIndex: 0,

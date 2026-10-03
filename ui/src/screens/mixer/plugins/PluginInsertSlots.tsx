@@ -210,7 +210,8 @@ export function PluginInsertSlots({
               <ContextMenuDivider />
               <ContextMenuSubmenu label="Swap Plug-in">
                 {effectCategoryMenus(groups, false, (plugin) => {
-                  void pluginChains.replace(stripId, menu.slot!.id, plugin.id);
+                  if (menu.slot!.pluginId !== plugin.id)
+                    void pluginChains.replace(stripId, menu.slot!.id, plugin.id);
                   setMenu(null);
                 })}
               </ContextMenuSubmenu>

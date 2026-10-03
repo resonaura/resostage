@@ -32,10 +32,13 @@ authority. Keep the distinctions explicit:
 - Live edits must not stop transport, reset the clock, or restart a healthy
   plug-in chain.
 
-Next, finish queue/restart/reopen acceptance. Keep uncompleted automation,
-Piano Roll, plug-in loading,
-callback-deadline, AU/VST3, and hardware acceptance from [audit.md](audit.md)
-in scope after this transaction boundary is trustworthy.
+Queue/restart/reopen acceptance is now exercised by the actual-Core harness.
+The current block also adds exact graph-result handling for structural
+plug-in-chain edits, while deliberately leaving vendor-load readiness in
+generation-scoped plug-in telemetry and bypass/Keep Awake in the host-control
+protocol. Continue with active-document Save/Open terminal-feedback audit,
+then the unresolved automation, Piano Roll, callback-deadline, AU/VST3 and
+hardware acceptance items in [audit.md](audit.md).
 
 ## Verified root causes and committed fixes
 
@@ -364,6 +367,19 @@ gestures, playback crossing and save/reopen; UI tests are not device proof.
    exclusive/cancellable gestures. Run complete UI suite/typecheck/lint and relevant native suites/build after
    integrating changes; commit by finished block. Report actual totals, vendor
    skips and hardware limits. Update this file and detailed tasks with evidence.
+
+## Structural plug-in command block (2026-10-02)
+
+Core now publishes exact editor outcomes for chain add/replace/remove/move;
+the UI waits for those graph-revision acknowledgements. The actual-Core
+acceptance verifies rejected missing-slot removal and old-epoch removal after
+same-Core project replacement do not mutate the new document. Focused UI
+identity/plugin tests passed 14/14, the complete UI suite passed 784/784,
+TypeScript passed, Core built, and the actual-Core editor-state harness passed.
+This confirms saved chain state and
+matching routing graph only; it does not confirm vendor instantiation/audio.
+Bypass/Keep Awake/retry/editor/park/unpark still need a distinct host lifecycle
+or control ACK contract before any UI claims they completed in the live host.
 
 ## Remaining task files and transport decision
 

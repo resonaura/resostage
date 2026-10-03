@@ -696,13 +696,13 @@ export const pluginChains = {
     return response.json();
   },
   add: (stripId: string, pluginId: string) =>
-    post("/api/v1/plugins/slot/add", { stripId, pluginId }),
+    postEditorMutation("/api/v1/plugins/slot/add", { stripId, pluginId }),
   replace: (stripId: string, slotId: string, pluginId: string) =>
-    post("/api/v1/plugins/slot/replace", { stripId, slotId, pluginId }),
+    postEditorMutation("/api/v1/plugins/slot/replace", { stripId, slotId, pluginId }),
   remove: (stripId: string, slotId: string) =>
-    post("/api/v1/plugins/slot/remove", { stripId, slotId }),
+    postEditorMutation("/api/v1/plugins/slot/remove", { stripId, slotId }),
   move: (stripId: string, slotId: string, toIndex: number, delta?: number) =>
-    post(
+    postEditorMutation(
       "/api/v1/plugins/slot/move",
       delta !== undefined
         ? { stripId, slotId, toIndex, delta }

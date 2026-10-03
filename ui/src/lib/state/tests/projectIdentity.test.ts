@@ -14,6 +14,7 @@ import {
   project,
   postReliable,
   builder,
+  pluginChains,
   EDITOR_COMMAND_FAILURE_EVENT,
   lighting,
   registerRefetchHandler,
@@ -113,6 +114,46 @@ describe("project-scoped command identity", () => {
     observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 12 });
 
     await lighting.trackAdd();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const acceptedRequest = fetch.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit];
+    expect(acceptedRequest[1]?.headers).toMatchObject({
+      "X-ResoStage-Session": "Core A",
+      "X-ResoStage-Project-Epoch": "12",
+    });
+  });
+
+  it("confirms structural plug-in chain edits against their exact audio graph revision", async () => {
+    const requestId = 76;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/plugins/slot/remove"))
+        return new Response(JSON.stringify({
+          accepted: true, requestId, stateSessionId: "Core A", projectEpoch: 12,
+        }), { status: 202, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({
+        stateSessionId: "Core A",
+        projectEpoch: 12,
+        stateRevision: 90,
+        playbackProjectEpoch: 6,
+        playbackProjectRevision: 90,
+        editorCommandResults: [{
+          requestId,
+          applied: true,
+          projectEpoch: 12,
+          projectRevision: 90,
+          error: "",
+          applicationDomain: "audio",
+          playbackApplied: true,
+          playbackProjectEpoch: 6,
+          playbackRevision: 90,
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 12 });
+
+    await pluginChains.remove("audio::track:1", "slot::one");
 
     expect(fetch).toHaveBeenCalledTimes(2);
     const acceptedRequest = fetch.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit];

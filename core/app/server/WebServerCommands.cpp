@@ -277,6 +277,11 @@ bool isTransactionalEditorCommand(WebCommandKind kind) {
         WebCommandKind::BuilderRegionAdd, WebCommandKind::BuilderRegionRemove,
         WebCommandKind::BuilderRegionUpdate, WebCommandKind::BuilderMIDIRegionAdd,
         WebCommandKind::BuilderMIDIRegionRemove, WebCommandKind::BuilderMIDIRegionUpdate,
+        // Structural plug-in chain edits publish a matching audio graph. Bypass
+        // and Keep Awake are applied by the plug-in host and need host-specific
+        // acknowledgements; retry/editor/park/unpark are lifecycle commands.
+        WebCommandKind::PluginSlotAdd, WebCommandKind::PluginSlotReplace,
+        WebCommandKind::PluginSlotRemove, WebCommandKind::PluginSlotMove,
         WebCommandKind::BuilderAutomationLaneAdd, WebCommandKind::BuilderAutomationLaneRemove,
         WebCommandKind::BuilderAutomationLaneUpdate, WebCommandKind::BuilderAutomationPointAdd,
         WebCommandKind::BuilderAutomationPointRemove, WebCommandKind::BuilderAutomationPointsReplace,

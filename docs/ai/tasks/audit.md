@@ -184,7 +184,15 @@ Implemented in the current continuation block (2026-10-02):
   immutable-project handoff to LightEngine. This does not prove a frame reached
   hardware and must not be conflated with audio `playbackApplied`. Import jobs,
   plug-in lifecycle, active-document dialogs and high-rate scalar controls
-  remain distinct protocols. Audio results carry project epoch/history
+  remain distinct protocols. Structural plug-in chain edits (add, replace,
+  remove, move) now use exact editor outcomes because these handlers commit
+  project history and publish the matching routing/audio graph. This confirms
+  the chain edit and graph revision only, not vendor plug-in readiness; load
+  state remains owned by (project epoch, generation) plug-in telemetry.
+  Bypass/Keep Awake target live plug-in bank/host state, and Retry/editor/
+  park/unpark are lifecycle operations; do not claim their HTTP admission is
+  exact audio application or fold them into the graph result ring without a
+  host-specific acknowledgement contract. Audio results carry project epoch/history
   revision and graph publication revision. `playbackApplied` only becomes true
   when the published graph's monotonic ProjectHistory revision covers the edit;
   project identity remains independently fenced by the Core session/epoch.
@@ -329,14 +337,37 @@ Still open; do not call this full editor transactionality:
   attribution are now covered. Refine route classification if a new project
   mutation endpoint is added.
 
+## Closed this audit — structural plug-in chain edit outcomes
+
+Structural plug-in chain add/replace/remove/move commands now receive exact
+editor request IDs and terminal graph-publication outcomes. Their renderer
+callers use the reliable project mutation path, so queue rejection, stale
+identity, and a graph snapshot that does not cover the saved edit are surfaced
+instead of silently disappearing. A project-epoch regression verifies that a
+plug-in removal accepted just before same-Core document replacement settles
+as `applied=false` on the JUCE mutation thread without changing the replacement
+project. An invalid slot removal likewise receives an exact rejection.
+
+Verification (2026-10-02): focused project-identity and plug-in-slot UI tests
+passed 14/14; the complete UI suite passed 784 tests in 117 files; UI TypeScript
+build passed; optimized Core built; the actual Core HTTP/state harness passed,
+including real queue admission, exact rejected plug-in edit, stale-epoch
+fencing, project replacement, persistence and active playback Undo/Redo. No
+vendor plug-in load, audio output or hardware behavior is inferred from these
+checks. Bypass/Keep Awake and Retry/editor/park/unpark
+remain outside this graph-result protocol because their effects are applied by
+the plug-in bank/host or editor lifecycle; they need a host-specific ACK before
+the UI may claim host completion.
+
 Next implementation:
 
-1. Audit exact completion for plug-in lifecycle and active-document Save/Open.
-   These are not all project-history edits: document lifecycle uses fenced
-   admission and busy/result state, while plug-in operations use their own
-   loading-session generations. Add request-specific terminal ACKs only where
-   callers need them; do not overload the editor-history result ring or claim
-   Save/Open are history mutations. The UI now has a regression where an
+1. Audit active-document Save/Open terminal feedback and host-specific
+   acknowledgements for plug-in bypass/Keep Awake/retry. Structural chain edits
+   now have exact editor outcomes, but that is not proof a vendor instance
+   finished loading. Document lifecycle uses fenced admission and busy/status
+   state; decide whether a separate operation-result channel is justified by
+   callers, without overloading the editor-history ring or treating Save/Open
+   as history mutations. The UI now has a regression where an
    accepted edit's state poll returns an old-epoch exact result only after the
    observed project changes; it rejects the stale result, triggers refresh, and
    verifies there is one POST only. Core-side restart coverage pauses loopback

@@ -94,9 +94,14 @@ export function InstrumentContextMenu({
                 key={plugin.id}
                 checked={slot?.pluginId === plugin.id}
                 onClick={() => {
-                  if (slot)
-                    void pluginChains.replace(trackId, slot.id, plugin.id);
-                  else void pluginChains.add(trackId, plugin.id);
+                  // Choosing the currently loaded catalog entry is a no-op,
+                  // not a replacement command that needs an edit ACK.
+                  if (slot) {
+                    if (slot.pluginId !== plugin.id)
+                      void pluginChains.replace(trackId, slot.id, plugin.id);
+                  } else {
+                    void pluginChains.add(trackId, plugin.id);
+                  }
                   onClose();
                 }}
               >
