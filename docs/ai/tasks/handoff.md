@@ -36,7 +36,11 @@ Queue/restart/reopen acceptance is now exercised by the actual-Core harness.
 The current block also adds exact graph-result handling for structural
 plug-in-chain edits, while deliberately leaving vendor-load readiness in
 generation-scoped plug-in telemetry and bypass/Keep Awake in the host-control
-protocol. Continue with active-document Save/Open terminal-feedback audit.
+protocol. Project lifecycle HTTP admission/upload/export failures now surface
+through the shell failure notice; terminal Save/Open completion remains Core
+status/busy telemetry rather than a per-operation result ID. Continue with
+native Save As/open/cancel/write-failure acceptance and avoid adding lifecycle
+events to the editor-history result ring.
 Recent entry points and native file-picker opens now share the unsaved-state
 confirmation path; the Electron Recent menu no longer bypasses it, stale
 entries are pruned only when missing, and competing opens cannot replace the
@@ -62,6 +66,18 @@ uses a per-pending-interval latch. Electron typecheck, 45 Vitest tests, two
 alias-resolution tests and the actual-Core Save As pending/duplicate/cancel
 acceptance passed. Actual OS dialog failures and disk-full behaviour remain
 platform smoke tests.
+
+Renderer lifecycle-feedback follow-up (2026-10-03): project New/Load/Save/Save
+As/Recent/decision/rename/export admission and browser archive upload no longer
+silently hide transport or HTTP rejection; they publish a bounded message to
+the shared shell footer. Browser export reports status-fetch failures and a
+still-preparing timeout. Core's asynchronous Save/Open result remains its
+status/busy telemetry, not a fabricated exact editor-history acknowledgement.
+The focused project-identity suite passed 14 tests, including rejected Save
+admission, HTTP 413 upload and export-status HTTP failure. Full UI Vitest passed
+802 tests / 119 files; TypeScript and production build passed; lint had zero
+errors with the existing 12 warnings. Native OS dialog, disk-full and successful
+slow-export behavior still require platform smoke testing.
 
 ## Verified root causes and committed fixes
 

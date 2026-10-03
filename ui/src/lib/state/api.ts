@@ -217,9 +217,34 @@ function post(path: string, body?: unknown): Promise<void> {
   try {
     const serializedBody = serializeJsonBody(body, true);
     return sendBestEffortSerialized(path, serializedBody,
-      isProjectScopedPath(path) ? captureProjectCommandIdentity() : null);
+      isProjectScopedPath(path) ? captureProjectCommandIdentity() : null)
+      .then(() => undefined);
   } catch {
     return Promise.resolve();
+  }
+}
+
+function reportEditorCommandFailure(cause: unknown): void {
+  if (typeof window === "undefined") return;
+  const message = cause instanceof Error ? cause.message : String(cause);
+  window.dispatchEvent(new CustomEvent(EDITOR_COMMAND_FAILURE_EVENT, {
+    detail: { message: message.slice(0, 320) },
+  }));
+}
+
+/** Project lifecycle operations report admission/transport failures to the shell. */
+function postProjectCommand(path: string, body?: unknown): Promise<boolean> {
+  try {
+    const serializedBody = serializeJsonBody(body, true);
+    return sendBestEffortSerialized(
+      path,
+      serializedBody,
+      isProjectScopedPath(path) ? captureProjectCommandIdentity() : null,
+      reportEditorCommandFailure,
+    );
+  } catch (cause) {
+    reportEditorCommandFailure(cause);
+    return Promise.resolve(false);
   }
 }
 
@@ -227,7 +252,8 @@ async function sendBestEffortSerialized(
   path: string,
   serializedBody: string,
   identity: ProjectCommandIdentity | null,
-): Promise<void> {
+  onFailure?: (cause: unknown) => void,
+): Promise<boolean> {
   try {
     await serializeCommand(async () => {
       if (identity && (identity.origin !== backendOrigin()
@@ -238,13 +264,20 @@ async function sendBestEffortSerialized(
         headers: { "Content-Type": "application/json", ...projectCommandHeaders(identity) },
         body: serializedBody,
       });
-      if (!response.ok) throw new Error(`Core rejected ${path} (HTTP ${response.status})`);
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `Core rejected ${path} (HTTP ${response.status})`);
+      }
     }, utf8ByteLength(serializedBody));
     _triggerRefetch();
-  } catch {
+    return true;
+  } catch (cause) {
     // Best-effort, matches the embedded reference client -- a dropped
     // command just means the next state frame won't reflect it and the
-    // user can press again; there's nothing useful to surface here.
+    // user can press again. Project lifecycle owners opt into surfacing this
+    // admission/transport failure; ordinary high-rate controls remain quiet.
+    onFailure?.(cause);
+    return false;
   }
 }
 
@@ -264,12 +297,7 @@ function postEditorMutation(path: string, body?: unknown): Promise<void> {
   const pending = postReliable(path, body);
   void pending.catch((cause: unknown) => {
     _triggerRefetch();
-    if (typeof window !== "undefined") {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      window.dispatchEvent(new CustomEvent(EDITOR_COMMAND_FAILURE_EVENT, {
-        detail: { message: message.slice(0, 320) },
-      }));
-    }
+    reportEditorCommandFailure(cause);
   });
   return pending;
 }
@@ -1006,51 +1034,58 @@ export const mixer = {
 const QUIT_DECISION_INDEX = { cancel: 0, save: 1, discard: 2 } as const;
 
 export const project = {
-  new: () => post("/api/v1/project/new"),
-  loadDialog: () => post("/api/v1/project/load-dialog"),
-  save: () => post("/api/v1/project/save"),
-  saveAs: () => post("/api/v1/project/save-as"),
+  new: async () => { await postProjectCommand("/api/v1/project/new"); },
+  loadDialog: async () => { await postProjectCommand("/api/v1/project/load-dialog"); },
+  save: async () => { await postProjectCommand("/api/v1/project/save"); },
+  saveAs: async () => { await postProjectCommand("/api/v1/project/save-as"); },
   // Recent-projects parity -- native-only (no filesystem path model makes
   // sense in a plain browser tab, see ProjectMenu's IS_EMBEDDED gating).
-  openRecent: (path: string) => post("/api/v1/project/open-recent", { path }),
+  openRecent: async (path: string) => { await postProjectCommand("/api/v1/project/open-recent", { path }); },
   clearRecent: () => post("/api/v1/project/clear-recent"),
   // Renames the loaded project directly (Project::name), independent of
   // any file path a save/export happens to use -- see WebCommandKind::
   // SetProjectName. Needed because a plain-browser "download" Save As can't
   // otherwise drive the archive's internal name at all (JS never learns the
   // filename the user picked in the OS's own save sheet).
-  setName: (name: string) => post("/api/v1/project/name", { name }),
+  setName: async (name: string) => { await postProjectCommand("/api/v1/project/name", { name }); },
   // Answers the in-webview "Unsaved Changes" quit prompt (WebUiState.
   // quitConfirmPending) -- see WebCommandKind::QuitDecision.
   resolveQuit: (choice: "save" | "discard" | "cancel") =>
-    post("/api/v1/project/quit-decision", {
+    postProjectCommand("/api/v1/project/quit-decision", {
       index: QUIT_DECISION_INDEX[choice],
-    }),
+    }).then(() => undefined),
   // Answers the in-webview "Unsaved Changes" prompt shown before opening an
   // externally-requested project (WebUiState.openConfirmPending) -- see
   // WebCommandKind::OpenDecision.
   resolveOpen: (choice: "save" | "discard" | "cancel") =>
-    post("/api/v1/project/open-decision", {
+    postProjectCommand("/api/v1/project/open-decision", {
       index: QUIT_DECISION_INDEX[choice],
-    }),
+    }).then(() => undefined),
 
   async upload(file: File): Promise<void> {
     try {
-      await apiFetch("/api/v1/project/upload", {
+      const response = await apiFetch("/api/v1/project/upload", {
         method: "POST",
         body: file,
       });
-    } catch {
-      // Best-effort, matches post() -- surfaced via statusMessage instead.
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(detail || `Core rejected the project upload (HTTP ${response.status})`);
+      }
+      _triggerRefetch();
+    } catch (cause) {
+      reportEditorCommandFailure(cause);
     }
   },
 
   async exportAndDownload(): Promise<void> {
-    await post("/api/v1/project/export");
-    for (let attempt = 0; attempt < 50; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      try {
+    if (!await postProjectCommand("/api/v1/project/export")) return;
+    try {
+      for (let attempt = 0; attempt < 50; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
         const res = await apiFetch("/api/v1/project/export-status");
+        if (!res.ok)
+          throw new Error(`Could not check project export status (HTTP ${res.status})`);
         const body = (await res.json()) as { ready: boolean; fileName: string };
         if (body.ready) {
           const link = document.createElement("a");
@@ -1061,9 +1096,12 @@ export const project = {
           link.remove();
           return;
         }
-      } catch {
-        return;
       }
+      reportEditorCommandFailure(new Error(
+        "Project export is still not ready; Core may still be preparing the download.",
+      ));
+    } catch (cause) {
+      reportEditorCommandFailure(cause);
     }
   },
 };

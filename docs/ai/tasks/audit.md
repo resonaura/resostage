@@ -306,7 +306,16 @@ Still open; do not call this full editor transactionality:
   concurrently with an editor mutation below, but is not in the editor
   command-result ring. The
   session/epoch fence covers their admission/application boundary, but this is
-  not per-request applied acknowledgement for every app mutation.
+  not per-request applied acknowledgement for every app mutation. Project
+  lifecycle admission, upload and browser-export transport failures now surface
+  through the shared shell failure notice; asynchronous Save/Open terminal
+  completion still comes from Core status/busy telemetry and is not correlated
+  by a per-operation result ID. The focused UI suite verifies queue-full Save,
+  HTTP 413 browser upload and export-status failure messages. On 2026-10-03 the
+  project-identity suite passed 14 tests and full UI Vitest passed 802 tests /
+  119 files; TypeScript and production build passed, lint had zero errors and
+  the same 12 warnings. Native dialogs, disk-full and slow successful export
+  remain platform smoke tests.
 - Reordered concurrent audio/MIDI edits and matching graph revisions pass the
   real-Core harness. A 257-edit run proves the exact result ring retains only
   the latest 256 request IDs. A UI test proves an expired result remains

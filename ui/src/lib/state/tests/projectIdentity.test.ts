@@ -311,6 +311,55 @@ describe("project-scoped command identity", () => {
     });
   });
 
+  it("surfaces lifecycle queue rejection instead of silently swallowing it", async () => {
+    const failure = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      "Core command queue is full; retry the command",
+      { status: 503 },
+    )));
+    window.addEventListener(EDITOR_COMMAND_FAILURE_EVENT, failure);
+
+    await project.save();
+
+    expect(failure).toHaveBeenCalledOnce();
+    const dispatched = failure.mock.calls[0]?.[0] as CustomEvent<{ message: string }> | undefined;
+    expect(dispatched?.detail.message).toBe("Core command queue is full; retry the command");
+    window.removeEventListener(EDITOR_COMMAND_FAILURE_EVENT, failure);
+  });
+
+  it("surfaces an HTTP-rejected browser project upload", async () => {
+    const failure = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      "Project archive was rejected",
+      { status: 413 },
+    )));
+    window.addEventListener(EDITOR_COMMAND_FAILURE_EVENT, failure);
+
+    await project.upload(new File(["invalid"], "invalid.rsnraset"));
+
+    expect(failure).toHaveBeenCalledOnce();
+    const dispatched = failure.mock.calls[0]?.[0] as CustomEvent<{ message: string }> | undefined;
+    expect(dispatched?.detail.message).toBe("Project archive was rejected");
+    window.removeEventListener(EDITOR_COMMAND_FAILURE_EVENT, failure);
+  });
+
+  it("surfaces project export status endpoint failures", async () => {
+    const failure = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/api/v1/project/export-status")
+        ? new Response("Export status unavailable", { status: 500 })
+        : new Response("{}", { status: 200 }),
+    ));
+    window.addEventListener(EDITOR_COMMAND_FAILURE_EVENT, failure);
+
+    await project.exportAndDownload();
+
+    expect(failure).toHaveBeenCalledOnce();
+    const dispatched = failure.mock.calls[0]?.[0] as CustomEvent<{ message: string }> | undefined;
+    expect(dispatched?.detail.message).toBe("Could not check project export status (HTTP 500)");
+    window.removeEventListener(EDITOR_COMMAND_FAILURE_EVENT, failure);
+  });
+
   it("rejects a late exact result when its state poll crosses a project replacement", async () => {
     vi.useFakeTimers();
     let releaseState!: (response: Response) => void;
