@@ -61,6 +61,15 @@ Previous arrangement UI existed, but had significant functional gaps:
 - Project epoch guarding in `useMidiRegionEditorState` preventing stale snapshots
   and late creates from cross-contaminating reopened/switched projects
 - Accessible typeahead search for automation parameter selector via `textValue`
+- Bounded 128-slot immutable plug-in parameter descriptor cache keyed by Core
+  project epoch/generation, slot, plug-in and load state. Live values are read
+  separately through `GET /api/v1/plugins/slot/parameter-values`, which exposes
+  the helper's published atomics without repeating descriptor serialization or
+  invoking vendor code. The automation hook polls compact values only while the
+  automation surface is visible, caps concurrency at four, retries loading
+  slots at 250 ms, and preserves React snapshot identity when the values do not
+  change. A project/generation/load-state transition invalidates old entries;
+  stale asynchronous responses cannot publish into the new view.
 - Real Core HTTP verification in `scripts/verification/editor-state.mjs` checks
   transport advancement while applying MIDI/lane edits, submitted Touch/Write
   gesture persistence/safety revert, active-playback and stopped-state Undo/Redo,
@@ -114,6 +123,15 @@ scheduler-sensitive miss in the real VST3 64-sample helper deadline; the
 isolated VST3 test and serialized full suite passed. This is not device or
 acoustic proof. Manual parameter ownership, missed-wrap/seek distinction,
 rejection draft recovery, and wider surface coverage remain open.
+
+Parameter discovery optimization verification on 2026-10-02: UI suite passed
+757 tests across 109 files, TypeScript build passed, Core and native test
+targets built, full CTest passed 584 cases / 428,677 assertions, and the actual
+Core HTTP acceptance passed. The real hosted Apple AUDelay case passed 66
+assertions for compact parameter indices and a live changed value. Lint passed
+with zero errors; the existing warning set is listed in the audit. This does
+not establish dense-project idle-cost targets, all vendor behavior, audio
+continuity or device performance. Orphaned automation recovery remains open.
 
 ## Acceptance evidence and limits
 

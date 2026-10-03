@@ -347,6 +347,21 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
         (void)glz::write_json(response, json);
         return json;
     });
+    webServer.setPluginParameterValuesProvider([this](const std::string& slotId) {
+        wire::WPluginParameterValues response;
+        response.slotId = slotId;
+        if (engine.hasCurrentPluginProcessorBank()) {
+            if (const auto bank = engine.activePluginProcessorBank()) {
+                response.loadState = bank->getSlotLoadState(slotId);
+                response.loadError = bank->getSlotLoadError(slotId);
+                for (const auto& value : bank->parameterValuesForSlot(slotId))
+                    response.values.push_back({value.index, value.value});
+            }
+        }
+        std::string json;
+        (void)glz::write_json(response, json);
+        return json;
+    });
     webServer.setLivePeaksProvider([this](const std::string& trackId, size_t level, size_t first, size_t count) {
         return engine.getLiveRecordingPeaks(trackId, level, first, count);
     });

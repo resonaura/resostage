@@ -189,6 +189,16 @@ export async function verifyEditorState(coreExecutable, inspect) {
       assert.equal(testHookProbe.status, 404,
         "ordinary Core builds must not expose the snapshot-fault test route");
     }
+    const parameterValueProbe = await fetch(
+      `${origin}/api/v1/plugins/slot/parameter-values?slotId=acceptance-slot`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    assert.equal(parameterValueProbe.status, 200,
+      "Core must expose the compact plug-in parameter-value snapshot endpoint");
+    const parameterValueSnapshot = await parameterValueProbe.json();
+    assert.equal(parameterValueSnapshot.slotId, "acceptance-slot");
+    assert.ok(Array.isArray(parameterValueSnapshot.values),
+      "parameter-value telemetry must always return a bounded values array");
   };
   const getRegion = (state) => state.songs?.[0]?.midiRegions?.find((region) => region.id === regionId);
   try {

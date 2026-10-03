@@ -792,6 +792,8 @@ TEST_CASE("isolated helper loads a real macOS Audio Unit and opens its editor") 
     const auto metadata = host.parameterDescriptorsForSlot(0, &values);
     REQUIRE_FALSE(metadata.empty());
     REQUIRE(values.size() == metadata.size());
+    const auto compactValues = host.parameterValuesForSlot(0);
+    REQUIRE(compactValues.size() == metadata.size());
     CHECK_FALSE(host.parameterMetadataTruncated());
     for (size_t i = 0; i < metadata.size(); ++i) {
         CHECK(metadata[i].name[0] != '\0');
@@ -799,6 +801,8 @@ TEST_CASE("isolated helper loads a real macOS Audio Unit and opens its editor") 
         CHECK(std::isfinite(values[i]));
         CHECK(values[i] >= 0.0f);
         CHECK(values[i] <= 1.0f);
+        CHECK(compactValues[i].index == metadata[i].parameterIndex);
+        CHECK(compactValues[i].value == doctest::Approx(values[i]).epsilon(0.001f));
     }
     const auto continuous = std::find_if(metadata.begin(), metadata.end(),
         [](const ParameterDescriptor& parameter) {
@@ -818,6 +822,15 @@ TEST_CASE("isolated helper loads a real macOS Audio Unit and opens its editor") 
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
     CHECK(values[index] == doctest::Approx(changed.normalizedValue).epsilon(0.001f));
+    const auto refreshedCompactValues = host.parameterValuesForSlot(0);
+    const auto changedCompactValue = std::find_if(
+        refreshedCompactValues.begin(), refreshedCompactValues.end(),
+        [&](const PluginHostProcess::ParameterValue& value) {
+            return value.index == static_cast<uint32_t>(continuous->parameterIndex);
+        });
+    REQUIRE(changedCompactValue != refreshedCompactValues.end());
+    CHECK(changedCompactValue->value
+        == doctest::Approx(changed.normalizedValue).epsilon(0.001f));
 
     exerciseHostPowerControls(host, false);
     host.stop();

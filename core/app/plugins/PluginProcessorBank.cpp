@@ -1870,6 +1870,28 @@ PluginProcessorBank::parametersForSlot(const std::string& slotId) const {
     return {};
 }
 
+std::vector<PluginProcessorBank::ParameterValue>
+PluginProcessorBank::parameterValuesForSlot(const std::string& slotId) const {
+    for (const auto& chain : chains) {
+        if (chain == nullptr || chain->hostedProcess == nullptr
+            || chain->hostedProcess->process == nullptr)
+            continue;
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
+            if (node == nullptr || node->slotId != slotId)
+                continue;
+            const auto hosted = chain->hostedProcess->process
+                ->parameterValuesForSlot(slotIndex);
+            std::vector<ParameterValue> result;
+            result.reserve(hosted.size());
+            for (const auto& value : hosted)
+                result.push_back({value.index, value.value});
+            return result;
+        }
+    }
+    return {};
+}
+
 bool PluginProcessorBank::parameterMetadataTruncated(const std::string& slotId) const noexcept {
     for (const auto& chain : chains) {
         if (chain == nullptr) continue;

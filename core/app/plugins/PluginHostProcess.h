@@ -31,6 +31,11 @@ namespace resostage {
  */
 class PluginHostProcess final {
 public:
+    struct ParameterValue {
+        uint32_t index = 0;
+        float value = 0.0f;
+    };
+
     PluginHostProcess();
     ~PluginHostProcess();
     PluginHostProcess(const PluginHostProcess&) = delete;
@@ -68,6 +73,8 @@ public:
     /** Startup-only immutable metadata; query from a non-realtime thread. */
     std::vector<plugin_host::ParameterDescriptor> parameterDescriptorsForSlot(
         size_t slotIndex, std::vector<float>* currentValues = nullptr) const;
+    /** Lightweight latest-value read; descriptor identity stays in the cached list. */
+    std::vector<ParameterValue> parameterValuesForSlot(size_t slotIndex) const;
     bool parameterMetadataTruncated() const noexcept;
     double processorTailSeconds() const noexcept {
         const auto* area = sharedMemory.area();

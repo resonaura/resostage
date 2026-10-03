@@ -117,6 +117,13 @@ export interface PluginParameterList {
   parameters: PluginParameterInfo[];
 }
 
+export interface PluginParameterValues {
+  slotId: string;
+  values: Array<{ index: number; value: number }>;
+  loadState: "loading" | "loaded" | "missing" | "failed";
+  loadError: string;
+}
+
 export interface Click {
   enabled: boolean;
   name: string;

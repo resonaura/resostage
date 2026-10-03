@@ -387,6 +387,17 @@ int WebServer::servePluginParameters(struct lws* wsi, const char* queryArgs) {
                              json.c_str(), json.size());
 }
 
+int WebServer::servePluginParameterValues(struct lws* wsi, const char* queryArgs) {
+    const std::string slotId = queryParam(queryArgs, "slotId");
+    if (slotId.empty() || slotId.size() > 128)
+        return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid slotId");
+    const std::string json = pluginParameterValuesProvider
+        ? pluginParameterValuesProvider(slotId)
+        : "{\"slotId\":\"\",\"values\":[],\"loadState\":\"failed\",\"loadError\":\"Plug-in value service is unavailable\"}";
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
+                             json.c_str(), json.size());
+}
+
 int WebServer::serveExportDownload(struct lws* wsi) {
     std::string path, name;
     bool ready = false;

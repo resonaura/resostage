@@ -1259,6 +1259,10 @@ public:
     void setPluginParametersProvider(PluginParametersProvider provider) {
         pluginParametersProvider = std::move(provider);
     }
+    using PluginParameterValuesProvider = std::function<std::string(const std::string&)>;
+    void setPluginParameterValuesProvider(PluginParameterValuesProvider provider) {
+        pluginParameterValuesProvider = std::move(provider);
+    }
 
     using LivePeaksProvider = std::function<std::vector<PeakPair16>(const std::string& trackId, size_t level, size_t first, size_t count)>;
     void setLivePeaksProvider(LivePeaksProvider provider) {
@@ -1372,6 +1376,7 @@ private:
     int serveAudioRenderStatus(struct lws* wsi);
     int servePluginCatalog(struct lws* wsi);
     int servePluginParameters(struct lws* wsi, const char* queryArgs);
+    int servePluginParameterValues(struct lws* wsi, const char* queryArgs);
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
     int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
@@ -1480,6 +1485,7 @@ private:
     DiscoveryToggleHandler discoveryToggleHandler;
     PluginCatalogProvider pluginCatalogProvider;
     PluginParametersProvider pluginParametersProvider;
+    PluginParameterValuesProvider pluginParameterValuesProvider;
     LivePeaksProvider livePeaksProvider;
 
     std::unique_ptr<juce::DatagramSocket> udpSocket_;
