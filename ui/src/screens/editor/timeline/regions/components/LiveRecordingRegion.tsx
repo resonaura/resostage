@@ -11,12 +11,22 @@ import type {
   LiveRecordingRegion as LiveRecordingRegionType,
 } from "@/lib/state/types";
 import {
+  buildMidiControllerMarkerBins,
+  buildMidiPedalIntervals,
+  midiControllerLabel,
+  type MidiControllerPreviewEvent,
+} from "@/screens/editor/timeline/regions/logic/midiControllerPreview";
+import {
+  mergeLiveMidiControllerEvents,
   recordingMidiPreviewLayout,
   recordingPeakFramesPerBin,
   recordingPreviewPeakRange,
   recordingPreviewWindow,
+  type LiveMidiControllerPreviewEvent,
   type RecordingPreviewViewport,
 } from "@/screens/editor/timeline/regions/logic/liveRecordingPreview";
+
+const EMPTY_LIVE_MIDI_CONTROLLERS: LiveMidiControllerPreviewEvent[] = [];
 
 export interface LiveRecordingRegionProps {
   recording: LiveRecordingRegionType;
@@ -36,7 +46,7 @@ export function LiveRecordingRegion({
   pxPerSec,
   laneHeight,
   bpm,
-  rowColor: _rowColor,
+  rowColor,
   viewport,
 }: LiveRecordingRegionProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -44,6 +54,15 @@ export function LiveRecordingRegion({
     recordingId: string;
     data: LivePeakChunkResponse;
   } | null>(null);
+  const midiControllerHistoryRef = useRef<{
+    recordingId: string;
+    source: readonly LiveMidiControllerPreviewEvent[];
+    events: LiveMidiControllerPreviewEvent[];
+  }>({
+    recordingId: "",
+    source: EMPTY_LIVE_MIDI_CONTROLLERS,
+    events: [],
+  });
 
   const safeRate = sampleRate > 0 ? sampleRate : 48000;
   const startSec =
@@ -158,6 +177,48 @@ export function LiveRecordingRegion({
     (Math.max(0, recording.timelineStartSample) / safeRate) * (safeBpm / 60);
   const midiNotes = recording.midiNotes ?? [];
   const midiLayout = recordingMidiPreviewLayout(midiNotes.map((note) => note.pitch), contentHeight);
+  const incomingMidiControllers = recording.midiControllers ?? EMPTY_LIVE_MIDI_CONTROLLERS;
+  if (midiControllerHistoryRef.current.recordingId !== recording.recordingId) {
+    midiControllerHistoryRef.current = {
+      recordingId: recording.recordingId,
+      source: EMPTY_LIVE_MIDI_CONTROLLERS,
+      events: [],
+    };
+  }
+  if (midiControllerHistoryRef.current.source !== incomingMidiControllers) {
+    midiControllerHistoryRef.current.events = mergeLiveMidiControllerEvents(
+      midiControllerHistoryRef.current.events,
+      incomingMidiControllers,
+    );
+    midiControllerHistoryRef.current.source = incomingMidiControllers;
+  }
+  const liveMidiDurationBeats = durationSec * safeBpm / 60;
+  const midiControllerEvents: MidiControllerPreviewEvent[] =
+    midiControllerHistoryRef.current.events.map((event) => ({
+      beat: event.beat - recordingStartBeat,
+      channel: event.channel,
+      controller: event.controller,
+      value: event.value,
+      order: event.id,
+    }));
+  const visibleStartBeat = preview.offsetPx / Math.max(0.001, pxPerSec) * safeBpm / 60;
+  const visibleEndBeat = Math.min(
+    liveMidiDurationBeats,
+    visibleStartBeat + preview.widthPx / Math.max(0.001, pxPerSec) * safeBpm / 60,
+  );
+  const visibleDurationBeats = Math.max(0, visibleEndBeat - visibleStartBeat);
+  const visibleControllerEvents = midiControllerEvents
+    .filter((event) => event.beat >= visibleStartBeat && event.beat <= visibleEndBeat)
+    .map((event) => ({ ...event, beat: event.beat - visibleStartBeat }));
+  const controllerMarkerBins = buildMidiControllerMarkerBins(
+    visibleControllerEvents,
+    visibleDurationBeats,
+    Math.ceil(preview.widthPx),
+  );
+  const pedalIntervals = buildMidiPedalIntervals(
+    midiControllerEvents,
+    liveMidiDurationBeats,
+  );
 
   if (preview.widthPx <= 0) return null;
 
@@ -198,6 +259,45 @@ export function LiveRecordingRegion({
                   boxShadow: note.active ? "inset -2px 0 0 var(--foreground), 0 0 6px var(--rs-record)" : undefined,
                   opacity: 0.7 + Math.min(1, note.velocity) * 0.3,
                 }}
+              />
+            );
+          })}
+          {controllerMarkerBins.map((marker, index) => {
+            const names = marker.controllers.map(midiControllerLabel).join(", ");
+            const channels = marker.channels.map((channel) => channel + 1).join(", ");
+            const values = marker.minValue === marker.maxValue
+              ? `${marker.minValue}`
+              : `${marker.minValue}–${marker.maxValue}`;
+            return (
+              <span
+                key={`live-controller-marker-${index}`}
+                className="absolute bottom-px"
+                style={{
+                  left: `${(marker.beat / Math.max(0.001, visibleDurationBeats)) * preview.widthPx}px`,
+                  width: `${Math.max(1, preview.widthPx / Math.max(1, Math.ceil(preview.widthPx)))}px`,
+                  height: `${2 + (marker.maxValue / 127) * 3}px`,
+                  backgroundColor: rowColor,
+                }}
+                title={`${names} · MIDI channel ${channels} · value ${values}`}
+              />
+            );
+          })}
+          {pedalIntervals.map((interval, index) => {
+            const visibleStart = Math.max(visibleStartBeat, interval.start);
+            const visibleEnd = Math.min(visibleEndBeat, interval.end);
+            if (visibleEnd <= visibleStart) return null;
+            const pxPerBeat = (60 / safeBpm) * pxPerSec;
+            return (
+              <span
+                key={`live-pedal-${interval.channel}-${interval.controller}-${index}`}
+                className="absolute h-px"
+                style={{
+                  left: `${(visibleStart - visibleStartBeat) * pxPerBeat}px`,
+                  width: `${Math.max(1, (visibleEnd - visibleStart) * pxPerBeat)}px`,
+                  bottom: `${1 + (interval.controller - 64)}px`,
+                  backgroundColor: rowColor,
+                }}
+                title={`${midiControllerLabel(interval.controller)} held · MIDI channel ${interval.channel + 1}`}
               />
             );
           })}

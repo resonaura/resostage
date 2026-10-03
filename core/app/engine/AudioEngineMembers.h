@@ -711,6 +711,9 @@
         size_t recordedNoteCount = 0;
         std::array<RecordedEvent, kMaxSessionRecordedEvents> recordedEvents{};
         size_t recordedEventCount = 0;
+        std::array<std::array<midi_controller::CapturedPedalState,
+                              midi_controller::kPedalControllerCount>,
+                   midi_controller::kMidiChannelCount> pedalStates{};
         uint64_t nextNoteId = 1;
     };
     std::vector<TrackMidiRecordSession> activeMidiRecordSessions;
@@ -728,11 +731,22 @@
         double durationBeats = 0.0;
         bool active = false;
     };
+    struct LiveMidiPreviewControllerFrame {
+        uint16_t sessionIndex = 0;
+        uint16_t eventIndex = 0;
+        uint8_t controller = 64;
+        uint8_t channel = 0;
+        uint8_t value = 0;
+        double beat = 0.0;
+    };
     struct LiveMidiPreviewFrame {
         static constexpr size_t kMaxNotes = 512;
+        static constexpr size_t kMaxControllers = 512;
         uint64_t generation = 0;
         uint32_t noteCount = 0;
+        uint32_t controllerCount = 0;
         std::array<LiveMidiPreviewNoteFrame, kMaxNotes> notes{};
+        std::array<LiveMidiPreviewControllerFrame, kMaxControllers> controllers{};
     };
     SeqLock<LiveMidiPreviewFrame> liveMidiPreviewFrame;
     std::atomic<uint64_t> liveMidiPreviewGeneration{0};

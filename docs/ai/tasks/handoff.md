@@ -675,9 +675,9 @@ Core-published live gain/pan/send automation, and `66b7fe3f` for mixer bus
 signal-flow focus. The latest completed hash is updated below as each following
 block is committed. No push was performed.
 
-### Completed subset — persisted MIDI controller region preview (2026-10-03)
+### Completed block — persisted MIDI controller region preview (2026-10-03)
 
-The working tree currently contains a static MIDI-region CC overlay in
+Commit `506ac8bd` adds the static MIDI-region CC overlay in
 `regions/logic/midiControllerPreview.ts` and `MidiRegionBlock.tsx`. It scans at
 most 65,536 persisted source events, expands at most 10,000 loop events, and
 emits at most 1,200 horizontal marker bins. CC64–69 have separate held spans;
@@ -688,8 +688,26 @@ source-loop timing.
 Focused controller/component/timing tests passed 11/11; the full UI suite passed
 836 tests across 127 files; UI TypeScript passed; lint exited 0 with 12 existing
 warnings and none in changed files; `git diff --check` passed. No manual visual
-or device acceptance was performed. Do not claim this is live recording
-support: Core `WLiveRecordingRegion` currently publishes notes but no CC events.
-The Piano Roll controller lane still needs its own all-CC model, and live
-capture must use fixed-capacity callback-owned data with a bounded telemetry
-frame—never allocate or lock in audio.
+or device acceptance was performed. The Piano Roll controller lane still needs
+its own all-CC model.
+
+### In progress — live MIDI pedal capture and preview (2026-10-03)
+
+Working-tree changes capture CC64–69 in fixed callback-owned MIDI recording
+storage and the fixed live-preview `SeqLock`. Up to 64 recent events per
+recording plus true onsets for still-held pedals are projected into the global
+512-event frame. The wire DTO and React live-recording preview now merge event
+IDs across latest-wins telemetry and draw clipped track-colored markers and
+held spans. Preview generation is part of the recording identity to prevent
+stale history reuse after a new recording. The persisted MIDI event list remains
+authoritative.
+
+Focused UI tests passed 20/20, full UI suite passed 838 tests across 127 files,
+TypeScript and changed-file lint passed; `ResoStage` and `resostage_engine_tests`
+built, and the full native suite passed 592 cases / 428,766 assertions. No real
+device test. The
+capture buffer holds 4,096 MIDI
+events per recording session, and the global live preview holds 512 controller
+events; overflow is not yet surfaced. Piano Roll all-CC display remains open.
+Next: finish full tests/build, inspect overflow/data-limit behavior, then commit
+this protocol/capture block separately before touching automation pseudo-tracks.

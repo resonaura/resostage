@@ -432,30 +432,49 @@ std::vector<LiveRecordingRegionInfo> AudioEngine::getLiveRecordingRegions() cons
     const int64_t startSample = recordStartSamplePos.load(std::memory_order_acquire);
     const int64_t nowSample = std::max(startSample, clock.currentSamplePosition());
 
-    result.reserve(result.size() + activeMidiRecordSessions.size());
+    std::vector<LiveRecordingRegionInfo> midiRegions;
+    midiRegions.reserve(activeMidiRecordSessions.size());
     for (size_t sessionIndex = 0; sessionIndex < activeMidiRecordSessions.size(); ++sessionIndex) {
         LiveRecordingRegionInfo info;
-        info.recordingId = "midi-live-" + activeMidiRecordSessions[sessionIndex].trackId;
+        info.recordingId = "midi-live-" + std::to_string(previewGeneration) + "-"
+            + activeMidiRecordSessions[sessionIndex].trackId;
         info.trackId = activeMidiRecordSessions[sessionIndex].trackId;
         info.timelineStartSample = startSample;
         info.capturedFrames = nowSample - startSample;
         info.channelCount = 0;
         info.state = LiveRecordingState::Capturing;
         info.kind = LiveRecordingKind::Midi;
+        midiRegions.push_back(std::move(info));
+    }
+    if (frame.generation == previewGeneration) {
         for (uint32_t i = 0;
-             frame.generation == previewGeneration
-                 && i < frame.noteCount
-                 && i < LiveMidiPreviewFrame::kMaxNotes;
+             i < frame.noteCount && i < LiveMidiPreviewFrame::kMaxNotes;
              ++i) {
             const auto& note = frame.notes[i];
-            if (note.sessionIndex != sessionIndex) continue;
-            info.midiNotes.push_back({
+            if (note.sessionIndex >= midiRegions.size()) continue;
+            midiRegions[note.sessionIndex].midiNotes.push_back({
                 note.id, note.pitch, note.startBeats, note.durationBeats,
                 note.velocity, note.active
             });
         }
-        result.push_back(std::move(info));
+        for (uint32_t i = 0;
+             i < frame.controllerCount
+                 && i < LiveMidiPreviewFrame::kMaxControllers;
+             ++i) {
+            const auto& event = frame.controllers[i];
+            if (event.sessionIndex >= midiRegions.size()) continue;
+            midiRegions[event.sessionIndex].midiControllers.push_back({
+                event.eventIndex,
+                event.controller,
+                event.channel,
+                event.value,
+                event.beat,
+            });
+        }
     }
+    result.reserve(result.size() + midiRegions.size());
+    for (auto& region : midiRegions)
+        result.push_back(std::move(region));
     return result;
 }
 
@@ -581,6 +600,51 @@ void AudioEngine::publishLiveMidiPreview(double bpm, int64_t playheadSample) {
                 0.0,
                 (static_cast<double>(playheadSample - source.startSample) / safeRate) * safeBpm / 60.0);
             dest.active = true;
+        }
+
+        constexpr size_t kRecentControllerEventsPerSession = 64;
+        const size_t recentControllerCount = std::min(
+            session.recordedEventCount,
+            kRecentControllerEventsPerSession);
+        const size_t recentControllerStart = session.recordedEventCount - recentControllerCount;
+        const auto appendController = [&](
+            const TrackMidiRecordSession::RecordedEvent& source,
+            size_t eventIndex) {
+            if (frame.controllerCount >= LiveMidiPreviewFrame::kMaxControllers
+                || source.dataLength < 2
+                || !midi_controller::isPedalController(source.data1))
+                return;
+            auto& dest = frame.controllers[frame.controllerCount++];
+            dest.sessionIndex = static_cast<uint16_t>(sessionIndex);
+            dest.eventIndex = static_cast<uint16_t>(eventIndex);
+            dest.controller = source.data1;
+            dest.channel = static_cast<uint8_t>(source.status & 0x0f);
+            dest.value = source.data2;
+            dest.beat = (static_cast<double>(source.sample) / safeRate) * safeBpm / 60.0;
+        };
+        for (size_t eventIndex = recentControllerStart;
+             eventIndex < session.recordedEventCount
+                 && frame.controllerCount < LiveMidiPreviewFrame::kMaxControllers;
+             ++eventIndex) {
+            appendController(session.recordedEvents[eventIndex], eventIndex);
+        }
+        // Preserve the true down edge in the live preview even after it has
+        // aged out of the bounded recent-event tail. This is a projection of
+        // an already captured event, not a new MIDI message.
+        for (size_t channel = 0;
+             channel < midi_controller::kMidiChannelCount
+                 && frame.controllerCount < LiveMidiPreviewFrame::kMaxControllers;
+             ++channel) {
+            for (size_t pedalIndex = 0;
+                 pedalIndex < midi_controller::kPedalControllerCount
+                     && frame.controllerCount < LiveMidiPreviewFrame::kMaxControllers;
+                 ++pedalIndex) {
+                const auto& state = session.pedalStates[channel][pedalIndex];
+                if (!state.held || state.startEventIndex >= recentControllerStart
+                    || state.startEventIndex >= session.recordedEventCount)
+                    continue;
+                appendController(session.recordedEvents[state.startEventIndex], state.startEventIndex);
+            }
         }
     }
     liveMidiPreviewFrame.write(frame);

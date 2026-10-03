@@ -921,18 +921,26 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                     }
 
                     if (midiCaptureActive && isArmed) {
-                        if (msg.isController()
-                            && msg.getControllerNumber() == 64) {
+                        if (msg.isController()) {
+                            const auto controller = static_cast<uint8_t>(msg.getControllerNumber());
+                            const auto value = static_cast<uint8_t>(msg.getControllerValue());
+                            const size_t channelIndex = liveChannel;
                             for (auto& session : activeMidiRecordSessions) {
                                 if (session.trackId != tDef->id
+                                    || !midi_controller::isPedalController(controller)
                                     || session.recordedEventCount >= TrackMidiRecordSession::kMaxSessionRecordedEvents)
                                     continue;
+                                const auto eventIndex = static_cast<uint32_t>(session.recordedEventCount);
                                 auto& event = session.recordedEvents[session.recordedEventCount++];
                                 event.sample = midiCaptureSample;
                                 event.status = static_cast<uint8_t>(msg.getRawData()[0]);
-                                event.data1 = 64;
-                                event.data2 = static_cast<uint8_t>(msg.getControllerValue());
+                                event.data1 = controller;
+                                event.data2 = value;
                                 event.dataLength = 2;
+                                auto& pedalState = session.pedalStates[channelIndex]
+                                    [controller - midi_controller::kFirstPedalController];
+                                midi_controller::updateCapturedPedalState(
+                                    pedalState, value, midiCaptureSample, eventIndex);
                                 break;
                             }
                         }

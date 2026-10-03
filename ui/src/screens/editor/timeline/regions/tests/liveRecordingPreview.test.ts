@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  mergeLiveMidiControllerEvents,
   recordingMidiPreviewLayout,
   recordingPeakFramesPerBin,
   recordingPreviewPeakRange,
@@ -74,5 +75,15 @@ describe("live recording preview geometry", () => {
     const single = recordingMidiPreviewLayout([60], 16);
     expect(single.top(60) + single.height / 2).toBe(8);
     expect(single.height).toBe(4);
+  });
+
+  it("retains distinct MIDI controller edges across latest-wins telemetry snapshots", () => {
+    const down = { id: 0, controller: 64, channel: 0, value: 127, beat: 2 };
+    const release = { id: 1, controller: 64, channel: 0, value: 0, beat: 6 };
+    expect(mergeLiveMidiControllerEvents([down], [release, down])).toEqual([down, release]);
+    expect(mergeLiveMidiControllerEvents([down], [{ ...release, beat: Number.NaN }]))
+      .toEqual([down]);
+    expect(mergeLiveMidiControllerEvents([down, release], [], 1)).toEqual([release]);
+    expect(mergeLiveMidiControllerEvents([down], [], 0)).toEqual([]);
   });
 });

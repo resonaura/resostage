@@ -16,6 +16,36 @@ export interface RecordingPreviewWindow {
   offsetPx: number;
 }
 
+export interface LiveMidiControllerPreviewEvent {
+  id: number;
+  controller: number;
+  channel: number;
+  value: number;
+  beat: number;
+}
+
+/**
+ * Retain latest-wins telemetry events for the lifetime of one recording view.
+ * IDs are per recording; repeats in later snapshots update the same event.
+ */
+export function mergeLiveMidiControllerEvents(
+  previous: readonly LiveMidiControllerPreviewEvent[],
+  incoming: readonly LiveMidiControllerPreviewEvent[],
+  maximum = 4096,
+): LiveMidiControllerPreviewEvent[] {
+  const retained = new Map<number, LiveMidiControllerPreviewEvent>();
+  for (const event of previous) retained.set(event.id, event);
+  for (const event of incoming) {
+    if (!Number.isSafeInteger(event.id) || !Number.isFinite(event.beat)) continue;
+    retained.set(event.id, event);
+  }
+  const boundedMaximum = Math.max(0, Math.trunc(maximum));
+  if (boundedMaximum === 0) return [];
+  return [...retained.values()]
+    .sort((left, right) => left.id - right.id)
+    .slice(-boundedMaximum);
+}
+
 /** Keep the live canvas within the viewport instead of allocating a show-wide bitmap. */
 export function recordingPreviewWindow(
   leftPx: number,

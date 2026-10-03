@@ -134,6 +134,14 @@ struct LiveRecordingMidiNoteInfo {
     bool active = false;
 };
 
+struct LiveRecordingMidiControllerInfo {
+    uint64_t id = 0;
+    uint8_t controller = 64;
+    uint8_t channel = 0;
+    uint8_t value = 0;
+    double beat = 0.0;
+};
+
 struct LiveRecordingRegionInfo {
     std::string recordingId;
     std::string trackId;
@@ -143,6 +151,7 @@ struct LiveRecordingRegionInfo {
     LiveRecordingState state = LiveRecordingState::Pending;
     LiveRecordingKind kind = LiveRecordingKind::Audio;
     std::vector<LiveRecordingMidiNoteInfo> midiNotes;
+    std::vector<LiveRecordingMidiControllerInfo> midiControllers;
 };
 
 struct TrackAudioRecordSession {

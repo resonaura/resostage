@@ -49,6 +49,7 @@
 #include "timing/TempoMap.h"
 #include "LightEngine.h"
 #include "midi/CoreMidiDispatcher.h"
+#include "midi/MidiControllerRecording.h"
 #include "plugins/PluginProcessorBank.h"
 #include "plugins/PluginLoadingSession.h"
 #include "project/ProjectHistory.h"

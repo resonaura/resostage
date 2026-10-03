@@ -244,6 +244,14 @@ struct WLiveRecordingRegion {
     };
     using MIDINote = MidiNote;
     std::vector<MidiNote> midiNotes;
+    struct MidiController {
+        uint64_t id = 0;
+        uint8_t controller = 64;
+        uint8_t channel = 0;
+        uint8_t value = 0;
+        double beat = 0.0;
+    };
+    std::vector<MidiController> midiControllers;
 };
 
 struct WPeakPair {

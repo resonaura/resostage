@@ -194,6 +194,16 @@ std::string WebServer::buildStateJson(const char* view) const {
             wn.active = note.active;
             wr.midiNotes.push_back(wn);
         }
+        wr.midiControllers.reserve(reg.midiControllers.size());
+        for (const auto& event : reg.midiControllers) {
+            wire::WLiveRecordingRegion::MidiController we;
+            we.id = event.id;
+            we.controller = event.controller;
+            we.channel = event.channel;
+            we.value = event.value;
+            we.beat = finiteOrZero(event.beat);
+            wr.midiControllers.push_back(we);
+        }
         wire.liveRecordings.push_back(std::move(wr));
     }
     wire.activeMidiNotes.reserve(snap.activeMidiNotes.size());

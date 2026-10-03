@@ -971,6 +971,15 @@ export interface LiveRecordingRegion {
     velocity: number;
     active: boolean;
   }>;
+  midiControllers?: Array<{
+    id: number;
+    controller: number;
+    /** Zero-based MIDI channel (0–15). */
+    channel: number;
+    value: number;
+    /** Absolute song beat, matching the live MIDI-note preview coordinates. */
+    beat: number;
+  }>;
 }
 
 export interface LivePeakPair {

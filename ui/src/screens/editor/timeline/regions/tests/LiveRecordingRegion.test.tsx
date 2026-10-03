@@ -47,11 +47,15 @@ describe("live recording region", () => {
     vi.useRealTimers();
   });
 
-  async function render(recording: Recording, laneHeight = 56) {
+  async function render(
+    recording: Recording,
+    laneHeight = 56,
+    viewport = { scrollLeft: 200, viewportWidth: 100 },
+  ) {
     await act(async () => root.render(createElement(LiveRecordingRegion, {
       recording, songOffsetSec: 0, sampleRate: 48000, pxPerSec: 100,
       laneHeight, bpm: 120, rowColor: "#30d158",
-      viewport: { scrollLeft: 200, viewportWidth: 100 },
+      viewport,
     })));
   }
 
@@ -90,6 +94,27 @@ describe("live recording region", () => {
     expect(note.style.background).toContain("var(--rs-record)");
     await render({ ...midi, midiNotes: [{ ...midi.midiNotes![0], durationBeats: 4 }] }, 22);
     expect((container.querySelector("[data-active]") as HTMLSpanElement).style.width).toBe("200px");
+  });
+
+  it("renders live controller edges and per-channel pedal spans from telemetry", async () => {
+    const midi: Recording = {
+      ...audioRecording,
+      kind: 1,
+      midiControllers: [
+        { id: 0, controller: 64, channel: 0, value: 127, beat: 2 },
+        { id: 1, controller: 64, channel: 0, value: 0, beat: 8 },
+        { id: 2, controller: 65, channel: 1, value: 1, beat: 4 },
+      ],
+    };
+    await render(midi, 56, { scrollLeft: 0, viewportWidth: 2000 });
+
+    const markers = [...container.querySelectorAll<HTMLElement>("[title*='value']")];
+    expect(markers).toHaveLength(3);
+    expect(markers[0].title).toContain("CC 64 · Sustain");
+    const heldSpans = [...container.querySelectorAll<HTMLElement>("[title*='held']")];
+    expect(heldSpans).toHaveLength(2);
+    expect(heldSpans[0].title).toContain("MIDI channel 1");
+    expect(heldSpans[1].title).toContain("CC 65 · Portamento");
   });
 
   it("retains the previous waveform while the record worker has not published a new bin", async () => {
