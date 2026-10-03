@@ -44,11 +44,13 @@ const emptySnapshot: PluginParameterValueSnapshot = {
  */
 export function usePluginParameterValue({
   enabled,
+  stripId,
   slot,
   parameterIndex,
   valueIdentity,
 }: {
   enabled: boolean;
+  stripId: string;
   slot: Pick<PluginSlotRow, "id" | "pluginId" | "loadState"> | null;
   parameterIndex: number | null;
   /** Core session/project/plugin-load generation supplied by the modal owner. */
@@ -57,6 +59,7 @@ export function usePluginParameterValue({
   const slotId = slot?.id ?? "";
   const identity = JSON.stringify([
     valueIdentity,
+    stripId,
     slotId,
     slot?.pluginId ?? "",
     slot?.loadState ?? "",
@@ -97,9 +100,10 @@ export function usePluginParameterValue({
     async function poll() {
       if (disposed) return;
       try {
-        const response = await pluginChains.parameterValues(currentSlotId);
+        const response = await pluginChains.parameterValues(stripId, currentSlotId);
         if (disposed) return;
-        if (response.slotId !== currentSlotId) {
+        if (response.slotId !== currentSlotId
+            || (response.stripId !== undefined && response.stripId !== stripId)) {
           publish({ state: "failed", value: null, error: "Plug-in identity changed" });
           timer = setTimeout(poll, kRetryMs);
           return;
@@ -138,7 +142,7 @@ export function usePluginParameterValue({
       disposed = true;
       if (timer !== null) clearTimeout(timer);
     };
-  }, [identity, parameterIndex, shouldPoll, slotId]);
+  }, [identity, parameterIndex, shouldPoll, slotId, stripId]);
 
   if (!shouldPoll) return emptySnapshot;
   return cached.identity === identity

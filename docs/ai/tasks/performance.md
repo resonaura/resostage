@@ -91,6 +91,18 @@ open.
   discovery pauses while hidden and retries a loading host every 250 ms only
   while visible. Focused tests passed 10/10; full UI passed 877 tests / 136
   files; TypeScript, production build, changed-file lint and diff check passed.
+- The Plugin Automation modal now sends exact `(stripId, slotId)` pairs to the
+  descriptor and latest-value endpoints, and rejects a response that echoes a
+  different pair. Core's bank performs exact chain-scoped lookup for these
+  requests; additive `stripId` query/response fields coexist with the old
+  slot-only route for older clients. UI API and mismatch regressions passed,
+  and the real-Core harness verified exact identity echo plus an exact missing
+  slot remaining `missing` rather than resolving by a matching slot ID on a
+  different chain. Full UI passed 881 tests / 136 files; Core/native targets
+  built, CTest passed, and actual-Core editor-state acceptance passed.
+  Timeline `useAutomationParameters` still uses the legacy slot-only query and
+  must be migrated before claiming exact identity for all automation surfaces.
+  No live duplicated-vendor-slot fixture was run.
 - Remaining: define and implement per-plugin preset save/load. Decide whether
   each operation changes a slot's project state or writes a user preset
   library before choosing persistence. Validate identity, byte size, format

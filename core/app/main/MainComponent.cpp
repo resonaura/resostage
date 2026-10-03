@@ -323,18 +323,22 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     webServer.setPluginCatalogProvider([this] {
         return pluginCatalog.snapshotJson();
     });
-    webServer.setPluginParametersProvider([this](const std::string& slotId) {
+    webServer.setPluginParametersProvider([this](const std::string& stripId,
+                                                 const std::string& slotId) {
         wire::WPluginParameterList response;
+        response.stripId = stripId;
         response.slotId = slotId;
         // The active bank is atomically held for this read. Isolated-process
         // metadata was published before its host became Ready; no vendor API
         // is called on the HTTP service thread.
         if (engine.hasCurrentPluginProcessorBank()) {
             if (const auto bank = engine.activePluginProcessorBank()) {
-                response.loadState = bank->getSlotLoadState(slotId);
-                response.loadError = bank->getSlotLoadError(slotId);
-                response.truncated = bank->parameterMetadataTruncated(slotId);
-                for (const auto& parameter : bank->parametersForSlot(slotId)) {
+                response.loadState = stripId.empty()
+                    ? bank->getSlotLoadState(slotId)
+                    : bank->getStripSlotLoadState(stripId, slotId);
+                response.loadError = bank->getStripSlotLoadError(stripId, slotId);
+                response.truncated = bank->parameterMetadataTruncated(stripId, slotId);
+                for (const auto& parameter : bank->parametersForSlot(stripId, slotId)) {
                     response.parameters.push_back({parameter.index, parameter.name,
                                                    parameter.label,
                                                    parameter.defaultValue,
@@ -347,14 +351,18 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
         (void)glz::write_json(response, json);
         return json;
     });
-    webServer.setPluginParameterValuesProvider([this](const std::string& slotId) {
+    webServer.setPluginParameterValuesProvider([this](const std::string& stripId,
+                                                      const std::string& slotId) {
         wire::WPluginParameterValues response;
+        response.stripId = stripId;
         response.slotId = slotId;
         if (engine.hasCurrentPluginProcessorBank()) {
             if (const auto bank = engine.activePluginProcessorBank()) {
-                response.loadState = bank->getSlotLoadState(slotId);
-                response.loadError = bank->getSlotLoadError(slotId);
-                for (const auto& value : bank->parameterValuesForSlot(slotId))
+                response.loadState = stripId.empty()
+                    ? bank->getSlotLoadState(slotId)
+                    : bank->getStripSlotLoadState(stripId, slotId);
+                response.loadError = bank->getStripSlotLoadError(stripId, slotId);
+                for (const auto& value : bank->parameterValuesForSlot(stripId, slotId))
                     response.values.push_back({value.index, value.value});
             }
         }

@@ -26,6 +26,7 @@ const loadedSlot: Pick<PluginSlotRow, "id" | "pluginId" | "loadState"> = {
 };
 
 const response = (slotId: string, index: number, value: number): PluginParameterValues => ({
+  stripId: "track-a",
   slotId,
   values: [{ index, value }],
   loadState: "loaded",
@@ -34,16 +35,18 @@ const response = (slotId: string, index: number, value: number): PluginParameter
 
 function Harness({
   enabled = true,
+  stripId = "track-a",
   slot = loadedSlot,
   parameterIndex = 7,
   valueIdentity = "session:1:3",
 }: {
   enabled?: boolean;
+  stripId?: string;
   slot?: typeof loadedSlot | null;
   parameterIndex?: number | null;
   valueIdentity?: string;
 }) {
-  const snapshot = usePluginParameterValue({ enabled, slot, parameterIndex, valueIdentity });
+  const snapshot = usePluginParameterValue({ enabled, stripId, slot, parameterIndex, valueIdentity });
   return createElement("output", {
     "data-state": snapshot.state,
     "data-value": snapshot.value === null ? "" : String(snapshot.value),
@@ -83,8 +86,8 @@ describe("usePluginParameterValue", () => {
     await act(async () => vi.advanceTimersByTimeAsync(500));
     expect(container.firstElementChild?.getAttribute("data-value")).toBe("0.8");
     expect(parameterValues).toHaveBeenCalledTimes(2);
-    expect(parameterValues).toHaveBeenNthCalledWith(1, "slot-a");
-    expect(parameterValues).toHaveBeenNthCalledWith(2, "slot-a");
+    expect(parameterValues).toHaveBeenNthCalledWith(1, "track-a", "slot-a");
+    expect(parameterValues).toHaveBeenNthCalledWith(2, "track-a", "slot-a");
   });
 
   it("does not poll while hidden or while a plug-in is not loaded", async () => {
@@ -151,6 +154,7 @@ describe("usePluginParameterValue", () => {
     parameterValues.mockResolvedValueOnce(response("slot-a", 7, 0.75));
     await act(async () => root.render(createElement(PluginParameterValueReadout, {
       enabled: true,
+      stripId: "track-a",
       slot: loadedSlot,
       parameter: { index: 7, name: "Cutoff" },
       valueIdentity: "session:1:3",
@@ -159,5 +163,17 @@ describe("usePluginParameterValue", () => {
     expect(container.querySelector("output")?.textContent).toBe("75.0%");
     expect(container.querySelector("output")?.getAttribute("aria-label"))
       .toBe("Cutoff current normalized value");
+  });
+
+  it("rejects live values echoed for another strip", async () => {
+    parameterValues.mockResolvedValueOnce({
+      ...response("slot-a", 7, 0.95),
+      stripId: "track-b",
+    });
+
+    await act(async () => root.render(createElement(Harness)));
+
+    expect(container.firstElementChild?.getAttribute("data-state")).toBe("failed");
+    expect(container.firstElementChild?.getAttribute("data-value")).toBe("");
   });
 });

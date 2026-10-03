@@ -393,6 +393,7 @@ export function PluginChainModal({
                 </> : null}
                 <PluginAutomationPanel
                   visible={rightMode === "automation"}
+                  stripId={stripId}
                   slots={slots}
                   song={song}
                   songIndex={songIndex}

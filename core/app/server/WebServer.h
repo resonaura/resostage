@@ -1280,11 +1280,13 @@ public:
     void setPluginCatalogProvider(PluginCatalogProvider provider) {
         pluginCatalogProvider = std::move(provider);
     }
-    using PluginParametersProvider = std::function<std::string(const std::string&)>;
+    using PluginParametersProvider = std::function<std::string(
+        const std::string& stripId, const std::string& slotId)>;
     void setPluginParametersProvider(PluginParametersProvider provider) {
         pluginParametersProvider = std::move(provider);
     }
-    using PluginParameterValuesProvider = std::function<std::string(const std::string&)>;
+    using PluginParameterValuesProvider = std::function<std::string(
+        const std::string& stripId, const std::string& slotId)>;
     void setPluginParameterValuesProvider(PluginParameterValuesProvider provider) {
         pluginParameterValuesProvider = std::move(provider);
     }

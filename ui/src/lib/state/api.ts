@@ -793,16 +793,24 @@ export const pluginCatalog = {
 };
 
 export const pluginChains = {
-  parameters: async (slotId: string): Promise<PluginParameterList> => {
+  parameters: async (stripOrSlotId: string, scopedSlotId?: string): Promise<PluginParameterList> => {
+    const slotId = scopedSlotId ?? stripOrSlotId;
+    const stripQuery = scopedSlotId === undefined
+      ? ""
+      : `&stripId=${encodeURIComponent(stripOrSlotId)}`;
     const response = await apiFetch(
-      `/api/v1/plugins/slot/parameters?slotId=${encodeURIComponent(slotId)}`,
+      `/api/v1/plugins/slot/parameters?slotId=${encodeURIComponent(slotId)}${stripQuery}`,
     );
     if (!response.ok) throw new Error(await response.text());
     return response.json();
   },
-  parameterValues: async (slotId: string): Promise<PluginParameterValues> => {
+  parameterValues: async (stripOrSlotId: string, scopedSlotId?: string): Promise<PluginParameterValues> => {
+    const slotId = scopedSlotId ?? stripOrSlotId;
+    const stripQuery = scopedSlotId === undefined
+      ? ""
+      : `&stripId=${encodeURIComponent(stripOrSlotId)}`;
     const response = await apiFetch(
-      `/api/v1/plugins/slot/parameter-values?slotId=${encodeURIComponent(slotId)}`,
+      `/api/v1/plugins/slot/parameter-values?slotId=${encodeURIComponent(slotId)}${stripQuery}`,
     );
     if (!response.ok) throw new Error(await response.text());
     return response.json();

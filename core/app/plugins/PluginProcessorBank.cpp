@@ -1937,8 +1937,14 @@ std::string PluginProcessorBank::getStripSlotLoadState(
 
 std::vector<PluginProcessorBank::ParameterInfo>
 PluginProcessorBank::parametersForSlot(const std::string& slotId) const {
+    return parametersForSlot({}, slotId);
+}
+
+std::vector<PluginProcessorBank::ParameterInfo>
+PluginProcessorBank::parametersForSlot(const std::string& stripId,
+                                       const std::string& slotId) const {
     for (const auto& chain : chains) {
-        if (chain == nullptr)
+        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
             continue;
         for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
             const auto& node = chain->nodes[slotIndex];
@@ -2003,8 +2009,15 @@ PluginProcessorBank::parametersForSlot(const std::string& slotId) const {
 
 std::vector<PluginProcessorBank::ParameterValue>
 PluginProcessorBank::parameterValuesForSlot(const std::string& slotId) const {
+    return parameterValuesForSlot({}, slotId);
+}
+
+std::vector<PluginProcessorBank::ParameterValue>
+PluginProcessorBank::parameterValuesForSlot(const std::string& stripId,
+                                            const std::string& slotId) const {
     for (const auto& chain : chains) {
-        if (chain == nullptr || chain->hostedProcess == nullptr
+        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId)
+            || chain->hostedProcess == nullptr
             || chain->hostedProcess->process == nullptr)
             continue;
         for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
@@ -2024,8 +2037,13 @@ PluginProcessorBank::parameterValuesForSlot(const std::string& slotId) const {
 }
 
 bool PluginProcessorBank::parameterMetadataTruncated(const std::string& slotId) const noexcept {
+    return parameterMetadataTruncated({}, slotId);
+}
+
+bool PluginProcessorBank::parameterMetadataTruncated(const std::string& stripId,
+                                                     const std::string& slotId) const noexcept {
     for (const auto& chain : chains) {
-        if (chain == nullptr) continue;
+        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId)) continue;
         for (const auto& node : chain->nodes)
             if (node != nullptr && node->slotId == slotId)
                 return chain->hostedProcess != nullptr
@@ -2069,8 +2087,13 @@ void PluginProcessorBank::bindParameterValueTelemetry(const std::string& slotId,
 }
 
 std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) const {
+    return getStripSlotLoadError({}, slotId);
+}
+
+std::string PluginProcessorBank::getStripSlotLoadError(
+    const std::string& stripId, const std::string& slotId) const {
     for (const auto& chain : chains) {
-        if (chain == nullptr) continue;
+        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId)) continue;
         for (const auto& node : chain->nodes) {
             if (node == nullptr || node->slotId != slotId) continue;
             if (chain->hostedProcess != nullptr

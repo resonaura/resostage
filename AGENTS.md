@@ -715,6 +715,13 @@ Preserve these rules:
   host and copied into a fixed-capacity shared-memory table before the host
   publishes `Ready`. Core exposes that immutable table through the plug-in
   parameter HTTP endpoint; the HTTP thread must never inspect vendor objects.
+  Plug-in descriptor and latest-value GET endpoints take `slotId` and accept
+  `stripId` for exact chain identity. New UI consumers must send and verify
+  `(stripId, slotId)` because imported legacy projects may contain duplicate
+  slot IDs across strips. The slot-only query remains for older clients and
+  must not be used for a new identity-sensitive surface. Responses echo the
+  requested pair when a strip scope is supplied; an exact miss stays missing
+  instead of falling through to another strip's matching slot ID.
   The editor can create and draw normalized track-level plug-in automation
   against stable slot/parameter IDs. Live block dispatch queues parameter
   changes to the isolated host; offline rendering evaluates track and audio-/

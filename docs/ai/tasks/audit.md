@@ -51,6 +51,18 @@ Focused tests passed 10/10; full UI passed 877 tests across 136 files;
 production build, targeted lint and diff check passed. Vendor/remote visual and
 audio behavior is still unverified.
 
+Follow-up — chain-scoped parameter API (2026-10-03): the Plugin Automation
+modal now supplies `(stripId, slotId)` for both descriptor and live-value GETs.
+Core resolves the requested processor within that exact chain and echoes both
+IDs; the UI rejects mismatched echoes. Slot-only requests remain as a legacy
+compatibility path. Actual-Core editor-state acceptance probes both endpoints
+with an exact strip and a nonexistent slot, asserting the echoed pair and
+`missing` rather than cross-chain fallback. Core/native build, CTest, 26
+focused UI/API tests, full UI 881/881, TypeScript and production build passed.
+No live vendor duplicated-slot bank fixture ran. Timeline's bulk
+`useAutomationParameters` caller still uses slot-only queries; migrate it
+before claiming exact chain identity throughout the arrangement.
+
 ### Latest continuation addendum — foldable automation lanes (2026-10-03)
 
 The Timeline now shows simultaneous independent track-scope automation lanes

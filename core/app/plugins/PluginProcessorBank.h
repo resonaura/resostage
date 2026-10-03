@@ -214,11 +214,19 @@ public:
     std::string getStripSlotLoadState(const std::string& stripId,
                                       const std::string& slotId) const;
     std::string getSlotLoadError(const std::string& slotId) const;
+    std::string getStripSlotLoadError(const std::string& stripId,
+                                      const std::string& slotId) const;
     /** Non-realtime discovery from a hosted chain's startup snapshot. */
     std::vector<ParameterInfo> parametersForSlot(const std::string& slotId) const;
+    std::vector<ParameterInfo> parametersForSlot(const std::string& stripId,
+                                                const std::string& slotId) const;
     /** Latest hosted parameter values without copying immutable descriptors. */
     std::vector<ParameterValue> parameterValuesForSlot(const std::string& slotId) const;
+    std::vector<ParameterValue> parameterValuesForSlot(const std::string& stripId,
+                                                       const std::string& slotId) const;
     bool parameterMetadataTruncated(const std::string& slotId) const noexcept;
+    bool parameterMetadataTruncated(const std::string& stripId,
+                                    const std::string& slotId) const noexcept;
     /** Prepared ID lookup, bounded and allocation-free on live/offline DSP. */
     int resolvePluginParameterIndex(const std::string& slotId,
                                     std::string_view parameterId) const noexcept;

@@ -266,13 +266,29 @@ export async function verifyEditorState(coreExecutable, inspect) {
       assert.equal(testHookProbe.status, 404,
         "ordinary Core builds must not expose the snapshot-fault test route");
     }
+    const parameterProbeStripId = "audio::track:1";
+    const parameterProbeStripQuery = encodeURIComponent(parameterProbeStripId);
+    const parameterMetadataProbe = await fetch(
+      `${origin}/api/v1/plugins/slot/parameters?slotId=acceptance-slot&stripId=${parameterProbeStripQuery}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    assert.equal(parameterMetadataProbe.status, 200,
+      "Core must expose the strip-scoped plug-in parameter descriptor endpoint");
+    const parameterMetadata = await parameterMetadataProbe.json();
+    assert.equal(parameterMetadata.stripId, parameterProbeStripId);
+    assert.equal(parameterMetadata.slotId, "acceptance-slot");
+    assert.equal(parameterMetadata.loadState, "missing",
+      "a missing slot in the requested strip must not resolve by slot ID in another strip");
+    assert.deepEqual(parameterMetadata.parameters, []);
     const parameterValueProbe = await fetch(
-      `${origin}/api/v1/plugins/slot/parameter-values?slotId=acceptance-slot`,
+      `${origin}/api/v1/plugins/slot/parameter-values?slotId=acceptance-slot&stripId=${parameterProbeStripQuery}`,
       { signal: AbortSignal.timeout(8000) },
     );
     assert.equal(parameterValueProbe.status, 200,
       "Core must expose the compact plug-in parameter-value snapshot endpoint");
     const parameterValueSnapshot = await parameterValueProbe.json();
+    assert.equal(parameterValueSnapshot.stripId, "audio::track:1",
+      "parameter-value telemetry must echo its exact strip identity");
     assert.equal(parameterValueSnapshot.slotId, "acceptance-slot");
     assert.ok(Array.isArray(parameterValueSnapshot.values),
       "parameter-value telemetry must always return a bounded values array");

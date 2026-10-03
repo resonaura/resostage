@@ -378,22 +378,24 @@ int WebServer::servePluginCatalog(struct lws* wsi) {
 
 int WebServer::servePluginParameters(struct lws* wsi, const char* queryArgs) {
     const std::string slotId = queryParam(queryArgs, "slotId");
-    if (slotId.empty() || slotId.size() > 128)
+    const std::string stripId = queryParam(queryArgs, "stripId");
+    if (slotId.empty() || slotId.size() > 128 || stripId.size() > 128)
         return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid slotId");
     const std::string json = pluginParametersProvider
-        ? pluginParametersProvider(slotId)
-        : "{\"slotId\":\"\",\"parameters\":[],\"loadState\":\"failed\",\"loadError\":\"Plug-in metadata service is unavailable\",\"truncated\":false}";
+        ? pluginParametersProvider(stripId, slotId)
+        : "{\"stripId\":\"\",\"slotId\":\"\",\"parameters\":[],\"loadState\":\"failed\",\"loadError\":\"Plug-in metadata service is unavailable\",\"truncated\":false}";
     return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
                              json.c_str(), json.size());
 }
 
 int WebServer::servePluginParameterValues(struct lws* wsi, const char* queryArgs) {
     const std::string slotId = queryParam(queryArgs, "slotId");
-    if (slotId.empty() || slotId.size() > 128)
+    const std::string stripId = queryParam(queryArgs, "stripId");
+    if (slotId.empty() || slotId.size() > 128 || stripId.size() > 128)
         return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid slotId");
     const std::string json = pluginParameterValuesProvider
-        ? pluginParameterValuesProvider(slotId)
-        : "{\"slotId\":\"\",\"values\":[],\"loadState\":\"failed\",\"loadError\":\"Plug-in value service is unavailable\"}";
+        ? pluginParameterValuesProvider(stripId, slotId)
+        : "{\"stripId\":\"\",\"slotId\":\"\",\"values\":[],\"loadState\":\"failed\",\"loadError\":\"Plug-in value service is unavailable\"}";
     return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
                              json.c_str(), json.size());
 }

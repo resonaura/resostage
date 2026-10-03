@@ -111,6 +111,8 @@ export interface PluginParameterInfo {
 }
 
 export interface PluginParameterList {
+  /** Present on strip-scoped requests; omitted by legacy slot-only callers. */
+  stripId?: string;
   slotId: string;
   loadState: "loading" | "loaded" | "missing" | "failed";
   loadError: string;
@@ -120,6 +122,8 @@ export interface PluginParameterList {
 }
 
 export interface PluginParameterValues {
+  /** Present on strip-scoped requests; omitted by legacy slot-only callers. */
+  stripId?: string;
   slotId: string;
   values: Array<{ index: number; value: number }>;
   loadState: "loading" | "loaded" | "missing" | "failed";

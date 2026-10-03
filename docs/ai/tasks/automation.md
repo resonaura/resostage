@@ -168,6 +168,17 @@ slot-switch races; all ten focused tests passed. Full UI passed 877 tests
 across 136 files, and TypeScript, production build, changed-file lint and diff
 check passed.
 
+Chain identity follow-up: the Plugin Automation modal supplies stable
+`stripId` and `slotId` to both descriptor and latest-value endpoints, and
+rejects responses that echo another identity. Core resolves these queries
+inside the exact processor chain; the old slot-only route remains compatible.
+Focused UI/API tests passed 26/26; full UI passed 881 tests across 136 files;
+TypeScript and production build passed. Core/native targets built, CTest
+passed, and actual-Core acceptance verified the exact pair and an exact
+missing slot. Timeline's bulk `useAutomationParameters` still uses the old
+slot-only query, so arrangement automation is not yet covered by the exact
+identity fix. No live duplicated-vendor-slot bank fixture was run.
+
 Still open: end-to-end Touch/Latch/Write ownership on all surfaces; real
 AU/VST3 and remote-session visual/playback acceptance; and deciding whether
 hosted-plugin values need a dedicated telemetry channel if low-rate polling

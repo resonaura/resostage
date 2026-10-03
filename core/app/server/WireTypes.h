@@ -333,6 +333,7 @@ struct WPluginParameterInfo {
 };
 
 struct WPluginParameterList {
+    std::string stripId;
     std::string slotId;
     std::vector<WPluginParameterInfo> parameters;
     std::string loadState = "loading";
@@ -346,6 +347,7 @@ struct WPluginParameterValue {
 };
 
 struct WPluginParameterValues {
+    std::string stripId;
     std::string slotId;
     std::vector<WPluginParameterValue> values;
     std::string loadState = "loading";

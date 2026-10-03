@@ -35,12 +35,14 @@ type PluginParameterCatalog = {
  */
 export function PluginAutomationPanel({
   visible,
+  stripId,
   slots,
   song,
   songIndex,
   valueIdentity,
 }: {
   visible: boolean;
+  stripId: string;
   slots: PluginSlotRow[];
   song?: SongRow;
   songIndex: number;
@@ -59,6 +61,7 @@ export function PluginAutomationPanel({
   const automationSlot = slots.find((slot) => slot.id === automationSlotId) ?? null;
   const automationSlotIdentity = JSON.stringify([
     valueIdentity,
+    stripId,
     automationSlot?.id ?? "",
     automationSlot?.pluginId ?? "",
     automationSlot?.loadState ?? "",
@@ -96,9 +99,10 @@ export function PluginAutomationPanel({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     async function loadParameters() {
       try {
-        const response = await pluginChains.parameters(automationSlotId);
+        const response = await pluginChains.parameters(stripId, automationSlotId);
         if (disposed) return;
-        if (response.slotId !== automationSlotId) {
+        if (response.slotId !== automationSlotId
+            || (response.stripId !== undefined && response.stripId !== stripId)) {
           setParameterCatalog({
             identity: automationSlotIdentity,
             state: "failed",
@@ -152,7 +156,7 @@ export function PluginAutomationPanel({
       disposed = true;
       if (retryTimer !== null) clearTimeout(retryTimer);
     };
-  }, [automationSlotId, automationSlotIdentity, automationSlotLoadState, visible]);
+  }, [automationSlotId, automationSlotIdentity, automationSlotLoadState, stripId, visible]);
 
   const filteredAutomationParameters = automationParameters.filter((parameter) =>
     `${parameter.name} ${parameter.label}`.toLocaleLowerCase().includes(automationSearch.trim().toLocaleLowerCase()),
@@ -238,6 +242,7 @@ export function PluginAutomationPanel({
               </div>
               <PluginParameterValueReadout
                 enabled={visible}
+                stripId={stripId}
                 slot={automationSlot}
                 parameter={selectedParameter}
                 valueIdentity={valueIdentity}

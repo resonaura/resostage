@@ -128,6 +128,25 @@ describe("pluginChains", () => {
     );
   });
 
+  it("parameters() scopes a duplicate slot ID to its stable strip", async () => {
+    const metadata = {
+      stripId: "audio::track:second",
+      slotId: "legacy-slot",
+      loadState: "loaded",
+      loadError: "",
+      truncated: false,
+      parameters: [],
+    };
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: true, json: async () => metadata,
+    } as Response);
+
+    expect(await pluginChains.parameters(metadata.stripId, metadata.slotId)).toEqual(metadata);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/plugins/slot/parameters?slotId=legacy-slot&stripId=audio%3A%3Atrack%3Asecond",
+    );
+  });
+
   it("parameterValues() fetches lightweight latest values by slot ID", async () => {
     const values = { slotId: "slot 123", loadState: "loaded", loadError: "",
       values: [{ index: 7, value: 0.72 }] };
@@ -137,6 +156,24 @@ describe("pluginChains", () => {
     expect(await pluginChains.parameterValues(values.slotId)).toEqual(values);
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/v1/plugins/slot/parameter-values?slotId=slot%20123",
+    );
+  });
+
+  it("parameterValues() scopes duplicate slot IDs to their stable strip", async () => {
+    const values = {
+      stripId: "audio::track:second",
+      slotId: "legacy-slot",
+      loadState: "loaded",
+      loadError: "",
+      values: [{ index: 7, value: 0.72 }],
+    };
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: true, json: async () => values,
+    } as Response);
+
+    expect(await pluginChains.parameterValues(values.stripId, values.slotId)).toEqual(values);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/plugins/slot/parameter-values?slotId=legacy-slot&stripId=audio%3A%3Atrack%3Asecond",
     );
   });
 

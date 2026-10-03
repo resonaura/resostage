@@ -45,8 +45,10 @@ const song = { automationLanes: [] } as unknown as SongRow;
 function parameterList(
   slotId: string,
   descriptors: PluginParameterList["parameters"],
+  stripId = "track-a",
 ): PluginParameterList {
   return {
+    stripId,
     slotId,
     loadState: "loaded",
     loadError: "",
@@ -55,8 +57,9 @@ function parameterList(
   };
 }
 
-function loadingParameterList(slotId: string): PluginParameterList {
+function loadingParameterList(slotId: string, stripId = "track-a"): PluginParameterList {
   return {
+    stripId,
     slotId,
     loadState: "loading",
     loadError: "",
@@ -69,8 +72,10 @@ function parameterValueList(
   slotId: string,
   index: number,
   value = 0.75,
+  stripId = "track-a",
 ): PluginParameterValues {
   return {
+    stripId,
     slotId,
     loadState: "loaded",
     loadError: "",
@@ -107,6 +112,7 @@ describe("PluginAutomationPanel parameter identity", () => {
   const render = (valueIdentity = "session:1:1", visible = true) =>
     createElement(PluginAutomationPanel, {
       visible,
+      stripId: "track-a",
       slots,
       song,
       songIndex: 0,
@@ -142,7 +148,8 @@ describe("PluginAutomationPanel parameter identity", () => {
 
     expect(container.textContent).toContain("Automatable");
     expect(container.textContent).not.toContain("Read only");
-    expect(parameterValues).toHaveBeenCalledWith("slot-a");
+    expect(parameters).toHaveBeenCalledWith("track-a", "slot-a");
+    expect(parameterValues).toHaveBeenCalledWith("track-a", "slot-a");
   });
 
   it("waits for the isolated host and retries parameter discovery while visible", async () => {
@@ -167,7 +174,7 @@ describe("PluginAutomationPanel parameter identity", () => {
     await act(async () => vi.advanceTimersByTimeAsync(250));
     expect(container.textContent).toContain("Ready parameter");
     expect(parameters).toHaveBeenCalledTimes(2);
-    expect(parameterValues).toHaveBeenCalledWith("slot-a");
+    expect(parameterValues).toHaveBeenCalledWith("track-a", "slot-a");
   });
 
   it("does not discover plug-in parameters while its panel is hidden", async () => {
@@ -177,7 +184,26 @@ describe("PluginAutomationPanel parameter identity", () => {
     expect(parameters).not.toHaveBeenCalled();
 
     await act(async () => root.render(render("session:1:1", true)));
-    expect(parameters).toHaveBeenCalledWith("slot-a");
+    expect(parameters).toHaveBeenCalledWith("track-a", "slot-a");
+  });
+
+  it("rejects a descriptor response for a different strip", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [{
+      index: 4,
+      parameterId: "id:wrong-strip",
+      name: "Wrong strip parameter",
+      label: "",
+      defaultValue: 0.5,
+      currentValue: 0.5,
+      steps: 0,
+      automatable: true,
+    }], "track-b"));
+
+    await act(async () => root.render(render()));
+
+    expect(container.textContent).toContain("Plug-in identity changed");
+    expect(container.textContent).not.toContain("Wrong strip parameter");
+    expect(parameterValues).not.toHaveBeenCalled();
   });
 
   it("does not poll a newly selected slot using the old slot's parameter list", async () => {
@@ -189,7 +215,7 @@ describe("PluginAutomationPanel parameter identity", () => {
     parameterValues.mockResolvedValue(parameterValueList("slot-b", 17));
 
     await act(async () => root.render(render()));
-    expect(parameters).toHaveBeenCalledWith("slot-a");
+    expect(parameters).toHaveBeenCalledWith("track-a", "slot-a");
 
     const selector = container.querySelector("select");
     expect(selector).not.toBeNull();
@@ -197,7 +223,7 @@ describe("PluginAutomationPanel parameter identity", () => {
       selector!.value = "slot-b";
       selector!.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    expect(parameters).toHaveBeenCalledWith("slot-b");
+    expect(parameters).toHaveBeenCalledWith("track-a", "slot-b");
 
     await act(async () => {
       oldCatalog.resolve(parameterList("slot-a", [{
@@ -231,6 +257,6 @@ describe("PluginAutomationPanel parameter identity", () => {
 
     expect(container.textContent).toContain("New parameter");
     expect(parameterValues).toHaveBeenCalledTimes(1);
-    expect(parameterValues).toHaveBeenCalledWith("slot-b");
+    expect(parameterValues).toHaveBeenCalledWith("track-a", "slot-b");
   });
 });

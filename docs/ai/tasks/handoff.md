@@ -28,8 +28,13 @@ Latest verified changes:
   explicitly marked automatable. The shared eased readout is isolated from
   the large parameter list. Hidden panels do not request descriptors, and a
   still-loading host is retried sequentially every 250 ms only while visible.
-  Focused tests passed 10/10; full UI passed 877 tests / 136 files; TypeScript,
-  production build, changed-file lint and diff check passed. This is not
+  The modal's descriptor/value requests use exact `(stripId, slotId)` lookups
+  and reject mismatched response identity; slot-only queries remain compatible
+  for older callers. Actual-Core acceptance verified pair echo and exact
+  missing-slot behavior. Focused UI/API tests passed 26/26; full UI passed
+  881 tests / 136 files; Core/native build and CTest, TypeScript, production
+  build, targeted lint and diff check passed. Timeline
+  `useAutomationParameters` remains slot-only and needs migration. This is not
   sample-accurate telemetry or real AU/VST3/remote acceptance.
 
 Continue from open items in `performance.md`, `automation.md`, `audio-flow.md`
