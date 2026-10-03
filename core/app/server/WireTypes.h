@@ -929,6 +929,7 @@ struct WEngineTelemetryPayload {
     double playheadSeconds = 0.0;
     double globalPlayheadSeconds = 0.0;
     double globalBeatsElapsed = 0.0;
+    uint64_t cyclePassSequence = 0;
     double sampleRate = 0.0;
     double drift = 0.0;
     double bpm = 0.0;

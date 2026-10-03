@@ -369,6 +369,15 @@ absolute modulo sample arithmetic rather than an accumulated floating phase.
 This path must not perform a message-thread seek, stream handoff, global MIDI
 all-notes-off, or allocation. Only sequenced notes that cross the locator are
 released; independently held live-input notes remain active.
+`TransportTelemetry::cyclePassSequence` is a monotonic Core-owned count of
+completed project-cycle passes. Increment it only when transport actually
+crosses/wraps the active loop (including a successfully applied fallback seek),
+never for locator edits or user seeks. UI recorders use it to distinguish a
+wrap from a backwards seek and to recover when latest-wins telemetry skips a
+short loop; callback updates are scalar atomics with no locks, allocations, or
+message-thread work. Touch automation closes/re-arms at backwards seeks; if a
+renderer suspension hides more than four passes, it commits only sampled data
+and resumes at the current phase rather than fabricating missing passes.
 
 Host timestamps must be in the same nanosecond epoch as
 `SystemMonotonicClock`. In particular, JUCE/CoreAudio exposes raw Mach ticks

@@ -1036,6 +1036,8 @@ export interface WebUiState {
   /** Cumulative whole-project position (does not reset at song boundaries). */
   globalPlayheadSeconds: number;
   globalBeatsElapsed: number;
+  /** Monotonic Core transport cycle-pass count; absent on older Core versions. */
+  cyclePassSequence?: number;
   sampleRate: number;
   drift: number;
   bpm: number;

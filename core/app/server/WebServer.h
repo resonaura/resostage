@@ -463,6 +463,9 @@ struct WebUiState {
     // reset at song boundaries. Freezes on pause/stop like playheadSeconds does.
     double globalPlayheadSeconds = 0.0;
     double globalBeatsElapsed = 0.0;
+    // Audio transport's monotonic project-cycle pass counter. UI gesture
+    // recorders use this to split passes without inferring wraps from playhead.
+    uint64_t cyclePassSequence = 0;
     double sampleRate = 48000.0;
     double driftFactor = 1.0;
     double bpm = 0.0;

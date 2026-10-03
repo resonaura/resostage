@@ -288,6 +288,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
 
         const int64_t blockEnd = blockStart + numSamples;
         if (cycleLength > 0 && blockStart < rightSample && blockEnd > rightSample) {
+            transportTelemetry.cyclePassSequence.fetch_add(1, std::memory_order_relaxed);
             const int firstSamples = static_cast<int>(rightSample - blockStart);
             const int secondSamples = numSamples - firstSamples;
             std::array<const float*, kMaxSupportedOutputChannels> firstIn{};
@@ -1075,14 +1076,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
                     // Loop: crossing the right locator → jump to left.
                     const uint64_t epoch = cycleEpoch.load(std::memory_order_relaxed);
                     pendingCycleSeekSec.store(lo, std::memory_order_release);
-                    juce::MessageManager::callAsync([this, epoch]() {
+                    const bool countsAsCyclePass = !skip;
+                    juce::MessageManager::callAsync([this, epoch, countsAsCyclePass]() {
                         if (cycleEpoch.load(std::memory_order_acquire) != epoch)
                             return; // zone changed / disabled since arm
                         double sec = 0.0;
                         if (!consumeCycleSeek(sec))
                             return;
                         std::string err;
-                        (void)seekToSeconds(sec, err);
+                        if (seekToSeconds(sec, err) && countsAsCyclePass)
+                            transportTelemetry.cyclePassSequence.fetch_add(
+                                1, std::memory_order_relaxed);
                     });
                 }
             }
@@ -2045,6 +2049,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
         const int64_t cycleLength = rightSample - leftSample;
         const int64_t nextSample = hwSamplePosition.load(std::memory_order_relaxed);
         if (cycleLength > 0 && nextSample >= rightSample) {
+            const uint64_t completedPasses = static_cast<uint64_t>(
+                1 + (nextSample - rightSample) / cycleLength);
+            transportTelemetry.cyclePassSequence.fetch_add(
+                completedPasses, std::memory_order_relaxed);
             const int64_t wrapped = wrapCycleSample(nextSample, leftSample, rightSample);
             hwSamplePosition.store(wrapped, std::memory_order_relaxed);
             clock.start(currentSampleRate, wrapped);

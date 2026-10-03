@@ -148,6 +148,7 @@ export function TimelineSidebar({
     isPlaying: Boolean(state.playing),
     getCurrentBeats,
     cycleRange: automationCycleRange,
+    cyclePassSequence: state.cyclePassSequence,
   });
 
   const {

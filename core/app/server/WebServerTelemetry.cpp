@@ -159,6 +159,7 @@ std::string WebServer::buildStateJson(const char* view) const {
     wire.playheadSeconds = finiteOrZero(snap.playheadSeconds);
     wire.globalPlayheadSeconds = finiteOrZero(snap.globalPlayheadSeconds);
     wire.globalBeatsElapsed = finiteOrZero(snap.globalBeatsElapsed);
+    wire.cyclePassSequence = snap.cyclePassSequence;
     wire.sampleRate = finiteOrZero(snap.sampleRate);
     wire.drift = finiteOrZero(snap.driftFactor);
     wire.bpm = finiteOrZero(snap.bpm);

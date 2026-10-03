@@ -151,6 +151,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
       playing: lastObserved.playing,
       playheadSamples: lastObserved.playheadSamples,
       playheadSeconds: lastObserved.playheadSeconds,
+      cyclePassSequence: lastObserved.cyclePassSequence,
       songIndex: lastObserved.songIndex,
       projectEpoch: lastObserved.projectEpoch,
       stateRevision: lastObserved.stateRevision,
@@ -852,9 +853,41 @@ export async function verifyEditorState(coreExecutable, inspect) {
       assert.equal(byteRecoveredResult.applied, false);
       assert.doesNotMatch(byteRecoveredResult.error, /queue is full/i);
 
+      await request("/api/v1/transport/stop", {});
+      await waitFor((current) => !current.playing, "stop before cycle pass acceptance");
+      await request("/api/v1/transport/seek", { seconds: 0 });
+      await waitFor((current) => !current.playing && current.playheadSeconds < 0.02,
+        "seek to project start before cycle pass acceptance");
+      const shortCycle = await confirmEditorMutation("/api/v1/builder/cycle/update", {
+        songIndex: 0, active: true, leftSec: 0.25, rightSec: 0.35,
+      });
+      const sequenceBeforeCycle = shortCycle.state.cyclePassSequence;
       await request("/api/v1/transport/play", {});
-      const beforeInjectedFailure = await waitFor((current) => current.playing,
+      await waitFor((current) => current.playing,
         "play before injected playback-snapshot failure");
+      assert.equal(shortCycle.state.cyclePassSequence, sequenceBeforeCycle,
+        "editing loop locators must not fabricate a completed pass");
+      const completedCycle = await waitFor((current) => current.playing
+        && current.cyclePassSequence > sequenceBeforeCycle,
+      "Core-owned cycle pass sequence advances after a short loop wrap");
+      await request("/api/v1/transport/stop", {});
+      state = await waitFor((current) => !current.playing,
+        "stop before cycle seek distinction check");
+      const sequenceBeforeSeek = state.cyclePassSequence;
+      await request("/api/v1/transport/seek", { seconds: 0.3 });
+      state = await waitFor((current) => !current.playing
+        && Math.abs(current.playheadSeconds - 0.3) < 0.02,
+      "seek inside an enabled cycle");
+      assert.equal(state.cyclePassSequence, sequenceBeforeSeek,
+        "a transport seek must not be reported as a completed cycle pass");
+      await confirmEditorMutation("/api/v1/builder/cycle/update", {
+        songIndex: 0, active: false,
+      });
+      await request("/api/v1/transport/play", {});
+      const beforeInjectedFailurePlayback = await waitFor((current) => current.playing,
+        "resume playback before injected snapshot failure");
+      assert.ok(beforeInjectedFailurePlayback.cyclePassSequence >= completedCycle.cyclePassSequence,
+        "cycle pass telemetry must be monotonic across stop, seek, and restart");
       await request("/api/v1/test/fail-next-playback-snapshot", {});
       await waitFor((current) => current.statusMessage
         === "Test-only playback snapshot failure armed",
@@ -1449,6 +1482,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "edit deferred through real busy media import with exact job result and full region/song extent",
       "detached plug-in automation rebind rejection",
       "structural song/bus/event/section/cycle results",
+      "short-cycle transport pass sequence and seek distinction",
       "same-Core reopen with late old-epoch result and stable entities, Core-session fences and restart-scoped request-ID reuse",
       ...(process.env.RESOSTAGE_TEST_PENDING_RESTART === "1"
         ? ["accepted-but-pending editor command discarded safely on Core restart"] : []),

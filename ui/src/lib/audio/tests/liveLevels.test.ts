@@ -592,3 +592,47 @@ describe("pushLiveBinaryFrame — v9 active MIDI snapshots", () => {
     }
   });
 });
+
+describe("pushLiveBinaryFrame — v10 cycle pass telemetry", () => {
+  beforeEach(() => resetLiveTelemetrySequence());
+
+  function buildV10Frame(frameSequence: number, cyclePassSequence: bigint): ArrayBuffer {
+    const buf = new ArrayBuffer(74);
+    const view = new DataView(buf);
+    view.setUint16(0, 0x5253, true);
+    view.setUint8(2, 10);
+    view.setUint32(4, frameSequence, true);
+    view.setFloat32(8, 1.25, true);
+    view.setFloat32(12, -120, true);
+    view.setFloat32(16, -120, true);
+    view.setFloat32(20, -120, true);
+    view.setFloat32(24, -120, true);
+    view.setFloat32(28, 120, true);
+    view.setInt16(32, 0, true);
+    view.setUint16(34, 0, true);
+    view.setFloat32(36, 1.25, true);
+    view.setFloat32(40, 1, true);
+    view.setFloat32(44, 0, true);
+    view.setFloat32(48, 0, true);
+    view.setFloat32(52, 0, true);
+    view.setUint16(56, 8, true);
+    view.setUint16(58, 0, true);
+    view.setUint16(60, 0, true);
+    view.setUint16(62, 0, true);
+    view.setUint16(64, 0, true);
+    view.setBigUint64(66, cyclePassSequence, true);
+    return buf;
+  }
+
+  it("publishes the transport-owned cycle count while preserving v9 row offsets", () => {
+    const seen: Array<number | undefined> = [];
+    const unsubscribe = subscribeLiveTransport((state) => seen.push(state.cyclePassSequence));
+    try {
+      pushLiveBinaryFrame(buildV10Frame(1, 42n));
+      pushLiveBinaryFrame(buildV10Frame(2, 43n));
+      expect(seen).toEqual([42, 43]);
+    } finally {
+      unsubscribe();
+    }
+  });
+});

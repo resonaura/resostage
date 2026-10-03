@@ -434,6 +434,8 @@ export type LiveTransportState = {
   bpm: number;
   songIndex: number;
   globalPlayheadSeconds: number;
+  /** Core-owned project-cycle pass counter (v10+); omitted by older senders. */
+  cyclePassSequence?: number;
   /** Drift-correction factor from MasterClock (1.0 = no drift). v6+ only; 1.0 when frame is older. */
   drift: number;
   /** True only when drift came from a real v6 frame (not a v5 fallback of 1.0). */
@@ -549,6 +551,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   if (magic !== 0x5253) return;
   const version = view.getUint8(2);
   if (version >= 8 && buffer.byteLength < 66) return;
+  if (version >= 10 && buffer.byteLength < 74) return;
   if (version < 9) activeMidiSnapshotReady = false;
 
   if (version >= 8) {
@@ -610,6 +613,9 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
       : version >= 6
         ? view.getFloat32(34, true)
         : 1.0;
+    const cyclePassSequence = version >= 10
+      ? Number(view.getBigUint64(buffer.byteLength - 8, true))
+      : undefined;
 
     setTransportPlaying(playing);
 
@@ -619,6 +625,7 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
       bpm,
       songIndex,
       globalPlayheadSeconds,
+      ...(cyclePassSequence !== undefined ? { cyclePassSequence } : {}),
       drift,
       hasDrift: version >= 6,
     };
@@ -656,7 +663,8 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
     publishLiveHealth(hs);
   }
 
-  // v8/v9: header 66 (counts at 58). v7: 60 (counts at 52). v6: 46 (counts at 38). v5: 42 (counts at 34).
+  // v8/v9/v10 retain the 66-byte header (counts at 58). v10's cycle counter
+  // is a trailer after the variable-size LED rows, not part of the header.
   const countsAt = isV8
     ? 58
     : isV7
@@ -808,13 +816,15 @@ export function pushLiveBinaryFrame(buffer: ArrayBuffer): void {
   }
 
   if (version >= 2) {
+    const trailerBytes = version >= 10 ? 8 : 0;
+    if (buffer.byteLength - offset < trailerBytes) return;
     // Compare the encoded LED block before decoding it: an unchanged look is
     // the common case (see lastLightBytes) and skipping it costs one memcmp
     // instead of an object graph plus a scene-wide re-render.
     const lightBytes = new Uint8Array(
       buffer,
       offset,
-      buffer.byteLength - offset,
+      buffer.byteLength - offset - trailerBytes,
     );
     if (!sameBytes(lightBytes, lastLightBytes)) {
       lastLightBytes = lightBytes.slice();

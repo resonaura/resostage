@@ -356,5 +356,30 @@ describe("automationTouchController", () => {
       expect(punchPayload?.releaseBeats).toBe(2.0);
       expect(punchPayload?.releaseValue).toBe(0.6);
     });
+
+    it("commits sampled points and re-arms at a seek without claiming a cycle", () => {
+      const controller = new AutomationTouchController();
+      const target: AutomationGestureTarget = {
+        domain: "strip",
+        entityId: "track-2",
+        parameterId: "faderGainDb",
+      };
+      controller.startGesture(target, 0, 4.0, baseLanes);
+      controller.recordValue(target, -5.0, 7.0);
+
+      const commits = controller.handleTransportDiscontinuity(4.25);
+
+      expect(commits).toHaveLength(1);
+      expect(commits[0].punchInBeats).toBe(4.0);
+      expect(commits[0].releaseBeats).toBe(7.0);
+      expect(commits[0].returnRampBeats).toBe(0);
+      expect(commits[0].shouldRevertWriteMode).toBe(false);
+      expect(controller.isLaneActive("lane-touch")).toBe(true);
+
+      controller.recordValue(target, -2.0, 4.5);
+      const resumed = controller.finishGesture(target, -2.0, 4.75);
+      expect(resumed?.punchInBeats).toBe(4.25);
+      expect(resumed?.releaseBeats).toBe(4.75);
+    });
   });
 });

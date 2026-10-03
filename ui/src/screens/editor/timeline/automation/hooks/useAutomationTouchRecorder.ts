@@ -20,6 +20,7 @@ export interface UseAutomationTouchRecorderProps {
   isPlaying: boolean;
   getCurrentBeats: () => number;
   cycleRange?: { leftBeats: number; rightBeats: number } | null;
+  cyclePassSequence?: number;
   onCommitGesture?: (payload: AutomationGestureCommitPayload) => void;
   onWriteModeRevert?: (laneId: string) => void;
 }
@@ -36,6 +37,7 @@ export function useAutomationTouchRecorder({
   isPlaying,
   getCurrentBeats,
   cycleRange,
+  cyclePassSequence,
   onCommitGesture,
   onWriteModeRevert,
 }: UseAutomationTouchRecorderProps) {
@@ -47,6 +49,8 @@ export function useAutomationTouchRecorder({
   const getCurrentBeatsRef = useRef(getCurrentBeats);
   getCurrentBeatsRef.current = getCurrentBeats;
   const lastBeatsRef = useRef(0);
+  const lastCyclePassSequenceRef = useRef<number | null>(null);
+  const cycleContextRef = useRef<string | null>(null);
   const projectIdentityRef = useRef<string | null>(projectIdentity);
   projectIdentityRef.current = projectIdentity;
   const sessionIdentityRef = useRef(new Map<string, string>());
@@ -224,32 +228,77 @@ export function useAutomationTouchRecorder({
     }
   }, [isPlaying, currentBeats, commitPayload]);
 
-  // Loop cycle wrap: split and continue held/active sessions across boundaries
+  // Core's monotonic pass counter is authoritative: telemetry can skip an
+  // entire short loop and a seek can move the playhead backwards without being
+  // a loop pass. Keep playhead inference only for older Core versions that do
+  // not publish this counter yet.
   useEffect(() => {
+    const cycleContext = JSON.stringify([
+      projectIdentity,
+      songIndex,
+      cycleRange?.leftBeats ?? null,
+      cycleRange?.rightBeats ?? null,
+    ]);
+    const sequence = Number.isSafeInteger(cyclePassSequence) && cyclePassSequence! >= 0
+      ? cyclePassSequence!
+      : null;
     const previous = lastBeatsRef.current;
+    const previousSequence = lastCyclePassSequenceRef.current;
+    const contextChanged = cycleContextRef.current !== cycleContext;
+    cycleContextRef.current = cycleContext;
+    lastCyclePassSequenceRef.current = sequence;
+
+    if (contextChanged) {
+      lastBeatsRef.current = currentBeats;
+      return;
+    }
     if (!isPlaying || !cycleRange) {
       lastBeatsRef.current = currentBeats;
       return;
     }
     const current = currentBeats;
-    const cycleLength = cycleRange.rightBeats - cycleRange.leftBeats;
-    const edgeWindow = Math.min(0.5, Math.max(0.002, cycleLength * 0.25));
-    const crossedRight = previous >= cycleRange.rightBeats - edgeWindow
-      && previous <= cycleRange.rightBeats + edgeWindow;
-    const wrappedToLeft = current >= cycleRange.leftBeats - edgeWindow
-      && current <= cycleRange.leftBeats + edgeWindow;
-    if (previous > cycleRange.leftBeats && current < previous
-      && crossedRight && wrappedToLeft) {
-      const payloads = controllerRef.current.handleCycleWrap(
-        cycleRange.leftBeats,
-        cycleRange.rightBeats,
-      );
-      for (const p of payloads) {
-        commitPayload(p);
+    if (sequence !== null && previousSequence !== null) {
+      const missedPasses = sequence >= previousSequence ? sequence - previousSequence : 0;
+      if (missedPasses > 4) {
+        // Preserve points we actually sampled, then resume at the current
+        // cycle phase instead of flooding Core or inventing lost pass data.
+        const payloads = controllerRef.current.handleTransportDiscontinuity(current);
+        for (const payload of payloads) commitPayload(payload);
+      } else {
+        for (let pass = 0; pass < missedPasses; pass += 1) {
+          const payloads = controllerRef.current.handleCycleWrap(
+            cycleRange.leftBeats,
+            cycleRange.rightBeats,
+          );
+          for (const payload of payloads) commitPayload(payload);
+        }
+        if (missedPasses === 0 && current < previous - 1e-6) {
+          const payloads = controllerRef.current.handleTransportDiscontinuity(current);
+          for (const payload of payloads) commitPayload(payload);
+        }
+      }
+    } else if (sequence === null && previousSequence === null) {
+      const cycleLength = cycleRange.rightBeats - cycleRange.leftBeats;
+      const edgeWindow = Math.min(0.5, Math.max(0.002, cycleLength * 0.25));
+      const crossedRight = previous >= cycleRange.rightBeats - edgeWindow
+        && previous <= cycleRange.rightBeats + edgeWindow;
+      const wrappedToLeft = current >= cycleRange.leftBeats - edgeWindow
+        && current <= cycleRange.leftBeats + edgeWindow;
+      if (previous > cycleRange.leftBeats && current < previous
+        && crossedRight && wrappedToLeft) {
+        const payloads = controllerRef.current.handleCycleWrap(
+          cycleRange.leftBeats,
+          cycleRange.rightBeats,
+        );
+        for (const payload of payloads) commitPayload(payload);
+      } else if (current < previous - 1e-6) {
+        const payloads = controllerRef.current.handleTransportDiscontinuity(current);
+        for (const payload of payloads) commitPayload(payload);
       }
     }
     lastBeatsRef.current = current;
-  }, [isPlaying, cycleRange, currentBeats, commitPayload]);
+  }, [isPlaying, cycleRange, cyclePassSequence, currentBeats, projectIdentity,
+    songIndex, commitPayload]);
 
   // Component unmount: discard any incomplete gesture without stale commits.
   useEffect(() => () => {

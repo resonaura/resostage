@@ -293,7 +293,13 @@ export function useLiveState(view: string = "player") {
             }
           }
 
-          let pollData: Partial<WebUiState> = data;
+          // Explicitly clear optional fields that older Core versions omit;
+          // shallow snapshot merges otherwise retain the previous backend's
+          // value and can make compatibility fallbacks look authoritative.
+          let pollData: Partial<WebUiState> = {
+            ...data,
+            cyclePassSequence: data.cyclePassSequence,
+          };
           if (isUdpLive) {
             const {
               playing: _p,
@@ -510,6 +516,9 @@ export function useLiveState(view: string = "player") {
         songIndex: ts.songIndex,
         bpm: ts.bpm,
         globalPlayheadSeconds: ts.globalPlayheadSeconds,
+        ...(ts.cyclePassSequence !== undefined
+          ? { cyclePassSequence: ts.cyclePassSequence }
+          : {}),
         ...(ts.hasDrift ? { drift: ts.drift } : {}),
       };
       scheduleFlush();

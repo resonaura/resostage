@@ -61,6 +61,10 @@ struct TransportTelemetry {
     std::atomic<double> driftFactor{1.0};
     std::atomic<bool> running{false};
     std::atomic<bool> hardwareAlarm{false}; // set by device hot-plug/failure handling (later milestone)
+    // Monotonic count of project-cycle passes actually taken by transport.
+    // Unlike playhead deltas this cannot confuse a user seek with a wrap or
+    // lose short cycles between UI telemetry frames.
+    std::atomic<uint64_t> cyclePassSequence{0};
 };
 
 } // namespace resostage

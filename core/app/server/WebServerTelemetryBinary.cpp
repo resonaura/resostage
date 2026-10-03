@@ -41,10 +41,12 @@ std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint32_t seq
     for (const auto& lo : s.lightOutput)
         ledByteCount += std::min<size_t>(lo.ledColors.size(), 512) * 3;
 
-    // v9 header is 66 bytes:
+    // v10 keeps the compatible 66-byte header and existing row offsets, then
+    // appends a u64 Core cycle-pass sequence after variable-length LED rows.
+    // Older v9 readers safely ignore that trailing extension.
     // Layout:
     //   0  u16 magic (0x5253)
-    //   2  u8  version (9)
+    //   2  u8  version (10)
     //   3  u8  flags (bit 0 = playing)
     //   4  u32 seq (monotonically increasing frame index)
     //   8  f32 playheadSeconds
@@ -54,7 +56,7 @@ std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint32_t seq
     //  24  f32 clickIntervalPeakDbR
     //  28  f32 bpm
     //  32  i16 songIndex
-    //  34  u16 reserved (0)
+    //  34  u16 active MIDI track-row count (v9+)
     //  36  f32 globalPlayheadSeconds
     //  40  f32 driftFactor
     //  44  f32 cpuPercent
@@ -65,7 +67,7 @@ std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint32_t seq
     //  60  u16 numMeters
     //  62  u16 numLights
     //  64  u16 numBusses
-    // = 66 bytes
+    // = 66 bytes, followed by row data and the v10 trailing cycle sequence.
     const size_t totalSize = 66
         + static_cast<size_t>(numTracks) * 8
         + static_cast<size_t>(numMeters) * 16
@@ -73,7 +75,8 @@ std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint32_t seq
         + static_cast<size_t>(numBusses)          // per-bus flags
         + static_cast<size_t>(activeMidiTrackRows) * 18 // index + pitch mask
         + static_cast<size_t>(numLights) * 4  // fixtureIdx + ledCount per row
-        + ledByteCount;
+        + ledByteCount
+        + sizeof(uint64_t);
 
     std::vector<uint8_t> buf(totalSize);
     uint8_t* p = buf.data();
@@ -103,7 +106,7 @@ std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint32_t seq
     };
 
     writeU16(0x5253); // Magic "RS" (0x5253 in little-endian)
-    writeU8(9);       // Version 9: v8 + active MIDI pitch masks
+    writeU8(10);      // Version 10 adds a trailing cycle-pass sequence.
     writeU8(s.playing ? 1 : 0);
     writeU32(seq);
     writeFloat(static_cast<float>(s.playheadSeconds));
@@ -184,6 +187,10 @@ std::vector<uint8_t> buildBinaryTelemetryFrame(const WebUiState& s, uint32_t seq
             writeU8(static_cast<uint8_t>(std::clamp(lo.ledColors[j].b, 0, 255)));
         }
     }
+
+    // Trailer preserves every v9 offset so old readers continue parsing the
+    // fixed header, meters, mixer flags, MIDI snapshot and LED rows unchanged.
+    writeU64(s.cyclePassSequence);
 
     return buf;
 }

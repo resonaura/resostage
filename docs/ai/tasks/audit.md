@@ -547,9 +547,13 @@ an enabled, unmuted, non-Read track-scope strip gain/pan lane on the active song
 the active set is bounded to 64 lanes. If allocation fails while releasing an
 owner, Core clears all transient owners and publishes that safe fallback.
 
-Remaining session risks: cycle detection still infers wraps from sampled UI
-playhead telemetry and can miss a sparse wrap or confuse a seek; ownership is
-not bound to mixer/inspector/plugin or other parameter surfaces; a rejected or
+Remaining session risks: cycle detection now consumes a monotonic Core-owned
+pass sequence (with sampled-playhead fallback only for older Core versions).
+Catch-up is deliberately bounded to four passes per UI update; after a larger
+gap the recorder commits only sampled points and re-arms at the current phase,
+without fabricating unobserved automation. A user seek similarly commits the
+last sampled segment and re-arms at the destination without claiming a cycle.
+Ownership is not bound to mixer/inspector/plugin or other parameter surfaces; a rejected or
 unknown recording command has no retained retryable draft. Timeline gain/pan
 now use an explicit cancellation policy: Escape, pointercancel and lost capture
 restore the starting control value and discard the unfinished recording pass;
@@ -587,9 +591,12 @@ Remaining implementation and acceptance:
 - Bind all supported surfaces intentionally, or disable/label unsupported
   write modes rather than claiming full integration. Do not install a second
   application hotkey dispatcher or infer touch from telemetry echoes.
-- Replace sampled-playhead cycle inference with a transport-owned cycle/pass
-  sequence or another source that distinguishes wrap from seek and cannot miss
-  short loops under telemetry loss. Keep TempoMap conversion and identity fences.
+- Complete UI-level validation that the transport-owned cycle/pass sequence
+  distinguishes wrap from seek and preserves short-loop recording under
+  telemetry loss. The UI tests cover single and multi-pass catch-up, bounded
+  recovery and seek segmentation; the real-Core harness exercises a short loop
+  and a seek. Still perform playback/device acceptance. Keep TempoMap conversion
+  and identity fences.
 - Preserve the existing 65,536-point client cap and Core lane budget; specify a
   bounded request cadence and retain one coherent history transaction per pass,
   not one undo per sample.
@@ -846,6 +853,32 @@ resize/snap across tempo boundaries; selected regions before/after a change;
 playback crossing a change; and save/reopen. Confirm note draw/record event
 times and seek positions against beat/sample roundtrips rather than the label
 alone. Do not alter Core's clock or claim acoustic proof from UI tests.
+
+## Closed this audit — transport-owned automation cycle identity
+
+`TransportTelemetry::cyclePassSequence` is advanced by Core only when a
+project-cycle wrap is actually taken: the sample-split callback path counts
+crossings without blocking, and the non-resident fallback increments only
+after its cycle seek is successfully applied. Locator edits and user seeks do
+not increment it. JSON state and binary telemetry v10 expose the counter; v10
+preserves the v9 fixed header and row offsets and appends the value after the
+variable-size LED rows. The UI uses high-rate binary telemetry in embedded mode
+and leaves the field optional for older Core versions.
+
+`useAutomationTouchRecorder` uses the Core pass identity instead of inferring
+wraps from sampled playhead positions. It catches up at most four passes in one
+UI update; if more are missed, it commits only sampled points and re-arms at the
+current phase rather than inventing data or flooding Core. A backwards seek
+commits the last sampled segment and re-arms at the destination without
+pretending it was a loop. Project/session identity fences remain in place.
+
+Verification on 2026-10-03: optimized Core production target built; the actual
+Core HTTP harness passed a short-cycle increment and stopped-transport seek
+non-increment check; native `ctest` passed 1/1 target; UI TypeScript passed;
+full UI Vitest passed 790 tests across 118 files; and the UI production build
+passed. Focused v10 telemetry and automation recorder/controller suites passed
+40 tests. This does not substitute for manual continuous-playback/device
+acceptance or prove acoustic Touch/Latch/Write behavior.
 
 ## Execution order for remaining work
 

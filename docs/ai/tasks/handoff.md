@@ -381,15 +381,25 @@ gestures, playback crossing and save/reopen; UI tests are not device proof.
    allocation/deadline measurement, and loaded AU/VST3 continuity proof. Do not
    conceal failures by stopping transport or restarting healthy helpers.
 4. Extend the current Core-owned Timeline gain/pan manual arbitration only after
-   real UI/playback/device acceptance. Add explicit lost-pointer/seek handling,
-   authoritative cycle-pass identity, more surface bindings, and bounded draft
-   recovery after rejected/unknown results. Recorded point collections and
+   real UI/playback/device acceptance. A Core-owned cycle-pass sequence now
+   distinguishes wraps from seeks and short-loop UI tests cover dropped wrap
+   frames. Backwards seeks segment/re-arm capture; a gap over four passes commits
+   only sampled points before resuming at the current phase. Continue with more
+   surface bindings and bounded draft recovery after rejected/unknown results.
+   Recorded point collections and
    renderer tests alone do not establish audible Touch/Latch/Write behavior.
 5. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
 6. Validate light/dark visual geometry, compact heights, reduced motion and
    exclusive/cancellable gestures. Run complete UI suite/typecheck/lint and relevant native suites/build after
    integrating changes; commit by finished block. Report actual totals, vendor
    skips and hardware limits. Update this file and detailed tasks with evidence.
+
+2026-10-03 continuation: Core now publishes an audio-owned cycle-pass
+sequence through JSON and binary telemetry v10. The real-Core harness verifies
+short-cycle advancement and that a stopped seek does not increment it; UI
+coverage verifies missed-wrap detection, bounded catch-up and seek segmentation.
+Build, 790 UI tests/118 files, TypeScript, Core harness, and native CTest passed.
+Physical playback/manual interaction remains unverified.
 
 ## Structural plug-in command block (2026-10-02)
 

@@ -375,4 +375,124 @@ describe("useAutomationTouchRecorder", () => {
     expect(onCommit.mock.calls[0][0].punchInBeats).toBe(4.0);
     expect(recorder.isLaneActive("lane-touch")).toBe(true);
   });
+
+  it("uses Core cycle passes when a short-loop wrap is absent from playhead samples", () => {
+    let currentBeats = 4.0;
+    let cyclePassSequence = 12;
+    const cycleRange = { leftBeats: 4.0, rightBeats: 8.0 };
+    const onCommit = vi.fn();
+    const props = {
+      songIndex: 0,
+      projectIdentity: "core-a:4",
+      lanes,
+      isPlaying: true,
+      getCurrentBeats: () => currentBeats,
+      cycleRange,
+      cyclePassSequence,
+      onCommitGesture: onCommit,
+    } satisfies UseAutomationTouchRecorderProps;
+    render(props);
+    act(() => recorder.startGesture(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, 0,
+    ));
+
+    currentBeats = 7.9;
+    render(props);
+    act(() => recorder.recordValue(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, -3.0,
+    ));
+
+    // The UI did not observe the right-edge frame; only Core's pass counter
+    // proves transport crossed the loop boundary rather than seeking back.
+    currentBeats = 4.05;
+    cyclePassSequence += 1;
+    render({ ...props, cyclePassSequence });
+
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0][0].releaseBeats).toBe(8.0);
+    expect(onCommit.mock.calls[0][0].punchInBeats).toBe(4.0);
+    expect(recorder.isLaneActive("lane-touch")).toBe(true);
+  });
+
+  it("segments a backwards seek without treating it as a Core cycle pass", () => {
+    let currentBeats = 4.0;
+    const cyclePassSequence = 12;
+    const cycleRange = { leftBeats: 4.0, rightBeats: 8.0 };
+    const onCommit = vi.fn();
+    const props = {
+      songIndex: 0,
+      projectIdentity: "core-a:4",
+      lanes,
+      isPlaying: true,
+      getCurrentBeats: () => currentBeats,
+      cycleRange,
+      cyclePassSequence,
+      onCommitGesture: onCommit,
+    } satisfies UseAutomationTouchRecorderProps;
+    render(props);
+    act(() => recorder.startGesture(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, 0,
+    ));
+    currentBeats = 7.9;
+    render(props);
+    act(() => recorder.recordValue(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, -3.0,
+    ));
+
+    // A user seek to the left side is not a cycle pass.
+    currentBeats = 4.05;
+    render(props);
+
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0][0].releaseBeats).toBe(7.9);
+    expect(onCommit.mock.calls[0][0].punchInBeats).toBe(4.0);
+    expect(recorder.isLaneActive("lane-touch")).toBe(true);
+  });
+
+  it("bounds catch-up after a long renderer suspension and resumes at the live phase", () => {
+    let currentBeats = 4.0;
+    let cyclePassSequence = 12;
+    const cycleRange = { leftBeats: 4.0, rightBeats: 8.0 };
+    const onCommit = vi.fn();
+    const props = {
+      songIndex: 0,
+      projectIdentity: "core-a:4",
+      lanes,
+      isPlaying: true,
+      getCurrentBeats: () => currentBeats,
+      cycleRange,
+      cyclePassSequence,
+      onCommitGesture: onCommit,
+    } satisfies UseAutomationTouchRecorderProps;
+    render(props);
+    act(() => recorder.startGesture(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, 0,
+    ));
+    currentBeats = 7.5;
+    render(props);
+    act(() => recorder.recordValue(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, -4.0,
+    ));
+
+    currentBeats = 4.25;
+    cyclePassSequence += 5;
+    render({ ...props, cyclePassSequence });
+
+    // Missing pass samples cannot be reconstructed; commit only known points
+    // and re-arm once, instead of fabricating five identical loop gestures.
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0][0].releaseBeats).toBe(7.5);
+    expect(onCommit.mock.calls[0][0].punchInBeats).toBe(4.0);
+    expect(recorder.isLaneActive("lane-touch")).toBe(true);
+    currentBeats = 4.5;
+    render({ ...props, cyclePassSequence });
+    act(() => recorder.recordValue(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, -2.0,
+    ));
+    act(() => recorder.finishGesture(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, -2.0,
+    ));
+    expect(onCommit).toHaveBeenCalledTimes(2);
+    expect(onCommit.mock.calls[1][0].punchInBeats).toBe(4.25);
+  });
 });

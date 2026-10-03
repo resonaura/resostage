@@ -82,7 +82,7 @@ export function findRecordableLane(
 /**
  * Manages live Touch, Latch, and Write automation recording gestures.
  * Handles continuous point streaming, return ramp calculation, Latch hold,
- * transport stop punch-out, and cycle wrap transitions.
+ * transport stop punch-out, cycle wrap transitions, and seek discontinuities.
  */
 export class AutomationTouchController {
   private activeSessions = new Map<string, { session: TouchRecordSession; lane: AutomationLaneRow }>();
@@ -345,6 +345,64 @@ export class AutomationTouchController {
       } else if (wasRecording) {
         nextSession.state = "recording";
       }
+      this.activeSessions.set(laneId, { session: nextSession, lane });
+    }
+
+    return payloads;
+  }
+
+  /**
+   * Commits the last sampled automation segment and re-arms at a discontinuous
+   * transport position (a user seek or a pass gap too large to reconstruct).
+   * This is intentionally distinct from a cycle: it never fabricates points
+   * at the cycle right edge or claims to have captured unsampled passes.
+   */
+  public handleTransportDiscontinuity(currentBeats: number): AutomationGestureCommitPayload[] {
+    const payloads: AutomationGestureCommitPayload[] = [];
+    const safeCurrentBeats = Math.max(0, Number.isFinite(currentBeats) ? currentBeats : 0);
+
+    for (const [laneId, entry] of this.activeSessions.entries()) {
+      const { session, lane } = entry;
+      const wasHoldingLatch = session.state === "holding_latch";
+      const wasRecording = session.state === "recording";
+      const lastValue = session.lastValue;
+      const releaseBeats = session.lastBeats;
+      const underlyingValue = evaluateAutomationAt(
+        lane.points,
+        releaseBeats,
+        lane.target.defaultValue ?? 0,
+      );
+      const result = punchOutLatchSession(
+        session,
+        releaseBeats,
+        underlyingValue,
+        0,
+      );
+
+      if (result) {
+        payloads.push({
+          laneId: lane.id,
+          writeMode: session.writeMode,
+          punchInBeats: result.punchInBeats,
+          releaseBeats: result.releaseBeats,
+          releaseValue: result.releaseValue,
+          returnRampBeats: 0,
+          underlyingValue: result.underlyingValue,
+          points: result.points,
+          pointsCompacted: result.pointsCompacted,
+          gestureId: crypto.randomUUID(),
+          shouldRevertWriteMode: false,
+        });
+      }
+
+      const nextSession = startTouchSession(
+        lane.id,
+        session.writeMode,
+        safeCurrentBeats,
+        lastValue,
+      );
+      if (wasHoldingLatch) nextSession.state = "holding_latch";
+      else if (wasRecording) nextSession.state = "recording";
       this.activeSessions.set(laneId, { session: nextSession, lane });
     }
 
