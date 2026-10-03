@@ -13,6 +13,11 @@ export type PianoRollBottomLane =
   | "cc1" // Modulation Wheel
   | "cc11" // Expression
   | "cc64" // Sustain Pedal
+  | "cc65" // Portamento
+  | "cc66" // Sostenuto
+  | "cc67" // Soft Pedal
+  | "cc68" // Legato Footswitch
+  | "cc69" // Hold 2
   | "pitchBend";
 
 export type GridSnapValue =

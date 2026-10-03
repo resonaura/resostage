@@ -124,8 +124,8 @@ device, remote Core or vendor plug-in playback was exercised.
 - Existing partial support to preserve: `MidiRegionBlock` now derives bounded
   CC event markers and held spans for CC64–69, including channel state,
   trimmed-loop source mapping, and initial-held/missing-release cases. Arbitrary
-  CC remains labeled by its number, not as Sustain. The Piano Roll still has
-  its existing CC64 bottom-lane renderer. Core live recording now captures
+  CC remains labeled by its number, not as Sustain. Piano Roll now offers
+  distinct lanes for CC64–69. Core live recording now captures
   CC64–69 and publishes recent events plus still-held onset edges through the
   bounded MIDI preview frame and `WLiveRecordingRegion`; mounted UI views merge
   those IDs across latest-wins snapshots. The callback event history is capped
@@ -152,7 +152,7 @@ device, remote Core or vendor plug-in playback was exercised.
   regions; incomplete scans expose a display-limited hint and suppress held
   spans so a truncated release cannot imply a false pedal-down state. Live
   capture currently supports CC64–69 only; do not imply every arbitrary CC is
-  recorded live or that the Piano Roll supports all CC lanes.
+  recorded live or that the Piano Roll supports arbitrary CC lanes.
 - Apple documents CC64 as sustain, its switch off/on values, and that the Piano
   Roll Automation/MIDI area can display region MIDI controller data; the Score
   Editor can render sustain pedal markings from CC64. Treat the overlay here as
@@ -184,8 +184,9 @@ metadata for controller/channel/value ranges, and distinct held spans for
 standard pedal controls CC64–69. Region trims and loop phases use the shared
 `midiRegionTiming` source mapping. Controller data is read-only and does not
 change playback or selection handling. UI tests verify track tint, tooltips, and
-normal region pointer selection. The Piano Roll's controller area remains
-unfinished; live capture is tracked in the following block.
+normal region pointer selection. Piano Roll now offers individual lanes for
+the six standard switch pedals; arbitrary CC lanes remain open. Live capture is
+tracked in the following block.
 
 Focused checks passed 11/11 across controller preview, region component, and
 shared region-timing tests. Full UI passed 836 tests across 127 files;
@@ -439,6 +440,25 @@ lint, and `git diff --check` passed. Native helper test passed 2 cases / 21
 assertions; `ResoStage` and `resostage_engine_tests` built and the full native
 suite passed 592 cases / 428,766 assertions. No physical MIDI recording test
 was run. The 4,096-event capture capacity and 512-event global preview
-capacity can truncate dense or many-track sessions. A visible truncation
-warning and Piano Roll all-CC lane remain open. Do not describe this bounded
-live view as lossless.
+capacity can truncate dense or many-track sessions. A live-preview truncation
+warning and arbitrary Piano Roll CC lane remain open. Do not describe this
+bounded live view as lossless.
+
+## Piano Roll switch-pedal lanes — implemented subset (2026-10-03)
+
+The Piano Roll controller-lane selector now exposes CC64–69 individually
+(sustain, portamento, sostenuto, soft pedal, legato footswitch, and hold 2).
+The selected lane draws its actual MIDI event transitions and held spans,
+including events before a trimmed region's visible start and repeated loops.
+When several MIDI channels overlap, a span remains held until each active
+channel has sent its release.
+The projection bounds source scanning at 16,384 events, mapped work at 12,000
+events, and loop passes at 1,200; a limited projection displays `CC VIEW
+LIMITED` rather than silently implying a complete trace. No MIDI events are
+created or changed by viewing the lane. Arbitrary CC controller lanes and
+editing pedal events through this lane remain open.
+
+Focused Piano Roll tests passed 10/10; the full UI suite passed 845 tests across
+128 files; UI TypeScript, changed-file lint and production build passed.
+`git diff --check` passed. No device playback/recording or manual visual
+acceptance was performed.

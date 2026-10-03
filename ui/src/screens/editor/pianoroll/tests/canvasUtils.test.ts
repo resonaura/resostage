@@ -35,6 +35,7 @@ describe("piano roll canvas utilities", () => {
       ({ target: { parameterId } }) as Parameters<typeof isControllerLane>[0];
     expect(isControllerLane(makeLane("cc:1"), "cc1")).toBe(true);
     expect(isControllerLane(makeLane("1"), "cc1")).toBe(true);
+    expect(isControllerLane(makeLane("cc:66"), "cc66")).toBe(true);
     expect(isControllerLane(makeLane("pitchBend"), "pitchBend")).toBe(true);
     expect(isControllerLane(makeLane("cc:1"), "pitchBend")).toBe(false);
   });

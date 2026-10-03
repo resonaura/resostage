@@ -688,12 +688,11 @@ source-loop timing.
 Focused controller/component/timing tests passed 11/11; the full UI suite passed
 836 tests across 127 files; UI TypeScript passed; lint exited 0 with 12 existing
 warnings and none in changed files; `git diff --check` passed. No manual visual
-or device acceptance was performed. The Piano Roll controller lane still needs
-its own all-CC model.
+or device acceptance was performed. Piano Roll arbitrary-CC lanes remain open.
 
-### In progress — live MIDI pedal capture and preview (2026-10-03)
+### Completed block — live MIDI pedal capture and preview (2026-10-03)
 
-Working-tree changes capture CC64–69 in fixed callback-owned MIDI recording
+Commit `bc86cfeb` captures CC64–69 in fixed callback-owned MIDI recording
 storage and the fixed live-preview `SeqLock`. Up to 64 recent events per
 recording plus true onsets for still-held pedals are projected into the global
 512-event frame. The wire DTO and React live-recording preview now merge event
@@ -705,9 +704,20 @@ authoritative.
 Focused UI tests passed 20/20, full UI suite passed 838 tests across 127 files,
 TypeScript and changed-file lint passed; `ResoStage` and `resostage_engine_tests`
 built, and the full native suite passed 592 cases / 428,766 assertions. No real
-device test. The
-capture buffer holds 4,096 MIDI
-events per recording session, and the global live preview holds 512 controller
-events; overflow is not yet surfaced. Piano Roll all-CC display remains open.
-Next: finish full tests/build, inspect overflow/data-limit behavior, then commit
-this protocol/capture block separately before touching automation pseudo-tracks.
+device test. The capture buffer holds 4,096 MIDI events per recording session,
+and the global live preview holds 512 controller events; overflow is not yet
+surfaced. Piano Roll arbitrary-CC display remains open.
+
+### Completed subset — Piano Roll switch-pedal lanes (2026-10-03)
+
+The working tree now includes individual Piano Roll bottom lanes for CC64–69.
+The event projection respects region clip offset and loop occurrence, shows
+down/up transitions and held spans, aggregates overlapping MIDI channels until
+all active channels release, and caps work at 16,384 source events,
+12,000 projected events and 1,200 passes. Capped views display `CC VIEW
+LIMITED`. The rendering is read-only and does not change MIDI region data.
+
+Focused tests passed 10/10; full UI passed 845 tests across 128 files; UI
+TypeScript, changed-file lint and production build passed. There was no manual
+visual or device test. Arbitrary CC lanes and editing remain open. Commit this
+as a separate English-language block after reviewing the staged diff.

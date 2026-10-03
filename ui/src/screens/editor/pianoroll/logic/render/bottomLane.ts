@@ -11,6 +11,7 @@ import {
 } from "@/lib/midi/midiRegionTiming";
 import type { PianoRollBottomLane, PianoRollViewport } from "@/screens/editor/pianoroll/logic/types";
 import type { PianoRollNoteView, PianoRollRenderTheme } from "@/screens/editor/pianoroll/logic/render/types";
+import { buildPianoRollPedalProjection } from "@/screens/editor/pianoroll/logic/pedalLane";
 
 interface PianoRollBottomLaneOptions {
   context: CanvasRenderingContext2D;
@@ -102,6 +103,11 @@ export function drawPianoRollBottomLane({
     cc1: "CC 1 · MODULATION",
     cc11: "CC 11 · EXPRESSION",
     cc64: "CC 64 · SUSTAIN",
+    cc65: "CC 65 · PORTAMENTO",
+    cc66: "CC 66 · SOSTENUTO",
+    cc67: "CC 67 · SOFT PEDAL",
+    cc68: "CC 68 · LEGATO",
+    cc69: "CC 69 · HOLD 2",
     pitchBend: "CHANNEL PITCH BEND",
   };
   const title = laneLabels[bottomLane] || bottomLane.toUpperCase();
@@ -201,25 +207,14 @@ export function drawPianoRollBottomLane({
     ctx.restore();
   }
 
-  // Sustain is stored as ordinary MIDI CC64 events (not an automation
-  // approximation). Show each down/up interval as a compact step trace.
-  if (bottomLane === "cc64" && (region.events?.length ?? 0) > 0) {
-    const sustainEvents = (region.events ?? [])
-      .filter((event) => (event.status & 0xf0) === 0xb0 && event.data[0] === 64 && event.data.length > 1)
-      .sort((left, right) => left.beat - right.beat);
-    if (sustainEvents.length > 0) {
-      const repeatLength = region.loop && region.loopLengthBeats > 0
-        ? region.loopLengthBeats
-        : 0;
-      const firstRepeat = repeatLength > 0
-        ? Math.max(0, Math.floor(minBeat / repeatLength) - 1)
-        : 0;
-      const lastRepeat = repeatLength > 0
-        ? Math.min(
-            Math.ceil(region.durationBeats / repeatLength),
-            Math.ceil(maxBeat / repeatLength),
-          )
-        : 0;
+  // Pedal switches are stored as ordinary MIDI CC events, not automation
+  // approximations. Render their actual down/up transitions and held spans.
+  const pedalController = Number(bottomLane.slice(2));
+  if (pedalController >= 64 && pedalController <= 69) {
+    const pedal = buildPianoRollPedalProjection(
+      region, pedalController, minBeat, maxBeat,
+    );
+    if (pedal.transitions.length > 0 || pedal.spans.length > 0) {
       const baselineY = controllerYFromValue(0, gridBottom, height, false);
       const downY = controllerYFromValue(127, gridBottom, height, false);
       ctx.save();
@@ -229,47 +224,25 @@ export function drawPianoRollBottomLane({
       ctx.strokeStyle = theme.accent;
       ctx.fillStyle = theme.accent;
       ctx.lineWidth = 2;
-      for (let repeat = firstRepeat, work = 0; repeat <= lastRepeat && work < 12_000; repeat += 1) {
-        const mapped = sustainEvents
-          .filter((event) => repeatLength <= 0 || midiRegionContainsLoopSourceBeat(region, event.beat))
-          .map((event) => ({
-            beat: repeatLength > 0
-              ? midiRegionLoopOccurrence(region, event.beat) + repeat * repeatLength
-              : event.beat - region.clipOffsetBeats,
-            down: event.data[1] >= 64,
-          }))
-          .filter((event) => event.beat >= 0 && event.beat < region.durationBeats
-            && event.beat >= minBeat - 1 && event.beat <= maxBeat + 1);
-        let down = false;
-        let downStart = 0;
-        for (const event of mapped) {
-          work += 1;
-          if (event.down === down) continue;
-          const x = beatToX(event.beat);
-          if (down) {
-            ctx.beginPath();
-            ctx.moveTo(beatToX(downStart), downY);
-            ctx.lineTo(x, downY);
-            ctx.stroke();
-          }
-          ctx.beginPath();
-          ctx.moveTo(x, baselineY);
-          ctx.lineTo(x, downY);
-          ctx.stroke();
-          down = event.down;
-          if (down) downStart = event.beat;
-        }
-        if (down) {
-          const endBeat = repeatLength > 0
-            ? Math.min(region.durationBeats, (repeat + 1) * repeatLength)
-            : region.durationBeats;
-          ctx.beginPath();
-          ctx.moveTo(beatToX(downStart), downY);
-          ctx.lineTo(beatToX(Math.min(endBeat, maxBeat + 1)), downY);
-          ctx.stroke();
-        }
+      for (const transition of pedal.transitions) {
+        const x = beatToX(transition.beat);
+        ctx.beginPath();
+        ctx.moveTo(x, transition.down ? baselineY : downY);
+        ctx.lineTo(x, transition.down ? downY : baselineY);
+        ctx.stroke();
+      }
+      for (const span of pedal.spans) {
+        ctx.beginPath();
+        ctx.moveTo(beatToX(span.startBeat), downY);
+        ctx.lineTo(beatToX(Math.min(span.endBeat, region.durationBeats)), downY);
+        ctx.stroke();
       }
       ctx.restore();
+    }
+    if (pedal.truncated) {
+      ctx.fillStyle = theme.muted;
+      ctx.font = "8px sans-serif";
+      ctx.fillText("CC VIEW LIMITED", Math.max(viewport.keyWidth + 4, width - 88), laneY + 14);
     }
   }
 }

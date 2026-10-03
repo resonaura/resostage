@@ -24,6 +24,11 @@ export const PIANO_ROLL_LANE_OPTIONS: readonly SelectOption[] = [
   { id: "cc1", label: "CC 1 · Modulation" },
   { id: "cc11", label: "CC 11 · Expression" },
   { id: "cc64", label: "CC 64 · Sustain" },
+  { id: "cc65", label: "CC 65 · Portamento" },
+  { id: "cc66", label: "CC 66 · Sostenuto" },
+  { id: "cc67", label: "CC 67 · Soft Pedal" },
+  { id: "cc68", label: "CC 68 · Legato" },
+  { id: "cc69", label: "CC 69 · Hold 2" },
   { id: "pitchBend", label: "Pitch Bend" },
 ];
 

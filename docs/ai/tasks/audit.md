@@ -1113,7 +1113,7 @@ acceptance is split into [automation.md](automation.md),
   point-map semantics.
 - MIDI pedal visualization is partially implemented already: MidiRegionBlock
   derives CC64–69 switch-pedal intervals from persisted region events, Piano
-  Roll's CC64 bottom-lane renderer draws a step trace, and live recording
+  Roll now has separate CC64–69 bottom lanes, and live recording
   preview now carries bounded CC64–69 edges in WLiveRecordingRegion. The live
   overlay merges latest-wins telemetry for the recording lifetime. The Piano
   Roll still needs a deliberate all-controller lane model and live/persisted
@@ -1266,4 +1266,19 @@ recording test. Current limits are 4,096 recorded MIDI events per active
 session, 64 recent controller edges per session, and 512 controller entries
 across the live snapshot; saturation is not yet
 surfaced as a visible truncation warning. Do not claim unbounded or lossless
-live-preview history. Piano Roll all-CC visualization remains open.
+live-preview history. Piano Roll arbitrary-CC visualization remains open.
+
+### Implementation progress — Piano Roll switch-pedal lanes (2026-10-03)
+
+Piano Roll's bottom-lane selector and renderer now expose individual switch
+pedal lanes CC64–69. A bounded projection handles clipped regions and MIDI
+loops, preserves a held pedal whose onset predates the visible trimmed start,
+aggregates overlapping channels until all active channels release, and displays
+transitions/spans without modifying event data. Rendering stops after 16,384
+source events, 12,000 mapped events, or 1,200 loop passes, and labels the view
+as limited rather than presenting an incomplete scan as full.
+
+Focused tests passed 10/10; the full UI suite passed 845 tests across 128 files;
+TypeScript, changed-file lint, production build and `git diff --check` passed.
+No device or manual visual test. Arbitrary CC lanes and direct pedal-event
+editing remain open.
