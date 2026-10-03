@@ -30,6 +30,7 @@ import { TimelineRowLabel } from "@/screens/editor/timeline/tracks/components/Ti
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import { TrackHeaderControl } from "@/screens/editor/timeline/tracks/components/TrackHeaderControl";
 import { AutomationTrackHeader } from "@/screens/editor/timeline/automation/components/AutomationTrackHeader";
+import { AutomationGestureRecoveryNotice } from "@/screens/editor/timeline/automation/components/AutomationGestureRecoveryNotice";
 import { useAutomationTouchRecorder } from "@/screens/editor/timeline/automation/hooks/useAutomationTouchRecorder";
 import { createSongTempoMap } from "@/lib/midi/tempoMap";
 import { getAutomationLanesForTrack } from "@/screens/editor/timeline/automation/logic/automationTargets";
@@ -241,6 +242,15 @@ export function TimelineSidebar({
           </button>
         ) : null}
       </div>
+
+      <AutomationGestureRecoveryNotice
+        drafts={touchRecorder.recoveryDrafts}
+        projectIdentity={projectIdentity}
+        songIndex={songIndex}
+        laneIds={new Set((currentSong?.automationLanes ?? []).map((lane) => lane.id))}
+        onRetry={touchRecorder.retryRecoveryDraft}
+        onDismiss={touchRecorder.dismissRecoveryDraft}
+      />
 
       <div className="flex-1 overflow-hidden min-h-0">
         <div ref={sidebarContentRef} className="will-change-transform">

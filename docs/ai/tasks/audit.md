@@ -553,10 +553,11 @@ Catch-up is deliberately bounded to four passes per UI update; after a larger
 gap the recorder commits only sampled points and re-arms at the current phase,
 without fabricating unobserved automation. A user seek similarly commits the
 last sampled segment and re-arms at the destination without claiming a cycle.
-Ownership is not bound to mixer/inspector/plugin or other parameter surfaces; a rejected or
-unknown recording command has no retained retryable draft. Timeline gain/pan
-now use an explicit cancellation policy: Escape, pointercancel and lost capture
-restore the starting control value and discard the unfinished recording pass;
+Ownership is not bound to mixer/inspector/plugin or other parameter surfaces.
+Rejected and unknown recording commands now retain a bounded local recovery
+draft; exact retry rules and remaining acceptance are recorded below. Timeline
+gain/pan now use an explicit cancellation policy: Escape, pointercancel and lost
+capture restore the starting control value and discard the unfinished recording pass;
 unmount discards the pass and releases ownership without sending a possibly
 stale index-based value rollback. Normal pointerup still commits. The native
 regression proves only that the named gain lane is suppressed while an
@@ -880,24 +881,65 @@ passed. Focused v10 telemetry and automation recorder/controller suites passed
 40 tests. This does not substitute for manual continuous-playback/device
 acceptance or prove acoustic Touch/Latch/Write behavior.
 
+## Closed this audit — preserve failed automation recording gestures
+
+Reliable editor mutations now expose a typed outcome: not sent, exact rejected,
+unknown, or stored without confirmed live publication. The Timeline recorder
+persists a provisional unknown-outcome draft before sending the gesture, then
+removes it only after an exact successful confirmation. This protects captured
+points if the renderer reloads while awaiting Core. It retains up to four drafts
+in session storage within a 2 MiB serialized budget; if storage is unavailable
+or a draft exceeds that budget, the bounded in-memory copy remains visible with
+a required JSON download warning. The user can download or explicitly dismiss
+each draft.
+
+Only a definitely unsent or exactly rejected draft can be retried, and only
+while its captured Core session/project epoch, song, and lane still match. A
+retry is marked unknown in storage before its POST begins. Timeout, Core
+restart, malformed/incomplete acknowledgement, unknown network result, and a
+project edit stored without a confirmed playback snapshot never expose Retry.
+The bounded capture queue accounts for active lanes as well as retained drafts;
+when a cycle reaches the final slot, it stops that lane at the boundary and
+keeps the completed pass locally instead of submitting an unprotected command.
+The generic editor failure notice remains alongside the actionable Timeline
+recovery panel.
+
+Focused verification on 2026-10-03: recorder tests cover provisional
+persistence, exact rejection and explicit retry, plus refusal to resend an
+unknown outcome; storage tests cover malformed records, byte/count limits and
+selective removal. All automation lane/point mutations now use the shared
+editor failure notification as well as their typed promise result. Core's
+documented HTTP 503 queue-full response is rejected before enqueue and is
+therefore classified as a safe explicit rejection; ambiguous 5xx/network
+failures remain unknown. The focused plug-in API, recorder and recovery tests
+passed 31 tests across three files; full UI Vitest passed 799 tests across 119
+files, `tsc -b` passed, lint had zero errors and 12 existing warnings, and the
+production UI build passed. `git diff --check` passed. These are renderer/API
+contract tests, not live-device recording acceptance. The broader manual
+Touch/Latch/Write surface and acoustic acceptance remain open below.
+
 ## Execution order for remaining work
 
 1. The real-Core injected snapshot-failure/last-good-graph/exact-result path is
    now covered with a compile-time test hook that defaults off. Keep the
    separate unresolved limits above: no transactional rollback, allocator-fail
    injection, acoustic continuity, or device/deadline proof.
-2. Extend exact request outcomes to remaining region/project mutations with
-   deliberate idempotent/no-op semantics. Do not make high-rate controls await
-   one acknowledgement per sample/value.
+2. Keep the exact-result route inventory aligned with Core: supported
+   structural audio/MIDI region, song/track/bus/event/section/cycle,
+   automation, lighting and plug-in-chain mutations already have exact
+   outcomes. Remaining Save/Open completion, plug-in lifecycle and scalar
+   mixer controls are separate protocols; add a request-specific acknowledgement
+   only when its owner needs it. Do not make high-rate controls await one
+   acknowledgement per sample/value.
 3. Complete acceptance and failure UX for immutable, bounded project playback
    snapshots: sanitizer/concurrency coverage, callback allocation/deadline
    measurement and actual AU/VST3 audio-continuity proof. Keep transport running
    and do not hide races by locking editor commands or restarting healthy helpers.
 4. Extend Core-owned live manual-value arbitration beyond Timeline gain/pan
    only after real UI, playback and device acceptance. Keep it aligned with
-   TempoMap, cycle wrap, Stop, seek, project epoch, rejection recovery and one
-   coherent history action; recorded points and renderer tests alone do not
-   prove audible Touch/Latch/Write behavior.
+   TempoMap, cycle wrap, Stop, seek, project epoch, the bounded rejected/unknown
+   draft recovery, and one coherent history action; recorded points and
+   renderer tests alone do not prove audible Touch/Latch/Write behavior.
 5. Embedded MIDI-region automation input is now bounded and validated before
    history/mutation. Immutable parameter-descriptor caching is also implemented
    above; live/offline Write behavior and punch-window preservation are tracked

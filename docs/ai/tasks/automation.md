@@ -52,9 +52,11 @@ Previous arrangement UI existed, but had significant functional gaps:
   active. It is cleared on Stop, song change, and project replacement; it is
   not persisted or added to project history. This is only wired at the
   arrangement Sidebar and is not yet end-to-end audible/device proof. The
-  capture does not retain a retryable draft after rejection, and its telemetry-
-  inferred cycle split cannot distinguish every seek or missed wrap. See the
-  audit before extending it.
+  telemetry-inferred cycle split cannot distinguish every seek or missed wrap.
+  Rejected and unknown recording commits now retain a bounded recovery draft;
+  only a definitely unsent or exactly rejected request can be explicitly
+  retried, and unknown outcomes remain export-only. See the audit for exact
+  capacity, storage and identity fences.
 - Compact lane height density scaling (<= 32px), omitting curve handles, scaling breakpoint nodes,
   compact header/controls layout, and reduced-motion transitions
 - Exclusive/cancellable gestures, full-point atomic replacement/empty creation,
@@ -132,8 +134,9 @@ live-vendor rebind and visual/device acceptance are not established.
    sparse cycle telemetry, multiple controls and all supported surfaces.
    Timeline Escape/pointercancel/lost-capture now revert and discard the
    unfinished pass; unmount discards without a stale index-based value write.
-   Seek-vs-wrap authority, non-Timeline surface bindings and bounded recovery
-   for rejected/unknown commits remain open; never blindly retry.
+   Seek-vs-wrap authority and non-Timeline surface bindings remain open.
+   Bounded rejected/unknown commit recovery is implemented; never blindly
+   retry an unknown outcome.
 6. Compile binding tables off audio instead of repeated string/region lookups.
    Native sample-offset vendor automation, Trim/relative layers, VCA and advanced
    hardware/lighting integrations remain separate explicit tasks.
@@ -151,7 +154,8 @@ project/history checks. A concurrent UI-build/native-test attempt exposed one
 scheduler-sensitive miss in the real VST3 64-sample helper deadline; the
 isolated VST3 test and serialized full suite passed. This is not device or
 acoustic proof. Manual parameter ownership, missed-wrap/seek distinction,
-rejection draft recovery, and wider surface coverage remain open.
+and wider surface coverage remain open; bounded rejected/unknown draft
+recovery is implemented below.
 
 Timeline manual-ownership continuation (2026-10-02): Core now admits transient
 owners only for enabled, unmuted, non-Read track-scope Strip gain/pan lanes on
@@ -162,10 +166,11 @@ clear the set. A native renderer regression confirms owned gain stays at the
 manual graph value while an unrelated pan lane continues to automate. A UI API
 test verifies project session/epoch fencing. This does not exercise a real UI
 gesture, prove Touch/Latch/Write transition behavior, measure callback cost, or
-prove audible hardware output. Mixer/inspector/plugin surfaces, seek-vs-wrap
-authority, pointer cancellation/lost capture, and retryable rejection recovery
-remain open. Re-run focused and full suites and record exact results before
-considering this block verified.
+prove audible hardware output. Mixer/inspector/plugin surfaces and seek-vs-wrap
+authority remain open. Pointer cancellation/lost capture and bounded
+rejected/unknown draft recovery are implemented in later blocks. Re-run focused
+and full suites and record exact results before considering live acceptance
+complete.
 
 Verification for this implementation block: `cmake --build core/build --target
 ResoStage resostage_engine_tests -j8` passed; the focused native ownership case
@@ -186,6 +191,17 @@ full UI Vitest (781 tests / 117 files) passed, production build passed, and lint
 had zero errors with 12 existing warnings. No Core rebuild was needed for this
 UI-only change. Real Core pointer integration, acoustic output, seek/wrap and
 other control surfaces remain unverified.
+
+Automation recovery verification (2026-10-03): a provisional draft is
+persisted before Core submission; exact rejection permits one explicit retry
+only after the same Core session/project epoch, song and lane are revalidated.
+Unknown outcomes never resend. The queue is bounded to four gestures and 2 MiB
+session storage, with JSON export for volatile drafts. Automation lane/point
+APIs use shared exact-outcome failure reporting; Core's HTTP 503 queue-full
+response is treated as a pre-enqueue rejection. Focused tests cover exact
+rejection, explicit retry, unknown-outcome no-retry and queue-full reporting.
+Full UI tests, typecheck, lint and production build are recorded in `audit.md`.
+Manual device/audible Touch/Latch/Write and visual acceptance remain open.
 
 Parameter discovery optimization verification on 2026-10-02: UI suite passed
 757 tests across 109 files, TypeScript build passed, Core and native test

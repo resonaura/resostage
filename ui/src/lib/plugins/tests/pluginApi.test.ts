@@ -6,7 +6,13 @@
 
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { builder, clearApiCaches, pluginCatalog, pluginChains } from "@/lib/state/api";
+import {
+  builder,
+  clearApiCaches,
+  EDITOR_COMMAND_FAILURE_EVENT,
+  pluginCatalog,
+  pluginChains,
+} from "@/lib/state/api";
 import * as backend from "@/lib/state/backend";
 
 describe("pluginCatalog", () => {
@@ -101,6 +107,7 @@ describe("pluginCatalog", () => {
 describe("pluginChains", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    clearApiCaches();
   });
 
   it("parameters() preserves actual identities, values and metadata status", async () => {
@@ -153,12 +160,45 @@ describe("pluginChains", () => {
   });
 
   it("move() posts toIndex and optional delta to /api/v1/plugins/slot/move", async () => {
-    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
-      ok: true,
-      status: 200,
-      text: async () => "{}",
-      json: async () => ({}),
-    } as unknown as Response);
+    let requestId = 0;
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockImplementation(async (path) => {
+      if (path === "/api/v1/plugins/slot/move") {
+        requestId += 1;
+        return {
+          ok: true,
+          status: 202,
+          text: async () => "{}",
+          json: async () => ({
+            accepted: true,
+            requestId,
+            stateSessionId: "Core",
+            projectEpoch: 0,
+          }),
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => "{}",
+        json: async () => ({
+          stateSessionId: "Core",
+          projectEpoch: 0,
+          stateRevision: requestId,
+          playbackProjectEpoch: 1,
+          playbackProjectRevision: requestId,
+          editorCommandResults: [{
+            requestId,
+            applied: true,
+            projectEpoch: 0,
+            projectRevision: requestId,
+            applicationDomain: "audio",
+            playbackApplied: true,
+            playbackProjectEpoch: 1,
+            playbackRevision: requestId,
+          }],
+        }),
+      } as unknown as Response;
+    });
 
     await pluginChains.move("audio::track:1", "slot_abc", 2);
     expect(fetchSpy).toHaveBeenCalledWith("/api/v1/plugins/slot/move", {
@@ -235,5 +275,24 @@ describe("atomic automation edits", () => {
     fetchSpy.mockRejectedValueOnce(new Error("Disconnected"));
     await expect(builder.automationLaneAdd({ songIndex: 0, domain: "strip",
       entityId: "track", parameterId: "pan" })).rejects.toThrow("Disconnected");
+  });
+
+  it("treats Core queue-full as a definite rejection and publishes the shared failure event", async () => {
+    const failure = vi.fn();
+    window.addEventListener(EDITOR_COMMAND_FAILURE_EVENT, failure);
+    vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => "Core command queue is full; retry the command",
+    } as Response);
+
+    await expect(builder.automationPointRemove(0, "lane", 1))
+      .rejects.toMatchObject({ outcome: "rejected" });
+
+    expect(failure).toHaveBeenCalledOnce();
+    expect(failure.mock.calls[0][0]).toBeInstanceOf(CustomEvent);
+    expect((failure.mock.calls[0][0] as CustomEvent<{ message: string }>).detail.message)
+      .toContain("queue is full");
+    window.removeEventListener(EDITOR_COMMAND_FAILURE_EVENT, failure);
   });
 });

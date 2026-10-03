@@ -38,6 +38,33 @@ import type {
 let _refetchHandler: ((snapshot?: Partial<WebUiState>) => void) | null = null;
 let _refetchTimer: ReturnType<typeof setTimeout> | null = null;
 export const EDITOR_COMMAND_FAILURE_EVENT = "resostage:editor-command-failure";
+export type EditorMutationOutcome = "not-sent" | "rejected" | "unknown" | "stored";
+
+/**
+ * Carries the strongest outcome a reliable editor command can prove. Gesture
+ * owners may offer retry only for `not-sent` and exact `rejected` outcomes;
+ * an unknown request or a stored edit whose live snapshot lagged must never be
+ * blindly replayed.
+ */
+export class EditorMutationError extends Error {
+  public readonly outcome: EditorMutationOutcome;
+  public readonly path: string;
+  public readonly requestId?: number;
+
+  constructor(
+    message: string,
+    outcome: EditorMutationOutcome,
+    path: string,
+    requestId?: number,
+  ) {
+    super(message);
+    this.name = "EditorMutationError";
+    this.outcome = outcome;
+    this.path = path;
+    this.requestId = requestId;
+  }
+}
+
 export interface ProjectCommandIdentity {
   origin: string;
   stateSessionId: string;
@@ -252,95 +279,152 @@ async function sendReliableSerialized(
   serializedBody: string,
   identity: ProjectCommandIdentity | null,
 ): Promise<void> {
-  await serializeCommand(async () => {
-    if (identity && (identity.origin !== backendOrigin()
-      || !sameProjectCommandIdentity(identity, _projectCommandIdentity)))
-      throw new Error("Core project changed before the edit was sent");
-    const response = await apiFetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...projectCommandHeaders(identity) },
-      body: serializedBody,
-    });
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(detail || `Core rejected the edit (HTTP ${response.status})`);
-    }
-    const acknowledgement = await response.json() as {
-      accepted?: boolean;
-      requestId?: number;
-      stateSessionId?: string;
-      projectEpoch?: number;
-    };
-    // Older Core versions return only { ok: true }. Keep that compatibility
-    // path, while current Core provides exact applied/rejected results.
-    if (!Number.isSafeInteger(acknowledgement.requestId)) {
-      _triggerRefetch();
-      return;
-    }
-    if (!acknowledgement.accepted || !acknowledgement.stateSessionId
-      || !Number.isSafeInteger(acknowledgement.projectEpoch))
-      throw new Error("Core returned an invalid editor-command admission response");
-    const requestId = acknowledgement.requestId!;
-    const sessionId = acknowledgement.stateSessionId;
-    const projectEpoch = acknowledgement.projectEpoch!;
-    const deadline = Date.now() + 30_000;
-    while (Date.now() <= deadline) {
-      if (backendOrigin() !== identity?.origin && identity)
-        throw new Error("Core changed while applying the project edit");
-      const stateResponse = await apiFetch("/api/v1/state");
-      if (!stateResponse.ok)
-        throw new Error(`Cannot confirm the project edit (HTTP ${stateResponse.status})`);
-      const snapshot = await stateResponse.json() as Partial<WebUiState>;
-      if (snapshot.stateSessionId !== sessionId)
-        throw new Error("Core restarted before this project edit could be confirmed");
+  let requestWasSent = false;
+  try {
+    await serializeCommand(async () => {
       if (identity && (identity.origin !== backendOrigin()
         || !sameProjectCommandIdentity(identity, _projectCommandIdentity)))
-        throw new Error("Project changed while confirming the edit");
-      const result = snapshot.editorCommandResults?.find((entry) => entry.requestId === requestId);
-      if (result) {
-        _refetchHandler?.(snapshot);
-        if (!result.applied)
-          throw new Error(result.error || "Core did not apply the project edit");
-        if (identity && snapshot.projectEpoch !== identity.projectEpoch)
-          throw new Error("Project changed while applying the edit");
-        if (snapshot.projectEpoch !== projectEpoch || result.projectEpoch !== projectEpoch
-          || !Number.isSafeInteger(snapshot.stateRevision)
-          || result.projectRevision > snapshot.stateRevision!)
-          throw new Error("Core returned an inconsistent editor-command revision");
-        const lightingMutation = path.startsWith("/api/v1/lighting/");
-        const expectedApplicationDomain = lightingMutation ? "lighting" : "audio";
-        if (result.applicationDomain !== undefined
-          && result.applicationDomain !== expectedApplicationDomain)
-          throw new Error(`Core returned an unexpected ${result.applicationDomain || "unknown"} application domain for ${path}`);
-        if (result.playbackApplied === true
-          && (!Number.isSafeInteger(result.playbackProjectEpoch)
-            || result.playbackProjectEpoch !== snapshot.playbackProjectEpoch
-            || !Number.isSafeInteger(result.playbackRevision)
-            || result.playbackRevision! < result.projectRevision))
-          throw new Error("Core returned an inconsistent playback-snapshot identity or revision");
-        if (lightingMutation && result.lightingApplied !== true) {
-          throw new Error(result.error ||
-            `Core stored project revision ${result.projectRevision}, but did not confirm publishing it to LightEngine. The project view was refreshed; do not resend this edit blindly.`);
-        }
-        if (!lightingMutation && (result.playbackApplied === false
-          || (Number.isSafeInteger(snapshot.playbackProjectRevision)
-            && snapshot.playbackProjectRevision! < result.projectRevision))) {
-          throw new Error(result.error ||
-            `Core stored project revision ${result.projectRevision}, but audio is still using its last valid snapshot at revision ${result.playbackRevision}. The project view was refreshed; do not resend this edit blindly.`);
-        }
-        return;
+        throw new EditorMutationError("Core project changed before the edit was sent", "not-sent", path);
+      let response: Awaited<ReturnType<typeof apiFetch>>;
+      try {
+        requestWasSent = true;
+        response = await apiFetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...projectCommandHeaders(identity) },
+          body: serializedBody,
+        });
+      } catch (cause) {
+        throw new EditorMutationError(
+          cause instanceof Error ? cause.message : String(cause), "unknown", path,
+        );
       }
-      // A present result ring is authoritative. Keep waiting for this request;
-      // an absent row may mean the Core has not dispatched it yet.
-      if (!Array.isArray(snapshot.editorCommandResults)) {
+      if (!response.ok) {
+        const detail = await response.text();
+        // Core returns 503 only when its bounded command queue refused the
+        // request before enqueueing it. Like 4xx validation/epoch failures,
+        // that is a definitive rejection rather than an ambiguous timeout.
+        const outcome = (response.status >= 400 && response.status < 500)
+          || response.status === 503 ? "rejected" : "unknown";
+        throw new EditorMutationError(
+          detail || `Core rejected the edit (HTTP ${response.status})`, outcome, path,
+        );
+      }
+      let acknowledgement: {
+        accepted?: boolean;
+        requestId?: number;
+        stateSessionId?: string;
+        projectEpoch?: number;
+      };
+      try {
+        acknowledgement = await response.json() as typeof acknowledgement;
+      } catch (cause) {
+        throw new EditorMutationError(
+          cause instanceof Error ? cause.message : "Core returned an unreadable admission response",
+          "unknown", path,
+        );
+      }
+      // Older Core versions may accept the command without publishing an exact
+      // result ring. Refresh for compatibility, but do not call the mutation
+      // applied: a transactional caller must preserve it as outcome-unknown.
+      if (!Number.isSafeInteger(acknowledgement.requestId)) {
         _triggerRefetch();
-        return;
+        // Manual override is ephemeral playback arbitration, not a project
+        // mutation; it intentionally has no editor-result-ring entry.
+        if (path === "/api/v1/builder/automation/manual-override") return;
+        throw new EditorMutationError(
+          "Core accepted the edit but cannot confirm its exact outcome. State was refreshed; do not resend blindly.",
+          "unknown", path,
+        );
       }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    _triggerRefetch();
-    throw new Error("Core did not confirm the project edit before timeout. Its outcome is unknown; state was refreshed and the command was not resent. Do not retry blindly.");
-  }, utf8ByteLength(serializedBody));
+      if (!acknowledgement.accepted || !acknowledgement.stateSessionId
+        || !Number.isSafeInteger(acknowledgement.projectEpoch))
+        throw new EditorMutationError(
+          "Core returned an invalid editor-command admission response", "unknown", path,
+        );
+      const requestId = acknowledgement.requestId!;
+      const sessionId = acknowledgement.stateSessionId;
+      const projectEpoch = acknowledgement.projectEpoch!;
+      const deadline = Date.now() + 30_000;
+      while (Date.now() <= deadline) {
+        if (backendOrigin() !== identity?.origin && identity)
+          throw new EditorMutationError("Core changed while applying the project edit", "unknown", path, requestId);
+        const stateResponse = await apiFetch("/api/v1/state");
+        if (!stateResponse.ok)
+          throw new EditorMutationError(`Cannot confirm the project edit (HTTP ${stateResponse.status})`, "unknown", path, requestId);
+        const snapshot = await stateResponse.json() as Partial<WebUiState>;
+        if (snapshot.stateSessionId !== sessionId)
+          throw new EditorMutationError("Core restarted before this project edit could be confirmed", "unknown", path, requestId);
+        if (identity && (identity.origin !== backendOrigin()
+          || !sameProjectCommandIdentity(identity, _projectCommandIdentity)))
+          throw new EditorMutationError("Project changed while confirming the edit", "unknown", path, requestId);
+        const result = snapshot.editorCommandResults?.find((entry) => entry.requestId === requestId);
+        if (result) {
+          _refetchHandler?.(snapshot);
+          if (!result.applied)
+            throw new EditorMutationError(
+              result.error || "Core did not apply the project edit", "rejected", path, requestId,
+            );
+          if (identity && snapshot.projectEpoch !== identity.projectEpoch)
+            throw new EditorMutationError("Project changed while applying the edit", "stored", path, requestId);
+          if (snapshot.projectEpoch !== projectEpoch || result.projectEpoch !== projectEpoch
+            || !Number.isSafeInteger(snapshot.stateRevision)
+            || result.projectRevision > snapshot.stateRevision!)
+            throw new EditorMutationError("Core returned an inconsistent editor-command revision", "unknown", path, requestId);
+          const lightingMutation = path.startsWith("/api/v1/lighting/");
+          const expectedApplicationDomain = lightingMutation ? "lighting" : "audio";
+          if (result.applicationDomain !== undefined
+            && result.applicationDomain !== expectedApplicationDomain)
+            throw new EditorMutationError(
+              `Core returned an unexpected ${result.applicationDomain || "unknown"} application domain for ${path}`,
+              "unknown", path, requestId,
+            );
+          if (result.playbackApplied === true
+            && (!Number.isSafeInteger(result.playbackProjectEpoch)
+              || result.playbackProjectEpoch !== snapshot.playbackProjectEpoch
+              || !Number.isSafeInteger(result.playbackRevision)
+              || result.playbackRevision! < result.projectRevision))
+            throw new EditorMutationError(
+              "Core returned an inconsistent playback-snapshot identity or revision", "unknown", path, requestId,
+            );
+          if (lightingMutation && result.lightingApplied !== true) {
+            throw new EditorMutationError(result.error ||
+              `Core stored project revision ${result.projectRevision}, but did not confirm publishing it to LightEngine. The project view was refreshed; do not resend this edit blindly.`,
+            "stored", path, requestId);
+          }
+          if (!lightingMutation && (result.playbackApplied === false
+            || (Number.isSafeInteger(snapshot.playbackProjectRevision)
+              && snapshot.playbackProjectRevision! < result.projectRevision))) {
+            throw new EditorMutationError(result.error ||
+              `Core stored project revision ${result.projectRevision}, but audio is still using its last valid snapshot at revision ${result.playbackRevision}. The project view was refreshed; do not resend this edit blindly.`,
+            "stored", path, requestId);
+          }
+          return;
+        }
+        // A present result ring is authoritative. Keep waiting for this request;
+        // an absent row may mean the Core has not dispatched it yet.
+        if (!Array.isArray(snapshot.editorCommandResults)) {
+          _triggerRefetch();
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      _triggerRefetch();
+      throw new EditorMutationError(
+        "Core did not confirm the project edit before timeout. Its outcome is unknown; state was refreshed and the command was not resent. Do not retry blindly.",
+        "unknown", path,
+      );
+    }, utf8ByteLength(serializedBody));
+  } catch (cause) {
+    if (cause instanceof EditorMutationError) throw cause;
+    // Reaching this catch before the queued operation runs means no request was
+    // issued (for example, local queue saturation); conservative owners may
+    // safely offer a retry for that explicit local rejection.
+    throw new EditorMutationError(
+      cause instanceof Error ? cause.message : String(cause),
+      requestWasSent ? "unknown" : "not-sent",
+      path,
+    );
+  }
 }
 
 /** Decisions are generation-bound; unlike best-effort controls, errors stay visible. */
@@ -1169,13 +1253,13 @@ export const builder = {
     initialValue?: number;
     points?: import("@/lib/state/types").AutomationPointRow[];
     gestureId?: string;
-  }) => postReliable("/api/v1/builder/automation-lane/add", patch),
+  }) => postEditorMutation("/api/v1/builder/automation-lane/add", patch),
   automationLaneRemove: (
     songIndex: number,
     laneId: string,
     gestureId?: string,
   ) =>
-    postReliable("/api/v1/builder/automation-lane/remove", {
+    postEditorMutation("/api/v1/builder/automation-lane/remove", {
       songIndex,
       laneId,
       gestureId,
@@ -1188,7 +1272,7 @@ export const builder = {
     writeMode?: import("@/lib/state/types").AutomationWriteMode;
     target?: AutomationTargetRow;
     gestureId?: string;
-  }) => postReliable("/api/v1/builder/automation-lane/update", patch),
+  }) => postEditorMutation("/api/v1/builder/automation-lane/update", patch),
   automationPointAdd: (patch: {
     songIndex: number;
     laneId: string;
@@ -1196,14 +1280,14 @@ export const builder = {
     value: number;
     curve?: number;
     gestureId?: string;
-  }) => postReliable("/api/v1/builder/automation-point/add", patch),
+  }) => postEditorMutation("/api/v1/builder/automation-point/add", patch),
   automationPointRemove: (
     songIndex: number,
     laneId: string,
     timeBeats: number,
     gestureId?: string,
   ) =>
-    postReliable("/api/v1/builder/automation-point/remove", {
+    postEditorMutation("/api/v1/builder/automation-point/remove", {
       songIndex,
       laneId,
       timeBeats,
@@ -1214,7 +1298,7 @@ export const builder = {
     laneId: string;
     points: import("@/lib/state/types").AutomationPointRow[];
     gestureId?: string;
-  }) => postReliable("/api/v1/builder/automation-points/replace", patch),
+  }) => postEditorMutation("/api/v1/builder/automation-points/replace", patch),
   automationRecordGesture: (patch: {
     songIndex: number;
     laneId: string;

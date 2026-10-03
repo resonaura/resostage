@@ -15,6 +15,11 @@ import {
   useAutomationTouchRecorder,
   type UseAutomationTouchRecorderProps,
 } from "../useAutomationTouchRecorder";
+import {
+  loadAutomationGestureDrafts,
+  persistAutomationGestureDrafts,
+  type AutomationGestureRecoveryDraft,
+} from "@/screens/editor/timeline/automation/logic/automationGestureRecovery";
 
 describe("useAutomationTouchRecorder", () => {
   let root: Root;
@@ -58,6 +63,22 @@ describe("useAutomationTouchRecorder", () => {
       points: [],
     },
   ];
+  const recoveryLanes: AutomationLaneRow[] = [{
+    id: "lane-recovery",
+    target: {
+      domain: "plugin",
+      entityId: "slot-1",
+      parameterId: "cutoff",
+      valueType: "floatNormalized",
+      defaultValue: 0,
+      minValue: 0,
+      maxValue: 1,
+    },
+    scope: "track",
+    enabled: true,
+    writeMode: "touch",
+    points: [],
+  }];
 
   beforeEach(() => {
     // @ts-expect-error test env global
@@ -65,6 +86,7 @@ describe("useAutomationTouchRecorder", () => {
     setRemoteBackend(null);
     window.history.replaceState({}, "", "/?embedded=1");
     clearApiCaches();
+    sessionStorage.clear();
     observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 1 });
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -495,4 +517,148 @@ describe("useAutomationTouchRecorder", () => {
     expect(onCommit).toHaveBeenCalledTimes(2);
     expect(onCommit.mock.calls[1][0].punchInBeats).toBe(4.25);
   });
+
+  it("retains an exact rejected gesture and retries it only against the same project", async () => {
+    let requestId = 0;
+    let applied = false;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/record-gesture")) {
+        expect(loadAutomationGestureDrafts()).toHaveLength(1);
+        expect(loadAutomationGestureDrafts()[0].outcome).toBe("unknown");
+        requestId += 1;
+        return new Response(JSON.stringify({
+          accepted: true,
+          requestId,
+          stateSessionId: "Core A",
+          projectEpoch: 1,
+        }), { status: 202, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        stateSessionId: "Core A",
+        projectEpoch: 1,
+        stateRevision: 2,
+        playbackProjectEpoch: 1,
+        playbackProjectRevision: 2,
+        editorCommandResults: [{
+          requestId,
+          applied,
+          projectEpoch: 1,
+          projectRevision: 2,
+          error: applied ? "" : "Core rejected the recording pass",
+          applicationDomain: "audio",
+          playbackApplied: applied,
+          playbackProjectEpoch: 1,
+          playbackRevision: 2,
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render({
+      songIndex: 0,
+      lanes: recoveryLanes,
+      isPlaying: true,
+      getCurrentBeats: () => 4.0,
+    });
+
+    await act(async () => {
+      recorder.startGesture({ domain: "plugin", entityId: "slot-1", parameterId: "cutoff" }, 0);
+      recorder.recordValue({ domain: "plugin", entityId: "slot-1", parameterId: "cutoff" }, 0.6);
+      recorder.finishGesture({ domain: "plugin", entityId: "slot-1", parameterId: "cutoff" }, 0.6);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(recorder.recoveryDrafts).toHaveLength(1);
+    expect(recorder.recoveryDrafts[0].outcome).toBe("rejected");
+    expect(recorder.recoveryDrafts[0].payload.points.length).toBeGreaterThan(0);
+    expect(recorder.recoveryDrafts[0].persisted).toBe(true);
+
+    applied = true;
+    await act(async () => recorder.retryRecoveryDraft(recorder.recoveryDrafts[0].id));
+    expect(fetch.mock.calls.filter(([input]) => String(input).includes("/record-gesture"))).toHaveLength(2);
+    expect(recorder.recoveryDrafts).toHaveLength(0);
+  });
+
+  it("never resends a gesture when the admitted request outcome is unknown", async () => {
+    let postCount = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/record-gesture")) {
+        postCount += 1;
+        return new Response(JSON.stringify({
+          accepted: true,
+          requestId: postCount,
+          stateSessionId: "Core A",
+          projectEpoch: 1,
+        }), { status: 202, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ stateSessionId: "Core restarted", projectEpoch: 1 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render({
+      songIndex: 0,
+      lanes: recoveryLanes,
+      isPlaying: true,
+      getCurrentBeats: () => 4.0,
+    });
+
+    await act(async () => {
+      recorder.startGesture({ domain: "plugin", entityId: "slot-1", parameterId: "cutoff" }, 0);
+      recorder.recordValue({ domain: "plugin", entityId: "slot-1", parameterId: "cutoff" }, 0.6);
+      recorder.finishGesture({ domain: "plugin", entityId: "slot-1", parameterId: "cutoff" }, 0.6);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(recorder.recoveryDrafts).toHaveLength(1);
+    expect(recorder.recoveryDrafts[0].outcome).toBe("unknown");
+    const requestCount = fetch.mock.calls.length;
+    await act(async () => recorder.retryRecoveryDraft(recorder.recoveryDrafts[0].id));
+    expect(fetch).toHaveBeenCalledTimes(requestCount);
+    expect(postCount).toBe(1);
+  });
+
+  it.each(["Core project identity", "song", "lane"] as const)(
+    "does not retry an exact rejection when its %s no longer matches",
+    async (boundary) => {
+      const draft: AutomationGestureRecoveryDraft = {
+      id: "rejected-draft",
+      projectIdentity: "test-core:1",
+      songIndex: 0,
+      createdAt: 123,
+      outcome: "rejected" as const,
+      error: "Core rejected the pass",
+      persisted: false,
+      payload: {
+        laneId: "lane-recovery",
+        gestureId: "gesture-rejected",
+        writeMode: "touch" as const,
+        punchInBeats: 4,
+        releaseBeats: 5,
+        releaseValue: 0.6,
+        returnRampBeats: 0,
+        underlyingValue: 0,
+        points: [{ timeBeats: 4, value: 0.6 }],
+        pointsCompacted: false,
+        shouldRevertWriteMode: false,
+      },
+      };
+      if (boundary === "Core project identity") draft.projectIdentity = "another-core:1";
+      else if (boundary === "song") draft.songIndex = 1;
+      else draft.payload.laneId = "removed-lane";
+      persistAutomationGestureDrafts([draft]);
+      const fetch = vi.fn();
+      vi.stubGlobal("fetch", fetch);
+      render({
+        songIndex: 0,
+        lanes: recoveryLanes,
+        isPlaying: true,
+        getCurrentBeats: () => 4.0,
+      });
+
+      await act(async () => recorder.retryRecoveryDraft(draft.id));
+
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
 });

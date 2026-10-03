@@ -4,14 +4,23 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { useCallback, useEffect, useRef } from "react";
-import { builder } from "@/lib/state/api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { builder, EditorMutationError } from "@/lib/state/api";
 import type { AutomationLaneRow } from "@/lib/state/types";
 import {
   AutomationTouchController,
+  findRecordableLane,
   type AutomationGestureCommitPayload,
   type AutomationGestureTarget,
 } from "../logic/automationTouchController";
+import {
+  automationGestureRecoveryLimits,
+  clearAutomationGestureDraftStorage,
+  loadAutomationGestureDrafts,
+  persistAutomationGestureDrafts,
+  removeAutomationGestureDraft,
+  type AutomationGestureRecoveryDraft,
+} from "../logic/automationGestureRecovery";
 
 export interface UseAutomationTouchRecorderProps {
   songIndex: number;
@@ -55,6 +64,85 @@ export function useAutomationTouchRecorder({
   projectIdentityRef.current = projectIdentity;
   const sessionIdentityRef = useRef(new Map<string, string>());
   const manualOverrideOwnersRef = useRef(new Map<string, ManualOverrideOwner>());
+  const [recoveryDrafts, setRecoveryDrafts] = useState(loadAutomationGestureDrafts);
+  const recoveryDraftsRef = useRef(recoveryDrafts);
+  recoveryDraftsRef.current = recoveryDrafts;
+
+  const publishRecoveryDrafts = useCallback((next: AutomationGestureRecoveryDraft[]) => {
+    const persisted = persistAutomationGestureDrafts(next);
+    if (!persisted) clearAutomationGestureDraftStorage();
+    const published = next.map((draft) => ({ ...draft, persisted }));
+    recoveryDraftsRef.current = published;
+    setRecoveryDrafts(published);
+  }, []);
+
+  const beginGestureRecovery = useCallback((
+    payload: AutomationGestureCommitPayload,
+    identity: string,
+    ownerSongIndex: number,
+  ): AutomationGestureRecoveryDraft | null => {
+    const existing = recoveryDraftsRef.current;
+    const duplicate = existing.find((draft) => draft.payload.gestureId === payload.gestureId
+      && draft.projectIdentity === identity);
+    if (duplicate) return duplicate;
+    if (existing.length >= automationGestureRecoveryLimits.drafts) {
+      console.error("Automation recovery queue is full; export or dismiss a saved draft before recording again");
+      return null;
+    }
+    const draft: AutomationGestureRecoveryDraft = {
+      id: `${Date.now()}-${payload.gestureId}`,
+      projectIdentity: identity,
+      songIndex: ownerSongIndex,
+      createdAt: Date.now(),
+      outcome: "unknown",
+      error: "Recording submitted; awaiting an exact Core outcome. Do not retry while the result is unknown.",
+      payload,
+      persisted: false,
+    };
+    publishRecoveryDrafts([...existing, draft]);
+    return draft;
+  }, [publishRecoveryDrafts]);
+
+  const dismissRecoveryDraft = useCallback((draftId: string) => {
+    publishRecoveryDrafts(removeAutomationGestureDraft(recoveryDraftsRef.current, draftId));
+  }, [publishRecoveryDrafts]);
+
+  const settleGestureRecovery = useCallback((draftId: string, cause?: unknown) => {
+    if (cause === undefined) {
+      dismissRecoveryDraft(draftId);
+      return;
+    }
+    const outcome = cause instanceof EditorMutationError ? cause.outcome : "unknown";
+    publishRecoveryDrafts(recoveryDraftsRef.current.map((candidate) => candidate.id === draftId
+      ? {
+          ...candidate,
+          outcome,
+          error: (cause instanceof Error ? cause.message : String(cause)).slice(0, 320),
+        }
+      : candidate));
+  }, [dismissRecoveryDraft, publishRecoveryDrafts]);
+
+  const retryRecoveryDraft = useCallback(async (draftId: string) => {
+    const draft = recoveryDraftsRef.current.find((candidate) => candidate.id === draftId);
+    if (!draft || (draft.outcome !== "not-sent" && draft.outcome !== "rejected")
+      || draft.projectIdentity !== projectIdentityRef.current
+      || draft.songIndex !== songIndex
+      || !lanesRef.current.some((lane) => lane.id === draft.payload.laneId)) return;
+    // Mark this non-idempotent request unknown before sending. If the app exits
+    // mid-flight, the stored draft must never invite a blind duplicate replay.
+    publishRecoveryDrafts(recoveryDraftsRef.current.map((candidate) => candidate.id === draft.id
+      ? { ...candidate, outcome: "unknown", error: "Retry submitted; awaiting Core confirmation" }
+      : candidate));
+    try {
+      await builder.automationRecordGesture({ songIndex: draft.songIndex, ...draft.payload });
+      dismissRecoveryDraft(draft.id);
+    } catch (cause) {
+      const outcome = cause instanceof EditorMutationError ? cause.outcome : "unknown";
+      publishRecoveryDrafts(recoveryDraftsRef.current.map((candidate) => candidate.id === draft.id
+        ? { ...candidate, outcome, error: (cause instanceof Error ? cause.message : String(cause)).slice(0, 320) }
+        : candidate));
+    }
+  }, [songIndex, dismissRecoveryDraft, publishRecoveryDrafts]);
 
   const setManualOverride = useCallback((laneId: string, owner: ManualOverrideOwner, active: boolean) => {
     if (owner.projectIdentity !== projectIdentityRef.current) return;
@@ -77,6 +165,45 @@ export function useAutomationTouchRecorder({
         return;
       }
 
+      const stillActive = controllerRef.current.isLaneActive(payload.laneId);
+      if (!stillActive) sessionIdentityRef.current.delete(payload.laneId);
+      if (payload.shouldRevertWriteMode && onWriteModeRevert)
+        onWriteModeRevert(payload.laneId);
+
+      // A looping Latch can produce another transaction while earlier exact
+      // acknowledgements are still pending. If its reserved recovery slot is
+      // the last one, stop that lane at this boundary and retain this completed
+      // pass locally instead of submitting an unprotected write.
+      if (!onCommitGesture && stillActive
+        && recoveryDraftsRef.current.length + sessionIdentityRef.current.size
+          >= automationGestureRecoveryLimits.drafts) {
+        const lane = lanesRef.current.find((candidate) => candidate.id === payload.laneId);
+        if (lane) controllerRef.current.cancelGesture({
+          domain: lane.target.domain === "lighting" ? "light"
+            : lane.target.domain === "midiCC" ? "midi" : lane.target.domain,
+          entityId: lane.target.entityId,
+          parameterId: lane.target.parameterId,
+        });
+        sessionIdentityRef.current.delete(payload.laneId);
+        const owner = manualOverrideOwnersRef.current.get(payload.laneId);
+        manualOverrideOwnersRef.current.delete(payload.laneId);
+        if (owner) setManualOverride(payload.laneId, owner, false);
+        const draft = beginGestureRecovery(payload, capturedIdentity, songIndex);
+        if (draft) settleGestureRecovery(draft.id, new EditorMutationError(
+          "Recording paused at a cycle boundary because the bounded recovery queue is full; this pass was not sent.",
+          "not-sent",
+          "/api/v1/builder/automation/record-gesture",
+        ));
+        return;
+      }
+
+      // Save an unknown-outcome draft before the POST begins. If the renderer or
+      // Core exits while awaiting its exact result, the gesture remains
+      // exportable after reload and is not mistaken for a safe retry.
+      const recoveryDraft = onCommitGesture
+        ? null
+        : beginGestureRecovery(payload, capturedIdentity, songIndex);
+
       let recording: Promise<void>;
       if (onCommitGesture) {
         onCommitGesture(payload);
@@ -97,11 +224,16 @@ export function useAutomationTouchRecorder({
         });
       }
 
-      if (payload.shouldRevertWriteMode && onWriteModeRevert) {
-        onWriteModeRevert(payload.laneId);
-      }
+      void recording.then(
+        () => {
+          if (recoveryDraft) settleGestureRecovery(recoveryDraft.id);
+        },
+        (cause: unknown) => {
+          if (recoveryDraft) settleGestureRecovery(recoveryDraft.id, cause);
+        },
+      );
 
-      if (!controllerRef.current.isLaneActive(payload.laneId)) {
+      if (!stillActive) {
         sessionIdentityRef.current.delete(payload.laneId);
         const owner = manualOverrideOwnersRef.current.get(payload.laneId);
         if (owner) {
@@ -110,19 +242,21 @@ export function useAutomationTouchRecorder({
             () => setManualOverride(payload.laneId, owner, false),
             () => setManualOverride(payload.laneId, owner, false),
           );
-        } else {
-          void recording.catch(() => {});
         }
-      } else {
-        void recording.catch(() => {});
       }
     },
-    [songIndex, onCommitGesture, onWriteModeRevert, setManualOverride],
+    [songIndex, onCommitGesture, onWriteModeRevert, setManualOverride,
+      beginGestureRecovery, settleGestureRecovery],
   );
 
   const startGesture = useCallback(
     (target: AutomationGestureTarget, initialValue: number) => {
       if (!isPlayingRef.current || !projectIdentityRef.current) return;
+      const recordableLane = findRecordableLane(lanesRef.current, target);
+      const continuesActiveLane = recordableLane
+        && sessionIdentityRef.current.has(recordableLane.id);
+      if (recoveryDraftsRef.current.length + sessionIdentityRef.current.size
+        >= automationGestureRecoveryLimits.drafts && !continuesActiveLane) return;
       if ([...sessionIdentityRef.current.values()].some(
         (identity) => identity !== projectIdentityRef.current,
       )) {
@@ -317,5 +451,8 @@ export function useAutomationTouchRecorder({
     punchOut,
     isLaneActive: (laneId: string) => controllerRef.current.isLaneActive(laneId),
     hasHoldingLatch: () => controllerRef.current.hasHoldingLatch(),
+    recoveryDrafts,
+    retryRecoveryDraft,
+    dismissRecoveryDraft,
   };
 }

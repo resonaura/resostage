@@ -290,8 +290,9 @@ clears listeners/ownership without writing a stale index-based rollback. The
 focused cancellation/controller/recorder UI tests passed 25/25; full UI Vitest
 passed 781/781 across 117 files, TypeScript/build passed, and lint had zero
 errors with 12 existing warnings. This is not real Core/audio gesture proof.
-Seek-vs-cycle identity, bounded rejected-draft recovery, Mixer/Inspector/plugin
-surfaces and hardware acceptance remain open.
+Seek-vs-cycle identity, Mixer/Inspector/plugin surfaces and hardware acceptance
+remain open. Bounded rejected/unknown gesture recovery is implemented and
+verified in the 2026-10-03 section of `audit.md`.
 
 The committed `06c3819` Touch/Latch/Write capture-session block additionally
 requires confirmed Core-session/project-epoch identity, maps playhead time with
