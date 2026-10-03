@@ -1028,6 +1028,7 @@ let menuState: MenuState = {
 };
 let lastTouchBarTab: string | null = null;
 let isSaveDialogActive = false;
+let handledSaveAsPending = false;
 
 // Native macOS menu-bar flash (AppKit key-equivalent paint of the top-level
 // title + leaf item). Sources: hotkey, MIDI, native menu click, SPA
@@ -2404,7 +2405,13 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
       if (shellEcho) pendingShellActionEcho = null;
       if (!alreadyFlashed) flashMenuAction(menuState.lastAction);
     }
-    if (menuState.saveAsPending && !isSaveDialogActive) {
+    if (!menuState.saveAsPending) {
+      // A new native dialog may be opened only after Core acknowledges that
+      // the previous Save As callback has settled.
+      handledSaveAsPending = false;
+    }
+    if (menuState.saveAsPending && !isSaveDialogActive && !handledSaveAsPending) {
+      handledSaveAsPending = true;
       isSaveDialogActive = true;
       void handleFileDialogAction("save_project_as")
         .catch((error: unknown) => {

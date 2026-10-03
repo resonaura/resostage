@@ -51,6 +51,8 @@ Recent-open consolidation. It exercises the shared HTTP lifecycle path; the
 native Electron menu call site was compiled but not UI-driven by that harness.
 Electron Save As dialog Promise rejection now cancels Core's pending callback,
 shows a best-effort native error, and clears the dialog guard in `finally`.
+One launch is latched per Core pending interval to prevent duplicate dialogs
+from stale frames.
 Electron typecheck and all 37 Vitest plus two alias-resolution tests passed;
 platform-native rejection and filesystem failure still need direct acceptance.
 

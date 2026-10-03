@@ -410,6 +410,9 @@ unhandled, the guard stayed set, and Core's pending Save As callback was never
 cancelled. The watcher now catches that error, sends the same `cancel_save_as`
 action used for an explicit dialog dismissal, best-effort displays a native
 error message, and clears its active guard in `finally`.
+The watcher also latches one dialog launch per `saveAsPending` interval, so
+stale repeated menu-state frames cannot reopen the native dialog while Core is
+still settling the callback; a Core `false` frame resets the latch.
 
 Verification (2026-10-03): Electron typecheck passed; 37 Vitest tests and both
 Node alias-resolution tests passed. These checks compile the recovery path but
