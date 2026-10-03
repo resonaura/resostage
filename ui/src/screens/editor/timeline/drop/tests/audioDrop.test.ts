@@ -40,4 +40,12 @@ describe("timeline audio drop placement", () => {
       }),
     ).toBeNull();
   });
+
+  it("maps a drop inside an automation pseudo-track back to its owning track", () => {
+    expect(computeAudioDropPosition({
+      ...baseArgs,
+      y: 75,
+      rowHeights: [100, 40],
+    })).toMatchObject({ rowIndex: 0, trackIndex: 0 });
+  });
 });

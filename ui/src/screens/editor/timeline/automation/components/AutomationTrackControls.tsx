@@ -10,6 +10,8 @@ import { Button, Select, Tooltip } from "@/components/ui";
 import { builder } from "@/lib/state/api";
 import type { AutomationLaneRow, BusRow, PluginParameterList, TrackRow } from "@/lib/state/types";
 import { getTrackAutomationTargets, matchesAutomationTarget } from "@/screens/editor/timeline/automation/logic/automationTargets";
+import type { GroupedAutomationTargets } from "@/screens/editor/timeline/automation/logic/automationTargets";
+import type { AutomationTargetOption } from "@/screens/editor/timeline/automation/logic/types";
 
 /** Selecting a parameter previews it. Only + or an explicit draw creates a lane.
  * New lanes are empty: their baseline is the effective value, not a fake point.
@@ -17,7 +19,7 @@ import { getTrackAutomationTargets, matchesAutomationTarget } from "@/screens/ed
  */
 export const AutomationTrackControls = memo(function AutomationTrackControls({
   songIndex, track, lanes, activeLaneId, onSelectLane, onRemoveLane, buses,
-  parameters = {}, readOnly = false, compact = false,
+  parameters = {}, targetGroups, targetOptions, readOnly = false, compact = false, laneId, showAdd = true,
 }: {
   songIndex: number;
   track: TrackRow;
@@ -27,13 +29,27 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
   onRemoveLane?: (laneId: string) => void;
   buses?: BusRow[];
   parameters?: Readonly<Record<string, PluginParameterList>>;
+  /** Shared across sibling pseudo-track controls to avoid rescanning plug-in descriptors per row. */
+  targetGroups?: GroupedAutomationTargets[];
+  /** Flattened once by the parent, avoiding repeated allocations for each lane. */
+  targetOptions?: AutomationTargetOption[];
   readOnly?: boolean;
   compact?: boolean;
+  /** Bind this control row to one persisted pseudo-track, not the track-wide selection. */
+  laneId?: string;
+  /** Only the final pseudo-track row exposes creation to avoid duplicate plus controls. */
+  showAdd?: boolean;
 }) {
-  const groups = useMemo(() => getTrackAutomationTargets(track, buses, lanes, parameters), [track, buses, lanes, parameters]);
-  const targets = groups.flatMap((group) => group.targets);
+  const computedGroups = useMemo(
+    () => targetGroups ? [] : getTrackAutomationTargets(track, buses, lanes, parameters),
+    [targetGroups, track, buses, lanes, parameters],
+  );
+  const groups = targetGroups ?? computedGroups;
+  const targets = targetOptions ?? groups.flatMap((group) => group.targets);
   const selectedTarget = targets.find((option) => option.id === activeLaneId);
-  const activeLane = lanes.find((lane) => lane.id === activeLaneId)
+  const activeLane = laneId
+    ? lanes.find((lane) => lane.id === laneId)
+    : lanes.find((lane) => lane.id === activeLaneId)
     ?? (selectedTarget
       ? lanes.find((lane) => matchesAutomationTarget(selectedTarget, lane.target))
       : lanes[0]);
@@ -142,9 +158,9 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
         }
         onChange={(writeMode) => activeLane && void run(() => builder.automationLaneUpdate({ songIndex,
           laneId: activeLane.id, writeMode: writeMode as AutomationLaneRow["writeMode"] }))} />
-      <Tooltip content={addTooltip}><Button isIconOnly size="sm" variant="ghost" className={`${compact ? "h-4.5 min-w-4.5 w-4.5" : "h-5.5 min-w-5.5 w-5.5"} shrink-0`}
+      {showAdd && <Tooltip content={addTooltip}><Button isIconOnly size="sm" variant="ghost" className={`${compact ? "h-4.5 min-w-4.5 w-4.5" : "h-5.5 min-w-5.5 w-5.5"} shrink-0`}
         aria-label="Add automation"
-        isDisabled={!canAdd} onPress={add}><Plus size={compact ? 10 : 12} /></Button></Tooltip>
+        isDisabled={!canAdd} onPress={add}><Plus size={compact ? 10 : 12} /></Button></Tooltip>}
       {activeLane && <Tooltip content="Remove automation lane"><Button isIconOnly size="sm" variant="ghost" className={`${compact ? "h-4.5 min-w-4.5 w-4.5" : "h-5.5 min-w-5.5 w-5.5"} shrink-0`}
         aria-label="Remove automation" isDisabled={disabled}
         onPress={() => onRemoveLane ? onRemoveLane(activeLane.id)

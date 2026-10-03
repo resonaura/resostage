@@ -10,6 +10,26 @@ UI entry paths abbreviated as `timeline/...` below are relative to
 
 ## Evidence and limits
 
+### Latest continuation addendum — foldable automation lanes (2026-10-03)
+
+The Timeline now shows simultaneous independent track-scope automation lanes
+as foldable pseudo-track rows. Each row owns its target selector and lane ID;
+the single `+` action creates the next eligible target. Collapse state is
+bounded UI state owned by Timeline and scoped by project name, project epoch,
+song and lane; detached envelope data remains the separate project-persisted
+cache. A shared row-height vector drives both sidebar/body plus region drag,
+marquee, file-drop and scroll-to-track geometry. Regions remain in the parent
+track's base lane and pseudo-row hit areas map to that parent.
+
+Verification: focused row/automation tests passed 54/54; full UI passed 864
+tests across 133 files; TypeScript and production build passed. Lint exited 0
+with 12 warnings in unrelated files; `git diff --check` passed. Browser visual
+inspection, live Core two-lane history/Undo/Redo, save/reopen through the UI,
+plug-in metadata churn and cross-song target resolution for differing track
+IDs remain unverified. See [automation.md](automation.md) for the detailed
+geometry and policy contract. This closes the first pseudo-row UI slice, not
+the whole automation workflow.
+
 ### Latest continuation addendum — 2026-10-03
 
 The global transport BPM/meter popover had not actually been operable: its

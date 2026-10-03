@@ -18,6 +18,7 @@
 // (`audioFileFromDrop`) re-verifies before importing.
 
 import { isImportableMediaFile, isImportableMediaName } from "@/transfer/audio/logic/mediaFormats";
+import { timelineRowIndexAtY } from "@/screens/editor/timeline/automation/logic/automationLayout";
 
 /** Decoded preview of a local audio file: duration + a coarse peak envelope. */
 export interface AudioPreview {
@@ -43,12 +44,12 @@ export function computeAudioDropPosition(args: {
   songLengths: readonly number[];
   pxPerSec: number;
   laneHeight: number;
+  rowHeights?: readonly number[];
   previewDuration: number;
 }): AudioDropPosition | null {
-  const rowIndex = Math.max(
-    0,
-    Math.min(args.rows.length - 1, Math.floor(args.y / args.laneHeight)),
-  );
+  const rowIndex = args.rowHeights
+    ? timelineRowIndexAtY(args.y, args.rowHeights, args.laneHeight)
+    : Math.max(0, Math.min(args.rows.length - 1, Math.floor(args.y / args.laneHeight)));
   const rowName = args.rows[rowIndex]?.name ?? "";
   const trackIndex = args.tracks.findIndex(
     (track) => (track.name || track.id) === rowName,

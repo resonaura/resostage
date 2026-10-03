@@ -19,6 +19,10 @@ import type {
 } from "@/lib/state/types";
 import { AutomationLaneOverlay } from "@/screens/editor/timeline/automation/components/AutomationLaneOverlay";
 import { getAutomationLanesForTrack, getTrackAutomationTargets, matchesAutomationTarget } from "@/screens/editor/timeline/automation/logic/automationTargets";
+import {
+  automationLaneCollapseKey,
+  automationPseudoTrackHeightPx,
+} from "@/screens/editor/timeline/automation/logic/automationLayout";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
 import { AudioRegionBlock } from "@/screens/editor/timeline/regions/components/AudioRegionBlock";
 import { MidiRegionBlock } from "@/screens/editor/timeline/regions/components/MidiRegionBlock";
@@ -71,6 +75,8 @@ export function AudioTrackLanes({
   snapToGrid = true,
   showAutomation = false,
   activeAutomationLaneIds,
+  automationCollapseScope,
+  collapsedAutomationLaneKeys,
   automationParameters,
   selectRegion,
   startRegionDrag,
@@ -101,6 +107,8 @@ export function AudioTrackLanes({
   snapToGrid?: boolean;
   showAutomation?: boolean;
   activeAutomationLaneIds?: Record<string, string>;
+  automationCollapseScope: string;
+  collapsedAutomationLaneKeys: ReadonlySet<string>;
   automationParameters?: Readonly<Record<string, PluginParameterList>>;
   /** Live geometry for a region mid-gesture; see useRegionDrag. */
   writeGeomDraft: (key: RegionSelKey, geom: RegionGeom) => void;
@@ -202,6 +210,30 @@ export function AudioTrackLanes({
         const trackIndex = track
           ? state.tracks.findIndex((t) => t.id === track.id)
           : -1;
+        const trackAutomationLanes = track
+          ? getAutomationLanesForTrack(
+              track,
+              state.songs[state.songIndex ?? 0]?.automationLanes ?? [],
+            )
+          : [];
+        const activeAutomationLaneId = track ? activeAutomationLaneIds?.[track.id] : undefined;
+        const laneHeight = laneHeightPx(verticalZoom);
+        const rowHeight = laneHeight + (showAutomation
+          ? trackAutomationLanes.reduce((height, lane) => height + automationPseudoTrackHeightPx(
+              laneHeight,
+              collapsedAutomationLaneKeys.has(automationLaneCollapseKey(automationCollapseScope, lane.id)),
+            ), 0)
+          : 0);
+        let nextAutomationTopPx = laneHeight;
+        const automationPseudoRows = showAutomation ? trackAutomationLanes.map((lane) => {
+          const collapsed = collapsedAutomationLaneKeys.has(
+            automationLaneCollapseKey(automationCollapseScope, lane.id),
+          );
+          const heightPx = automationPseudoTrackHeightPx(laneHeight, collapsed);
+          const row = { lane, collapsed, heightPx, topPx: nextAutomationTopPx };
+          nextAutomationTopPx += heightPx;
+          return row;
+        }) : [];
         // Orphan rows (no staged track) never count as soloed.
         const soloDimmed = anySolo && !track?.solo && !track?.soloSafe;
         const trackMuted = track?.mute ?? false;
@@ -215,7 +247,7 @@ export function AudioTrackLanes({
             className="relative border-b border-default/15 bg-default/5"
             style={{
               width: contentWidth,
-              height: laneHeightPx(verticalZoom),
+              height: rowHeight,
               cursor: toolCursor(tool, readOnly),
             }}
             onClick={(event) =>
@@ -289,32 +321,68 @@ export function AudioTrackLanes({
               const trackLanes = track ? getAutomationLanesForTrack(track, song.automationLanes ?? []) : [];
               const targets = track ? getTrackAutomationTargets(track, state.busses, trackLanes, automationParameters)
                 .flatMap((group) => group.targets) : [];
-              const activeLaneId = track ? activeAutomationLaneIds?.[track.id] : undefined;
-              const chosenTarget = targets.find((target) => target.id === activeLaneId);
-              const activeLane: AutomationLaneRow =
-                trackLanes.find((l) => l.id === activeLaneId) ??
-                (chosenTarget ? trackLanes.find((lane) => matchesAutomationTarget(chosenTarget, lane.target)) : trackLanes[0]) ?? {
-                  id: `temp:${chosenTarget?.id ?? `${track?.id ?? row.name}:gain`}`,
-                  target: chosenTarget ? {
-                    domain: chosenTarget.domain, entityId: chosenTarget.entityId,
-                    parameterId: chosenTarget.parameterId, valueType: chosenTarget.valueType,
-                    defaultValue: chosenTarget.defaultValue, minValue: chosenTarget.minValue, maxValue: chosenTarget.maxValue,
-                  } : {
-                    domain: "strip",
-                    entityId: track?.id ?? row.name,
-                    parameterId: "faderGainDb",
-                    valueType: "decibels",
-                    defaultValue: 0,
-                    minValue: -60,
-                    maxValue: 12,
-                  },
-                  scope: "track",
-                  writeMode: "read",
-                  enabled: true,
-                  muted: false,
-                  points: [],
-                };
-              const targetOption = targets.find((target) => matchesAutomationTarget(target, activeLane.target));
+              const chosenTarget = targets.find((target) => target.id === activeAutomationLaneId);
+              const defaultPreviewLane: AutomationLaneRow = {
+                id: `temp:${chosenTarget?.id ?? `${track?.id ?? row.name}:gain`}`,
+                target: chosenTarget ? {
+                  domain: chosenTarget.domain, entityId: chosenTarget.entityId,
+                  parameterId: chosenTarget.parameterId, valueType: chosenTarget.valueType,
+                  defaultValue: chosenTarget.defaultValue, minValue: chosenTarget.minValue, maxValue: chosenTarget.maxValue,
+                } : {
+                  domain: "strip",
+                  entityId: track?.id ?? row.name,
+                  parameterId: "faderGainDb",
+                  valueType: "decibels",
+                  defaultValue: 0,
+                  minValue: -60,
+                  maxValue: 12,
+                },
+                scope: "track",
+                writeMode: "read",
+                enabled: true,
+                muted: false,
+                points: [],
+              };
+              const automationRows = automationPseudoRows.length > 0
+                ? automationPseudoRows.map((pseudoRow) => {
+                    const selectedLane = pseudoRow.lane;
+                    const persistedLane = trackLanes.find((lane) => lane.id === selectedLane.id)
+                      ?? trackLanes.find((lane) =>
+                        lane.target.domain === selectedLane.target.domain
+                        && lane.target.entityId === selectedLane.target.entityId
+                        && lane.target.parameterId === selectedLane.target.parameterId,
+                      );
+                    const lane = persistedLane ?? {
+                      ...selectedLane,
+                      id: `temp:${selectedLane.id}:${i}`,
+                      points: [],
+                    };
+                    return {
+                      key: selectedLane.id,
+                      lane,
+                      targetOption: targets.find((target) => matchesAutomationTarget(target, lane.target)),
+                      topPx: pseudoRow.topPx,
+                      heightPx: pseudoRow.heightPx,
+                      collapsed: pseudoRow.collapsed,
+                      readOnly: readOnly || !persistedLane,
+                    };
+                  })
+                : (() => {
+                    const lane = trackLanes.find((candidate) => candidate.id === activeAutomationLaneId)
+                      ?? (chosenTarget
+                        ? trackLanes.find((candidate) => matchesAutomationTarget(chosenTarget, candidate.target))
+                        : trackLanes[0])
+                      ?? defaultPreviewLane;
+                    return [{
+                      key: lane.id,
+                      lane,
+                      targetOption: targets.find((target) => matchesAutomationTarget(target, lane.target)),
+                      topPx: 0,
+                      heightPx: laneHeight,
+                      collapsed: false,
+                      readOnly: readOnly || lane.id.startsWith("temp:"),
+                    }];
+                  })();
 
               // Adjacent overlapping pairs on this lane. Computed once and
               // used twice: the blocks need it to suppress the fade triangle
@@ -529,28 +597,47 @@ export function AudioTrackLanes({
                     />
                   ))}
                   <AnimatePresence>
-                  {showAutomation && (
-                    <motion.div className="absolute inset-0" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
-                    <AutomationLaneOverlay
-                      resetKey={`${state.projectName}:${state.pluginLoading?.epoch ?? 0}`}
-                      songIndex={i}
-                      lane={activeLane}
-                      bpm={song.bpm > 0 ? song.bpm : 120}
-                      pxPerSec={pxPerSec}
-                      widthPx={segWidth}
-                      heightPx={laneHeightPx(verticalZoom)}
-                      color={row.color}
-                      snapToGrid={snapToGrid}
-                      tool={tool}
-                      readOnly={readOnly || (activeLane.id.startsWith("temp:") && Boolean(targetOption?.disabledReason))}
-                      targetOption={targetOption}
-                      currentValue={targetOption?.currentValue ?? activeLane.target.defaultValue}
-                      scrollLeft={Math.max(0, scrollState.scrollLeft - segStart)}
-                      viewportWidth={scrollState.viewportWidth}
-                    />
-                    </motion.div>
-                  )}
+                    {showAutomation && automationRows.map((automationRow) => (
+                      <motion.div
+                        key={`${automationRow.key}:${i}`}
+                        className="absolute inset-x-0 overflow-hidden border-t border-default/20 bg-background/75"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.12 }}
+                        style={{ top: automationRow.topPx, height: automationRow.heightPx,
+                          pointerEvents: automationRow.collapsed ? "none" : undefined }}
+                      >
+                        <AnimatePresence initial={false}>
+                          {!automationRow.collapsed && <motion.div
+                            key={automationRow.key}
+                            className="absolute inset-0"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.12 }}
+                          >
+                            <AutomationLaneOverlay
+                              resetKey={`${state.projectName}:${state.pluginLoading?.epoch ?? 0}`}
+                              songIndex={i}
+                              lane={automationRow.lane}
+                              bpm={song.bpm > 0 ? song.bpm : 120}
+                              pxPerSec={pxPerSec}
+                              widthPx={segWidth}
+                              heightPx={automationRow.heightPx}
+                              color={row.color}
+                              snapToGrid={snapToGrid}
+                              tool={tool}
+                              readOnly={automationRow.readOnly || Boolean(automationRow.targetOption?.disabledReason)}
+                              targetOption={automationRow.targetOption}
+                              currentValue={automationRow.targetOption?.currentValue ?? automationRow.lane.target.defaultValue}
+                              scrollLeft={Math.max(0, scrollState.scrollLeft - segStart)}
+                              viewportWidth={scrollState.viewportWidth}
+                            />
+                          </motion.div>}
+                        </AnimatePresence>
+                      </motion.div>
+                    ))}
                   </AnimatePresence>
                 </div>
               );

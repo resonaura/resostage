@@ -194,6 +194,54 @@ describe("AutomationTrackControls", () => {
     expect(builder.automationLaneAdd).not.toHaveBeenCalled();
   });
 
+  it("keeps a pseudo-track selector bound to its own lane among multiple lanes", async () => {
+    const panLane: AutomationLaneRow = {
+      ...mockLane,
+      id: "lane-2",
+      target: {
+        ...mockLane.target,
+        parameterId: "pan",
+        valueType: "floatNormalized",
+        minValue: -1,
+        maxValue: 1,
+      },
+    };
+    act(() => {
+      root.render(createElement(AutomationTrackControls, {
+        songIndex: 4,
+        track: mockTrack,
+        lanes: [mockLane, panLane],
+        laneId: "lane-2",
+        activeLaneId: "lane-2",
+        onSelectLane: vi.fn(),
+        showAdd: false,
+      }));
+    });
+
+    const targetSelect = container.querySelector("select") as HTMLSelectElement;
+    expect(targetSelect.value).toBe("strip:track-1:pan");
+    expect(container.querySelector("button[aria-label='Add automation']")).toBeNull();
+
+    await act(async () => {
+      targetSelect.value = "strip:track-1:gain";
+      targetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(builder.automationLaneUpdate).toHaveBeenCalledWith({
+      songIndex: 4,
+      laneId: "lane-2",
+      target: {
+        domain: "strip",
+        entityId: "track-1",
+        parameterId: "faderGainDb",
+        valueType: "decibels",
+        defaultValue: 0,
+        minValue: -60,
+        maxValue: 12,
+      },
+    });
+  });
+
   it("resolves the generated lane from a selected target after the Core echo", () => {
     act(() => {
       root.render(

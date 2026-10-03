@@ -78,6 +78,42 @@ describe("timeline region marquee", () => {
     ).toEqual([]);
   });
 
+  it("uses cumulative row offsets when automation pseudo-tracks expand a row", () => {
+    const song = {
+      bpm: 120,
+      regions: [],
+      midiRegions: [{
+        id: "midi-2",
+        trackId: "track-2",
+        name: "Second Pattern",
+        startBeats: 0,
+        durationBeats: 8,
+        clipOffsetBeats: 0,
+        loop: false,
+        loopLengthBeats: 8,
+        notes: [],
+      }],
+    } as unknown as SongRow;
+
+    expect(marqueeHitRegions(
+      { left: 0, top: 125, width: 40, height: 5 },
+      [
+        { name: "Instrument", color: "#00ff00", headerIndex: 0 },
+        { name: "Bass", color: "#0000ff", headerIndex: 1 },
+      ],
+      [song],
+      [0],
+      [30],
+      10,
+      56,
+      [
+        { id: "track-1", name: "Instrument" },
+        { id: "track-2", name: "Bass" },
+      ],
+      [120, 56],
+    )).toEqual(["0:midi-2"]);
+  });
+
   it("merges additive region hits and clears cue selection", () => {
     const song = {
       bpm: 120,

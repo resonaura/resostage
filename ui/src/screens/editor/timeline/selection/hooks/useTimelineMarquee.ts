@@ -27,6 +27,7 @@ interface TimelineMarqueeOptions {
   pxPerSec: number;
   verticalZoom: number;
   rows: TimelineRow[];
+  rowHeights?: number[];
   tracks: TrackRow[];
   hasSongs: boolean;
   readOnly: boolean;
@@ -58,6 +59,7 @@ interface MarqueeLiveInputs {
   pxPerSec: number;
   verticalZoom: number;
   rows: TimelineRow[];
+  rowHeights?: number[];
   tracks: TrackRow[];
 }
 
@@ -75,6 +77,7 @@ export function useTimelineMarquee({
   pxPerSec,
   verticalZoom,
   rows,
+  rowHeights,
   tracks,
   hasSongs,
   readOnly,
@@ -100,6 +103,7 @@ export function useTimelineMarquee({
     pxPerSec,
     verticalZoom,
     rows,
+    rowHeights,
     tracks,
   };
 
@@ -119,6 +123,7 @@ export function useTimelineMarquee({
       pxPerSec: live.pxPerSec,
       laneHeight: laneHeightPx(live.verticalZoom),
       rows: live.rows,
+      rowHeights: live.rowHeights,
       tracks: live.tracks,
     });
     setSelectedCueKeys(selection.cueKeys);

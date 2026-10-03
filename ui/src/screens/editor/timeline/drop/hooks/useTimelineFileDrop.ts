@@ -25,6 +25,7 @@ interface TimelineFileDropOptions {
   viewMode: "audio" | "light";
   tracks: TrackRow[];
   rows: TimelineRow[];
+  rowHeights: number[];
   songs: SongRow[];
   songOffsets: number[];
   songLengths: number[];
@@ -47,6 +48,7 @@ export function useTimelineFileDrop({
   viewMode,
   tracks,
   rows,
+  rowHeights,
   songs,
   songOffsets,
   songLengths,
@@ -101,6 +103,7 @@ export function useTimelineFileDrop({
       x,
       y,
       rows,
+      rowHeights,
       tracks,
       songOffsets,
       songLengths,

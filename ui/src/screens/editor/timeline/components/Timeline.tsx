@@ -15,6 +15,8 @@ import {
 import { builder } from "@/lib/state/api";
 import { useAutomationParameters } from "@/screens/editor/timeline/automation/hooks/useAutomationParameters";
 import { DetachedAutomationRecovery } from "@/screens/editor/timeline/automation/components/DetachedAutomationRecovery";
+import { getAutomationLanesForTrack } from "@/screens/editor/timeline/automation/logic/automationTargets";
+import { automationTrackHeightPx, timelineRowTopPx } from "@/screens/editor/timeline/automation/logic/automationLayout";
 import {
   useContinuousPlayhead,
   type CycleWrapRange,
@@ -278,11 +280,37 @@ export function Timeline({
   const [activeAutomationLaneIds, setActiveAutomationLaneIds] = useState<
     Record<string, string>
   >({});
+  const [collapsedAutomationLaneKeys, setCollapsedAutomationLaneKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const automationProjectScope = `${state.projectName ?? "project"}:${state.projectEpoch ?? "legacy"}`;
+  const automationCollapseScope = `${automationProjectScope}:${state.songIndex ?? 0}`;
+  const automationProjectScopeRef = useRef(automationProjectScope);
+  useEffect(() => {
+    if (automationProjectScopeRef.current === automationProjectScope) return;
+    automationProjectScopeRef.current = automationProjectScope;
+    setCollapsedAutomationLaneKeys(new Set());
+  }, [automationProjectScope]);
   const automationSong = state.songs[state.songIndex ?? 0];
   const automationParameters = useAutomationParameters(state.tracks, showAutomation,
     `${state.projectName}:${state.pluginLoading?.epoch ?? 0}:${state.pluginLoading?.generation ?? 0}`);
   const handleSelectAutomationLane = useCallback((trackId: string, laneId: string) => {
     setActiveAutomationLaneIds((prev) => ({ ...prev, [trackId]: laneId }));
+  }, []);
+  const handleToggleAutomationLane = useCallback((key: string) => {
+    setCollapsedAutomationLaneKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key);
+      else {
+        next.add(key);
+        while (next.size > 4096) {
+          const oldest = next.values().next().value;
+          if (!oldest) break;
+          next.delete(oldest);
+        }
+      }
+      return next;
+    });
   }, []);
 
   // HeroUI's own scroll-shadow detection, driving edge fades that are painted
@@ -634,6 +662,35 @@ export function Timeline({
     const { index, dropSlot } = trackReorderPreview;
     return previewDropReorder(rows, index, dropSlot);
   }, [rows, trackReorderPreview]);
+  const trackRowHeights = useMemo(() => {
+    const laneHeight = laneHeightPx(verticalZoom);
+    const currentSongLanes = state.songs[state.songIndex ?? 0]?.automationLanes ?? [];
+    const automationVisible = showAutomation && effectiveViewMode === "audio";
+    return previewRows.map((row) => {
+      const track = row.headerIndex !== null && state.tracks[row.headerIndex]
+        ? state.tracks[row.headerIndex]
+        : state.tracks.find((candidate) => (candidate.name || candidate.id) === row.name || candidate.id === row.name);
+      const lanes = automationVisible && track
+        ? getAutomationLanesForTrack(track, currentSongLanes)
+        : [];
+      return automationTrackHeightPx(
+        laneHeight,
+        lanes.map((lane) => lane.id),
+        automationCollapseScope,
+        collapsedAutomationLaneKeys,
+      );
+    });
+  }, [
+    previewRows,
+    state.songs,
+    state.songIndex,
+    state.tracks,
+    verticalZoom,
+    showAutomation,
+    effectiveViewMode,
+    automationCollapseScope,
+    collapsedAutomationLaneKeys,
+  ]);
 
   // Drag & drop state is isolated with the import workflow below.
   const tracksOriginRef = useRef<HTMLDivElement>(null);
@@ -649,7 +706,8 @@ export function Timeline({
     readOnly,
     viewMode: effectiveViewMode,
     tracks: state.tracks,
-    rows,
+    rows: previewRows,
+    rowHeights: trackRowHeights,
     songs,
     songOffsets,
     songLengths,
@@ -670,7 +728,8 @@ export function Timeline({
     pxPerSec,
     verticalZoom,
     snapToGrid,
-    rows,
+    rows: previewRows,
+    rowHeights: trackRowHeights,
     tracks: state.tracks,
     songs,
     cycle,
@@ -849,7 +908,8 @@ export function Timeline({
     songLengths,
     pxPerSec,
     verticalZoom,
-    rows,
+    rows: previewRows,
+    rowHeights: trackRowHeights,
     tracks: state.tracks,
     hasSongs,
     readOnly,
@@ -930,7 +990,8 @@ export function Timeline({
       verticalZoom,
       effectiveViewMode,
       hasLightContent,
-      rows,
+      rows: previewRows,
+      rowHeights: trackRowHeights,
     });
 
   useTimelineTrackFocus({
@@ -1495,10 +1556,13 @@ export function Timeline({
               onWheel={handleSidebarWheel}
               onAutoScroll={handleAutoScroll}
               onTrackReorderPreview={setTrackReorderPreview}
-              showAutomation={showAutomation}
+              showAutomation={showAutomation && effectiveViewMode === "audio"}
               activeAutomationLaneIds={activeAutomationLaneIds}
+              automationCollapseScope={automationCollapseScope}
+              collapsedAutomationLaneKeys={collapsedAutomationLaneKeys}
               automationParameters={automationParameters}
               onSelectAutomationLane={handleSelectAutomationLane}
+              onToggleAutomationLane={handleToggleAutomationLane}
             />
           )}
 
@@ -1681,9 +1745,9 @@ export function Timeline({
                       duration={audioDropPreview?.duration ?? 0}
                       min={audioDropPreview?.min ?? []}
                       max={audioDropPreview?.max ?? []}
-                      color={rows[audioDropPos.rowIndex]?.color ?? "#fff"}
+                      color={previewRows[audioDropPos.rowIndex]?.color ?? "#fff"}
                       leftPx={audioDropPos.startPx}
-                      topPx={audioDropPos.rowIndex * laneHeightPx(verticalZoom)}
+                      topPx={timelineRowTopPx(audioDropPos.rowIndex, trackRowHeights)}
                       widthPx={Math.max(
                         8,
                         (audioDropPreview?.duration ?? 0) * pxPerSec,
@@ -1696,7 +1760,7 @@ export function Timeline({
                       className="pointer-events-none absolute z-40 flex items-center rounded-md border border-foreground/60 bg-surface/85 px-2 text-xs font-semibold text-foreground shadow-lg"
                       style={{
                         left: audioDropPos.startPx,
-                        top: audioDropPos.rowIndex * laneHeightPx(verticalZoom) + 3,
+                        top: timelineRowTopPx(audioDropPos.rowIndex, trackRowHeights) + 3,
                         height: Math.max(20, laneHeightPx(verticalZoom) - 6),
                       }}
                     >
@@ -1780,6 +1844,8 @@ export function Timeline({
                       snapToGrid={snapToGrid}
                       showAutomation={showAutomation}
                       activeAutomationLaneIds={activeAutomationLaneIds}
+                      automationCollapseScope={automationCollapseScope}
+                      collapsedAutomationLaneKeys={collapsedAutomationLaneKeys}
                       automationParameters={automationParameters}
                       selectRegion={selectRegion}
                       startRegionDrag={startRegionDrag}

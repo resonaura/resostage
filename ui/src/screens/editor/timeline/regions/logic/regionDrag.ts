@@ -6,6 +6,7 @@
 
 import type { RegionRow, SongRow, TrackRow } from "@/lib/state/types";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
+import { timelineRowIndexAtY, timelineRowTopPx } from "@/screens/editor/timeline/automation/logic/automationLayout";
 import type { CycleLocatorsForDetents } from "@/screens/editor/timeline/snapping/logic/detents";
 
 import { snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
@@ -130,6 +131,8 @@ export type RegionDragCtx = {
   verticalZoom: number;
   snapToGrid: boolean;
   rows: TimelineRow[];
+  /** Full row heights including automation pseudo-tracks, when visible. */
+  rowHeights?: number[];
   tracks: TrackRow[];
   songs: SongRow[];
   /** Locators the drag can tick against with the magnet off (see detents.ts). */
@@ -332,11 +335,9 @@ export function computeRegionDragGeom(
       const nextStart = (nextBeats * 60) / bpm;
 
       const laneH = Math.max(1, laneHeightPx(vz));
-      const rowsCrossed = Math.round(dY / laneH);
-      const nextTargetRow = Math.max(
-        0,
-        Math.min(ctx.rows.length - 1, rd.originRowIndex + rowsCrossed),
-      );
+      const rowHeights = ctx.rowHeights ?? ctx.rows.map(() => laneH);
+      const originCenterY = timelineRowTopPx(rd.originRowIndex, rowHeights) + laneH / 2;
+      const nextTargetRow = timelineRowIndexAtY(originCenterY + dY, rowHeights, laneH);
       rd.targetRowIndex = nextTargetRow;
 
       let draftTrackId = rd.originTrackId;
@@ -462,14 +463,12 @@ export function computeRegionDragGeom(
       Math.min(maxStart, snapSec(rd.origStart + dSec)),
     );
 
-    // Free track crossing: each full lane height of vertical travel jumps
-    // the region into that row's rendering immediately (draft trackId).
+    // Resolve against complete row geometry: automation child rows remain
+    // owned by their parent track instead of becoming drop destinations.
     const laneH = Math.max(1, laneHeightPx(vz));
-    const rowsCrossed = Math.round(dY / laneH);
-    const nextTargetRow = Math.max(
-      0,
-      Math.min(ctx.rows.length - 1, rd.originRowIndex + rowsCrossed),
-    );
+    const rowHeights = ctx.rowHeights ?? ctx.rows.map(() => laneH);
+    const originCenterY = timelineRowTopPx(rd.originRowIndex, rowHeights) + laneH / 2;
+    const nextTargetRow = timelineRowIndexAtY(originCenterY + dY, rowHeights, laneH);
     rd.targetRowIndex = nextTargetRow;
 
     let draftTrackId: string | undefined;

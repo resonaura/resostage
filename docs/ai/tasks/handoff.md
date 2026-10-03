@@ -583,9 +583,12 @@ are in [audit.md](audit.md).
 
 ### Audit facts and first implementation priorities
 
-- Current AutomationTrackControls/AudioTrackLanes show only one selected
-  automation overlay per ordinary track row; target choice currently doubles
-  as lane selection/recovery rather than per-lane rebind.
+- Current UI now renders independent per-lane selectors, controls and curves as
+  foldable pseudo-track rows under the track's base region row. Shared geometry
+  keeps sidebar/body, drag target, marquee, file-drop and track reveal aligned.
+  Collapse state is bounded, project/song-scoped Timeline UI state; only curve
+  caches are project-persisted. Full Core/browser Undo/Redo and save/reopen
+  acceptance, plugin metadata churn and per-song target remapping remain open.
 - The rotary reset/MIDI CC block is now implemented for track/bus/master/click
   pan and track/click sends. It uses typed constructors for safe continuous
   targets and Core rejects Note-On learning for these targets. The mappings

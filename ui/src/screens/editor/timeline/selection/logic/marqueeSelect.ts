@@ -8,6 +8,7 @@ import type { SongRow } from "@/lib/state/types";
 import type { CueSelKey } from "@/screens/editor/timeline/lighting/logic/types";
 import { regionSelKey, type RegionSelKey } from "@/screens/editor/timeline/regions/logic/regionUtils";
 import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
+import { timelineRowTopPx } from "@/screens/editor/timeline/automation/logic/automationLayout";
 
 export type MarqueeRect = {
   left: number;
@@ -64,10 +65,11 @@ export function marqueeHitRegions(
   pxPerSec: number,
   laneH: number,
   tracks: { id: string; name: string }[],
+  rowHeights?: readonly number[],
 ): RegionSelKey[] {
   const keys: RegionSelKey[] = [];
   rows.forEach((row, ri) => {
-    const y0 = ri * laneH;
+    const y0 = rowHeights ? timelineRowTopPx(ri, rowHeights) : ri * laneH;
     const y1 = y0 + laneH;
     const track = tracks.find(
       (t) => (t.name || t.id) === row.name || t.id === row.name,
@@ -173,6 +175,7 @@ export function resolveMarqueeSelection(args: {
   songLengths: number[];
   pxPerSec: number;
   laneHeight: number;
+  rowHeights?: readonly number[];
   rows: TimelineRow[];
   tracks: { id: string; name: string }[];
 }): MarqueeSelection {
@@ -204,6 +207,7 @@ export function resolveMarqueeSelection(args: {
     args.pxPerSec,
     args.laneHeight,
     args.tracks,
+    args.rowHeights,
   );
   return {
     cueKeys: [],

@@ -160,6 +160,30 @@ describe("computeRegionDragGeom", () => {
     expect(g.trackId).toBe("trk_c");
   });
 
+  it("does not treat an automation child row as a separate destination track", () => {
+    const rd = session({ mode: "move", originRowIndex: 0, originTrackId: "trk_a" });
+    const g = computeRegionDragGeom(
+      rd,
+      { ...ctx, rowHeights: [100, 56, 56] },
+      100,
+      110,
+    );
+    expect(rd.targetRowIndex).toBe(0);
+    expect(g.trackId).toBe("trk_a");
+  });
+
+  it("crosses from a taller automation track using cumulative row heights", () => {
+    const rd = session({ mode: "move", originRowIndex: 0, originTrackId: "trk_a" });
+    const g = computeRegionDragGeom(
+      rd,
+      { ...ctx, rowHeights: [100, 56, 56] },
+      100,
+      150,
+    );
+    expect(rd.targetRowIndex).toBe(1);
+    expect(g.trackId).toBe("trk_b");
+  });
+
   it("trims end without looping", () => {
     const rd = session({ mode: "trimEnd" });
     const g = computeRegionDragGeom(rd, ctx, 100 + 30, 50); // +3s

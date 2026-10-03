@@ -72,8 +72,11 @@ export function TimelineSidebar({
   onTrackReorderPreview,
   showAutomation = false,
   activeAutomationLaneIds,
+  automationCollapseScope,
+  collapsedAutomationLaneKeys,
   automationParameters,
   onSelectAutomationLane,
+  onToggleAutomationLane,
 }: {
   state: WebUiState;
   rows: TimelineRow[];
@@ -95,8 +98,11 @@ export function TimelineSidebar({
   onAutoScroll?: (deltaY: number) => void;
   showAutomation?: boolean;
   activeAutomationLaneIds?: Record<string, string>;
+  automationCollapseScope: string;
+  collapsedAutomationLaneKeys: ReadonlySet<string>;
   automationParameters?: Readonly<Record<string, PluginParameterList>>;
   onSelectAutomationLane?: (trackId: string, laneId: string) => void;
+  onToggleAutomationLane: (key: string) => void;
   onTrackReorderPreview?: (preview: {
     index: number;
     kind: "audio" | "light";
@@ -403,6 +409,9 @@ export function TimelineSidebar({
                       songIndex={state.songIndex ?? 0} track={state.tracks[trackIdx]}
                       lanes={getAutomationLanesForTrack(state.tracks[trackIdx], state.songs[state.songIndex ?? 0]?.automationLanes ?? [])}
                       activeLaneId={activeAutomationLaneIds?.[state.tracks[trackIdx]?.id ?? ""]}
+                      collapseScope={automationCollapseScope}
+                      collapsedLaneKeys={collapsedAutomationLaneKeys}
+                      onToggleLane={onToggleAutomationLane}
                       parameters={automationParameters} buses={state.busses}
                       onSelectLane={(laneId) => {
                         const tid = state.tracks[trackIdx]?.id;

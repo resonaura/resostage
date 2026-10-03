@@ -9,6 +9,7 @@ import type { RefObject, WheelEvent } from "react";
 import { EVENT_LANE_HEIGHT } from "@/screens/editor/timeline/events/logic/constants";
 import { AUDIO_HINT_HEIGHT, LIGHT_HINT_HEIGHT } from "@/screens/editor/timeline/layout/logic/hintStripDimensions";
 import { laneHeightPx } from "@/screens/editor/timeline/layout/logic/laneDimensions";
+import { timelineRowTopPx } from "@/screens/editor/timeline/automation/logic/automationLayout";
 import { SECTION_LANE_HEIGHT } from "@/screens/editor/timeline/sections/logic/constants";
 import type { TimelineRow } from "@/screens/editor/timeline/layout/logic/rows";
 import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/types";
@@ -20,6 +21,7 @@ interface UseTimelineSidebarScrollOptions {
   effectiveViewMode: TimelineViewMode;
   hasLightContent: boolean;
   rows: TimelineRow[];
+  rowHeights: number[];
 }
 
 /** Keeps sidebar wheel, track reveal, and timeline vertical scrolling in sync. */
@@ -30,6 +32,7 @@ export function useTimelineSidebarScroll({
   effectiveViewMode,
   hasLightContent,
   rows,
+  rowHeights,
 }: UseTimelineSidebarScrollOptions) {
   const syncSidebarScrollMirror = useCallback(() => {
     const scroller = scrollRef.current;
@@ -79,8 +82,13 @@ export function useTimelineSidebarScroll({
       const foundRowIndex = rows.findIndex((row) => row.headerIndex === trackIndex);
       if (foundRowIndex >= 0) rowIndex = foundRowIndex;
     }
-    const rowTop = baseTop + rowIndex * laneHeight;
-    const rowBottom = rowTop + laneHeight;
+    const rowTop = baseTop + (effectiveViewMode === "audio"
+      ? timelineRowTopPx(rowIndex, rowHeights)
+      : rowIndex * laneHeight);
+    const rowHeight = effectiveViewMode === "audio"
+      ? rowHeights[rowIndex] ?? laneHeight
+      : laneHeight;
+    const rowBottom = rowTop + rowHeight;
     const currentScrollTop = scroller.scrollTop;
     const clientHeight = scroller.clientHeight;
 
@@ -97,6 +105,7 @@ export function useTimelineSidebarScroll({
     effectiveViewMode,
     hasLightContent,
     rows,
+    rowHeights,
     syncSidebarScrollMirror,
   ]);
 

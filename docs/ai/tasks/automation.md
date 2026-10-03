@@ -43,11 +43,11 @@ process on the same temporary project, and rebinds the lane to restore every
 point and curve value. It confirms that save/reopen preserves dormant curve
 data, not just the active lane.
 
-This remains backend/schema coverage only. The Timeline still shows one
-automation header/curve per audio track: separate foldable pseudo-track rows,
-per-row selector wiring, collapse state, geometry/virtualization, and UI-driven
-save/reopen workflow acceptance remain open. Do not call the multi-automation
-UI complete until those pieces are implemented and tested.
+This began as backend/schema coverage. The multi-lane Timeline UI now has
+independent foldable pseudo-track rows and shared geometry; see the later
+2026-10-03 implementation section. Browser/Core history and package
+save/reopen acceptance, plugin metadata churn, and multi-song target mapping
+remain open, so do not call the full multi-automation workflow complete.
 
 ### Implemented subset — target selector rebinds its current lane (2026-10-03)
 
@@ -64,14 +64,61 @@ and show the command error.
 
 Focused `AutomationTrackControls` tests passed 14/14; full UI passed 849 tests
 across 129 files; `tsc -b`, production UI build, changed-file oxlint and
-`git diff --check` passed. This fixes per-lane target behavior within the
-current single-lane editor. Independent simultaneously visible foldable
-pseudo-track rows, stable collapse state, row geometry/virtualization and UI
-save/reopen acceptance are still open.
+`git diff --check` passed. This fixes the lane-target behavior used by the
+foldable pseudo-track UI below. At that point independent rows, stable collapse
+state, row geometry and UI save/reopen acceptance were still open; the first
+three now have a tested UI implementation, while browser/Core save/reopen
+acceptance remains open.
 
-This section records the next automation/control work. It is not a claim that
-the items below are implemented. Preserve the existing lane API/history path
-unless the model audit demonstrates a required persisted-schema change.
+The remaining automation/control requirements below preserve the existing lane
+API/history path unless the model audit demonstrates a required
+persisted-schema change. Each subsection states its implementation status and
+evidence explicitly.
+
+### Implemented subset — independent foldable automation pseudo-tracks (2026-10-03)
+
+Timeline now renders every track-scope automation lane in its own pseudo-track
+row below the audio/MIDI region row. Each row has its own chevron/fold state,
+target selector, enable/mute, write mode and remove action. The target selector
+is pinned to that lane ID: rebinding one row uses the reliable lane update and
+project-persisted detach/restore cache, never selects a sibling lane. `+` is
+exposed once at the end of the list and only creates the next eligible target;
+with no lanes, the base header selector is a read-only value preview until the
+user explicitly adds a lane. Parameter descriptors are shared across sibling
+rows so a large plug-in table is not rescanned once per lane control.
+
+Expanded pseudo rows use a zoom-aware bounded height, while a collapsed row
+keeps a compact control header and hides only its curve. Sidebar and body use
+the same calculation. The same row-height vector is used by region drag target
+resolution, audio file drop, region marquee hit tests and scroll-to-track, so a
+pseudo row belongs to its parent track and does not shift region or gesture
+coordinates independently. Region/MIDI content stays in the base lane; each
+automation envelope is editable in its own row. Row insertion/removal and fold
+geometry update together without an animated height that could temporarily
+desynchronize pointer coordinates; the chevron and curve visibility animate.
+
+Collapse state is UI-only, bounded to 4,096 collapsed IDs, owned by Timeline,
+scoped to project name + project epoch + song + lane ID, reset when the project
+identity changes, and retained across child remounts. It is deliberately not
+project content; only detached automation curves are portable persisted data.
+This avoids silently adding editor layout preferences to the project schema.
+
+Verification on 2026-10-03: focused automation/row-geometry/drag/drop/marquee
+tests passed 54/54; full UI Vitest passed 864 tests across 133 files; `tsc -b`
+and the production UI build passed. Full lint exited 0 with 12 existing
+warnings in unrelated files after removing two test-only warnings;
+`git diff --check` passed. Tests prove two independent header rows, one add
+action, collapsed geometry, lane-specific target updates, cumulative row
+hit-testing, and parent-track drop/drag/marquee mapping.
+
+Still open: manually inspect fold transitions in Electron; exercise two lanes
+through real Core history Undo/Redo and saved-project reopen; test plug-in
+descriptor load/failure/replacement while multiple rows are mounted; and prove
+cross-song rows resolve the appropriate track/slot targets where per-song IDs
+differ. When exact target identity is absent, the Timeline shows a non-editable
+empty baseline rather than rendering an unrelated lane. Region-scope automation
+is governed by its separate model/UI and is not made multi-row by this
+track-scope change.
 
 ### Implemented subset — gain/pan automation reaches live controls (2026-10-03)
 
