@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/shell/dialogs/components/ConfirmDialog";
 import { ContextMenu, ContextMenuDivider, ContextMenuItem } from "@/components/common/ContextMenu";
 import { Button } from "@/components/ui";
 import { project } from "@/lib/state/api";
+import { projectSaveLabel } from "@/project/logic/saveLabel";
 import { IS_EMBEDDED } from "@/lib/platform/embedded";
 import { flashMenuAction } from "@/lib/platform/electronBridge";
 import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
@@ -38,21 +39,23 @@ export function ProjectMenu({
     y: number;
   } | null>(null);
 
-  // Mirror native status: "Saving…" while busy, then flash "Saved".
+  // Mirror native save status without mistaking unrelated busy work (such as
+  // an audio import) for a project save.
   useEffect(() => {
-    const msg = state.statusMessage ?? "";
-    if (/^Saving\b/i.test(msg) || state.busy) {
-      setSaveLabel("Saving…");
+    const nextLabel = projectSaveLabel(state.statusMessage);
+    if (nextLabel !== "Saved") {
+      if (saveFlashTimer.current) clearTimeout(saveFlashTimer.current);
+      saveFlashTimer.current = null;
+      setSaveLabel(nextLabel);
       return;
     }
-    if (!/^Saved\b/i.test(msg)) return;
     setSaveLabel("Saved");
     if (saveFlashTimer.current) clearTimeout(saveFlashTimer.current);
     saveFlashTimer.current = setTimeout(() => setSaveLabel("Save"), 1800);
     return () => {
       if (saveFlashTimer.current) clearTimeout(saveFlashTimer.current);
     };
-  }, [state.statusMessage, state.busy]);
+  }, [state.statusMessage]);
 
   const handleNew = () => {
     if (

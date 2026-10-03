@@ -393,6 +393,13 @@ still expose busy/status and prompt state rather than request-specific terminal
 operation IDs; assess whether callers need a separate bounded lifecycle-result
 protocol before adding one.
 
+Project Save label block (2026-10-02):
+The Project menu no longer interprets generic Core `busy` (which also covers
+media imports) as “Saving…”. It follows only save-specific status strings.
+Regression test, full UI suite (785 tests / 118 files), and TypeScript passed.
+This does not validate Save As dialog cancel, filesystem errors, or remote
+filesystem behavior; those remain in [audit.md](audit.md).
+
 ## Remaining task files and transport decision
 
 - [audit.md](audit.md): current P1 defects, quality/edge-case contracts and proof limits.

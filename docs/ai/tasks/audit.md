@@ -380,15 +380,32 @@ passed with the same confirmation path before Core restart testing. Save-path
 terminal feedback still uses busy/status state; no claim is made that Save/Open
 have request-specific operation IDs.
 
+## Closed this audit — project Save button status
+
+The Project menu previously treated generic `state.busy` as “Saving…”, but Core
+uses that flag for both project saves and media imports. The button now follows
+only save-specific `Saving…` and `Saved` status messages and resets for other
+work. Save is already single-flight at Core admission, Save As has its own
+dialog state, and open confirmation is an explicit modal state; the UI does not
+currently await individual lifecycle request IDs. Do not add a second result
+ring unless a caller needs request-specific terminal outcomes.
+
+Verification (2026-10-02): regression test covers saving, saved, importing,
+busy rejection and absent status; full UI suite passed 785 tests in 118 files;
+TypeScript build passed. This is status presentation only, not a Save As dialog,
+filesystem-failure, or remote-device acceptance.
+
 Next implementation:
 
-1. Audit active-document Save/Open terminal feedback and host-specific
-   acknowledgements for plug-in bypass/Keep Awake/retry. Structural chain edits
-   now have exact editor outcomes, but that is not proof a vendor instance
-   finished loading. Document lifecycle uses fenced admission and busy/status
-   state; decide whether a separate operation-result channel is justified by
-   callers, without overloading the editor-history ring or treating Save/Open
-   as history mutations. The UI now has a regression where an
+1. Exercise Save/Save As cancellation and filesystem-failure presentation, plus
+   open requests while a prior open-confirm dialog is already pending. Add
+   host-specific acknowledgements for plug-in bypass/Keep Awake/retry only if
+   callers need to know host application. Structural chain edits have exact
+   editor outcomes, but that is not proof a vendor instance finished loading.
+   Document lifecycle currently uses fenced admission, single-flight busy/
+   status state, and explicit prompt flags; do not overload the editor-history
+   result ring or treat Save/Open as history mutations. The UI now has a
+   regression where an
    accepted edit's state poll returns an old-epoch exact result only after the
    observed project changes; it rejects the stale result, triggers refresh, and
    verifies there is one POST only. Core-side restart coverage pauses loopback
