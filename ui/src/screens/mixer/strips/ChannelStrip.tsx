@@ -79,10 +79,7 @@ export function ChannelStrip({
   const stripRightDb = peakDbR ?? peakDb ?? -100;
   const liveLeft = () => getLiveDbL?.() ?? getLiveDb?.() ?? stripLeftDb;
   const liveRight = () => getLiveDbR?.() ?? getLiveDb?.() ?? stripRightDb;
-  const stripClip = useChannelClipHold(
-    () => Math.max(liveLeft(), liveRight()),
-    stripId,
-  );
+  const stripClip = useChannelClipHold(stripId);
 
   const isNarrow = density === "narrow";
   const isWide = density === "wide";

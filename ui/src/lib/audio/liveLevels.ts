@@ -21,6 +21,12 @@
 
 import { isRenderActive, setTransportPlaying } from "@/lib/state/appActivity";
 import { addRafTask } from "@/lib/state/rafLoop";
+import {
+  channelClipHoldKey,
+  publishChannelClipPeak,
+  resetChannelClipHolds,
+} from "@/lib/audio/channelClipHold";
+import { currentProjectCommandIdentity } from "@/lib/state/api";
 
 /**
  * A meter as the UI reads it.
@@ -218,6 +224,7 @@ export function getTrackLiveLevel(id: string) {
 
 /** Drop readings immediately when the active Core/backend changes. */
 export function resetLiveLevels(): void {
+  resetChannelClipHolds();
   latestClick = FLOOR;
   latestClickL = FLOOR;
   latestClickR = FLOOR;
@@ -368,6 +375,12 @@ export function pushLiveLevels(frame: {
       peakDbR: t.peakDbR ?? t.peakDb ?? FLOOR,
     }));
     trackLevelsById = new Map(tracks.map((track) => [track.id, track]));
+    const projectIdentity = currentProjectCommandIdentity();
+    for (const track of tracks)
+      publishChannelClipPeak(
+        channelClipHoldKey(track.id, projectIdentity),
+        Math.max(track.peakDbL, track.peakDbR),
+      );
     changed = true;
   }
   if (frame.meters) {
@@ -383,6 +396,12 @@ export function pushLiveLevels(frame: {
         needleDbR: m.intervalPeakDbR ?? peakDbR,
       };
     });
+    const projectIdentity = currentProjectCommandIdentity();
+    for (const meter of meters)
+      publishChannelClipPeak(
+        channelClipHoldKey(meter.id, projectIdentity),
+        Math.max(meter.peakDbL, meter.peakDbR),
+      );
     changed = true;
   }
 

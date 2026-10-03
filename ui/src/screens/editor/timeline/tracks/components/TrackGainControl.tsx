@@ -6,6 +6,7 @@
 
 import { memo } from "react";
 import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
+import { useChannelClipHold } from "@/hooks/useChannelClipHold";
 import type { TrackRow } from "@/lib/state/types";
 import { MeterFader } from "@/components/daw";
 
@@ -36,6 +37,7 @@ export const TrackGainControl = memo(function TrackGainControl({
   onReadoutDoubleClick: (event: React.MouseEvent<HTMLSpanElement>) => void;
 }) {
   const trackName = track.name || track.id;
+  const clipHold = useChannelClipHold(track.id);
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1">
@@ -52,6 +54,7 @@ export const TrackGainControl = memo(function TrackGainControl({
         dbR={track.peakDbR ?? track.peakDb ?? -100}
         getLiveDbL={() => getTrackLiveLevel(track.id)?.peakDbL ?? -144}
         getLiveDbR={() => getTrackLiveLevel(track.id)?.peakDbR ?? -144}
+        clipLatched={clipHold.clipped}
         accent={color}
         height={faderHeight}
         aria-label={`${trackName} volume`}

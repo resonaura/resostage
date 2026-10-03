@@ -68,15 +68,23 @@ unverified platform or acoustic scope.
 
 ### Shared peak/clip state and eased live values
 
-- The peak/clip latch is currently local to useChannelClipHold instances;
-  Timeline, Inspector and Mixer can therefore disagree for the same physical
-  strip. Make one bounded client-side live store keyed by stable strip ID and
-  Core session/project epoch, fed from authoritative meter telemetry. All
-  visible representations read the same held peak/clip state and reset event.
-- Reset is shared for the unique strip across Timeline, Inspector and Mixer;
-  define reset as clearing the UI peak/clip hold, not altering audio or
-  telemetry's raw sample window. If Core exposes a reset command, make ownership
-  and race semantics explicit; do not add per-view independent reset state.
+- Implemented 2026-10-03: channelClipHold.ts owns one bounded retained latch
+  keyed by Core origin/session/project epoch and stable strip ID. The live
+  telemetry decoder feeds it, useChannelClipHold exposes the shared snapshot,
+  Mixer controls reset it, and Timeline's MeterFader reads the same clip flag.
+  State survives a view unmount/remount, is isolated across project epochs,
+  ignores impossible peaks, and is cleared when live telemetry resets. Active
+  entries are capped at 8,192; under impossible saturation of that many
+  simultaneously subscribed strips a new latch is deliberately not admitted.
+- Remaining: verify Inspector and every bus/main meter identity in integration,
+  expose the held value consistently in Timeline, and exercise reconnect and
+  remote Core switches in a multi-surface UI test. Unit tests cover shared
+  subscribers, unmount/remount retention, reset, epoch isolation, invalid
+  values and track/bus telemetry ingestion.
+- Reset is a shared UI-latch clear for the unique strip, not an engine command
+  and not a mutation of Core's raw peak telemetry. A new peak above 0 dBFS in
+  the next telemetry frame re-latches it. Do not add per-view reset state or
+  imply that this clears Core's audio history.
   On strip deletion, ID reuse after project replacement, Core reconnect, or
   meter row reorder, old holds must not leak into another strip. Bus/main
   meter identities follow the same rule where their controls share a display.

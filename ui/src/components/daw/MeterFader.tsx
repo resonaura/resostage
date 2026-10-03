@@ -65,6 +65,8 @@ export interface MeterFaderProps {
   /** Sampled every paint, straight off the binary telemetry -- no re-render. */
   getLiveDbL?: () => number;
   getLiveDbR?: () => number;
+  /** Optional shared clip latch; when present it overrides local meter latches. */
+  clipLatched?: boolean;
   /** Track colour for the meter fill. */
   accent?: string;
   /** Height of the bar in CSS px. The handle is sized from it. */
@@ -88,6 +90,7 @@ export const MeterFader = memo(function MeterFader({
   dbR,
   getLiveDbL,
   getLiveDbR,
+  clipLatched: clipLatchedOverride,
   accent,
   height = 12,
   className = "",
@@ -112,6 +115,8 @@ export const MeterFader = memo(function MeterFader({
   dbRef.current = { l: dbL, r: dbR };
   const getLiveRef = useRef({ l: getLiveDbL, r: getLiveDbR });
   getLiveRef.current = { l: getLiveDbL, r: getLiveDbR };
+  const clipOverrideRef = useRef(clipLatchedOverride);
+  clipOverrideRef.current = clipLatchedOverride;
   const fillRef = useRef(meterFill(accent));
   fillRef.current = meterFill(accent);
 
@@ -243,7 +248,8 @@ export const MeterFader = memo(function MeterFader({
       const fillR = normFor(right.display);
       const peakL = normFor(left.peak);
       const peakR = normFor(right.peak);
-      const latched = left.clipLatched || right.clipLatched;
+      const latched = clipOverrideRef.current
+        ?? (left.clipLatched || right.clipLatched);
       const fill = fillRef.current;
 
       const qL = Math.round(fillL * cssW);

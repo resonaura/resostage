@@ -1097,11 +1097,12 @@ acceptance is split into [automation.md](automation.md),
   not yet open it focused on their bus. Current MixGraph edges do not encode
   plugin sidechain/aux-input edges; true sidechain audio is not present in the
   inspected project/schema path.
-- Active-song BPM and signature are present in Core song state and a
-  builder-song-update route exists, but the timeline header currently offers
-  no direct BPM/time-signature editor. Check signature-point semantics before
-  exposing a global meter edit: changing the song base meter must not rewrite
-  explicit later meter markers.
+- Active-song BPM and signature are already shown and edited in the global
+  transport header through SongTempoControl's popover; Tap Tempo also writes
+  the active song. `patchClickFields` reaches the reliable song-update route.
+  Do not duplicate this UI. Add interaction/regression coverage and verify
+  edits are active-song scoped and do not corrupt explicit tempo/signature
+  point-map semantics.
 - MIDI pedal visualization is partially implemented already: MidiRegionBlock
   derives CC64 sustain intervals from persisted region events, and Piano Roll's
   CC64 bottom-lane renderer draws a step trace. Do not duplicate or regress
@@ -1131,8 +1132,9 @@ acceptance is split into [automation.md](automation.md),
    migration. A cache restore is a real project mutation, not a UI illusion.
 4. Introduce shared rotary context-menu/reset/MIDI-learn policy with an
    explicit eligibility type/catalogue; retain each control's true default.
-5. Integrate MIDI CC/pedal overlays, project BPM/signature header editing, and
-   shared peak/clip state in independent tested blocks.
+5. Integrate MIDI CC/pedal overlays and shared peak/clip state in independent
+   tested blocks; add regression coverage for the existing BPM/signature
+   header editor and its active-song routing.
 6. Extend mixer entry to Audio Flow and design true plugin sidechain support
    only after measuring graph and helper ABI constraints. Sidechain is not
    complete when only its edge is visualized.
@@ -1161,3 +1163,26 @@ visual/audio parity are detailed in audio-flow.md.
   sidechain audio parity. No visual-only sidechain claim.
 - Full acceptance on hardware/platforms is still distinct from local compile
   and unit tests. Clearly report skipped vendors/devices.
+
+### Implementation progress — shared peak/clip latch
+
+`useChannelClipHold` now reads `ui/src/lib/audio/channelClipHold.ts`, a bounded
+store keyed by Core origin/session/project epoch plus stable strip ID. The live
+telemetry decoder feeds it once per track/meter row; `ChannelStrip` and Timeline
+`MeterFader` share the same clip state, and the mixer clear action publishes a
+shared reset. Retention is bounded at 8,192 strip identities across unmounts;
+Core telemetry reset clears retained latch values. This is UI metering only and
+does not send commands to or mutate the audio engine.
+
+Focused verification: `pnpm --dir ui exec vitest run
+src/lib/audio/tests/channelClipHold.test.ts src/lib/audio/tests/liveLevels.test.ts`
+passed 21/21; `pnpm --dir ui exec tsc -b --pretty false` passed; `pnpm --dir ui
+test` passed all 808 tests. `pnpm --dir ui lint` exited successfully with
+existing warnings in unrelated files and none in the changed files.
+Multi-surface visual/remote tests and consistent held-peak readout in Timeline
+remain open.
+
+The initial audit also confirmed that active-song BPM/time-signature editing
+and Tap Tempo were already present in SongTempoControl; do not duplicate this
+surface. Only regression coverage and point-map preservation verification
+remain.

@@ -514,9 +514,10 @@ are in [audit.md](audit.md).
   Inspector and Mixer. Faders and other automatable value displays ease between
   fresh telemetry samples only; no stale easing through a new target or active
   gesture and no feedback into Core from display interpolation.
-- Active-song BPM and time signature become editable in the top timeline
-  header. Preserve tempo/signature point-map semantics and scope commands to
-  the active song/project epoch.
+- Active-song BPM and time signature are already editable in the global
+  transport header via SongTempoControl, which also includes Tap Tempo. Do not
+  recreate it. Verify it remains connected to the active song and add coverage
+  for preserving tempo/signature point-map semantics and project-epoch fences.
 - Recorded and persisted MIDI pedal/controller data is shown as a compact
   region/Piano Roll overlay, covering sustain CC64 and arbitrary CC without
   mislabeling, mutation, event loss, or note-selection interference.
@@ -571,6 +572,21 @@ are in [audit.md](audit.md).
    tests. Record vendor skips and machine/configuration; do not claim sound,
    sidechain, plugin bypass or offline readiness from a mocked UI/synthetic
    graph alone.
+
+### Completed block — shared meter clip latch (2026-10-03)
+
+The clip-hold store is shared by visible Timeline and Mixer strip controls,
+keyed by Core origin/session/project epoch and strip ID; it is fed by live meter
+telemetry, survives surface unmount/remount, and resets across subscribers. It
+is bounded to 8,192 retained identities. Focused tests passed 21/21, the full
+UI suite passed 808/808, and the TypeScript project build passed. Lint exited
+successfully with no new warnings in changed files; remote/multi-surface visual
+acceptance remains open.
+
+The BPM/signature editor was already implemented in
+`ui/src/transport/components/SongTempoControl.tsx` (including Tap Tempo); do
+not implement a duplicate. Regression coverage and confirmation of active-song
+and time-map behavior are still open.
 
 Latest verified commit at the start of this continuation was
 `e13d512b Record integrated state audit verification`. The worktree was clean;

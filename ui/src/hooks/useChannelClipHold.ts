@@ -4,86 +4,41 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { addRafTask } from "@/lib/state/rafLoop";
-
-const FLOOR_DB = -100;
-/** Anything above this is treated as a metering glitch, not a real clip. */
-const SANE_PEAK_DB = 24;
-/** Don't re-render for a held peak creeping up by less than this. */
-const HELD_PEAK_EPSILON_DB = 0.1;
+import { useCallback, useSyncExternalStore } from "react";
+import {
+  channelClipHoldKey,
+  clearChannelClipHold,
+  getChannelClipHoldSnapshot,
+  subscribeChannelClipHold,
+} from "@/lib/audio/channelClipHold";
+import { currentProjectCommandIdentity } from "@/lib/state/api";
 
 /**
- * Clip latch shared by everything on one strip -- the meter bars and the dB
- * box next to them light up and clear together.
- *
- * This used to take the peak as a PROP, which meant the strip had to re-render
- * on every telemetry frame for the latch to see the signal at all -- and the
- * strip is the expensive thing on the mixer (routing selects, send knobs,
- * fader), all of it reconciled sixty times a second to watch for an event that
- * happens once a set. It now samples the same live levels the meters paint
- * from, off the shared rAF, and touches React state only when the latch
- * actually flips.
- *
- * `getMaxDb` should return max(L, R): either channel clipping counts. It is
- * read through a ref, so callers may pass a fresh closure every render.
+ * Read the project-scoped clip latch shared by every view of one stable strip.
+ * Telemetry owns sampling; components only subscribe to meaningful latch
+ * changes, so strips do not rerender on every meter frame.
  */
-export function useChannelClipHold(getMaxDb: () => number, identity?: string): {
+export function useChannelClipHold(identity?: string): {
   clipped: boolean;
   heldPeakDb: number;
   clear: () => void;
 } {
-  const [clipped, setClipped] = useState(false);
-  const [heldPeakDb, setHeldPeakDb] = useState(FLOOR_DB);
-
-  const getMaxDbRef = useRef(getMaxDb);
-  getMaxDbRef.current = getMaxDb;
-
-  // The refs lead and the state follows -- the sampler runs between renders,
-  // so it cannot read the latch back out of state without racing itself.
-  const clippedRef = useRef(false);
-  const heldRef = useRef(FLOOR_DB);
-  const identityRef = useRef(identity);
-
-  useEffect(
-    () =>
-      addRafTask(() => {
-        const maxDb = getMaxDbRef.current();
-        // Ignore non-finite / absurd peaks (+400 dB etc.) so a single bad
-        // sample after a stem EOF cannot latch the clip hold forever.
-        if (!Number.isFinite(maxDb) || maxDb > SANE_PEAK_DB) return;
-        if (maxDb <= 0) return;
-        if (!clippedRef.current) {
-          clippedRef.current = true;
-          heldRef.current = maxDb;
-          setClipped(true);
-          setHeldPeakDb(maxDb);
-        } else if (maxDb > heldRef.current + HELD_PEAK_EPSILON_DB) {
-          heldRef.current = maxDb;
-          setHeldPeakDb(maxDb);
-        }
-      }),
-    [],
+  const projectIdentity = currentProjectCommandIdentity();
+  const key = identity ? channelClipHoldKey(identity, projectIdentity) : "";
+  const subscribe = useCallback(
+    (listener: () => void) => key
+      ? subscribeChannelClipHold(key, listener)
+      : () => {},
+    [key],
   );
-
+  const readSnapshot = useCallback(
+    () => getChannelClipHoldSnapshot(key),
+    [key],
+  );
+  const snapshot = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
   const clear = useCallback(() => {
-    clippedRef.current = false;
-    heldRef.current = FLOOR_DB;
-    setClipped(false);
-    setHeldPeakDb(FLOOR_DB);
-  }, []);
+    if (key) clearChannelClipHold(key);
+  }, [key]);
 
-  // ChannelStrip instances are reused when the editor inspector changes its
-  // selected track. A clip/peak hold belongs to a strip, not to the React
-  // component instance, so never carry it over to the newly selected strip.
-  useEffect(() => {
-    if (identityRef.current === identity) return;
-    identityRef.current = identity;
-    clippedRef.current = false;
-    heldRef.current = FLOOR_DB;
-    setClipped(false);
-    setHeldPeakDb(FLOOR_DB);
-  }, [identity]);
-
-  return { clipped, heldPeakDb, clear };
+  return { ...snapshot, clear };
 }
