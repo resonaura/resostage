@@ -127,8 +127,14 @@ in scope after this transaction boundary is trustworthy.
   IDs, incremented project epoch, an exact late result labeled with its captured
   old epoch, persisted content winning over the transient edit, and a monotonic
   process-local request-ID sequence. Still open: killing/restarting Core while
-  an accepted command is pending and proving late responses from that dead
-  process cannot settle a new session's request.
+  the accepted edit is pending was then added as an optional test-hook scenario:
+  dequeue is paused, acceptance is confirmed without a result or state effect,
+  Core is killed, the saved document reloads unchanged under a fresh session,
+  and an old-session retry gets 409. The standard Core build remains test-hooks
+  off. `projectIdentity.test.ts` now also delays the state poll until after a
+  same-Core project epoch change, then releases the old exact result and proves
+  the UI rejects it, schedules refresh, and never repeats its POST. This is a
+  controlled fetch race, not a live Electron/network restart test.
 - Current lighting block adds exact outcomes for lighting
   configuration, fixture, light-track and cue mutations. Results identify the
   `lighting` application domain and confirm the synchronous immutable-project

@@ -269,4 +269,47 @@ describe("project-scoped command identity", () => {
       "X-ResoStage-Project-Epoch": "12",
     });
   });
+
+  it("rejects a late exact result when its state poll crosses a project replacement", async () => {
+    vi.useFakeTimers();
+    let releaseState!: (response: Response) => void;
+    let signalStateRequest!: () => void;
+    const stateRequestStarted = new Promise<void>((resolve) => { signalStateRequest = resolve; });
+    const refetch = vi.fn();
+    const requestId = 95;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/builder/midi-region/update"))
+        return new Response(JSON.stringify({
+          accepted: true, requestId, stateSessionId: "Core A", projectEpoch: 12,
+        }), { status: 202, headers: { "Content-Type": "application/json" } });
+      signalStateRequest();
+      return new Promise<Response>((resolve) => { releaseState = resolve; });
+    });
+    vi.stubGlobal("fetch", fetch);
+    registerRefetchHandler(refetch);
+    observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 12 });
+
+    const pending = builder.midiRegionUpdate({
+      songIndex: 0, regionId: "stable-id-reused-in-new-project", name: "Old project result",
+    });
+    await stateRequestStarted;
+    observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 13 });
+    releaseState(new Response(JSON.stringify({
+      stateSessionId: "Core A",
+      projectEpoch: 12,
+      stateRevision: 91,
+      editorCommandResults: [{
+        requestId, applied: true, projectEpoch: 12, projectRevision: 91,
+        playbackApplied: true, playbackProjectEpoch: 6, playbackRevision: 91,
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    await expect(pending).rejects.toThrow("Project changed while confirming the edit");
+    await vi.advanceTimersByTimeAsync(50);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/v1/builder/midi-region/update"),
+    )).toHaveLength(1);
+  });
 });

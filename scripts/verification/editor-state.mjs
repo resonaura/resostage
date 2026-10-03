@@ -216,6 +216,11 @@ export async function verifyEditorState(coreExecutable, inspect) {
     if (!exited) child.kill("SIGKILL");
     if (!exited) await new Promise((done) => child.once("exit", done));
   };
+  const killCoreImmediately = async () => {
+    if (!child || exited) return;
+    child.kill("SIGKILL");
+    if (!exited) await new Promise((done) => child.once("exit", done));
+  };
   const startCore = async () => {
     commandState = null;
     exited = false;
@@ -232,7 +237,10 @@ export async function verifyEditorState(coreExecutable, inspect) {
       && !state.busy && state.tracks?.some((track) => track.name === "Fixture MIDI"), "fixture load and project identity");
     let stableEpoch = commandState.projectEpoch;
     let stableSamples = 0;
-    for (let attempt = 0; attempt < 100 && stableSamples < 8; ++attempt) {
+    // Core can publish the command-line document and then finish a queued
+    // startup replacement shortly afterward. Require a sustained quiet window
+    // so the harness never submits its first edit against an intermediate epoch.
+    for (let attempt = 0; attempt < 150 && stableSamples < 20; ++attempt) {
       const state = await request("/api/v1/state");
       commandState = state;
       if (state.projectEpoch === stableEpoch && !state.busy
@@ -244,8 +252,9 @@ export async function verifyEditorState(coreExecutable, inspect) {
       }
       await sleep(100);
     }
-    assert.equal(stableSamples, 8, `project epoch must settle before editing\n${diagnostic}`);
-    if (process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE !== "1") {
+    assert.equal(stableSamples, 20, `project epoch must settle before editing\n${diagnostic}`);
+    if (process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE !== "1"
+        && process.env.RESOSTAGE_TEST_PENDING_RESTART !== "1") {
       const testHookProbe = await fetch(`${origin}/api/v1/test/fail-next-playback-snapshot`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1229,6 +1238,71 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "stale project edits must not create a history revision");
     assert.equal(staleEdit.state.songs[0].midiRegions[0].name, fencedRegion.name,
       "stale project edits must not mutate entities with reused/indexed targets");
+    if (process.env.RESOSTAGE_TEST_PENDING_RESTART === "1") {
+      const beforeReload = await request("/api/v1/state");
+      commandState = beforeReload;
+      await request("/api/v1/project/open-recent", { path: project });
+      const restoredProject = await waitFor((snapshot) => snapshot.projectEpoch !== beforeReload.projectEpoch
+        && !snapshot.busy
+        && snapshot.tracks?.some((track) => track.name === "Fixture MIDI")
+        && snapshot.songs?.[0]?.midiRegions?.some((region) => region.id === regionId),
+      "restore the persisted project before terminating a pending command");
+      const expectedNameAfterRestart = getRegion(restoredProject).name;
+
+      const pauseResponse = await postRaw("/api/v1/test/command-queue-control", { action: "pause" });
+      const pauseText = await pauseResponse.text();
+      assert.equal(pauseResponse.status, 200, `pause Core dequeue: ${pauseText}`);
+      assert.equal(JSON.parse(pauseText).paused, true,
+        "the loopback-only hook must pause command dequeue before accepting the pending edit");
+      const pendingAccepted = await request("/api/v1/builder/midi-region/update", {
+        songIndex: 0,
+        regionId,
+        name: "Accepted but pending when Core dies",
+      });
+      assert.ok(Number.isSafeInteger(pendingAccepted.requestId),
+        "the edit must be HTTP-accepted before Core is terminated");
+      const queueStatusResponse = await postRaw("/api/v1/test/command-queue-control", { action: "status" });
+      const queueStatusText = await queueStatusResponse.text();
+      assert.equal(queueStatusResponse.status, 200, `inspect held Core command queue: ${queueStatusText}`);
+      assert.equal(JSON.parse(queueStatusText).queuedCommands, 1,
+        "the accepted mutation must remain queued and unapplied at the exact crash boundary");
+      const beforeCrashState = await request("/api/v1/state");
+      assert.equal(getRegion(beforeCrashState).name, expectedNameAfterRestart,
+        "HTTP admission alone must not mutate project state while dequeue is paused");
+      assert.ok(!beforeCrashState.editorCommandResults?.some(
+        (result) => result.requestId === pendingAccepted.requestId,
+      ), "an unapplied command must not fabricate a terminal result before process death");
+      const pendingSession = beforeCrashState.stateSessionId;
+      const pendingEpoch = beforeCrashState.projectEpoch;
+      await killCoreImmediately();
+      await startCore();
+      const afterCrashState = await request("/api/v1/state");
+      commandState = afterCrashState;
+      assert.notEqual(afterCrashState.stateSessionId, pendingSession,
+        "restarted Core must use a new session namespace after losing an admitted command");
+      assert.equal(getRegion(afterCrashState).name, expectedNameAfterRestart,
+        "an accepted-but-unapplied command must not leak into the project after process restart");
+      assert.ok(!afterCrashState.editorCommandResults?.some(
+        (result) => result.requestId === pendingAccepted.requestId,
+      ), "the new process must not invent a result for the dead process's queued edit");
+      const lateOldSessionCommand = await fetch(`${origin}/api/v1/builder/midi-region/update`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-ResoStage-Session": pendingSession,
+          "X-ResoStage-Project-Epoch": String(pendingEpoch),
+        },
+        body: JSON.stringify({ songIndex: 0, regionId, name: "Late response must not apply" }),
+        signal: AbortSignal.timeout(8000),
+      });
+      assert.equal(lateOldSessionCommand.status, 409,
+        "commands retried from the dead session must be rejected, not redirected or accepted");
+      const afterStaleRetry = await request("/api/v1/state");
+      commandState = afterStaleRetry;
+      assert.equal(afterStaleRetry.stateRevision, afterCrashState.stateRevision,
+        "a stale post-restart retry must not change project history");
+      assert.equal(getRegion(afterStaleRetry).name, expectedNameAfterRestart);
+    }
     const queueAcceptance = process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE === "1"
       ? ", command queue and deferred queue saturation/rejection/drain/recovery"
       : "";
@@ -1242,6 +1316,8 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "detached plug-in automation rebind rejection",
       "structural song/bus/event/section/cycle results",
       "same-Core reopen with late old-epoch result and stable entities, Core-session fences and restart-scoped request-ID reuse",
+      ...(process.env.RESOSTAGE_TEST_PENDING_RESTART === "1"
+        ? ["accepted-but-pending editor command discarded safely on Core restart"] : []),
       "active-playback Undo/Redo, automation recording/rejection, 413, save/reopen",
       "(not acoustic or UI manual-override proof)",
     ].join(", "));

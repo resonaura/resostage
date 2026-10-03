@@ -311,31 +311,39 @@ Still open; do not call this full editor transactionality:
   exercises the real deferred admission path but does not replace the separate
   real-I/O overlap acceptance below. Same-Core reopen with stable entity IDs,
   process-local request-sequence continuity, and a late exact result retaining
-  its old project epoch now pass. A Core restart during an accepted-but-pending
-  edit remains additional stress. A process restart already proves old-session
-  requests get HTTP 409 while a new session may safely reuse the same numeric
-  request ID. HTTP queue admission failure has no editor-result ring entry
-  because that command was never accepted.
+  its old project epoch now pass. A separate loopback-test-hook run pauses
+  command dequeue, verifies an accepted edit has no result and no state effect,
+  kills Core, restarts it, confirms the persisted project is unchanged, and
+  verifies a stale retry receives HTTP 409. A process restart also proves a
+  fresh session may safely reuse the same numeric request ID. HTTP queue
+  admission failure has no editor-result ring entry because that command was
+  never accepted.
 - Admission result rings remain bounded and process-local. A client that misses
   an exact result does not infer success from field coincidence or a later
   revision; after its bounded wait it refreshes state and reports the outcome
   as unknown. The operator must not retry blindly.
-- Verify stale/reordered behavior for the remaining project-scoped command
-  families, same-Core project replacement, late replies, ring eviction, bounded
-  queue exhaustion, plugin/project loading overlap, and upload-ticket expiry.
-  Refine route classification if a new project mutation endpoint is added.
+- Verify stale/reordered behavior for remaining project-scoped command
+  families, plug-in/project loading overlap, active-document lifecycle
+  completion, and upload-ticket expiry. Same-Core replacement, exact-result
+  ring eviction, bounded queue admission/recovery, and late renderer-poll
+  attribution are now covered. Refine route classification if a new project
+  mutation endpoint is added.
 
 Next implementation:
 
-1. Exercise Core restart while a command is accepted but not yet applied, and
-   verify late state/results from the dead process cannot settle the new
-   session's request. The existing process-restart test covers a request made
-   after restart using the old session fence, not a response delayed across it.
-   A same-Core reload test now queues a mutation immediately before opening the
-   same saved package: stable entity IDs survive, project epoch changes, the
-   queued result retains its old epoch, and subsequent process-local IDs remain
-   monotonic. Keep accepted-result expiry unknown and never infer application
-   from another request's later state.
+1. Audit exact completion for plug-in lifecycle and active-document Save/Open.
+   These are not all project-history edits: document lifecycle uses fenced
+   admission and busy/result state, while plug-in operations use their own
+   loading-session generations. Add request-specific terminal ACKs only where
+   callers need them; do not overload the editor-history result ring or claim
+   Save/Open are history mutations. The UI now has a regression where an
+   accepted edit's state poll returns an old-epoch exact result only after the
+   observed project changes; it rejects the stale result, triggers refresh, and
+   verifies there is one POST only. Core-side restart coverage pauses loopback
+   dequeue, accepts an edit without a result/state effect, kills Core, and
+   proves unchanged reload plus HTTP 409 on stale retry. Keep accepted-result
+   expiry unknown and never infer application from another request's later
+   state.
 2. Add exact completion only to remaining structural mutations that truly
    participate in history. Do not make high-rate fader or knob streams await
    one ACK per value; keep continuous latest-wins controls separate. HTTP/TCP
@@ -358,6 +366,25 @@ extension, and preservation of the pre-existing package resource. This uses no
 test-only import pause. It does not prove plug-in-state serialization, acoustic
 continuity, or active-playback import: the current import path intentionally
 stops playback before package mutation.
+
+Pending-command process-restart verification (2026-10-02):
+With a separate Core build configured `RESOSTAGE_ENABLE_TEST_HOOKS=ON`, the
+optional `RESOSTAGE_TEST_PENDING_RESTART=1` harness path pauses the command
+consumer through a loopback-only endpoint. It asserts an accepted editor edit
+is still queued, absent from the exact-result ring, and absent from project
+state, then terminates Core with SIGKILL. The next process has a different
+session ID, reloads the unchanged persisted MIDI region, has no fabricated
+result for the old request, and rejects a retry carrying the dead session's
+identity with HTTP 409. The test build flag must remain `OFF` for ordinary
+Core builds. This tests lost in-flight admission semantics; there is no old
+process left to deliver an actual late HTTP response after SIGKILL.
+
+Late renderer-poll verification (2026-10-02):
+`projectIdentity.test.ts` pauses the state poll after an editor command is
+admitted, advances the observed project epoch, then releases a successful exact
+result for the prior epoch. The real UI API rejects it as stale, schedules its
+normal state refresh, and has only one mutation POST. This is a controlled
+fetch-level race test, not a live Electron/network restart test.
 
 Same-Core replacement/late-response verification (2026-10-02):
 After a clean restart, the real-Core harness queues a MIDI edit followed by
