@@ -304,6 +304,7 @@ export function EditorInspector({
           track={selectedTrack?.id === pluginTarget.stripId ? selectedTrack : undefined}
           songIndex={Math.max(0, state.songIndex)}
           song={state.songs[Math.max(0, state.songIndex)]}
+          pluginValueIdentity={`${state.stateSessionId ?? ""}:${state.projectEpoch ?? ""}:${state.pluginLoading?.generation ?? 0}`}
           slots={
             selectedTrack && selectedTrack.id === pluginTarget.stripId
               ? (selectedTrack.plugins ?? [])

@@ -11,6 +11,7 @@ import { createEditGesture } from "@/lib/interaction/editGesture";
 import type { PluginSlotRow, SongRow } from "@/lib/state/types";
 import { Button } from "@/components/ui";
 import { AutomationMiniGraph } from "@/screens/mixer/plugins/components/AutomationMiniGraph";
+import { PluginParameterValueReadout } from "@/screens/mixer/plugins/components/PluginParameterValueReadout";
 
 interface PluginParameter {
   index: number;
@@ -30,11 +31,13 @@ export function PluginAutomationPanel({
   slots,
   song,
   songIndex,
+  valueIdentity,
 }: {
   visible: boolean;
   slots: PluginSlotRow[];
   song?: SongRow;
   songIndex: number;
+  valueIdentity: string;
 }) {
   const [automationSlotId, setAutomationSlotId] = useState("");
   const [automationParameters, setAutomationParameters] = useState<PluginParameter[]>([]);
@@ -153,6 +156,12 @@ export function PluginAutomationPanel({
                 <div className="truncate text-xs font-semibold">{selectedParameter.name}</div>
                 <div className="text-[10px] text-foreground/40">Normalized plug-in parameter</div>
               </div>
+              <PluginParameterValueReadout
+                enabled={visible}
+                slot={automationSlot}
+                parameter={selectedParameter}
+                valueIdentity={valueIdentity}
+              />
               {selectedAutomationLane ? (
                 <Button size="sm" variant="danger-soft" onPress={() => void builder.automationLaneRemove(songIndex, selectedAutomationLane.id, editGesture.id())}>
                   <Trash2 size={12} /> Remove

@@ -36,6 +36,7 @@ export function PluginChainModal({
   track,
   song,
   songIndex = 0,
+  pluginValueIdentity,
   onClose,
 }: {
   open: boolean;
@@ -45,6 +46,7 @@ export function PluginChainModal({
   track?: TrackRow;
   song?: SongRow;
   songIndex?: number;
+  pluginValueIdentity: string;
   onClose: () => void;
 }) {
   const [catalog, setCatalog] = useState<PluginCatalogResponse | null>(null);
@@ -394,6 +396,7 @@ export function PluginChainModal({
                   slots={slots}
                   song={song}
                   songIndex={songIndex}
+                  valueIdentity={pluginValueIdentity}
                 />
               </aside>
             </Modal.Body>

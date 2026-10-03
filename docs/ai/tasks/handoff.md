@@ -20,6 +20,14 @@ Latest verified changes:
   that strip memoization does not drop automation value changes. Full UI passed
   867 tests / 134 files; UI TypeScript, changed-file lint and diff check passed.
   This is not mounted visual or remote-device acceptance.
+- Plugin Automation now displays the selected hosted parameter's latest
+  normalized Core value. Polling is visible-only and sequential (500 ms), with
+  fences for Core session/project identity, plug-in-load generation, slot and
+  parameter identity. The shared eased readout is tested separately from the
+  large parameter list. Focused tests passed 6/6; full UI passed 873 tests /
+  135 files; TypeScript, production build, changed-file lint and diff check
+  passed. This is not sample-accurate telemetry or real AU/VST3/remote
+  acceptance.
 
 Continue from open items in `performance.md`, `automation.md`, `audio-flow.md`
 and `audit.md`. Per-plugin preset persistence and true AU/VST3 sidechain

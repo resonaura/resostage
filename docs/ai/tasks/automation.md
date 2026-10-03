@@ -149,10 +149,23 @@ changes render-significant while continuing to ignore meter-only changes.
 This verifies source-level Inspector selection and prop forwarding, not a
 mounted device/remote visual run.
 
-Still open: live displayed-value integration for hosted-plugin parameter
-controls; end-to-end Touch/Latch/Write ownership on all surfaces; and
-visual/remote-session playback acceptance. This does not complete all
-control-display requirements in this document.
+The selected parameter in Plugin Automation now displays the latest
+normalized value returned by the Core plug-in host. `usePluginParameterValue`
+polls only while the panel is visible, makes sequential 500 ms requests, and
+rejects stale replies after a Core session/project epoch, plug-in-load
+generation, slot, plug-in, load-state or parameter change. The readout uses
+the shared eased display component. This is low-rate UI feedback, not
+sample-accurate plug-in automation telemetry and not a vendor-editor readout.
+Focused tests cover sequential polling, hidden/loading behavior, stale
+identity, unbound versus zero, and display; all six passed. Full UI passed 873
+tests across 135 files, and TypeScript, production build, changed-file lint
+and diff check passed.
+
+Still open: end-to-end Touch/Latch/Write ownership on all surfaces; real
+AU/VST3 and remote-session visual/playback acceptance; and deciding whether
+hosted-plugin values need a dedicated telemetry channel if low-rate polling
+proves insufficient. This does not complete all control-display requirements
+in this document.
 
 Verification on 2026-10-03: `ResoStage` and `resostage_engine_tests` built;
 focused native automation telemetry passed 1 case / 19 assertions; the full

@@ -66,6 +66,7 @@ export function MixerOverlays({
           )}
           songIndex={songIndex}
           song={state.songs[songIndex]}
+          pluginValueIdentity={`${state.stateSessionId ?? ""}:${state.projectEpoch ?? ""}:${state.pluginLoading?.generation ?? 0}`}
           slots={
             pluginTarget.stripId === "audio::click"
               ? (state.click?.plugins ?? [])

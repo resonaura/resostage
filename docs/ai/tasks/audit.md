@@ -27,7 +27,17 @@ gain/pan changes remain render-significant across the strip memo boundary,
 while meter-only fields remain ignored. Full UI Vitest passed 867 tests across
 134 files; UI TypeScript, changed-file lint and `git diff --check` passed.
 This does not prove mounted visual easing, reconnect handling or remote Core
-behavior. Hosted-plugin parameter value controls remain open.
+behavior.
+
+Plugin Automation now displays the selected hosted parameter's latest
+normalized Core-host value. Its visible-only sequential 500 ms polling is
+fenced by session/project identity, plug-in-load generation, slot, plug-in,
+load state and parameter. Focused coverage passed 6/6; the full UI passed 873
+tests across 135 files, with TypeScript, production build, changed-file lint
+and diff check passing. This is low-rate UI feedback, not sample-accurate
+telemetry or proof against real AU/VST3 behavior. End-to-end Touch/Latch/Write,
+remote/vendor acceptance and any need for a dedicated high-rate value channel
+remain open.
 
 ### Latest continuation addendum — foldable automation lanes (2026-10-03)
 

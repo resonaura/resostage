@@ -79,6 +79,14 @@ open.
   clicks, stale-token rejection and bounds. The dedicated test passed 17
   assertions; Core/helper builds and the complete native CTest target passed.
   Real vendor-window visual and acoustic acceptance is still required.
+- Implemented UI subset: the selected parameter in Plugin Automation now shows
+  the latest normalized value sampled from the Core plug-in host. Polling is
+  visible-panel-only, sequential at 500 ms, and fenced by Core session/project
+  identity, plug-in-load generation, slot identity and parameter index. The
+  value readout uses the shared eased display component; it is not a
+  sample-accurate vendor editor display and does not prove real AU/VST3
+  behavior. Focused tests passed 6/6; full UI passed 873 tests / 135 files;
+  TypeScript, production build, changed-file lint and diff check passed.
 - Remaining: define and implement per-plugin preset save/load. Decide whether
   each operation changes a slot's project state or writes a user preset
   library before choosing persistence. Validate identity, byte size, format
