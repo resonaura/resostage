@@ -588,10 +588,16 @@ Preserve these rules:
   rejected before allocation and counted by the bank. Complete channel-wide
   32/48-event panic bursts take priority over pending musical packets. Offline
   non-realtime banks retain full SysEx/growing buffers; never use that mode in
-  a live callback. The live-host shared-memory ABI is version 8; fixed per-slot
+  a live callback. The live-host shared-memory ABI is version 9; fixed per-slot
   power/bypass mailboxes coalesce latest-state controls independently of the
   parameter queue. Helper DSP owns power counters/envelopes; other threads
   publish atomic intents. Explicit parking is not cancelled by automatic wake.
+  Plug-in editor bypass buttons publish only a bounded per-slot intent paired
+  with the exact bypass-state token shown by that window. Core's message-thread
+  poll rejects stale tokens and applies accepted intents through the ordinary
+  project-history mutation; the helper UI cannot mutate DSP or project state
+  directly. Core republishes each accepted bypass token so helper editor
+  windows converge.
   If a result misses its deadline, effects retain their dry input and instrument
   strips emit silence for that block. MIDI packets and host controls use bounded
   queues. A helper-DSP-owned fixed MIDI activity tracker preserves held and

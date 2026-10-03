@@ -180,6 +180,7 @@ private:
         }
 
         if (runtime != nullptr) {
+            runtime->syncEditorBypassStates();
             if (runtime->consumeStateChange())
                 area.stateChangeCounter.fetch_add(1, std::memory_order_release);
             if (runtime->consumeLatencyChange()) {
@@ -202,7 +203,7 @@ private:
             bool succeeded = false;
             if (runtime != nullptr) {
                 if (command == resostage::plugin_host::HostCommand::OpenEditor)
-                    succeeded = runtime->openEditor(slotIndex);
+                    succeeded = runtime->openEditor(slotIndex, area);
                 else if (command == resostage::plugin_host::HostCommand::CloseEditor)
                     succeeded = runtime->closeEditor(slotIndex);
                 else if (command == resostage::plugin_host::HostCommand::CloseAllEditors) {

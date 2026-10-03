@@ -117,6 +117,40 @@ TEST_CASE("plug-in host shared frames have a validated versioned ABI") {
     CHECK_FALSE(validate(area, 41, 512));
 }
 
+TEST_CASE("isolated editor bypass requests are latest-wins and revision-fenced") {
+    SharedArea area{};
+    area.pluginSlotCount = 1;
+    area.pluginSlotStatuses[0] = static_cast<uint8_t>(PluginSlotStatus::Loaded);
+    publishInitialBypassState(area, 0, false);
+    const uint64_t initialState = area.pluginSlotBypassStates[0]
+        .load(std::memory_order_acquire);
+    uint64_t lastSeen = 0;
+    EditorBypassRequest request;
+
+    CHECK_FALSE(consumeEditorBypassRequest(area, 0, lastSeen, request));
+    CHECK(publishEditorBypassRequest(area, 0, initialState, true));
+    REQUIRE(consumeEditorBypassRequest(area, 0, lastSeen, request));
+    CHECK(request.baseState == initialState);
+    CHECK(request.bypassed);
+    CHECK(editorBypassRequestIsCurrent(area, 0, request));
+    CHECK_FALSE(consumeEditorBypassRequest(area, 0, lastSeen, request));
+
+    // Rapid toggles before Core polls collapse to the final intent instead of
+    // replaying an obsolete click or mutating the processor from the helper.
+    CHECK(publishEditorBypassRequest(area, 0, initialState, true));
+    CHECK(publishEditorBypassRequest(area, 0, initialState, false));
+    REQUIRE(consumeEditorBypassRequest(area, 0, lastSeen, request));
+    CHECK_FALSE(request.bypassed);
+    CHECK(editorBypassRequestIsCurrent(area, 0, request));
+
+    publishCoreBypassState(area, 0, true);
+    CHECK_FALSE(editorBypassRequestIsCurrent(area, 0, request));
+    CHECK(publishEditorBypassRequest(area, 0, request.baseState, false));
+    REQUIRE(consumeEditorBypassRequest(area, 0, lastSeen, request));
+    CHECK_FALSE(editorBypassRequestIsCurrent(area, 0, request));
+    CHECK_FALSE(publishEditorBypassRequest(area, 1, initialState, true));
+}
+
 TEST_CASE("plug-in host command completion releases the mailbox before Core reuses it") {
     auto area = std::make_unique<SharedArea>();
     constexpr uint64_t requests = 20000;

@@ -530,6 +530,8 @@ void MainComponent::timerCallback() {
     }
 
     drainWebCommands();
+    if (!engine.isBusy())
+        drainPluginEditorBypassRequests();
 
     publishWebState();
     maybePublishPeaks();

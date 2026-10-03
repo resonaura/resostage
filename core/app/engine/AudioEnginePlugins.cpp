@@ -193,6 +193,15 @@ std::shared_ptr<PluginProcessorBank> AudioEngine::activePluginProcessorBank() co
         ? publication->bank : nullptr;
 }
 
+std::vector<PluginEditorBypassRequest>
+AudioEngine::takePluginEditorBypassRequests() {
+    if (!hasCurrentPluginProcessorBank())
+        return {};
+    if (auto bank = activePluginProcessorBank())
+        return bank->takeEditorBypassRequests();
+    return {};
+}
+
 bool AudioEngine::hasCurrentPluginProcessorBank() const noexcept {
     const auto publication = std::atomic_load_explicit(
         &activePluginBank, std::memory_order_acquire);

@@ -65,19 +65,26 @@ open.
 
 ### Plugin UI and graph integration
 
-- Every plugin editor/slot needs an explicit On/Off (bypass) control and
-  per-plugin preset save/load. The command targets a stable project/slot ID,
-  carries the project epoch, and changes only the intended instance. Bypass
-  must be represented through the plugin-host ABI/process context as plugin
-  bypass (the vendor receives the appropriate bypass state); do not implement
-  it as track mute or destructive removal. Stale editor controls close or
-  rebind visibly when their slot is replaced.
-- Presets are per exact plug-in slot and portable project resources; define
-  whether the operation is project-slot state or a user preset-library state
-  before storing data. Validate identity, byte size, format and restore result;
-  atomic save, duplicate names, missing plugin, failed restore, undo, project
-  clone, and concurrent Save/Render all need explicit behavior. Never capture
-  vendor state on the audio callback.
+- Implemented 2026-10-03 subset: isolated and in-process plug-in editor
+  windows now have a Bypass toggle. Isolated editors send a bounded,
+  per-slot latest-wins intent over shared-memory ABI v9; the intent carries
+  the exact bypass-state token displayed by the editor. Core's message-thread
+  poll ignores stale tokens and routes accepted requests through the same
+  project-history edit as the Mixer, then publishes the state token back to
+  the helper. The helper never changes DSP/project state from its UI thread.
+  The existing proxy-bank bypass path reaches JUCE's `processBlockBypassed`
+  in the vendor host and does not rebuild a healthy instance. The local editor
+  fallback uses the same project mutation and refuses stale bank identity.
+  Focused protocol tests cover initial state, repeated polling, latest-wins
+  clicks, stale-token rejection and bounds. The dedicated test passed 17
+  assertions; Core/helper builds and the complete native CTest target passed.
+  Real vendor-window visual and acoustic acceptance is still required.
+- Remaining: define and implement per-plugin preset save/load. Decide whether
+  each operation changes a slot's project state or writes a user preset
+  library before choosing persistence. Validate identity, byte size, format
+  and restore result; atomic save, duplicate names, missing plugin, failed
+  restore, undo, project clone, and concurrent Save/Render need explicit
+  behavior. Never capture vendor state on the audio callback.
 - Add real sidechain routing through track/bus source selection to a compatible
   plugin auxiliary input bus, across project schema, graph construction,
   plug-in host shared-memory ABI, AU/VST3 bus activation, offline render, save/

@@ -60,9 +60,12 @@ chain. Existing JUCE
 `processBlockBypassed` semantics remain the DSP policy.
 Read the matching current `PluginHostProtocol.h`; old helpers fail ABI validation.
 
-The current ABI is8. In addition to the version7 power mailboxes, it publishes
-bounded latest parameter values for reliable automation discovery. This does not
-move vendor parameter enumeration or state capture onto the Core audio callback.
+The current ABI is 9. Version 8 added bounded latest parameter values for
+reliable automation discovery. Version 9 adds bypass-state tokens and a
+version-fenced editor intent mailbox; Core's message thread remains the sole
+owner of project history and authoritative bypass changes. Neither protocol
+change moves vendor parameter enumeration or state capture onto the Core audio
+callback.
 
 These are source-verified ownership/protocol changes, not a completed
 performance/device validation claim. The current task records focused results.

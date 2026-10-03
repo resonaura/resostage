@@ -38,7 +38,9 @@ public:
     bool consumeStateChange() noexcept;
     bool consumeLatencyChange() noexcept;
     int processorLatencySamples() const noexcept { return latestProcessorLatency; }
-    bool openEditor(uint32_t slotIndex);
+    bool openEditor(uint32_t slotIndex, plugin_host::SharedArea& area);
+    /** Helper UI thread: refresh editor bypass controls from Core-owned tokens. */
+    void syncEditorBypassStates() noexcept;
     bool closeEditor(uint32_t slotIndex);
     void closeAllEditors();
     bool hasVisibleEditors() const noexcept;

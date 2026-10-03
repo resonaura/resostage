@@ -196,6 +196,10 @@ private:
     void pluginSlotRemove(const std::string& json);
     void pluginSlotMove(const std::string& json);
     void pluginSlotBypass(const std::string& json);
+    bool pluginSlotBypassForTarget(const std::string& stripId,
+                                   const std::string& slotId,
+                                   bool bypassed, bool publish = true);
+    void drainPluginEditorBypassRequests();
     void pluginSlotRetry(const std::string& json);
     void pluginSlotKeepAwake(const std::string& json);
     void pluginSlotPark(const std::string& json);

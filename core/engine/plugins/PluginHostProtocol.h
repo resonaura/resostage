@@ -22,7 +22,7 @@ namespace resostage::plugin_host {
 // header free of JUCE, STL containers, pointers, and platform handles: the
 // mapped area is a byte-level process boundary, not a shared object graph.
 inline constexpr uint32_t kMagic = 0x52535048; // "RSPH"
-inline constexpr uint32_t kProtocolVersion = 8;
+inline constexpr uint32_t kProtocolVersion = 9;
 inline constexpr size_t kSlotCount = 3;
 inline constexpr uint32_t kMaximumBlockSamples = 8192;
 inline constexpr uint32_t kMaximumMidiEventsPerBlock = 512;
@@ -180,6 +180,20 @@ struct alignas(64) SharedArea {
         pluginSlotPowerRequests{};
     std::array<std::atomic<uint8_t>, kMaximumPluginSlotsPerChain>
         pluginSlotPowerStates{};
+    // Core publishes a coherent bypass state token per slot. The low bit is
+    // the bypass value and upper bits are a monotonically changing revision;
+    // an editor request is accepted only against the exact state it displayed.
+    std::array<std::atomic<uint64_t>, kMaximumPluginSlotsPerChain>
+        pluginSlotBypassStates{};
+    // Editor windows are the sole producer and Core's message thread the sole
+    // consumer. Odd/even sequence publication keeps the multi-field request
+    // coherent while coalescing rapid clicks to their latest desired state.
+    std::array<std::atomic<uint64_t>, kMaximumPluginSlotsPerChain>
+        pluginSlotEditorBypassRequestSequences{};
+    std::array<std::atomic<uint64_t>, kMaximumPluginSlotsPerChain>
+        pluginSlotEditorBypassRequestBaseStates{};
+    std::array<std::atomic<uint8_t>, kMaximumPluginSlotsPerChain>
+        pluginSlotEditorBypassRequestValues{};
     // Startup/slot diagnostics are written by the helper before publishing
     // HostState::Ready/Failed, then remain immutable for this generation.
     // Fixed-size text avoids a second IPC channel and preserves bounded reads.
@@ -216,6 +230,102 @@ struct alignas(64) SharedArea {
     std::array<ControlEventCell, kControlEventQueueCapacity> controlEvents{};
     std::array<AudioSlot, kSlotCount> slots{};
 };
+
+struct EditorBypassRequest {
+    uint64_t baseState = 0;
+    bool bypassed = false;
+};
+
+inline constexpr bool bypassStateValue(uint64_t state) noexcept {
+    return (state & 1u) != 0;
+}
+
+// Called during helper startup, before Ready is published. Later writes to
+// this field are Core-authoritative and follow accepted project mutations.
+inline void publishInitialBypassState(SharedArea& area, uint32_t slotIndex,
+                                      bool bypassed) noexcept {
+    if (slotIndex >= area.pluginSlotCount
+        || slotIndex >= kMaximumPluginSlotsPerChain)
+        return;
+    area.pluginSlotBypassStates[slotIndex].store(
+        (uint64_t{1} << 1) | static_cast<uint64_t>(bypassed),
+        std::memory_order_release);
+}
+
+// Core is the sole writer after HostState::Ready. One atomic token publishes
+// the desired state and revision together, so helper UI never sees a torn pair.
+inline void publishCoreBypassState(SharedArea& area, uint32_t slotIndex,
+                                   bool bypassed) noexcept {
+    if (slotIndex >= area.pluginSlotCount
+        || slotIndex >= kMaximumPluginSlotsPerChain)
+        return;
+    constexpr uint64_t kMaximumRevision = std::numeric_limits<uint64_t>::max() >> 1;
+    const uint64_t previous = area.pluginSlotBypassStates[slotIndex].load(
+        std::memory_order_relaxed);
+    const uint64_t revision = (previous >> 1) >= kMaximumRevision
+        ? 1 : (previous >> 1) + 1;
+    area.pluginSlotBypassStates[slotIndex].store(
+        (revision << 1) | static_cast<uint64_t>(bypassed),
+        std::memory_order_release);
+}
+
+// Helper UI writes only the intent. It cannot change DSP or project state;
+// Core accepts it only if baseState is still the displayed authoritative token.
+inline bool publishEditorBypassRequest(SharedArea& area, uint32_t slotIndex,
+                                       uint64_t baseState,
+                                       bool bypassed) noexcept {
+    if (slotIndex >= area.pluginSlotCount
+        || slotIndex >= kMaximumPluginSlotsPerChain
+        || area.pluginSlotStatuses[slotIndex]
+            != static_cast<uint8_t>(PluginSlotStatus::Loaded))
+        return false;
+    auto& sequence = area.pluginSlotEditorBypassRequestSequences[slotIndex];
+    const uint64_t current = sequence.load(std::memory_order_seq_cst);
+    if ((current & 1u) != 0 || current > std::numeric_limits<uint64_t>::max() - 2)
+        return false;
+    sequence.store(current + 1, std::memory_order_seq_cst);
+    area.pluginSlotEditorBypassRequestBaseStates[slotIndex].store(
+        baseState, std::memory_order_seq_cst);
+    area.pluginSlotEditorBypassRequestValues[slotIndex].store(
+        static_cast<uint8_t>(bypassed), std::memory_order_seq_cst);
+    sequence.store(current + 2, std::memory_order_seq_cst);
+    return true;
+}
+
+// The message-thread consumer advances lastSeen even for stale intents. A
+// future accepted click then cannot replay a discarded request after a reload.
+inline bool consumeEditorBypassRequest(SharedArea& area, uint32_t slotIndex,
+                                      uint64_t& lastSeen,
+                                      EditorBypassRequest& request) noexcept {
+    if (slotIndex >= area.pluginSlotCount
+        || slotIndex >= kMaximumPluginSlotsPerChain)
+        return false;
+    auto& sequence = area.pluginSlotEditorBypassRequestSequences[slotIndex];
+    const uint64_t before = sequence.load(std::memory_order_seq_cst);
+    if (before == 0 || (before & 1u) != 0 || before == lastSeen)
+        return false;
+    const auto baseState = area.pluginSlotEditorBypassRequestBaseStates[slotIndex]
+        .load(std::memory_order_seq_cst);
+    const auto value = area.pluginSlotEditorBypassRequestValues[slotIndex]
+        .load(std::memory_order_seq_cst);
+    const uint64_t after = sequence.load(std::memory_order_seq_cst);
+    if (before != after)
+        return false;
+    lastSeen = after;
+    if (value > 1)
+        return false;
+    request = {baseState, value != 0};
+    return true;
+}
+
+inline bool editorBypassRequestIsCurrent(
+    const SharedArea& area, uint32_t slotIndex,
+    const EditorBypassRequest& request) noexcept {
+    return slotIndex < area.pluginSlotCount
+        && slotIndex < kMaximumPluginSlotsPerChain
+        && area.pluginSlotBypassStates[slotIndex].load(std::memory_order_acquire)
+            == request.baseState;
+}
 
 static_assert(std::atomic<uint32_t>::is_always_lock_free,
               "Plug-in host shared ABI requires lock-free 32-bit atomics");

@@ -54,6 +54,7 @@ bool PluginHostProcess::start(const juce::File& executable,
     outputFifoRead = outputFifoWrite = outputFifoSize = 0;
     missedOutputBlockCount.store(0, std::memory_order_relaxed);
     missedInputBlockCount.store(0, std::memory_order_relaxed);
+    consumedEditorBypassRequests.fill(0);
 
     const std::string sharedName = makeSharedName();
     if (!sharedMemory.create(sharedName, generation, maximumBlockSamples,
@@ -240,8 +241,34 @@ bool PluginHostProcess::enqueueParameterEvent(
 bool PluginHostProcess::requestPowerControl(
     uint32_t slotIndex, PluginPowerControl control) noexcept {
     auto* area = sharedMemory.area();
-    return area != nullptr && isReady()
-        && plugin_host::publishPowerControl(*area, slotIndex, control);
+    if (area == nullptr || !isReady()
+        || !plugin_host::publishPowerControl(*area, slotIndex, control))
+        return false;
+    if (control == PluginPowerControl::BypassEnable
+        || control == PluginPowerControl::BypassDisable) {
+        plugin_host::publishCoreBypassState(*area, slotIndex,
+            control == PluginPowerControl::BypassEnable);
+    }
+    return true;
+}
+
+bool PluginHostProcess::takeEditorBypassRequest(uint32_t slotIndex,
+                                               bool& bypassed) noexcept {
+    auto* area = sharedMemory.area();
+    if (area == nullptr || !isReady()
+        || slotIndex >= plugin_host::kMaximumPluginSlotsPerChain)
+        return false;
+    plugin_host::EditorBypassRequest request;
+    if (!plugin_host::consumeEditorBypassRequest(
+            *area, slotIndex, consumedEditorBypassRequests[slotIndex], request))
+        return false;
+    // A UI click is only valid against the exact bypass token the window
+    // displayed. Ignore an intent made stale by another surface or undo.
+    if (!plugin_host::editorBypassRequestIsCurrent(
+            *area, slotIndex, request))
+        return false;
+    bypassed = request.bypassed;
+    return true;
 }
 
 void PluginHostProcess::requestChainPrewarm() noexcept {

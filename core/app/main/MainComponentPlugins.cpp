@@ -18,6 +18,44 @@ namespace {
 
 constexpr size_t kMaximumOpenPluginEditors = 12;
 
+class PluginEditorContent final : public juce::Component {
+public:
+    PluginEditorContent() {
+        addAndMakeVisible(bypassButton);
+        bypassButton.setButtonText("Bypass");
+        bypassButton.setTooltip("Bypass this plug-in");
+        bypassButton.setClickingTogglesState(true);
+        bypassButton.onClick = [this] {
+            if (onBypassRequested)
+                onBypassRequested(bypassButton.getToggleState());
+        };
+    }
+
+    void setEditor(juce::AudioProcessorEditor* editorIn) {
+        editor = editorIn;
+        if (editor != nullptr)
+            addAndMakeVisible(editor);
+    }
+
+    void setBypassed(bool bypassed) {
+        bypassButton.setToggleState(bypassed, juce::dontSendNotification);
+    }
+
+    std::function<void(bool)> onBypassRequested;
+
+    void resized() override {
+        auto bounds = getLocalBounds();
+        bypassButton.setBounds(bounds.removeFromTop(32).reduced(6, 3)
+                                   .removeFromLeft(100));
+        if (editor != nullptr)
+            editor->setBounds(bounds);
+    }
+
+private:
+    juce::ToggleButton bypassButton;
+    juce::AudioProcessorEditor* editor = nullptr;
+};
+
 class PluginEditorWindow final : public juce::DocumentWindow,
                                  public juce::KeyListener {
 public:
@@ -26,13 +64,16 @@ public:
                        AudioEngine& engineIn,
                        std::shared_ptr<PluginProcessorBank> bankIn,
                        std::unique_ptr<juce::AudioProcessorEditor> editorIn,
-                       std::function<void(const std::string&)> onCloseRequestedIn)
+                       std::function<void(const std::string&)> onCloseRequestedIn,
+                       bool bypassed,
+                       std::function<void(bool)> onBypassRequestedIn)
         : juce::DocumentWindow(title, juce::Colours::black,
                                juce::DocumentWindow::allButtons, true),
           stripIdValue(std::move(stripIdIn)), slotIdValue(std::move(slotIdIn)),
           engine(engineIn),
           bank(std::move(bankIn)), editor(std::move(editorIn)),
-          onCloseRequested(std::move(onCloseRequestedIn)) {
+          onCloseRequested(std::move(onCloseRequestedIn)),
+          onBypassRequested(std::move(onBypassRequestedIn)) {
         setUsingNativeTitleBar(true);
         setResizable(true, true);
         setWantsKeyboardFocus(true);
@@ -44,7 +85,14 @@ public:
             const int edW = editor->getWidth() > 0 ? editor->getWidth() : 720;
             const int edH = editor->getHeight() > 0 ? editor->getHeight() : 520;
             editor->setSize(edW, edH);
-            setContentNonOwned(editor.get(), true);
+            content.setSize(edW, edH + 32);
+            content.setEditor(editor.get());
+            content.setBypassed(bypassed);
+            content.onBypassRequested = [this](bool enabled) {
+                if (onBypassRequested)
+                    onBypassRequested(enabled);
+            };
+            setContentNonOwned(&content, true);
             editor->addKeyListener(this);
         }
         addKeyListener(this);
@@ -60,6 +108,8 @@ public:
         if (nativeHandle != nullptr)
             PlatformShellMode::getInstance().cleanupPluginWindow(nativeHandle);
         clearContentComponent();
+        if (editor != nullptr)
+            content.removeChildComponent(editor.get());
         editor.reset();
         bank.reset();
     }
@@ -156,6 +206,7 @@ public:
     bool ownsBank(const std::shared_ptr<PluginProcessorBank>& candidate) const {
         return bank == candidate;
     }
+    void setBypassed(bool bypassed) { content.setBypassed(bypassed); }
 
 private:
     std::string stripIdValue;
@@ -163,7 +214,9 @@ private:
     AudioEngine& engine;
     std::shared_ptr<PluginProcessorBank> bank;
     std::unique_ptr<juce::AudioProcessorEditor> editor;
+    PluginEditorContent content;
     std::function<void(const std::string&)> onCloseRequested;
+    std::function<void(bool)> onBypassRequested;
     void* nativeHandle = nullptr;
 };
 
@@ -384,20 +437,44 @@ void MainComponent::pluginSlotBypass(const std::string& json) {
     if (!parseSlotTarget(json, doc, stripId, slotId)
         || !builder_json::getBool(doc, "bypassed", bypassed))
         return;
+    (void)pluginSlotBypassForTarget(stripId, slotId, bypassed);
+}
+
+bool MainComponent::pluginSlotBypassForTarget(const std::string& stripId,
+                                              const std::string& slotId,
+                                              bool bypassed,
+                                              bool publish) {
     auto* chain = pluginChainFor(engine.project(), stripId);
     if (chain == nullptr)
-        return;
+        return false;
     const auto found = std::find_if(chain->begin(), chain->end(),
         [&](const PluginSlot& slot) { return slot.id == slotId; });
     if (found == chain->end() || found->bypassed == bypassed)
-        return;
+        return false;
     engine.projectHistoryBeginEdit("", bypassed ? "Bypass plug-in"
                                                  : "Enable plug-in");
     found->bypassed = bypassed;
     engine.projectHistoryCommitEdit();
     engine.markDirty();
     engine.setPluginSlotBypassed(slotId, bypassed);
-    publishWebState();
+    for (const auto& window : pluginEditorWindows)
+        if (auto* pluginWindow = dynamic_cast<PluginEditorWindow*>(window.get());
+            pluginWindow != nullptr && pluginWindow->stripId() == stripId
+                && pluginWindow->slotId() == slotId)
+            pluginWindow->setBypassed(bypassed);
+    if (publish)
+        publishWebState();
+    return true;
+}
+
+void MainComponent::drainPluginEditorBypassRequests() {
+    bool changed = false;
+    for (const auto& request : engine.takePluginEditorBypassRequests())
+        changed = pluginSlotBypassForTarget(request.stripId, request.slotId,
+                                             request.bypassed, false)
+            || changed;
+    if (changed)
+        publishWebState();
 }
 
 void MainComponent::pluginSlotRetry(const std::string& json) {
@@ -535,9 +612,18 @@ void MainComponent::pluginSlotOpenEditor(const std::string& json) {
     auto onCloseRequested = [this, stripId](const std::string& sid) {
         closePluginEditor(stripId, sid);
     };
+    const std::weak_ptr<PluginProcessorBank> editorBank = bank;
+    auto onBypassRequested = [this, stripId, slotId, editorBank](bool bypassed) {
+        const auto owner = editorBank.lock();
+        if (owner == nullptr || !engine.hasCurrentPluginProcessorBank()
+            || engine.activePluginProcessorBank() != owner)
+            return;
+        (void)pluginSlotBypassForTarget(stripId, slotId, bypassed);
+    };
     pluginEditorWindows.push_back(std::make_unique<PluginEditorWindow>(
         stripId, slotId, juce::String(slot->plugin.name), engine, std::move(bank),
-        std::move(editor), std::move(onCloseRequested)));
+        std::move(editor), std::move(onCloseRequested), slot->bypassed,
+        std::move(onBypassRequested)));
     setStatus("Opened plug-in editor: " + juce::String(slot->plugin.name));
 }
 

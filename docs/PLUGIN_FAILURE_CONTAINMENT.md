@@ -22,7 +22,7 @@ still execute plug-ins in the renderer process.
 
 ## Audio/control protocol
 
-The current version-8 `PluginHostProtocol.h` ABI maps three fixed-capacity audio slots
+The current version-9 `PluginHostProtocol.h` ABI maps three fixed-capacity audio slots
 into shared memory. Each slot is an explicit ownership sequence
 `Empty -> Writing -> Ready -> Processing -> Complete -> Empty`; generation and
 layout are validated on both sides. Audio is planar float. Each block carries a
@@ -39,12 +39,19 @@ helper-published state atomics, so wake/park/keep-awake/On-Off do not flood the 
 queue. Chain prewarm is one coalesced flag consumed by helper DSP. Parent/child
 ABI validation must reject stale helpers after a protocol-layout change.
 
-Version8 also publishes a bounded per-parameter latest-value atomic table (2048
+Version 8 also publishes a bounded per-parameter latest-value atomic table (2048
 parameters per slot). Discovery exposes actual vendor identities and automation
 capabilities; the UI does not invent generic parameter targets. Metadata/current
 values are read outside audio without synchronously invoking vendor code on the
 device callback. A removed vendor parameter remains unbound, while explicit
 legacy index targets keep their existing semantics.
+
+Version 9 adds per-slot bypass-state tokens and bounded editor-originated
+latest-wins intents. The helper window can request a bypass value only against
+the exact token it displayed; Core consumes the intent on its message thread,
+rejects stale requests, and records accepted changes through project history.
+The helper never changes the project or bypasses a vendor directly from its UI
+thread. This keeps editor controls aligned with Core, other surfaces and Undo.
 
 The device callback never waits for a host, takes no process-control lock,
 allocates no memory, and performs no filesystem or child-process work. It copies

@@ -98,6 +98,8 @@ public:
         const plugin_host::ParameterEvent& event) noexcept;
     /** Latest-wins bounded power mailbox; consumed on the next helper DSP block. */
     bool requestPowerControl(uint32_t slotIndex, PluginPowerControl control) noexcept;
+    /** Message-thread poll for a latest-wins editor bypass intent. */
+    bool takeEditorBypassRequest(uint32_t slotIndex, bool& bypassed) noexcept;
     /** O(1) coalesced prewarm for the whole serial chain; no parameter queue/wake. */
     void requestChainPrewarm() noexcept;
     /** Atomic helper-produced power state, not the Core proxy's tracker. */
@@ -151,6 +153,8 @@ private:
         plugin_host::kSlotCount * plugin_host::kMaximumBlockSamples;
     std::array<float, outputFifoCapacity> outputFifoLeft{};
     std::array<float, outputFifoCapacity> outputFifoRight{};
+    std::array<uint64_t, plugin_host::kMaximumPluginSlotsPerChain>
+        consumedEditorBypassRequests{};
     size_t outputFifoRead = 0;
     size_t outputFifoWrite = 0;
     size_t outputFifoSize = 0;

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <limits>
 
 #if !defined(_WIN32)
@@ -18,12 +19,68 @@
 
 namespace resostage {
 
+namespace {
+
+class PluginEditorContent final : public juce::Component {
+public:
+    PluginEditorContent() {
+        addAndMakeVisible(bypassButton);
+        bypassButton.setButtonText("Bypass");
+        bypassButton.setTooltip("Bypass this plug-in");
+        bypassButton.setClickingTogglesState(true);
+        bypassButton.onClick = [this] {
+            if (onBypassRequested)
+                onBypassRequested(bypassButton.getToggleState(), displayedState);
+        };
+    }
+
+    void setEditor(juce::AudioProcessorEditor* editor) {
+        pluginEditor = editor;
+        if (pluginEditor != nullptr)
+            addAndMakeVisible(pluginEditor);
+    }
+
+    void refreshBypassState(plugin_host::SharedArea& area,
+                            uint32_t slotIndex) noexcept {
+        if (slotIndex >= area.pluginSlotCount
+            || slotIndex >= plugin_host::kMaximumPluginSlotsPerChain)
+            return;
+        const uint64_t state = area.pluginSlotBypassStates[slotIndex]
+            .load(std::memory_order_acquire);
+        if (state == displayedState)
+            return;
+        displayedState = state;
+        bypassButton.setToggleState(plugin_host::bypassStateValue(state),
+                                    juce::dontSendNotification);
+    }
+
+    std::function<void(bool, uint64_t)> onBypassRequested;
+
+    void resized() override {
+        auto bounds = getLocalBounds();
+        bypassButton.setBounds(bounds.removeFromTop(32).reduced(6, 3)
+                                   .removeFromLeft(100));
+        if (pluginEditor != nullptr)
+            pluginEditor->setBounds(bounds);
+    }
+
+private:
+    juce::ToggleButton bypassButton;
+    juce::AudioProcessorEditor* pluginEditor = nullptr;
+    uint64_t displayedState = 0;
+};
+
+} // namespace
+
 struct PluginHostRuntime::EditorWindow final : juce::DocumentWindow {
     EditorWindow(const juce::String& title,
-                 std::unique_ptr<juce::AudioProcessorEditor> editorIn)
+                 std::unique_ptr<juce::AudioProcessorEditor> editorIn,
+                 plugin_host::SharedArea& sharedAreaIn,
+                 uint32_t slotIndexIn)
         : juce::DocumentWindow(title, juce::Colours::black,
                                juce::DocumentWindow::allButtons, true),
-          editor(std::move(editorIn)) {
+          slotIndex(slotIndexIn), editor(std::move(editorIn)),
+          sharedArea(sharedAreaIn) {
         setUsingNativeTitleBar(true);
         setResizable(true, true);
         setWantsKeyboardFocus(true);
@@ -31,7 +88,15 @@ struct PluginHostRuntime::EditorWindow final : juce::DocumentWindow {
             const int width = editor->getWidth() > 0 ? editor->getWidth() : 720;
             const int height = editor->getHeight() > 0 ? editor->getHeight() : 520;
             editor->setSize(width, height);
-            setContentNonOwned(editor.get(), true);
+            content.setSize(width, height + 32);
+            content.setEditor(editor.get());
+            content.onBypassRequested = [this](bool bypassed,
+                                                uint64_t baseState) {
+                (void)plugin_host::publishEditorBypassRequest(
+                    sharedArea, slotIndex, baseState, bypassed);
+            };
+            content.refreshBypassState(sharedArea, slotIndex);
+            setContentNonOwned(&content, true);
         }
         centreWithSize(getWidth(), getHeight());
         setVisible(true);
@@ -46,13 +111,21 @@ struct PluginHostRuntime::EditorWindow final : juce::DocumentWindow {
 
     ~EditorWindow() override {
         clearContentComponent();
+        if (editor != nullptr)
+            content.removeChildComponent(editor.get());
         editor.reset();
     }
 
     void closeButtonPressed() override { setVisible(false); }
 
+    void refreshBypassState() noexcept {
+        content.refreshBypassState(sharedArea, slotIndex);
+    }
+
     uint32_t slotIndex = std::numeric_limits<uint32_t>::max();
     std::unique_ptr<juce::AudioProcessorEditor> editor;
+    plugin_host::SharedArea& sharedArea;
+    PluginEditorContent content;
 };
 
 PluginHostRuntime::~PluginHostRuntime() = default;
@@ -205,7 +278,8 @@ bool PluginHostRuntime::consumeLatencyChange() noexcept {
     return true;
 }
 
-bool PluginHostRuntime::openEditor(uint32_t slotIndex) {
+bool PluginHostRuntime::openEditor(uint32_t slotIndex,
+                                   plugin_host::SharedArea& area) {
     if (!juce::MessageManager::getInstance()->isThisTheMessageThread()
         || builtBank.bank == nullptr || projectLoader.project().tracks.empty())
         return false;
@@ -217,6 +291,7 @@ bool PluginHostRuntime::openEditor(uint32_t slotIndex) {
     juce::Process::makeForegroundProcess();
     for (auto& existing : editors) {
         if (existing != nullptr && existing->slotIndex == slotIndex) {
+            existing->refreshBypassState();
             existing->setVisible(true);
             existing->toFront(true);
             juce::Process::makeForegroundProcess();
@@ -236,10 +311,15 @@ bool PluginHostRuntime::openEditor(uint32_t slotIndex) {
     if (editor == nullptr)
         return false;
     auto window = std::make_unique<EditorWindow>(
-        juce::String(slot.plugin.name), std::move(editor));
-    window->slotIndex = slotIndex;
+        juce::String(slot.plugin.name), std::move(editor), area, slotIndex);
     editors.push_back(std::move(window));
     return true;
+}
+
+void PluginHostRuntime::syncEditorBypassStates() noexcept {
+    for (auto& editor : editors)
+        if (editor != nullptr)
+            editor->refreshBypassState();
 }
 
 bool PluginHostRuntime::closeEditor(uint32_t slotIndex) {
@@ -281,6 +361,7 @@ void PluginHostRuntime::publishSlotStatuses(
         else if (state == "missing") status = plugin_host::PluginSlotStatus::Missing;
         else if (state == "failed") status = plugin_host::PluginSlotStatus::Failed;
         area.pluginSlotStatuses[i] = static_cast<uint8_t>(status);
+        plugin_host::publishInitialBypassState(area, i, slots[i].bypassed);
         area.pluginSlotErrors[i].fill('\0');
         try {
             const auto error = builtBank.bank->getSlotLoadError(slots[i].id);

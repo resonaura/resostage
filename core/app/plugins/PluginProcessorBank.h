@@ -39,6 +39,12 @@ struct PluginTransportState {
     uint64_t hostTimeNanos = 0;
 };
 
+struct PluginEditorBypassRequest {
+    std::string stripId;
+    std::string slotId;
+    bool bypassed = false;
+};
+
 /** Lock-free scalar transport projection read by tempo-aware plug-ins. */
 class PluginPlayHead final : public juce::AudioPlayHead {
 public:
@@ -159,6 +165,8 @@ public:
     bool closeHostedEditor(const std::string& stripId,
                            const std::string& slotId);
     bool closeAllHostedEditors();
+    /** Message-thread-only drain of bypass intents from isolated editor windows. */
+    std::vector<PluginEditorBypassRequest> takeEditorBypassRequests();
 
     /** Audio-thread hooks for routing block MIDI messages to instrument strips. */
     bool stripHasInstrument(size_t stripIndex) const noexcept;

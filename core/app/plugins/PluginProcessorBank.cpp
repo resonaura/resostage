@@ -1648,6 +1648,30 @@ bool PluginProcessorBank::closeAllHostedEditors() {
     return requested;
 }
 
+std::vector<PluginEditorBypassRequest>
+PluginProcessorBank::takeEditorBypassRequests() {
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    std::vector<PluginEditorBypassRequest> requests;
+    for (const auto& chain : chains) {
+        if (chain == nullptr || chain->hostedProcess == nullptr
+            || chain->hostedProcess->process == nullptr)
+            continue;
+        auto& process = *chain->hostedProcess->process;
+        const size_t count = std::min(chain->nodes.size(),
+            static_cast<size_t>(plugin_host::kMaximumPluginSlotsPerChain));
+        for (size_t slotIndex = 0; slotIndex < count; ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
+            if (node == nullptr || slotIndex > std::numeric_limits<uint32_t>::max())
+                continue;
+            bool bypassed = false;
+            if (process.takeEditorBypassRequest(
+                    static_cast<uint32_t>(slotIndex), bypassed))
+                requests.push_back({chain->stripId, node->slotId, bypassed});
+        }
+    }
+    return requests;
+}
+
 void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex,
                                              int paramIndex, float value) noexcept {
     if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
