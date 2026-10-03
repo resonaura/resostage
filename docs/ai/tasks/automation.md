@@ -49,6 +49,26 @@ per-row selector wiring, collapse state, geometry/virtualization, and UI-driven
 save/reopen workflow acceptance remain open. Do not call the multi-automation
 UI complete until those pieces are implemented and tested.
 
+### Implemented subset — target selector rebinds its current lane (2026-10-03)
+
+The Timeline automation parameter selector now updates the target of the
+currently selected persisted lane through the reliable
+`automationLaneUpdate({ laneId, target })` history path. It no longer silently
+switches to another existing lane or creates a temporary preview when a lane
+already exists. Core's project-persisted target cache therefore detaches and
+restores the previous curve on the same edit. When no lane exists yet, choosing
+a target remains a non-editable effective-value preview; only `+` creates the
+empty lane. Generated Core lane IDs are resolved from the selected target after
+the authoritative echo. Rejected target changes remain on the existing lane
+and show the command error.
+
+Focused `AutomationTrackControls` tests passed 14/14; full UI passed 849 tests
+across 129 files; `tsc -b`, production UI build, changed-file oxlint and
+`git diff --check` passed. This fixes per-lane target behavior within the
+current single-lane editor. Independent simultaneously visible foldable
+pseudo-track rows, stable collapse state, row geometry/virtualization and UI
+save/reopen acceptance are still open.
+
 This section records the next automation/control work. It is not a claim that
 the items below are implemented. Preserve the existing lane API/history path
 unless the model audit demonstrates a required persisted-schema change.

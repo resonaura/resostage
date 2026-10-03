@@ -790,3 +790,18 @@ tests cover exact strip matching and per-chain progress. This fixture contains
 no real plug-in: helper launch/reuse counts, state continuity and audibility
 still need AU/VST3 acceptance using a private copy of writetest, plus failed
 multi-chain, same-chain, rapid retry and superseding project-switch cases.
+
+### Completed subset — rebind the selected automation lane from its selector (2026-10-03)
+
+The existing Timeline parameter selector now calls the reliable lane-update
+API with the selected lane's new target. It no longer changes the active lane
+or leaves a temporary preview when editing an existing lane; Core's v11
+project-persisted curve cache handles detach/restore. Before a lane exists,
+selector choice remains preview-only and explicit `+` creates the lane. The
+Core-generated ID is resolved by target once the authoritative state arrives.
+
+Focused UI tests: 14/14. Full UI: 849 tests across 129 files. `tsc -b`,
+production UI build, changed-file lint and `git diff --check` passed. This does
+not implement the requested independent foldable pseudo-track rows, multi-lane
+simultaneous display, collapse-state persistence, virtualized row geometry or
+browser-driven cache save/reopen; these remain the next automation block.

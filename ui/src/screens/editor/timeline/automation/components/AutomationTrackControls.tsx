@@ -32,10 +32,14 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
 }) {
   const groups = useMemo(() => getTrackAutomationTargets(track, buses, lanes, parameters), [track, buses, lanes, parameters]);
   const targets = groups.flatMap((group) => group.targets);
+  const selectedTarget = targets.find((option) => option.id === activeLaneId);
   const activeLane = lanes.find((lane) => lane.id === activeLaneId)
-    ?? (targets.some((target) => target.id === activeLaneId) ? undefined : lanes[0]);
-  const target = activeLane ? targets.find((option) => matchesAutomationTarget(option, activeLane.target))
-    : targets.find((option) => option.id === activeLaneId) ?? targets[0];
+    ?? (selectedTarget
+      ? lanes.find((lane) => matchesAutomationTarget(selectedTarget, lane.target))
+      : lanes[0]);
+  const target = activeLane
+    ? targets.find((option) => matchesAutomationTarget(option, activeLane.target))
+    : selectedTarget ?? targets[0];
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setError(null); }, [songIndex, track.id]);
@@ -53,12 +57,16 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
     if (!targetToAdd || targetToAdd.disabledReason) return;
     const existing = lanes.find((lane) => matchesAutomationTarget(targetToAdd, lane.target));
     if (existing) { onSelectLane(existing.id); return; }
-    void run(() => builder.automationLaneAdd({ songIndex, domain: targetToAdd.domain,
-      entityId: targetToAdd.entityId, parameterId: targetToAdd.parameterId,
-      valueType: targetToAdd.valueType, defaultValue: targetToAdd.defaultValue,
-      minValue: targetToAdd.minValue, maxValue: targetToAdd.maxValue, scope: "track",
-      writeMode: "read", points: [] }));
-    onSelectLane(targetToAdd.id);
+    void run(async () => {
+      await builder.automationLaneAdd({ songIndex, domain: targetToAdd.domain,
+        entityId: targetToAdd.entityId, parameterId: targetToAdd.parameterId,
+        valueType: targetToAdd.valueType, defaultValue: targetToAdd.defaultValue,
+        minValue: targetToAdd.minValue, maxValue: targetToAdd.maxValue, scope: "track",
+        writeMode: "read", points: [] });
+      // The Core owns generated lane IDs. Keep a stable target selection until
+      // the authoritative echo supplies the lane; activeLane resolves it by target.
+      onSelectLane(targetToAdd.id);
+    });
   };
   const disabled = readOnly || pending;
   const canAdd = !disabled && Boolean(
@@ -94,8 +102,27 @@ export const AutomationTrackControls = memo(function AutomationTrackControls({
         }))}
         onChange={(id) => {
           const selected = targets.find((option) => option.id === id);
-          const existing = selected && lanes.find((lane) => matchesAutomationTarget(selected, lane.target));
-          onSelectLane(existing?.id ?? id);
+          if (!selected) return;
+          if (!activeLane) {
+            // Choosing a target before creating a lane only previews its
+            // effective value. The explicit + action remains the creation step.
+            onSelectLane(selected.id);
+            return;
+          }
+          if (matchesAutomationTarget(selected, activeLane.target)) return;
+          void run(() => builder.automationLaneUpdate({
+            songIndex,
+            laneId: activeLane.id,
+            target: {
+              domain: selected.domain,
+              entityId: selected.entityId,
+              parameterId: selected.parameterId,
+              valueType: selected.valueType,
+              defaultValue: selected.defaultValue,
+              minValue: selected.minValue,
+              maxValue: selected.maxValue,
+            },
+          }));
         }} />
       <Select size="xs" tone={activeLane?.writeMode === "touch" ? "warning-soft" : activeLane?.writeMode === "latch" ? "accent-soft" : activeLane?.writeMode === "write" ? "danger-soft" : undefined} className={`${compact ? "w-14" : "w-16"} shrink-0`} aria-label="Automation write mode"
         value={activeLane?.writeMode ?? "read"} isDisabled={disabled || !activeLane}

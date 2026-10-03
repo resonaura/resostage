@@ -18,9 +18,12 @@ capacity reservation precede the single ProjectHistory transaction; serializatio
 and the v10→v11 migrator preserve existing lanes and initialize absent caches.
 The backend target set currently accepts loaded automatable plug-in parameters,
 track gain/pan/mute, unique enabled sends, and MIDI CC/pitch bend for MIDI tracks.
-The Timeline UI has not yet become a set of independent foldable automation
-pseudo-tracks; its selector still chooses/activates a single lane. This is a
-backend subset only.
+The Timeline selector now reliably rebinds its current lane through the exact
+Core mutation, resolves a Core-generated lane ID from the selected target after
+the state echo, and uses the cache for curve detach/restore. With no lane, the
+selected target remains preview-only until explicit `+` creation. The UI still
+edits/displays only one lane at a time and has not become independent foldable
+automation pseudo-tracks. This remains a backend plus partial-UI subset.
 
 Latest verification for this block: `cmake --build core/build --target
 resostage_engine_tests ResoStage -j4` passed; `ctest --test-dir core/build
@@ -32,6 +35,13 @@ on rebind; `git diff --check` passed. No UI suite was rerun because no UI source
 changed in this block. These results do not verify history Undo/Redo of dormant
 curves via the UI or its visible save/reopen workflow; preserve those as
 explicit acceptance gaps.
+
+The follow-up target-selector UI change passed focused `AutomationTrackControls`
+tests 14/14, full UI Vitest 849/849 across 129 files, `tsc -b`, the production
+UI build, changed-file oxlint and `git diff --check`. It verifies the exact
+reliable target-update request and generated-lane target resolution, not live
+Core cache round-trip through the browser, duplicate-target failure recovery,
+history undo/redo, or foldable pseudo-track UI.
 
 Plug-in retry now carries an exact stable strip scope inside its captured
 project epoch. The builder recreates only that strip's isolated helper chain,

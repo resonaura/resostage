@@ -157,6 +157,66 @@ describe("AutomationTrackControls", () => {
     });
   });
 
+  it("rebinds the current lane when its target selector changes", async () => {
+    const onSelectLane = vi.fn();
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 2,
+          track: mockTrack,
+          lanes: [mockLane],
+          activeLaneId: "lane-1",
+          onSelectLane,
+        }),
+      );
+    });
+
+    const targetSelect = container.querySelector("select") as HTMLSelectElement;
+    await act(async () => {
+      targetSelect.value = "strip:track-1:pan";
+      targetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(builder.automationLaneUpdate).toHaveBeenCalledWith({
+      songIndex: 2,
+      laneId: "lane-1",
+      target: {
+        domain: "strip",
+        entityId: "track-1",
+        parameterId: "pan",
+        valueType: "floatNormalized",
+        defaultValue: 0,
+        minValue: -1,
+        maxValue: 1,
+      },
+    });
+    expect(onSelectLane).not.toHaveBeenCalled();
+    expect(builder.automationLaneAdd).not.toHaveBeenCalled();
+  });
+
+  it("resolves the generated lane from a selected target after the Core echo", () => {
+    act(() => {
+      root.render(
+        createElement(AutomationTrackControls, {
+          songIndex: 0,
+          track: mockTrack,
+          lanes: [mockLane],
+          activeLaneId: "strip:track-1:gain",
+          onSelectLane: vi.fn(),
+        }),
+      );
+    });
+
+    const powerBtn = container.querySelector(
+      "button[aria-label='Enable automation']",
+    ) as HTMLButtonElement;
+    const removeBtn = container.querySelector(
+      "button[aria-label='Remove automation']",
+    ) as HTMLButtonElement;
+    expect(powerBtn.disabled).toBe(false);
+    expect(removeBtn.disabled).toBe(false);
+  });
+
   it("applies tone styling for touch, latch, and write modes", () => {
     act(() => {
       root.render(
