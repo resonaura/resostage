@@ -805,3 +805,23 @@ production UI build, changed-file lint and `git diff --check` passed. This does
 not implement the requested independent foldable pseudo-track rows, multi-lane
 simultaneous display, collapse-state persistence, virtualized row geometry or
 browser-driven cache save/reopen; these remain the next automation block.
+
+### Completed block — shared stereo peak hold across Timeline, Inspector and Mixer (2026-10-03)
+
+The clip store now retains independent left/right maxima for every valid track
+and bus meter sample, keyed by Core origin/session/project epoch and stable
+strip ID. The shared clip flag still latches only above 0 dBFS. Timeline's
+combined fader-meter and compact header meter, Inspector/Mixer meters, and the
+Mixer/Inspector peak readout all sample the same retained values. A strip
+readout or clickable meter clears both stereo holds and the clip flag globally.
+Ordinary peak rises do not trigger React state updates; canvases poll the
+bounded store on the shared paint loop and only redraw when the marker moves to
+a new pixel. Project/session changes remain isolated by the existing identity
+key; retained entries remain capped at 8,192.
+
+Focused store/telemetry tests passed 22/22; full UI Vitest passed 850 tests
+across 129 files; `tsc -b --pretty false` and the production UI build passed.
+Repository lint exited 0 with 12 existing warnings in unrelated files; none of
+the changed files warned. `git diff --check` passed. Synthetic store coverage
+does not replace mounted Inspector/track-switch integration, remote Core
+reconnect, or device visual acceptance; those remain open.

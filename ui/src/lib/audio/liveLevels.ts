@@ -23,7 +23,7 @@ import { isRenderActive, setTransportPlaying } from "@/lib/state/appActivity";
 import { addRafTask } from "@/lib/state/rafLoop";
 import {
   channelClipHoldKey,
-  publishChannelClipPeak,
+  publishChannelPeak,
   resetChannelClipHolds,
 } from "@/lib/audio/channelClipHold";
 import { currentProjectCommandIdentity } from "@/lib/state/api";
@@ -377,9 +377,10 @@ export function pushLiveLevels(frame: {
     trackLevelsById = new Map(tracks.map((track) => [track.id, track]));
     const projectIdentity = currentProjectCommandIdentity();
     for (const track of tracks)
-      publishChannelClipPeak(
+      publishChannelPeak(
         channelClipHoldKey(track.id, projectIdentity),
-        Math.max(track.peakDbL, track.peakDbR),
+        track.peakDbL,
+        track.peakDbR,
       );
     changed = true;
   }
@@ -398,9 +399,10 @@ export function pushLiveLevels(frame: {
     });
     const projectIdentity = currentProjectCommandIdentity();
     for (const meter of meters)
-      publishChannelClipPeak(
+      publishChannelPeak(
         channelClipHoldKey(meter.id, projectIdentity),
-        Math.max(meter.peakDbL, meter.peakDbR),
+        meter.peakDbL,
+        meter.peakDbR,
       );
     changed = true;
   }

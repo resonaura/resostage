@@ -1241,6 +1241,22 @@ existing warnings in unrelated files and none in the changed files.
 Multi-surface visual/remote tests and consistent held-peak readout in Timeline
 remain open.
 
+### Follow-up — shared stereo peak hold across Timeline, Inspector and Mixer (2026-10-03)
+
+The shared strip store now retains per-channel maxima from every valid Core
+track/bus meter sample, not only over-zero clip events. Timeline's combined
+meter/fader and compact meter, plus the Inspector/Mixer `LevelMeterBar` and
+peak readout, sample those same stable strip values. Clear from a shared strip
+readout/meter resets the common left/right hold and clip latch. Ordinary peak
+increases update the small paint-loop snapshot in place and do not notify
+React; clip transitions/reset remain the only store notifications. The meter
+canvases quantize retained markers to their own pixel grid before repainting.
+
+Focused verification and full UI/build results are recorded in
+`performance.md` and `handoff.md`. Inspector/bus identity integration under
+track switching, remote Core replacement and real-device visual acceptance
+remain open.
+
 The initial audit also confirmed that active-song BPM/time-signature editing
 and Tap Tempo were already present in SongTempoControl; do not duplicate this
 surface. Only regression coverage and point-map preservation verification

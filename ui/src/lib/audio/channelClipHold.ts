@@ -12,22 +12,35 @@
 
 const FLOOR_DB = -100;
 const SANE_PEAK_DB = 24;
-const HELD_PEAK_EPSILON_DB = 0.1;
 /** Covers large sessions while bounding retained state across project changes. */
 const MAX_RETAINED_STRIPS = 8192;
 
 export type ChannelClipHoldSnapshot = {
   clipped: boolean;
-  heldPeakDb: number;
+};
+
+export type ChannelPeakHold = Readonly<{
+  leftDb: number;
+  rightDb: number;
+}>;
+
+type MutableChannelPeakHold = {
+  leftDb: number;
+  rightDb: number;
 };
 
 const EMPTY_SNAPSHOT: ChannelClipHoldSnapshot = Object.freeze({
   clipped: false,
-  heldPeakDb: FLOOR_DB,
+});
+
+const EMPTY_PEAK_HOLD: ChannelPeakHold = Object.freeze({
+  leftDb: FLOOR_DB,
+  rightDb: FLOOR_DB,
 });
 
 type Entry = {
   snapshot: ChannelClipHoldSnapshot;
+  peakHold: MutableChannelPeakHold;
   listeners: Set<() => void>;
 };
 
@@ -58,17 +71,18 @@ function entryFor(key: string): Entry | null {
       if (evictableKey === undefined) return null;
       entries.delete(evictableKey);
     }
-    entry = { snapshot: EMPTY_SNAPSHOT, listeners: new Set() };
+    entry = {
+      snapshot: EMPTY_SNAPSHOT,
+      peakHold: { leftDb: FLOOR_DB, rightDb: FLOOR_DB },
+      listeners: new Set(),
+    };
     entries.set(key, entry);
   }
   return entry;
 }
 
 function publish(entry: Entry, next: ChannelClipHoldSnapshot): void {
-  if (
-    entry.snapshot.clipped === next.clipped &&
-    entry.snapshot.heldPeakDb === next.heldPeakDb
-  ) return;
+  if (entry.snapshot.clipped === next.clipped) return;
   entry.snapshot = next;
   for (const listener of entry.listeners) listener();
 }
@@ -76,6 +90,16 @@ function publish(entry: Entry, next: ChannelClipHoldSnapshot): void {
 /** Stable external-store read; missing/unmounted strips have a quiet baseline. */
 export function getChannelClipHoldSnapshot(key: string): ChannelClipHoldSnapshot {
   return entries.get(key)?.snapshot ?? EMPTY_SNAPSHOT;
+}
+
+/**
+ * Read the shared peak hold from a meter paint loop without causing React
+ * renders for every rising sample. Peak values are updated in place by the
+ * telemetry decoder; consumers should sample them during their paint/readout
+ * loop rather than retain them as React state.
+ */
+export function getChannelPeakHold(key: string): ChannelPeakHold {
+  return entries.get(key)?.peakHold ?? EMPTY_PEAK_HOLD;
 }
 
 /** Subscribe a view to the latch for one fully-qualified strip identity. */
@@ -91,29 +115,45 @@ export function subscribeChannelClipHold(
   };
 }
 
-/** Receive one Core peak sample. Values at/below 0 dBFS do not clip. */
-export function publishChannelClipPeak(key: string, peakDb: number): void {
-  if (!Number.isFinite(peakDb) || peakDb <= 0 || peakDb > SANE_PEAK_DB)
-    return;
+/** Receive one Core stereo peak sample. Clip latches only above 0 dBFS. */
+export function publishChannelPeak(
+  key: string,
+  peakDbL: number,
+  peakDbR: number,
+): void {
+  if (
+    !Number.isFinite(peakDbL) || !Number.isFinite(peakDbR) ||
+    peakDbL > SANE_PEAK_DB || peakDbR > SANE_PEAK_DB
+  ) return;
   const entry = entryFor(key);
   if (!entry) return;
 
-  const heldPeakDb = entry.snapshot.heldPeakDb;
-  if (entry.snapshot.clipped) {
-    if (peakDb > heldPeakDb + HELD_PEAK_EPSILON_DB)
-      publish(entry, { clipped: true, heldPeakDb: peakDb });
-  } else {
-    publish(entry, { clipped: true, heldPeakDb: peakDb });
+  const leftDb = Math.max(FLOOR_DB, peakDbL);
+  const rightDb = Math.max(FLOOR_DB, peakDbR);
+  if (leftDb > entry.peakHold.leftDb || rightDb > entry.peakHold.rightDb) {
+    entry.peakHold.leftDb = Math.max(leftDb, entry.peakHold.leftDb);
+    entry.peakHold.rightDb = Math.max(rightDb, entry.peakHold.rightDb);
   }
+
+  const clipped = Math.max(leftDb, rightDb) > 0;
+  if (clipped !== entry.snapshot.clipped)
+    publish(entry, { clipped });
 }
 
 /** Reset the same visible latch everywhere without touching the audio engine. */
 export function clearChannelClipHold(key: string): void {
   const entry = entries.get(key);
-  if (entry) publish(entry, EMPTY_SNAPSHOT);
+  if (!entry) return;
+  entry.peakHold.leftDb = FLOOR_DB;
+  entry.peakHold.rightDb = FLOOR_DB;
+  publish(entry, EMPTY_SNAPSHOT);
 }
 
 /** Clear all mounted strip latches when the live Core/telemetry source resets. */
 export function resetChannelClipHolds(): void {
-  for (const entry of entries.values()) publish(entry, EMPTY_SNAPSHOT);
+  for (const entry of entries.values()) {
+    entry.peakHold.leftDb = FLOOR_DB;
+    entry.peakHold.rightDb = FLOOR_DB;
+    publish(entry, EMPTY_SNAPSHOT);
+  }
 }

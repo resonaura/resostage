@@ -10,7 +10,8 @@ import {
   channelClipHoldKey,
   clearChannelClipHold,
   getChannelClipHoldSnapshot,
-  publishChannelClipPeak,
+  getChannelPeakHold,
+  publishChannelPeak,
   resetChannelClipHolds,
   subscribeChannelClipHold,
 } from "@/lib/audio/channelClipHold";
@@ -33,6 +34,24 @@ afterEach(() => {
 });
 
 describe("shared channel clip holds", () => {
+  it("retains stereo peak maxima without rerendering React subscribers per sample", () => {
+    const key = channelClipHoldKey("track-peaks", projectA);
+    const listener = vi.fn();
+    const unsubscribe = subscribeChannelClipHold(key, listener);
+
+    publishChannelPeak(key, -12, -9);
+    publishChannelPeak(key, -7, -10);
+    publishChannelPeak(key, -8, -5);
+
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: -7, rightDb: -5 });
+    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: false });
+    expect(listener).not.toHaveBeenCalled();
+
+    clearChannelClipHold(key);
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: -100, rightDb: -100 });
+    unsubscribe();
+  });
+
   it("publishes one peak latch to every view subscribed to a strip", () => {
     const key = channelClipHoldKey("track-1", projectA);
     const timeline = vi.fn();
@@ -40,9 +59,10 @@ describe("shared channel clip holds", () => {
     const unsubscribeTimeline = subscribeChannelClipHold(key, timeline);
     const unsubscribeMixer = subscribeChannelClipHold(key, mixer);
 
-    publishChannelClipPeak(key, 1.2);
+    publishChannelPeak(key, 1.2, -3);
 
-    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: true, heldPeakDb: 1.2 });
+    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: true });
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: 1.2, rightDb: -3 });
     expect(timeline).toHaveBeenCalledTimes(1);
     expect(mixer).toHaveBeenCalledTimes(1);
 
@@ -56,32 +76,37 @@ describe("shared channel clip holds", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeChannelClipHold(key, listener);
 
-    publishChannelClipPeak(key, 2);
-    publishChannelClipPeak(key, 2.05);
+    publishChannelPeak(key, 2, -4);
+    publishChannelPeak(key, 2.05, -3.8);
     expect(listener).toHaveBeenCalledTimes(1);
 
     clearChannelClipHold(key);
-    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: false, heldPeakDb: -100 });
-    expect(getChannelClipHoldSnapshot(otherProject)).toEqual({ clipped: false, heldPeakDb: -100 });
+    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: false });
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: -100, rightDb: -100 });
+    expect(getChannelClipHoldSnapshot(otherProject)).toEqual({ clipped: false });
+    expect(getChannelPeakHold(otherProject)).toEqual({ leftDb: -100, rightDb: -100 });
 
-    publishChannelClipPeak(key, 1.5);
-    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: true, heldPeakDb: 1.5 });
+    publishChannelPeak(key, 1.5, -2);
+    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: true });
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: 1.5, rightDb: -2 });
     unsubscribe();
   });
 
   it("retains the latch when a view unmounts so another view can read it", () => {
     const key = channelClipHoldKey("track-3", projectA);
     const unsubscribe = subscribeChannelClipHold(key, vi.fn());
-    publishChannelClipPeak(key, 3.4);
+    publishChannelPeak(key, 3.4, 2.7);
     unsubscribe();
 
-    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: true, heldPeakDb: 3.4 });
+    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: true });
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: 3.4, rightDb: 2.7 });
 
     const nextView = vi.fn();
     const unsubscribeNextView = subscribeChannelClipHold(key, nextView);
-    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: true, heldPeakDb: 3.4 });
-    publishChannelClipPeak(key, 3.8);
-    expect(nextView).toHaveBeenCalledTimes(1);
+    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: true });
+    publishChannelPeak(key, 3.8, 2.9);
+    expect(nextView).not.toHaveBeenCalled();
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: 3.8, rightDb: 2.9 });
     unsubscribeNextView();
   });
 
@@ -90,13 +115,13 @@ describe("shared channel clip holds", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeChannelClipHold(key, listener);
 
-    publishChannelClipPeak(key, 0);
-    publishChannelClipPeak(key, -0.1);
-    publishChannelClipPeak(key, Number.NaN);
-    publishChannelClipPeak(key, 300);
+    publishChannelPeak(key, -100, -100);
+    publishChannelPeak(key, Number.NaN, -2);
+    publishChannelPeak(key, -2, 300);
 
     expect(listener).not.toHaveBeenCalled();
-    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: false, heldPeakDb: -100 });
+    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: false });
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: -100, rightDb: -100 });
     unsubscribe();
   });
 
@@ -104,11 +129,12 @@ describe("shared channel clip holds", () => {
     const key = channelClipHoldKey("track-2", projectA);
     const listener = vi.fn();
     const unsubscribe = subscribeChannelClipHold(key, listener);
-    publishChannelClipPeak(key, 1);
+    publishChannelPeak(key, 1, -3);
 
     resetChannelClipHolds();
 
-    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: false, heldPeakDb: -100 });
+    expect(getChannelClipHoldSnapshot(key)).toEqual({ clipped: false });
+    expect(getChannelPeakHold(key)).toEqual({ leftDb: -100, rightDb: -100 });
     expect(listener).toHaveBeenCalledTimes(2);
     unsubscribe();
   });
@@ -131,8 +157,10 @@ describe("shared channel clip holds", () => {
       meters: [{ id: "bus-1", peakDbL: -4, peakDbR: 2.1 }],
     });
 
-    expect(getChannelClipHoldSnapshot(trackKey)).toEqual({ clipped: true, heldPeakDb: 1.7 });
-    expect(getChannelClipHoldSnapshot(busKey)).toEqual({ clipped: true, heldPeakDb: 2.1 });
+    expect(getChannelClipHoldSnapshot(trackKey)).toEqual({ clipped: true });
+    expect(getChannelClipHoldSnapshot(busKey)).toEqual({ clipped: true });
+    expect(getChannelPeakHold(trackKey)).toEqual({ leftDb: 1.7, rightDb: -3 });
+    expect(getChannelPeakHold(busKey)).toEqual({ leftDb: -4, rightDb: 2.1 });
     expect(trackListener).toHaveBeenCalledTimes(1);
     expect(busListener).toHaveBeenCalledTimes(1);
     unsubscribeTrack();

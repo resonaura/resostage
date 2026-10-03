@@ -7,6 +7,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { mixer } from "@/lib/state/api";
 import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
+import { useChannelClipHold } from "@/hooks/useChannelClipHold";
 import type { TrackRow } from "@/lib/state/types";
 import {
   LevelMeterBar,
@@ -63,6 +64,7 @@ export const TrackHeaderControl = memo(
     onPanDragEnd?: (finalPan: number) => void;
     onPanDragCancel?: (originalPan: number) => void;
   }) {
+    const clipHold = useChannelClipHold(track.id);
     const gain = useTrackGainControl(track, index, {
       onDragStart: onGainDragStart,
       onDragMove: onGainDragMove,
@@ -407,10 +409,14 @@ export const TrackHeaderControl = memo(
                   getLiveDbR={() =>
                     getTrackLiveLevel(track.id)?.peakDbR ?? -144
                   }
+                  getHeldPeakDbL={clipHold.getHeldPeakDbL}
+                  getHeldPeakDbR={clipHold.getHeldPeakDbR}
                   accent={color}
                   vertical
                   showValue={false}
                   barClassName="h-full w-1"
+                  clipLatched={clipHold.clipped}
+                  onClearClip={clipHold.clear}
                 />
               </div>
             )}

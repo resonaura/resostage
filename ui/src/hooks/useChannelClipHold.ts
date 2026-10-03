@@ -8,6 +8,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import {
   channelClipHoldKey,
   clearChannelClipHold,
+  getChannelPeakHold,
   getChannelClipHoldSnapshot,
   subscribeChannelClipHold,
 } from "@/lib/audio/channelClipHold";
@@ -20,7 +21,9 @@ import { currentProjectCommandIdentity } from "@/lib/state/api";
  */
 export function useChannelClipHold(identity?: string): {
   clipped: boolean;
-  heldPeakDb: number;
+  getHeldPeakDb: () => number;
+  getHeldPeakDbL: () => number;
+  getHeldPeakDbR: () => number;
   clear: () => void;
 } {
   const projectIdentity = currentProjectCommandIdentity();
@@ -36,9 +39,27 @@ export function useChannelClipHold(identity?: string): {
     [key],
   );
   const snapshot = useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
+  const getHeldPeakDb = useCallback(() => {
+    const peak = getChannelPeakHold(key);
+    return Math.max(peak.leftDb, peak.rightDb);
+  }, [key]);
+  const getHeldPeakDbL = useCallback(
+    () => getChannelPeakHold(key).leftDb,
+    [key],
+  );
+  const getHeldPeakDbR = useCallback(
+    () => getChannelPeakHold(key).rightDb,
+    [key],
+  );
   const clear = useCallback(() => {
     if (key) clearChannelClipHold(key);
   }, [key]);
 
-  return { ...snapshot, clear };
+  return {
+    ...snapshot,
+    getHeldPeakDb,
+    getHeldPeakDbL,
+    getHeldPeakDbR,
+    clear,
+  };
 }

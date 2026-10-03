@@ -27,7 +27,7 @@ export function GainPeakReadout({
   gainDb,
   getLiveDb,
   clipped,
-  heldPeakDb,
+  getHeldPeakDb,
   onClear,
   onGainChange,
   density = "standard",
@@ -36,17 +36,15 @@ export function GainPeakReadout({
   /** max/avg of the strip's live channels, sampled off the shared rAF. */
   getLiveDb: () => number;
   clipped: boolean;
-  heldPeakDb: number;
+  getHeldPeakDb: () => number;
   onClear: () => void;
   onGainChange?: (v: number) => void;
   density?: "narrow" | "standard" | "wide";
 }) {
   const getLiveDbRef = useRef(getLiveDb);
   getLiveDbRef.current = getLiveDb;
-  // While the clip latch is up the box shows the held peak and stops
-  // following the signal -- that is the point of a hold.
-  const heldRef = useRef<number | null>(null);
-  heldRef.current = clipped ? heldPeakDb : null;
+  const getHeldPeakRef = useRef(getHeldPeakDb);
+  getHeldPeakRef.current = getHeldPeakDb;
 
   const handleGainPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!onGainChange || e.button !== 0) return;
@@ -109,8 +107,8 @@ export function GainPeakReadout({
         onClick={onClear}
         title={
           clipped
-            ? "Peak hold (dB) — click to clear and show the current level"
-            : "Current level (dB, avg L/R)"
+            ? "Peak / clip hold — click to clear across Timeline, Inspector, and Mixer"
+            : "Peak hold (dB) — click to clear across Timeline, Inspector, and Mixer"
         }
         className={`flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap rounded-md px-0.5 py-1 text-center transition-colors ${
           clipped
@@ -125,9 +123,12 @@ export function GainPeakReadout({
       >
         <LiveReadout
           className="block truncate whitespace-nowrap"
-          sample={() =>
-            formatDbReadout(heldRef.current ?? getLiveDbRef.current())
-          }
+          sample={() => {
+            const held = getHeldPeakRef.current();
+            return formatDbReadout(
+              held > -99.5 ? held : getLiveDbRef.current(),
+            );
+          }}
         />
       </button>
     </div>

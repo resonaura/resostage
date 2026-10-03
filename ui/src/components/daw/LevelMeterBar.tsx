@@ -35,6 +35,7 @@ function ChannelBar({
   vertical,
   className,
   accent,
+  getHeldPeakDb,
   clipLatched: clipLatchedOverride,
   onClear,
 }: {
@@ -43,6 +44,8 @@ function ChannelBar({
   vertical: boolean;
   className?: string;
   accent: string;
+  /** Shared project-scoped maximum since the last strip-level reset. */
+  getHeldPeakDb?: () => number;
   /** Externally controlled clip state -- see useChannelClipHold. When
    * provided, overrides this bar's own internal latch for display so it
    * stays in lockstep with whatever else shares the same clip state. */
@@ -56,6 +59,8 @@ function ChannelBar({
   dbRef.current = db;
   const getLiveRef = useRef(getLiveDb);
   getLiveRef.current = getLiveDb;
+  const heldPeakRef = useRef(getHeldPeakDb);
+  heldPeakRef.current = getHeldPeakDb;
   const verticalRef = useRef(vertical);
   verticalRef.current = vertical;
   const clipOverrideRef = useRef(clipLatchedOverride);
@@ -91,6 +96,7 @@ function ChannelBar({
     // a clear plus two or three fills, multiplied by every bar on screen.
     let paintedFill = Number.NaN;
     let paintedPeak = Number.NaN;
+    let paintedSharedPeak = Number.NaN;
     let paintedShowPeak = false;
     let paintedLatched = false;
     let paintedFillStyle = "";
@@ -148,6 +154,10 @@ function ChannelBar({
       const v = verticalRef.current;
       const fillPct = normFor(s.display);
       const peakPct = normFor(s.peak);
+      const sharedPeakDb = heldPeakRef.current?.() ?? FLOOR_DB;
+      const sharedPeakPct = sharedPeakDb > FLOOR_DB + 0.5
+        ? normFor(sharedPeakDb)
+        : -1;
       const showPeak = s.peak > RANGE_LOW_DB + 0.5 && peakPct > 0.002;
       const latched = clipOverrideRef.current ?? s.clipLatched;
       const fillStyle = fillRef.current;
@@ -157,9 +167,13 @@ function ChannelBar({
       const span = Math.max(1, v ? cssH : cssW);
       const qFill = Math.round(fillPct * span);
       const qPeak = Math.round(peakPct * span);
+      const qSharedPeak = sharedPeakPct >= 0
+        ? Math.round(sharedPeakPct * span)
+        : -1;
       if (
         qFill === paintedFill &&
         qPeak === paintedPeak &&
+        qSharedPeak === paintedSharedPeak &&
         showPeak === paintedShowPeak &&
         latched === paintedLatched &&
         fillStyle === paintedFillStyle &&
@@ -171,6 +185,7 @@ function ChannelBar({
       }
       paintedFill = qFill;
       paintedPeak = qPeak;
+      paintedSharedPeak = qSharedPeak;
       paintedShowPeak = showPeak;
       paintedLatched = latched;
       paintedFillStyle = fillStyle;
@@ -196,6 +211,19 @@ function ChannelBar({
         } else {
           const x = cssW * peakPct;
           ctx.fillRect(Math.min(cssW - 1, Math.max(0, x - 0.5)), 0, 1, cssH);
+        }
+      }
+
+      // Unlike the short local ballistics needle, this marker is shared by
+      // Timeline, Inspector, and Mixer until any of them clears the strip.
+      if (qSharedPeak > 0) {
+        ctx.fillStyle = peakNeedleColor(sharedPeakDb > 0);
+        if (v) {
+          const y = cssH - qSharedPeak;
+          ctx.fillRect(0, Math.min(cssH - 2, Math.max(0, y - 1)), cssW, 2);
+        } else {
+          const x = qSharedPeak;
+          ctx.fillRect(Math.min(cssW - 2, Math.max(0, x - 1)), 0, 2, cssH);
         }
       }
 
@@ -226,7 +254,11 @@ function ChannelBar({
     <button
       type="button"
       onClick={clearClip}
-      title={clipLatched ? "Peak / clip — click to clear" : undefined}
+      title={getHeldPeakDb
+        ? "Peak hold / clip — click to clear across Timeline, Inspector, and Mixer"
+        : clipLatched
+          ? "Peak / clip — click to clear"
+          : undefined}
       className={`relative block overflow-hidden rounded-md bg-black/50 ${
         className ?? (vertical ? "h-24 w-1.5" : "h-3 w-full")
       }`}
@@ -245,6 +277,9 @@ interface LevelMeterBarProps {
   getLiveDb?: () => number;
   getLiveDbL?: () => number;
   getLiveDbR?: () => number;
+  /** Shared project-scoped maximum since the last strip-level reset. */
+  getHeldPeakDbL?: () => number;
+  getHeldPeakDbR?: () => number;
   /** Track/bus colour for the level fill. */
   accent?: string;
   label?: string;
@@ -270,6 +305,8 @@ export function LevelMeterBar({
   getLiveDb,
   getLiveDbL,
   getLiveDbR,
+  getHeldPeakDbL,
+  getHeldPeakDbR,
   accent = DEFAULT_ACCENT,
   label,
   vertical = true,
@@ -299,6 +336,7 @@ export function LevelMeterBar({
         <ChannelBar
           db={db}
           getLiveDb={getLiveDb ?? getLeft}
+          getHeldPeakDb={getHeldPeakDbL ?? getHeldPeakDbR}
           vertical={vertical}
           className={barClassName}
           accent={accent}
@@ -316,6 +354,7 @@ export function LevelMeterBar({
           <ChannelBar
             db={left}
             getLiveDb={getLeft}
+            getHeldPeakDb={getHeldPeakDbL}
             vertical={vertical}
             accent={accent}
             className={
@@ -327,6 +366,7 @@ export function LevelMeterBar({
           <ChannelBar
             db={right}
             getLiveDb={getRight}
+            getHeldPeakDb={getHeldPeakDbR}
             vertical={vertical}
             accent={accent}
             className={

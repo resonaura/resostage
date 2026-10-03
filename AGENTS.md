@@ -857,6 +857,11 @@ the renderer resolves positional track meter rows through the latest stable
 track IDs before any view reads them. Meters and clip holds must not reuse a
 previous strip's values when an inspector changes identity or the active Core
 changes.
+The renderer keeps a bounded peak/clip hold keyed by Core origin, session,
+project epoch and stable strip ID. Timeline, Inspector and Mixer meter paints
+sample the same retained stereo maxima; a strip-level reset clears that one
+identity everywhere. Peak samples must not trigger React renders per telemetry
+frame, and project/Core changes must not leak retained values across identities.
 
 WebSocket/JSON state remains useful for browsers and slower structural state.
 In Electron, high-rate telemetry is UDP while HTTP polling supplies structural

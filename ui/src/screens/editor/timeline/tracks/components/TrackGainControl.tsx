@@ -60,6 +60,8 @@ export const TrackGainControl = memo(function TrackGainControl({
         dbR={track.peakDbR ?? track.peakDb ?? -100}
         getLiveDbL={() => getTrackLiveLevel(track.id)?.peakDbL ?? -144}
         getLiveDbR={() => getTrackLiveLevel(track.id)?.peakDbR ?? -144}
+        getHeldPeakDbL={clipHold.getHeldPeakDbL}
+        getHeldPeakDbR={clipHold.getHeldPeakDbR}
         clipLatched={clipHold.clipped}
         accent={color}
         height={faderHeight}

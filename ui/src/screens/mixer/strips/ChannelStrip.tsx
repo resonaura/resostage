@@ -243,7 +243,7 @@ export function ChannelStrip({
           gainDb={shownGainDb}
           getLiveDb={() => (liveLeft() + liveRight()) / 2}
           clipped={stripClip.clipped}
-          heldPeakDb={stripClip.heldPeakDb}
+          getHeldPeakDb={stripClip.getHeldPeakDb}
           onClear={stripClip.clear}
           onGainChange={commitGain}
           density={density}
@@ -265,6 +265,8 @@ export function ChannelStrip({
           getLiveDb={getLiveDb}
           getLiveDbL={getLiveDbL}
           getLiveDbR={getLiveDbR}
+          getHeldPeakDbL={stripClip.getHeldPeakDbL}
+          getHeldPeakDbR={stripClip.getHeldPeakDbR}
           accent={color}
           vertical={true}
           showValue={false}

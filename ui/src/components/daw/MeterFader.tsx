@@ -14,6 +14,7 @@ import {
   clipGlowColor,
   peakNeedleColor,
   createBallistics,
+  FLOOR_DB,
   meterFill,
   normFor,
   stepBallistics,
@@ -70,6 +71,9 @@ export interface MeterFaderProps {
   /** Sampled every paint, straight off the binary telemetry -- no re-render. */
   getLiveDbL?: () => number;
   getLiveDbR?: () => number;
+  /** Shared per-channel peak hold, sampled during the canvas paint. */
+  getHeldPeakDbL?: () => number;
+  getHeldPeakDbR?: () => number;
   /** Optional shared clip latch; when present it overrides local meter latches. */
   clipLatched?: boolean;
   /** Track colour for the meter fill. */
@@ -97,6 +101,8 @@ export const MeterFader = memo(function MeterFader({
   dbR,
   getLiveDbL,
   getLiveDbR,
+  getHeldPeakDbL,
+  getHeldPeakDbR,
   clipLatched: clipLatchedOverride,
   accent,
   height = 12,
@@ -122,6 +128,8 @@ export const MeterFader = memo(function MeterFader({
   dbRef.current = { l: dbL, r: dbR };
   const getLiveRef = useRef({ l: getLiveDbL, r: getLiveDbR });
   getLiveRef.current = { l: getLiveDbL, r: getLiveDbR };
+  const getHeldPeakRef = useRef({ l: getHeldPeakDbL, r: getHeldPeakDbR });
+  getHeldPeakRef.current = { l: getHeldPeakDbL, r: getHeldPeakDbR };
   const clipOverrideRef = useRef(clipLatchedOverride);
   clipOverrideRef.current = clipLatchedOverride;
   const fillRef = useRef(meterFill(accent));
@@ -213,6 +221,8 @@ export const MeterFader = memo(function MeterFader({
     let paintedR = Number.NaN;
     let paintedPeakL = Number.NaN;
     let paintedPeakR = Number.NaN;
+    let paintedHeldPeakL = Number.NaN;
+    let paintedHeldPeakR = Number.NaN;
     let paintedLatched = false;
     let paintedFill = "";
     let paintedW = 0;
@@ -263,6 +273,12 @@ export const MeterFader = memo(function MeterFader({
       const fillR = normFor(right.display);
       const peakL = normFor(left.peak);
       const peakR = normFor(right.peak);
+      const heldDbL = sample(getHeldPeakRef.current.l, FLOOR_DB);
+      const heldDbR = sample(getHeldPeakRef.current.r, FLOOR_DB);
+      const heldL = heldDbL > FLOOR_DB + 0.5 ? normFor(heldDbL) : -1;
+      const heldR = heldDbR > FLOOR_DB + 0.5 ? normFor(heldDbR) : -1;
+      const qHeldL = heldL >= 0 ? Math.round(heldL * cssW) : -1;
+      const qHeldR = heldR >= 0 ? Math.round(heldR * cssW) : -1;
       const latched = clipOverrideRef.current
         ?? (left.clipLatched || right.clipLatched);
       const fill = fillRef.current;
@@ -276,6 +292,8 @@ export const MeterFader = memo(function MeterFader({
         qR === paintedR &&
         qPL === paintedPeakL &&
         qPR === paintedPeakR &&
+        qHeldL === paintedHeldPeakL &&
+        qHeldR === paintedHeldPeakR &&
         latched === paintedLatched &&
         fill === paintedFill &&
         cssW === paintedW &&
@@ -287,6 +305,8 @@ export const MeterFader = memo(function MeterFader({
       paintedR = qR;
       paintedPeakL = qPL;
       paintedPeakR = qPR;
+      paintedHeldPeakL = qHeldL;
+      paintedHeldPeakR = qHeldR;
       paintedLatched = latched;
       paintedFill = fill;
       paintedW = cssW;
@@ -316,6 +336,20 @@ export const MeterFader = memo(function MeterFader({
           const x = Math.min(cssW - 1, Math.max(0, cssW * peakPct - 0.5));
           ctx.fillRect(x, y, 1, rowH);
         }
+      }
+
+      // Persistent markers read the same strip-scoped peak hold used by the
+      // Mixer and Inspector readouts, while the thin moving needles above keep
+      // their local ballistic release.
+      const heldPeaks: [number, number, number][] = [
+        [0, qHeldL, heldDbL],
+        [rowH, qHeldR, heldDbR],
+      ];
+      for (const [y, heldX, heldDb] of heldPeaks) {
+        if (heldX <= 0) continue;
+        ctx.fillStyle = peakNeedleColor(heldDb > 0);
+        const x = Math.min(cssW - 2, Math.max(0, heldX - 1));
+        ctx.fillRect(x, y, 2, rowH);
       }
 
       // Clip latch: the right-hand band only, never the whole bar.

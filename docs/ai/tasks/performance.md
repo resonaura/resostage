@@ -76,19 +76,25 @@ unverified platform or acoustic scope.
 
 ### Shared peak/clip state and eased live values
 
-- Implemented 2026-10-03: channelClipHold.ts owns one bounded retained latch
-  keyed by Core origin/session/project epoch and stable strip ID. The live
-  telemetry decoder feeds it, useChannelClipHold exposes the shared snapshot,
-  Mixer controls reset it, and Timeline's MeterFader reads the same clip flag.
-  State survives a view unmount/remount, is isolated across project epochs,
-  ignores impossible peaks, and is cleared when live telemetry resets. Active
-  entries are capped at 8,192; under impossible saturation of that many
-  simultaneously subscribed strips a new latch is deliberately not admitted.
-- Remaining: verify Inspector and every bus/main meter identity in integration,
-  expose the held value consistently in Timeline, and exercise reconnect and
-  remote Core switches in a multi-surface UI test. Unit tests cover shared
-  subscribers, unmount/remount retention, reset, epoch isolation, invalid
-  values and track/bus telemetry ingestion.
+- Implemented 2026-10-03: channelClipHold.ts owns bounded stereo peak maxima and
+  the clip latch keyed by Core origin/session/project epoch and stable strip
+  ID. Live telemetry feeds it once; Timeline's combined fader-meter, compact
+  track-header meter, Inspector strip and Mixer strip sample the same retained
+  per-channel marker without a React render on each peak increase. The peak
+  readout samples the same store on the shared UI frame loop. Clearing a strip
+  resets both channels and the clip latch for every mounted view. State
+  survives view unmount/remount, is isolated across project epochs, ignores
+  non-finite/impossible peaks, and clears when live telemetry resets. Active
+  entries remain capped at 8,192; if every retained identity is subscribed, a
+  new identity is deliberately not admitted.
+- Remaining: integration-test Inspector plus every bus/main identity, track
+  switching with reused components, and reconnect/remote Core changes together.
+  Unit tests cover shared subscribers, unmount/remount retention, reset, epoch
+  isolation, per-channel maxima, clip transitions, invalid data, and telemetry
+  ingestion. Focused tests passed 22/22; full UI passed 850 tests / 129 files;
+  TypeScript and production build passed. Repository lint had 12 existing
+  warnings in unrelated files and none in changed files. No device/remote
+  visual acceptance is claimed.
 - Reset is a shared UI-latch clear for the unique strip, not an engine command
   and not a mutation of Core's raw peak telemetry. A new peak above 0 dBFS in
   the next telemetry frame re-latches it. Do not add per-view reset state or
