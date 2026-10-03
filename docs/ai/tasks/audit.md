@@ -178,9 +178,13 @@ Implemented in the current continuation block (2026-10-02):
 - Undo/Redo and editor transactions publish exact request-ID outcomes in
   bounded 256-entry rings. These now cover song/track/bus/event/section/cycle
   structural edits, audio/MIDI region add/update/remove, automation lane and
-  point edits, and one submitted automation-record gesture. Import jobs,
-  plug-in lifecycle, lighting, active-document dialogs and high-rate scalar
-  controls remain distinct protocols. Results carry project epoch/history
+  point edits, one submitted automation-record gesture, and lighting
+  configuration/fixture/track/cue edits. Lighting results declare
+  `applicationDomain: "lighting"`; `lightingApplied` confirms the synchronous
+  immutable-project handoff to LightEngine. This does not prove a frame reached
+  hardware and must not be conflated with audio `playbackApplied`. Import jobs,
+  plug-in lifecycle, active-document dialogs and high-rate scalar controls
+  remain distinct protocols. Audio results carry project epoch/history
   revision and graph publication revision. `playbackApplied` only becomes true
   when the published graph's monotonic ProjectHistory revision covers the edit;
   project identity remains independently fenced by the Core session/epoch.
@@ -200,10 +204,28 @@ Implemented in the current continuation block (2026-10-02):
   target built with `cmake --build core/build --target ResoStage -j2`; the real
   Core `scripts/verification/editor-state.mjs` harness passed, including
   active-playback Undo/Redo, save/reopen, stale media ticket, stale MIDI edit,
-  stale destructive New Project rejection, and 413 admission. Four focused UI
-  suites passed 27/27 and the identity suite passed 3/3. This does not
+  stale destructive New Project rejection, and 413 admission. The current
+  continuation additionally passes exact Core HTTP outcomes for lighting
+  configuration, fixture add/duplicate/update/remove and absent-remove
+  rejection, track add/update/move/remove and invalid-remove rejection, and cue
+  add/update/remove. The UI identity suite passes its lighting-specific case,
+  including a successful lighting result while the audio graph revision is
+  behind. This does not
   establish acoustic/device behavior, vendor plug-in continuity, sanitizer
   cleanliness or physical-platform coverage.
+
+Lighting-domain acceptance on 2026-10-02: the actual Core harness verifies all
+12 lighting mutation routes (config, fixture CRUD/duplicate, light-track CRUD/
+move, cue CRUD), exact request IDs/project revisions, LightEngine snapshot
+handoff, and rejected absent/invalid removals. The focused UI identity test
+confirms lighting edits do not fail solely because the audio graph trails
+project history. Full UI Vitest passed 782 tests / 117 files; UI TypeScript and
+production build passed; lint had zero errors and 12 warnings. Core build
+passed. Native CTest passed 585 cases / 428,681 assertions on the serial rerun.
+An initial CTest run concurrent with the full UI suite had one AU-host block-
+progress timing failure; its isolated rerun (1 case / 66 assertions) and the
+subsequent serial full CTest passed. This is consistent with load sensitivity,
+but does not establish the failure's cause or acoustic behavior.
 
 Latest continuation verification (2026-10-02): UI TypeScript passed and the
 complete UI suite passed 745 tests across 108 files; production UI build passed;
@@ -267,9 +289,9 @@ Still open; do not call this full editor transactionality:
   together they do not constitute one real-Core-to-renderer failure-injection
   run. Transactional rollback or retry needs an isolated edit transaction
   model.
-- Exact outcomes now cover the structural/audio/MIDI/automation route families
-  listed above, but not plug-in lifecycle, lighting, import-job completion,
-  active-document save/open completion, or most scalar/mixer controls. The
+- Exact outcomes now cover the structural/audio/MIDI/automation and lighting
+  route families listed above, but not plug-in lifecycle, import-job
+  completion, active-document save/open completion, or most scalar/mixer controls. The
   session/epoch fence covers their admission/application boundary, but this is
   not per-request applied acknowledgement for every app mutation.
 - Reordered concurrent audio/MIDI edits and matching graph revisions pass the

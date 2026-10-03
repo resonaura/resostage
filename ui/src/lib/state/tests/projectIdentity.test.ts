@@ -15,6 +15,7 @@ import {
   postReliable,
   builder,
   EDITOR_COMMAND_FAILURE_EVENT,
+  lighting,
   registerRefetchHandler,
   unregisterRefetchHandler,
 } from "@/lib/state/api";
@@ -73,6 +74,49 @@ describe("project-scoped command identity", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
     const sentRequest = fetch.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit];
     expect(sentRequest[1]?.headers).toMatchObject({
+      "X-ResoStage-Session": "Core A",
+      "X-ResoStage-Project-Epoch": "12",
+    });
+  });
+
+  it("confirms lighting project edits against LightEngine instead of the audio graph", async () => {
+    const requestId = 74;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/lighting/track/add"))
+        return new Response(JSON.stringify({
+          accepted: true, requestId, stateSessionId: "Core A", projectEpoch: 12,
+        }), { status: 202, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({
+        stateSessionId: "Core A",
+        projectEpoch: 12,
+        stateRevision: 89,
+        // Lighting does not alter the audio graph. It must not be rejected
+        // just because that graph's revision is older than project history.
+        playbackProjectEpoch: 6,
+        playbackProjectRevision: 88,
+        editorCommandResults: [{
+          requestId,
+          applied: true,
+          projectEpoch: 12,
+          projectRevision: 89,
+          error: "",
+          applicationDomain: "lighting",
+          lightingApplied: true,
+          playbackApplied: false,
+          playbackProjectEpoch: 6,
+          playbackRevision: 88,
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 12 });
+
+    await lighting.trackAdd();
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const acceptedRequest = fetch.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit];
+    expect(acceptedRequest[1]?.headers).toMatchObject({
       "X-ResoStage-Session": "Core A",
       "X-ResoStage-Project-Epoch": "12",
     });

@@ -46,9 +46,11 @@ struct WEditorCommandResult {
     uint64_t projectEpoch = 0;
     uint64_t projectRevision = 0;
     std::string error;
+    std::string applicationDomain = "audio";
     bool playbackApplied = false;
     uint64_t playbackProjectEpoch = 0;
     uint64_t playbackRevision = 0;
+    bool lightingApplied = false;
 };
 
 // ── App Settings ─────────────────────────────────────────────────────────────

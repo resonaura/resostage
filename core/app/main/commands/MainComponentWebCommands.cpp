@@ -55,6 +55,20 @@ void MainComponent::drainWebCommands() {
         return k == WebCommandKind::SelectSong || k == WebCommandKind::Next
                || k == WebCommandKind::Prev;
     };
+    const auto isLightingMutation = [](WebCommandKind kind) {
+        return kind == WebCommandKind::SetLightingConfig
+            || kind == WebCommandKind::LightFixtureAdd
+            || kind == WebCommandKind::LightFixtureDuplicate
+            || kind == WebCommandKind::LightFixtureRemove
+            || kind == WebCommandKind::LightFixtureUpdate
+            || kind == WebCommandKind::LightTrackAdd
+            || kind == WebCommandKind::LightTrackRemove
+            || kind == WebCommandKind::LightTrackMove
+            || kind == WebCommandKind::LightTrackUpdate
+            || kind == WebCommandKind::LightCueAdd
+            || kind == WebCommandKind::LightCueRemove
+            || kind == WebCommandKind::LightCueUpdate;
+    };
 
     auto foldSongNav = [this](const WebCommand* begin, const WebCommand* end) -> int {
         const int count = static_cast<int>(engine.project().songs.size());
@@ -76,7 +90,7 @@ void MainComponent::drainWebCommands() {
         return target;
     };
 
-    auto dispatchOne = [this](const WebCommand& cmd) {
+    auto dispatchOne = [this, &isLightingMutation](const WebCommand& cmd) {
         // Async save/import completion may reopen the live ProjectLoader. Keep
         // transactional edits out until it has finished; Stop remains usable
         // throughout a slow disk operation.
@@ -631,6 +645,8 @@ void MainComponent::drainWebCommands() {
         if (cmd.editorRequestId != 0) {
             const uint64_t revisionAfter = engine.projectHistoryRevision();
             const bool applied = revisionAfter != revisionBefore;
+            const bool lightingDomain = isLightingMutation(cmd.kind);
+            const bool lightingApplied = lightingDomain && applied;
             std::string error;
             uint64_t playbackProjectEpoch = 0;
             uint64_t playbackRevision = 0;
@@ -648,14 +664,25 @@ void MainComponent::drainWebCommands() {
                     && lastStatusMessage.size() <= 256)
                     error = lastStatusMessage;
                 setStatus(error);
-            } else if (!playbackApplied) {
+            } else if (!lightingDomain && !playbackApplied) {
                 error = "Project edit was stored, but its audio snapshot could not be published; audio continues from the last valid snapshot";
                 setStatus(error);
             }
-            editorCommandResults_.push_back({cmd.editorRequestId, applied, projectEpoch_,
-                                             revisionAfter, std::move(error),
-                                             playbackApplied, playbackProjectEpoch,
-                                             playbackRevision});
+            WebUiState::EditorCommandResult result;
+            result.requestId = cmd.editorRequestId;
+            result.applied = applied;
+            result.projectEpoch = projectEpoch_;
+            result.projectRevision = revisionAfter;
+            result.error = std::move(error);
+            result.applicationDomain = lightingDomain ? "lighting" : "audio";
+            result.playbackApplied = playbackApplied;
+            result.playbackProjectEpoch = playbackProjectEpoch;
+            result.playbackRevision = playbackRevision;
+            // Each successful lighting handler synchronously replaces the
+            // immutable LightEngine project snapshot before returning. This
+            // does not claim that a physical DMX frame has already been sent.
+            result.lightingApplied = lightingApplied;
+            editorCommandResults_.push_back(std::move(result));
             while (editorCommandResults_.size() > 256)
                 editorCommandResults_.pop_front();
             publishWebState();

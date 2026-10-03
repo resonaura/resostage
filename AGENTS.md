@@ -131,6 +131,14 @@ it blindly; the renderer refreshes authoritative project state and surfaces
 the audio/project revision mismatch. This is detection and recovery guidance,
 not rollback or full atomic UI/project/audio state. Other project mutation
 families and best-effort controls still do not have exact per-request outcomes.
+Lighting configuration, fixture, light-track, and cue edits also receive exact
+request outcomes. Their `applicationDomain` is `lighting`, and
+`lightingApplied` confirms that Core synchronously replaced LightEngine's
+immutable project snapshot before acknowledging the edit. This is distinct
+from `playbackApplied`: a lighting edit does not need to rebuild the audio
+graph, and snapshot handoff does not claim a physical DMX frame was already
+sent. UI callers must validate the application domain they invoked rather than
+using audio graph revision as a universal project-application signal.
 The renderer's reliable command queue mirrors Core's 256-command/32 MiB
 retention bounds and freezes JSON bodies at invocation time, accounting their
 UTF-8 payload bytes until completion. Continuous controls may coalesce only by

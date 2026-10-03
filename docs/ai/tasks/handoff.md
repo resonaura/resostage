@@ -13,9 +13,11 @@ Continue the state-integrity work. The latest block adds Core-session and
 project-epoch fences, exact acknowledgements for structural project edits,
 audio/MIDI regions and automation, and identity propagation through streamed
 media imports. It also binds each exact editor result to the last successfully
-published playback-graph history revision. Audit that implementation first; do
-not replace it with another queue or state authority. Keep the distinctions
-explicit:
+published playback-graph history revision. The current lighting continuation
+adds an explicit application domain: a confirmed LightEngine project-snapshot
+handoff is not an audio-graph publication or proof of a physical DMX frame.
+Audit that implementation first; do not replace it with another queue or state
+authority. Keep the distinctions explicit:
 
 - HTTP admission is not application.
 - Project-history mutation is distinct from proof that the matching immutable
@@ -116,6 +118,20 @@ in scope after this transaction boundary is trustworthy.
   outcomes with unchanged project revision, and count/byte recovery after drain.
   The hold is deterministic and test-only; stress while a real long save/import
   is in flight remains open.
+- Current lighting block adds exact outcomes for lighting
+  configuration, fixture, light-track and cue mutations. Results identify the
+  `lighting` application domain and confirm the synchronous immutable-project
+  handoff to LightEngine instead of incorrectly requiring the audio graph to
+  cover the lighting history revision. The UI lighting API now waits for that
+  exact result and sends the project identity fence. Core HTTP acceptance
+  covers successful CRUD/reorder and rejected invalid/no-op removals; one UI
+  regression proves a stale audio graph does not reject an applied lighting
+  snapshot. The actual-Core harness, focused UI case, full UI suite (782 tests
+  / 117 files), UI typecheck/build and Core build pass. Lint had zero errors
+  with 12 warnings. Serial CTest passed 585 cases / 428,681 assertions after
+  the isolated AU test passed following one failure during a concurrent UI
+  run. This is not a physical DMX delivery test; the transient AU timing issue
+  remains unexplained.
 - `fdc32a2`: Unit test for dense sustain and panic traffic during deferred MIDI queue capture in `test_plugin_host_protocol.cpp` (582 assertions verifying pedal CC 64, notes, pitch bend across channels 1..4, overflow degradation to 48-event 16-channel panic, and clean recovery).
 - `75c3eb0`: Canonicalized ArtDMX (`buildArtDMXPacket`, `parseArtDMXPacket`), WebCommandKind values (`BuilderTrackImportWAV*`, `BuilderMIDIRegion*`, `SetMIDI*`, `MIDILearn*`), builder/settings methods (`builderMIDIRegion*`, `builderTrackImportWAV*`, `settingsSetMIDI*`, `settingsMIDI*`), and `importWAVForTrackAsync` across Core with backward-compatible aliases.
 - `e214318`: Exposed canonical acronym types and method aliases in UI (`MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow`, `trackImportWAV`, `setMIDI*`) and Electron (`UDPTelemetryStats`, `UDPTelemetryTracker`).

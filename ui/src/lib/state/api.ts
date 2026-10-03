@@ -73,6 +73,7 @@ export function currentProjectCommandHeaders(): Record<string, string> {
 
 function isProjectScopedPath(path: string): boolean {
   return path.startsWith("/api/v1/builder/")
+    || path.startsWith("/api/v1/lighting/")
     || path.startsWith("/api/v1/track/")
     || path.startsWith("/api/v1/bus/")
     || path.startsWith("/api/v1/mixer/track/send")
@@ -306,15 +307,24 @@ async function sendReliableSerialized(
           || !Number.isSafeInteger(snapshot.stateRevision)
           || result.projectRevision > snapshot.stateRevision!)
           throw new Error("Core returned an inconsistent editor-command revision");
+        const lightingMutation = path.startsWith("/api/v1/lighting/");
+        const expectedApplicationDomain = lightingMutation ? "lighting" : "audio";
+        if (result.applicationDomain !== undefined
+          && result.applicationDomain !== expectedApplicationDomain)
+          throw new Error(`Core returned an unexpected ${result.applicationDomain || "unknown"} application domain for ${path}`);
         if (result.playbackApplied === true
           && (!Number.isSafeInteger(result.playbackProjectEpoch)
             || result.playbackProjectEpoch !== snapshot.playbackProjectEpoch
             || !Number.isSafeInteger(result.playbackRevision)
             || result.playbackRevision! < result.projectRevision))
           throw new Error("Core returned an inconsistent playback-snapshot identity or revision");
-        if (result.playbackApplied === false
+        if (lightingMutation && result.lightingApplied !== true) {
+          throw new Error(result.error ||
+            `Core stored project revision ${result.projectRevision}, but did not confirm publishing it to LightEngine. The project view was refreshed; do not resend this edit blindly.`);
+        }
+        if (!lightingMutation && (result.playbackApplied === false
           || (Number.isSafeInteger(snapshot.playbackProjectRevision)
-            && snapshot.playbackProjectRevision! < result.projectRevision)) {
+            && snapshot.playbackProjectRevision! < result.projectRevision))) {
           throw new Error(result.error ||
             `Core stored project revision ${result.projectRevision}, but audio is still using its last valid snapshot at revision ${result.playbackRevision}. The project view was refreshed; do not resend this edit blindly.`);
         }
@@ -1342,13 +1352,13 @@ export const lighting = {
     idleGradientColors?: string;
     defaultRefreshRateHz?: number;
     artNetTargetHost?: string;
-  }) => post("/api/v1/lighting/config", patch),
+  }) => postEditorMutation("/api/v1/lighting/config", patch),
 
-  fixtureAdd: (name?: string) => post("/api/v1/lighting/fixture/add", { name }),
+  fixtureAdd: (name?: string) => postEditorMutation("/api/v1/lighting/fixture/add", { name }),
   fixtureDuplicate: (fixtureId: string) =>
-    post("/api/v1/lighting/fixture/duplicate", { fixtureId }),
+    postEditorMutation("/api/v1/lighting/fixture/duplicate", { fixtureId }),
   fixtureRemove: (fixtureId: string) =>
-    post("/api/v1/lighting/fixture/remove", { fixtureId }),
+    postEditorMutation("/api/v1/lighting/fixture/remove", { fixtureId }),
 
   fixtureUpdate: (patch: {
     fixtureId: string;
@@ -1380,16 +1390,16 @@ export const lighting = {
     refreshRateHz?: number;
     /** Empty string clears the host (back to preview-only). Port is protocol-fixed. */
     networkHost?: string;
-  }) => post("/api/v1/lighting/fixture/update", patch),
+  }) => postEditorMutation("/api/v1/lighting/fixture/update", patch),
 
-  trackAdd: () => post("/api/v1/lighting/track/add"),
+  trackAdd: () => postEditorMutation("/api/v1/lighting/track/add"),
   trackRemove: (index: number) =>
-    post("/api/v1/lighting/track/remove", { index }),
+    postEditorMutation("/api/v1/lighting/track/remove", { index }),
   trackMove: (
     index: number,
     target: number | { delta?: number; to?: number },
   ) =>
-    post(
+    postEditorMutation(
       "/api/v1/lighting/track/move",
       typeof target === "number"
         ? { index, delta: target }
@@ -1399,7 +1409,7 @@ export const lighting = {
     index: number;
     name?: string;
     fixtureIds?: string[];
-  }) => post("/api/v1/lighting/track/update", patch),
+  }) => postEditorMutation("/api/v1/lighting/track/update", patch),
 
   cueAdd: (
     songIndex: number,
@@ -1408,7 +1418,7 @@ export const lighting = {
     durationSeconds = 2.0,
     extra?: Partial<LightCueRow> & { gestureId?: string },
   ) =>
-    post("/api/v1/lighting/cue/add", {
+    postEditorMutation("/api/v1/lighting/cue/add", {
       songIndex,
       trackId,
       startSeconds,
@@ -1416,7 +1426,7 @@ export const lighting = {
       ...extra,
     }),
   cueRemove: (songIndex: number, cueId: string) =>
-    post("/api/v1/lighting/cue/remove", { songIndex, cueId }),
+    postEditorMutation("/api/v1/lighting/cue/remove", { songIndex, cueId }),
   cueUpdate: (patch: {
     songIndex: number;
     cueId: string;
@@ -1480,7 +1490,7 @@ export const lighting = {
       | "lighten"
       | "subtractive";
     gestureId?: string;
-  }) => post("/api/v1/lighting/cue/update", patch),
+  }) => postEditorMutation("/api/v1/lighting/cue/update", patch),
 };
 
 // Timeline undo/redo (regions + sections of the currently loaded project).

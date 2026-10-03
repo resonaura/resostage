@@ -1109,11 +1109,15 @@ export interface WebUiState {
     projectEpoch: number;
     projectRevision: number;
     error: string;
+    /** Which real-time consumer owns application of this project transaction. */
+    applicationDomain?: "audio" | "lighting";
     /** False when the edit is in project history but audio keeps its last-good graph. */
     playbackApplied?: boolean;
     /** AudioEngine epoch; intentionally distinct from the UI project epoch. */
     playbackProjectEpoch?: number;
     playbackRevision?: number;
+    /** True when the updated immutable project snapshot was handed to LightEngine. */
+    lightingApplied?: boolean;
   }>;
   /** All views receive loading status, including remote controllers. */
   pluginLoading?: PluginLoadingState;

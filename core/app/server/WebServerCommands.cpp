@@ -281,6 +281,12 @@ bool isTransactionalEditorCommand(WebCommandKind kind) {
         WebCommandKind::BuilderAutomationLaneUpdate, WebCommandKind::BuilderAutomationPointAdd,
         WebCommandKind::BuilderAutomationPointRemove, WebCommandKind::BuilderAutomationPointsReplace,
         WebCommandKind::BuilderAutomationRecordGesture,
+        WebCommandKind::SetLightingConfig, WebCommandKind::LightFixtureAdd,
+        WebCommandKind::LightFixtureDuplicate, WebCommandKind::LightFixtureRemove,
+        WebCommandKind::LightFixtureUpdate, WebCommandKind::LightTrackAdd,
+        WebCommandKind::LightTrackRemove, WebCommandKind::LightTrackMove,
+        WebCommandKind::LightTrackUpdate, WebCommandKind::LightCueAdd,
+        WebCommandKind::LightCueRemove, WebCommandKind::LightCueUpdate,
 #if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
         WebCommandKind::TestDeferredQueueProbe,
 #endif

@@ -112,7 +112,9 @@ export async function verifyEditorState(coreExecutable, inspect) {
     }) : "none";
     throw new Error(`No authoritative confirmation: ${description}\nLast state: ${lastState}\n${diagnostic}`);
   };
-  const confirmEditorMutation = async (path, body, applied = true, extraHeaders = {}) => {
+  const confirmEditorMutation = async (
+    path, body, applied = true, extraHeaders = {}, expectedApplicationDomain = "audio",
+  ) => {
     const expectedEpoch = commandState?.projectEpoch;
     const accepted = await request(path, body, extraHeaders);
     assert.ok(Number.isSafeInteger(accepted.requestId), `${path} must return an exact request ID`);
@@ -121,19 +123,26 @@ export async function verifyEditorState(coreExecutable, inspect) {
     ), `${path} exact editor-command acknowledgement`);
     const result = state.editorCommandResults.find((entry) => entry.requestId === accepted.requestId);
     assert.equal(result.applied, applied, `${path} applied status`);
+    assert.equal(result.applicationDomain, expectedApplicationDomain,
+      `${path} must report the consumer domain that owns application`);
     assert.ok(Number.isSafeInteger(result.projectRevision), `${path} must return a project revision`);
     assert.equal(result.projectRevision, state.stateRevision, `${path} result and snapshot are atomic`);
     if (applied) {
       assert.equal(result.projectEpoch, expectedEpoch, `${path} must stay in its captured project epoch`);
       assert.equal(state.projectEpoch, expectedEpoch, `${path} snapshot must stay in its captured project epoch`);
-      assert.equal(result.playbackApplied, true,
-        `${path} must publish its project revision for audio: ${JSON.stringify(result)}`);
-      assert.ok(result.playbackRevision >= result.projectRevision,
-        `${path} audio graph revision must include the edit`);
-      assert.equal(result.playbackProjectEpoch, state.playbackProjectEpoch,
-        `${path} graph epoch must match the exact result`);
-      assert.ok(state.playbackProjectRevision >= result.projectRevision,
-        `${path} state must expose an audio graph at least as new as the edit`);
+      if (expectedApplicationDomain === "lighting") {
+        assert.equal(result.lightingApplied, true,
+          `${path} must publish the updated immutable project snapshot to LightEngine`);
+      } else {
+        assert.equal(result.playbackApplied, true,
+          `${path} must publish its project revision for audio: ${JSON.stringify(result)}`);
+        assert.ok(result.playbackRevision >= result.projectRevision,
+          `${path} audio graph revision must include the edit`);
+        assert.equal(result.playbackProjectEpoch, state.playbackProjectEpoch,
+          `${path} graph epoch must match the exact result`);
+        assert.ok(state.playbackProjectRevision >= result.projectRevision,
+          `${path} state must expose an audio graph at least as new as the edit`);
+      }
     }
     return { state, result, accepted };
   };
@@ -389,6 +398,78 @@ export async function verifyEditorState(coreExecutable, inspect) {
     await confirmEditorMutation("/api/v1/builder/song/end", {
       index: 0, endSeconds: 120,
     });
+
+    const lightingConfig = await confirmEditorMutation("/api/v1/lighting/config", {
+      idleIntensity: 0.73,
+    }, true, {}, "lighting");
+    assert.equal(lightingConfig.state.lighting.idle.intensity, 0.73,
+      "lighting config mutation must be present in the authoritative state before its exact ACK");
+    const firstFixture = await confirmEditorMutation("/api/v1/lighting/fixture/add", {
+      name: "Acceptance Fixture A",
+    }, true, {}, "lighting");
+    const fixtureA = firstFixture.state.lighting.fixtures.find((fixture) => fixture.name === "Acceptance Fixture A");
+    assert.ok(fixtureA, "lighting fixture add must appear before its exact ACK");
+    const duplicateFixture = await confirmEditorMutation("/api/v1/lighting/fixture/duplicate", {
+      fixtureId: fixtureA.id,
+    }, true, {}, "lighting");
+    const fixtureCopy = duplicateFixture.state.lighting.fixtures.find((fixture) => fixture.name === "Acceptance Fixture A Copy");
+    assert.ok(fixtureCopy, "lighting fixture duplicate must appear before its exact ACK");
+    const updatedFixture = await confirmEditorMutation("/api/v1/lighting/fixture/update", {
+      fixtureId: fixtureCopy.id, name: "Acceptance Fixture B",
+    }, true, {}, "lighting");
+    assert.ok(updatedFixture.state.lighting.fixtures.some((fixture) => fixture.id === fixtureCopy.id
+      && fixture.name === "Acceptance Fixture B"), "lighting fixture update must be authoritative");
+    await confirmEditorMutation("/api/v1/lighting/fixture/remove", {
+      fixtureId: fixtureCopy.id,
+    }, true, {}, "lighting");
+    const absentLightingFixture = await confirmEditorMutation("/api/v1/lighting/fixture/remove", {
+      fixtureId: fixtureCopy.id,
+    }, false, {}, "lighting");
+    assert.match(absentLightingFixture.result.error, /did not create a new revision/,
+      "removing an absent fixture must report an exact no-op outcome");
+
+    const firstLightTrack = await confirmEditorMutation("/api/v1/lighting/track/add", {},
+      true, {}, "lighting");
+    const lightTrackA = firstLightTrack.state.lighting.tracks.at(-1);
+    assert.ok(lightTrackA, "lighting track add must appear before its exact ACK");
+    const updatedLightTrack = await confirmEditorMutation("/api/v1/lighting/track/update", {
+      index: firstLightTrack.state.lighting.tracks.length - 1,
+      name: "Acceptance Light Track A",
+    }, true, {}, "lighting");
+    const lightTrackAAfterUpdate = updatedLightTrack.state.lighting.tracks.find((track) => track.id === lightTrackA.id);
+    assert.equal(lightTrackAAfterUpdate?.name, "Acceptance Light Track A",
+      "lighting track update must be authoritative before its exact ACK");
+    const secondLightTrack = await confirmEditorMutation("/api/v1/lighting/track/add", {},
+      true, {}, "lighting");
+    const lightTrackB = secondLightTrack.state.lighting.tracks.at(-1);
+    assert.ok(lightTrackB, "second lighting track add must appear before its exact ACK");
+    const movedLightTracks = await confirmEditorMutation("/api/v1/lighting/track/move", {
+      index: secondLightTrack.state.lighting.tracks.length - 1, to: 0,
+    }, true, {}, "lighting");
+    assert.equal(movedLightTracks.state.lighting.tracks[0]?.id, lightTrackB.id,
+      "lighting track reorder must be authoritative before its exact ACK");
+    await confirmEditorMutation("/api/v1/lighting/track/remove", { index: 0 },
+      true, {}, "lighting");
+    const invalidLightTrackRemove = await confirmEditorMutation("/api/v1/lighting/track/remove", {
+      index: 99,
+    }, false, {}, "lighting");
+    assert.match(invalidLightTrackRemove.result.error, /did not create a new revision/,
+      "invalid lighting track removal must not report successful application");
+
+    const addedLightCue = await confirmEditorMutation("/api/v1/lighting/cue/add", {
+      songIndex: 0, trackId: lightTrackA.id, startSeconds: 4, durationSeconds: 2,
+      label: "Acceptance Cue",
+    }, true, {}, "lighting");
+    const lightCue = addedLightCue.state.songs[0].lightCues.find((cue) => cue.label === "Acceptance Cue");
+    assert.ok(lightCue, "lighting cue add must appear before its exact ACK");
+    const updatedLightCue = await confirmEditorMutation("/api/v1/lighting/cue/update", {
+      songIndex: 0, cueId: lightCue.id, intensity: 0.42,
+    }, true, {}, "lighting");
+    assert.equal(updatedLightCue.state.songs[0].lightCues.find((cue) => cue.id === lightCue.id)?.intensity,
+      0.42, "lighting cue update must be authoritative before its exact ACK");
+    await confirmEditorMutation("/api/v1/lighting/cue/remove", {
+      songIndex: 0, cueId: lightCue.id,
+    }, true, {}, "lighting");
 
     const quantized = notes.map((note) => ({ ...note,
       startBeats: Math.round(note.startBeats * 2) / 2, durationBeats: 0.5 }));
@@ -960,7 +1041,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
     const queueAcceptance = process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE === "1"
       ? ", command queue and deferred queue saturation/rejection/drain/recovery"
       : "";
-    console.log(`PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction${queueAcceptance}, audio/MIDI region CRUD and embedded-automation rejection, detached plug-in automation rebind rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)`);
+    console.log(`PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction${queueAcceptance}, audio/MIDI region CRUD and embedded-automation rejection, lighting config/fixture/track/cue exact outcomes, detached plug-in automation rebind rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)`);
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.

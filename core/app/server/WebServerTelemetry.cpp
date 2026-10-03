@@ -226,8 +226,9 @@ std::string WebServer::buildStateJson(const char* view) const {
     for (const auto& result : snap.editorCommandResults)
         wire.editorCommandResults.push_back({result.requestId, result.applied,
             result.projectEpoch, result.projectRevision, result.error,
+            result.applicationDomain,
             result.playbackApplied, result.playbackProjectEpoch,
-            result.playbackRevision});
+            result.playbackRevision, result.lightingApplied});
     wire.lastAction = snap.lastAction;
     wire.lastActionNonce = static_cast<uint64_t>(std::max(0, snap.lastActionNonce));
     wire.telemetryHz = effectiveTelemetryHz();
