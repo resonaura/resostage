@@ -17,10 +17,12 @@
 #include "server/BuilderJson.h"
 #include "server/AutomationJson.h"
 #include "timing/TempoMap.h"
+#include "plugins/PluginProcessorBank.h"
 
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <limits>
 
 namespace resostage {
 
@@ -187,10 +189,68 @@ void MainComponent::builderAutomationLaneUpdate(const std::string& json) {
     }
     if (!lanePtr) return;
 
+    std::optional<AutomationTarget> replacementTarget;
+    if (doc.contains("target")) {
+        const auto& targetDoc = doc["target"];
+        std::string domain, valueType;
+        AutomationTarget target;
+        double defaultValue = 0.0;
+        double minValue = 0.0;
+        double maxValue = 1.0;
+        std::string error;
+        if (!targetDoc.is_object()
+            || !getString(targetDoc, "domain", domain)
+            || !getString(targetDoc, "entityId", target.entityId)
+            || !getString(targetDoc, "parameterId", target.parameterId)
+            || !getString(targetDoc, "valueType", valueType)
+            || !getDouble(targetDoc, "defaultValue", defaultValue)
+            || !getDouble(targetDoc, "minValue", minValue)
+            || !getDouble(targetDoc, "maxValue", maxValue)
+            || domain != "plugin" || valueType != "floatNormalized"
+            || lanePtr->target.domain != AutomationDomain::Plugin
+            || target.entityId.empty() || target.entityId.size() > 128
+            || target.parameterId.empty() || target.parameterId.size() > 1024
+            || !std::isfinite(defaultValue) || !std::isfinite(minValue)
+            || !std::isfinite(maxValue) || minValue < 0.0 || maxValue > 1.0
+            || minValue > maxValue || defaultValue < minValue || defaultValue > maxValue
+            || defaultValue > std::numeric_limits<float>::max()) {
+            setStatus("Could not rebind automation lane: target must be a finite normalized plug-in parameter");
+            return;
+        }
+
+        target.domain = AutomationDomain::Plugin;
+        target.valueType = ParameterValueType::FloatNormalized;
+        target.defaultValue = static_cast<float>(defaultValue);
+        target.minValue = static_cast<float>(minValue);
+        target.maxValue = static_cast<float>(maxValue);
+        const bool slotExists = std::any_of(proj.tracks.begin(), proj.tracks.end(),
+            [&](const TrackDef& track) {
+                return std::any_of(track.plugins.begin(), track.plugins.end(),
+                    [&](const PluginSlot& slot) { return slot.id == target.entityId; });
+            });
+        const auto bank = engine.activePluginProcessorBank();
+        const int resolvedParameter = bank != nullptr
+            ? bank->resolvePluginParameterIndex(target.entityId, target.parameterId) : -1;
+        const auto parameterInfo = bank != nullptr
+            ? bank->parametersForSlot(target.entityId)
+            : std::vector<PluginProcessorBank::ParameterInfo>{};
+        const bool automatableParameter = std::any_of(
+            parameterInfo.begin(), parameterInfo.end(), [&](const auto& info) {
+                return info.index == static_cast<uint32_t>(resolvedParameter)
+                    && info.automatable;
+            });
+        if (!slotExists || resolvedParameter < 0 || !automatableParameter) {
+            setStatus("Could not rebind automation lane: destination parameter is not loaded and automatable in this project");
+            return;
+        }
+        replacementTarget = std::move(target);
+    }
+
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Update automation lane");
 
+    if (replacementTarget) lanePtr->target = std::move(*replacementTarget);
     bool bVal;
     std::string strVal;
     if (getBool(doc, "enabled", bVal)) lanePtr->enabled = bVal;

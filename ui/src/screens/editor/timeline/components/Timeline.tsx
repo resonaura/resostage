@@ -14,6 +14,7 @@ import {
 } from "react";
 import { builder } from "@/lib/state/api";
 import { useAutomationParameters } from "@/screens/editor/timeline/automation/hooks/useAutomationParameters";
+import { DetachedAutomationRecovery } from "@/screens/editor/timeline/automation/components/DetachedAutomationRecovery";
 import {
   useContinuousPlayhead,
   type CycleWrapRange,
@@ -277,6 +278,7 @@ export function Timeline({
   const [activeAutomationLaneIds, setActiveAutomationLaneIds] = useState<
     Record<string, string>
   >({});
+  const automationSong = state.songs[state.songIndex ?? 0];
   const automationParameters = useAutomationParameters(state.tracks, showAutomation,
     `${state.projectName}:${state.pluginLoading?.epoch ?? 0}:${state.pluginLoading?.generation ?? 0}`);
   const handleSelectAutomationLane = useCallback((trackId: string, laneId: string) => {
@@ -1447,6 +1449,16 @@ export function Timeline({
         setShowAutomation={setShowAutomation}
         verticalZoom={verticalZoom}
         setVerticalZoom={setVerticalZoom}
+      />
+
+      <DetachedAutomationRecovery
+        songIndex={state.songIndex ?? 0}
+        song={automationSong}
+        tracks={state.tracks}
+        buses={state.busses}
+        parameters={automationParameters}
+        readOnly={readOnly}
+        onRevealAutomation={() => setShowAutomation(true)}
       />
 
       {!hasSongs ? (

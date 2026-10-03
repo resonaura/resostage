@@ -675,6 +675,41 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(reusedIdEdit.accepted.requestId, firstEditorRequestId,
       "request IDs may be reused after restart only within the new session namespace");
     assert.equal(getRegion(reusedIdEdit.state).name, "New Core session command");
+
+    const detachedAutomation = await confirmEditorMutation("/api/v1/builder/automation-lane/add", {
+      songIndex: 0,
+      domain: "plugin",
+      entityId: "slot:removed-before-recovery",
+      parameterId: "id:cutoff",
+      valueType: "floatNormalized",
+      defaultValue: 0.5,
+      minValue: 0,
+      maxValue: 1,
+      points: [{ timeBeats: 0, value: 0.75, curve: 0 }],
+    });
+    const detachedLane = detachedAutomation.state.songs[0].automationLanes.at(-1);
+    const beforeInvalidRebindRevision = detachedAutomation.state.stateRevision;
+    const rejectedRebind = await confirmEditorMutation("/api/v1/builder/automation-lane/update", {
+      songIndex: 0,
+      laneId: detachedLane.id,
+      target: {
+        domain: "plugin",
+        entityId: "slot:not-loaded-in-project",
+        parameterId: "id:cutoff",
+        valueType: "floatNormalized",
+        defaultValue: 0.4,
+        minValue: 0,
+        maxValue: 1,
+      },
+    }, false);
+    assert.equal(rejectedRebind.state.stateRevision, beforeInvalidRebindRevision,
+      "a rebind to a plug-in absent from the project must be rejected before history mutation");
+    const retainedDetachedLane = rejectedRebind.state.songs[0].automationLanes
+      .find((lane) => lane.id === detachedLane.id);
+    assert.equal(retainedDetachedLane.target.entityId, "slot:removed-before-recovery");
+    assert.deepEqual(retainedDetachedLane.points, detachedLane.points,
+      "rejected rebind must preserve the detached lane and its curve");
+    assert.match(rejectedRebind.result.error, /destination parameter is not loaded/);
     if (inspect) await inspect(origin);
 
     const oldIdentity = {
@@ -747,7 +782,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "stale project edits must not create a history revision");
     assert.equal(staleEdit.state.songs[0].midiRegions[0].name, fencedRegion.name,
       "stale project edits must not mutate entities with reused/indexed targets");
-    console.log("PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction, audio/MIDI region CRUD and embedded-automation rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
+    console.log("PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction, audio/MIDI region CRUD and embedded-automation rejection, detached plug-in automation rebind rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.

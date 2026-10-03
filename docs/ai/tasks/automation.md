@@ -79,6 +79,28 @@ Previous arrangement UI existed, but had significant functional gaps:
   native 572 cases/424,285 assertions. Typechecks pass; lint has zero errors and
   12 existing warnings. These do not complete the open ownership/epoch contract.
 
+## Detached plug-in lane recovery
+
+The Editor timeline now surfaces plug-in automation lanes whose slot was
+removed, whose plug-in failed/is missing, or whose parameter is absent from a
+complete loaded descriptor table. It scans song, audio-region, and MIDI-region
+lanes without assuming a track owner from the parameter target. Rebind options
+come only from loaded automatable parameters; truncated/loading descriptor
+tables remain unresolved rather than being called unbound. Recovery preserves
+the curve and routes rebind/remove through the existing reliable automation
+history commands. Core validates rebind targets before opening history and
+rejects a stale or non-automatable destination without mutating the project.
+
+Still required: inspect theme/geometry/read-only/empty-destination states and
+verify a successful rebind against an actual hosted AU/VST3 parameter while
+transport is active, then confirm undo/redo and save/reopen.
+
+Verification on 2026-10-02: full UI suite 763 tests across 111 files, UI
+TypeScript and production build passed, lint had zero errors with 12 existing
+warnings, native CTest passed 584 cases / 428,677 assertions, and real-Core
+`editor-state.mjs` confirmed absent-slot rebind rejection is atomic. Successful
+live-vendor rebind and visual/device acceptance are not established.
+
 ## Finish in this order
 
 1. Preserve implemented track-scope strip gain/pan/mute/send DSP and declicked
@@ -131,7 +153,8 @@ Core HTTP acceptance passed. The real hosted Apple AUDelay case passed 66
 assertions for compact parameter indices and a live changed value. Lint passed
 with zero errors; the existing warning set is listed in the audit. This does
 not establish dense-project idle-cost targets, all vendor behavior, audio
-continuity or device performance. Orphaned automation recovery remains open.
+continuity or device performance. Detached automation recovery is implemented;
+vendor rebind and visual acceptance remain open.
 
 ## Acceptance evidence and limits
 

@@ -17,6 +17,7 @@ import {
 import type { MixGraphPayload } from "@/lib/audio/mixGraph";
 import type {
   AllPeaksResponse,
+  AutomationTargetRow,
   EventTypeWire,
   LightCueRow,
   LivePeakChunkResponse,
@@ -1175,6 +1176,7 @@ export const builder = {
     enabled?: boolean;
     muted?: boolean;
     writeMode?: import("@/lib/state/types").AutomationWriteMode;
+    target?: AutomationTargetRow;
     gestureId?: string;
   }) => postReliable("/api/v1/builder/automation-lane/update", patch),
   automationPointAdd: (patch: {

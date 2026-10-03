@@ -215,7 +215,23 @@ renders when values are unchanged. Verification: full UI suite 757/757 across
 native builds, full native CTest 584 cases / 428,677 assertions, real-Core
 `editor-state.mjs`, and 66 assertions in the hosted Apple AUDelay parameter
 test. This is not dense-project idle-cost profiling, all-vendor proof or
-acoustic/device evidence. Orphaned automation-lane recovery remains open.
+acoustic/device evidence. Detached automation recovery is implemented; visual
+and successful vendor-rebind acceptance remains open.
+
+## Detached automation recovery
+
+The Editor timeline now finds removed plug-in slots and conclusive unbound or
+failed plug-in automation targets across song/audio/MIDI-region lanes. Complete
+loaded metadata is required before declaring a parameter absent; loading or
+truncated metadata is not enough. Rebind uses
+`/api/v1/builder/automation-lane/update` with an optional `target`; Core checks
+current-project ownership and the loaded bank's automatable descriptor before
+history mutation. Rejected destinations must preserve lane points and project
+revision. See `audit.md` and `automation.md` for details and verification.
+The current block passed 763 UI tests / 111 files, UI TypeScript/build, lint
+(zero errors, 12 existing warnings), native CTest (584 cases / 428,677
+assertions), and real-Core absent-slot rejection. Successful live-vendor rebind
+and visual/device acceptance are still required.
 
 ## Immediate next actions
 

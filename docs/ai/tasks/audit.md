@@ -489,7 +489,43 @@ regression, the full UI suite passed 757 tests across 109 files and
 assertions; real-Core `editor-state.mjs` passed. This proves the specific
 cache/value handoff and hosted AU read path, not dense-project idle-cost
 targets, every AU/VST3 vendor, or acoustic/device performance. Orphaned
-automation recovery remains open.
+automation recovery is implemented below; visual and end-to-end rebind
+acceptance remain open.
+
+## Closed this audit — detached plug-in automation recovery
+
+Track controls could only receive lanes whose target slot and parameter still
+belonged to the current project. A lane targeting a deleted plug-in slot or a
+removed parameter therefore fell out of every track-filtered list even though
+Core had preserved its points. The timeline now keeps a project-level recovery
+strip visible for detached plug-in lanes across song, audio-region and
+MIDI-region automation. It reports
+the owning context when known (otherwise “Song automation”), preserves the
+point count, and offers a destination picker containing only loaded,
+automatable plug-in parameters plus an explicit remove action. Missing
+parameters are conclusive only after complete loaded metadata; failed slots are
+surfaced, while loading or truncated descriptor tables do not create false
+warnings. Expanding the recovery strip reveals automation mode so normal
+descriptor discovery supplies the real parameter options.
+
+Rebinding uses the existing exact/history-aware automation-lane update route.
+Core validates a complete finite normalized target, requires the destination
+slot to exist in the current project, and verifies the loaded bank resolves
+that parameter as automatable before beginning a history edit. A rejected or
+stale destination changes neither the lane nor project revision; the original
+points remain available. UI tests verify complete target formation, removal,
+missing slots, unbound parameters, failed slots, and truncated-metadata safety.
+The real-Core HTTP fixture verifies absent-slot rejection leaves its existing
+orphan lane and points unchanged. Successful rebind against an actual vendor
+plug-in is still covered by the UI target formation and hosted parameter
+enumeration separately, not by this fixture.
+
+Verification on 2026-10-02: full UI suite 763 tests across 111 files, UI
+TypeScript and production build passed, lint passed with zero errors and the
+same 12 existing warnings, Core and native test targets built, CTest passed 584
+cases / 428,677 assertions, and real-Core `editor-state.mjs` passed the
+detached-target rejection scenario. No successful rebind against a live vendor
+parameter or manual visual/device acceptance is claimed.
 
 ## Closed this audit — offline Write-mode parity
 
@@ -575,8 +611,9 @@ clock.
    history/mutation. Immutable parameter-descriptor caching is also implemented
    above; live/offline Write behavior and punch-window preservation are tracked
    in the automation lifecycle items.
-6. Recover automation whose plug-in slot was removed, and measure metadata/value
-   request rate and Core/UI idle cost on dense projects.
+6. Visually verify detached/unbound automation recovery and exercise a successful
+   rebind against a loaded vendor plug-in; measure metadata/value request rate and
+   Core/UI idle cost on dense projects.
 7. Finish TempoMap-based Piano Roll ruler/cycle/project-axis positioning, then
    run heavy vendor/device, theme, platform and save/reopen acceptance in
    `media.md` and `performance.md`.
@@ -611,8 +648,9 @@ the user's recent projects/settings; use private copies and temporary settings.
 
 Automation additionally needs actual light/dark UI inspection at compact/large
 track heights, loading/missing/failed/unbound parameters and reduced motion.
-Existing slot-removed orphan lanes must remain discoverable rather than vanish
-when their former owner cannot be inferred. The descriptor cache and compact
+The detached-lane recovery strip is implemented above; visually inspect it in
+light/dark themes, narrow window sizes, read-only mode, no-loaded-destination
+mode, and for song/audio/MIDI-region lanes. The descriptor cache and compact
 value endpoint are implemented above; dense-project request-rate and idle-cost
 profiling is still required before claiming global plug-in/automation
 optimization.

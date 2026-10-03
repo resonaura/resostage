@@ -682,6 +682,14 @@ Preserve these rules:
   pitch-bend lanes on MIDI regions are dispatched to the track instrument (and
   scheduled external MIDI output where applicable), at audio-block granularity.
   These channel lanes are not per-note MIDI 2.0 glide.
+  The optional `target` on `/api/v1/builder/automation-lane/update` is a
+  plug-in-lane rebind only: Core validates the normalized target, current
+  project slot, and loaded automatable parameter before opening history. A
+  rejected or stale destination must leave the lane, points, history revision,
+  and playback state unchanged. Timeline recovery must surface detached lanes
+  across song, audio-region, and MIDI-region scopes. Missing parameters are
+  conclusive only after complete descriptor metadata; truncated or loading
+  tables must not be reported as unbound.
 - Plug-in delay compensation is derived from the same topologically ordered
   graph. A topology-specific delay bank publishes pre-bound per-edge entries
   so every summing strip aligns to its slowest input without lookup or

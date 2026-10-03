@@ -8,6 +8,7 @@ import type {
   AutomationLaneRow,
   BusRow,
   PluginParameterList,
+  SongRow,
   TrackRow,
 } from "@/lib/state/types";
 import type {
@@ -19,6 +20,66 @@ export interface GroupedAutomationTargets {
   category: AutomationTargetCategory;
   categoryLabel: string;
   targets: AutomationTargetOption[];
+}
+
+export interface DetachedPluginAutomationLane {
+  lane: AutomationLaneRow;
+  location: string;
+  reason: "slot-missing" | "plugin-unavailable" | "parameter-unbound";
+}
+
+/**
+ * Finds plug-in lanes whose slot no longer exists anywhere in the project.
+ * Their original track cannot be inferred from the target alone, so callers
+ * must present them in a project-level recovery surface instead of dropping
+ * them from every track's lane list.
+ */
+export function getDetachedPluginAutomationLanes(
+  tracks: TrackRow[],
+  song: SongRow | undefined,
+  parameters: Readonly<Record<string, PluginParameterList>> = {},
+): DetachedPluginAutomationLane[] {
+  if (!song) return [];
+  const slotsById = new Map((tracks ?? []).flatMap((track) =>
+    (track.plugins ?? []).map((slot) => [slot.id, slot] as const)));
+  const locatedLanes: Array<{ lane: AutomationLaneRow; location: string }> = [
+    ...(song.automationLanes ?? []).map((lane) => ({ lane, location: "Song automation" })),
+    ...(song.regions ?? []).flatMap((region) => (region.automationLanes ?? []).map((lane) => ({
+      lane,
+      location: `Audio region ${region.id.slice(0, 8)}`,
+    }))),
+    ...(song.midiRegions ?? []).flatMap((region) => (region.automationLanes ?? []).map((lane) => ({
+      lane,
+      location: `MIDI region ${region.name || region.id.slice(0, 8)}`,
+    }))),
+  ];
+  const detached: DetachedPluginAutomationLane[] = [];
+  for (const { lane, location } of locatedLanes) {
+    if (lane.target.domain !== "plugin") continue;
+    const slot = slotsById.get(lane.target.entityId);
+    if (!slot) {
+      detached.push({ lane, location, reason: "slot-missing" });
+      continue;
+    }
+
+    const metadata = parameters[slot.id];
+    if (metadata?.loadState === "failed" || metadata?.loadState === "missing"
+      || slot.loadState === "failed" || slot.loadState === "missing") {
+      detached.push({ lane, location, reason: "plugin-unavailable" });
+      continue;
+    }
+
+    // A missing descriptor is conclusive only after a complete metadata read.
+    // Truncated tables and loading slots must not create false orphan warnings.
+    if (metadata?.loadState !== "loaded" || metadata.truncated) continue;
+    const parameter = metadata.parameters.find((candidate) =>
+      candidate.parameterId === lane.target.parameterId
+      || `param:${candidate.index}` === lane.target.parameterId);
+    if (!parameter || !parameter.automatable) {
+      detached.push({ lane, location, reason: "parameter-unbound" });
+    }
+  }
+  return detached;
 }
 
 /**
