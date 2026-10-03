@@ -402,10 +402,23 @@ busy rejection and absent status; full UI suite passed 785 tests in 118 files;
 TypeScript build passed. This is status presentation only, not a Save As dialog,
 filesystem-failure, or remote-device acceptance.
 
+## Closed this audit — native Save As dialog rejection recovery
+
+The Electron state watcher previously reset `isSaveDialogActive` only in a
+`.then()` continuation. If `dialog.showSaveDialog()` rejected, the Promise was
+unhandled, the guard stayed set, and Core's pending Save As callback was never
+cancelled. The watcher now catches that error, sends the same `cancel_save_as`
+action used for an explicit dialog dismissal, best-effort displays a native
+error message, and clears its active guard in `finally`.
+
+Verification (2026-10-03): Electron typecheck passed; 37 Vitest tests and both
+Node alias-resolution tests passed. These checks compile the recovery path but
+do not force macOS/Windows/Linux native dialog rejection or filesystem failure.
+
 Next implementation:
 
-1. Exercise Save/Save As cancellation and filesystem-failure presentation, plus
-   open requests while a prior open-confirm dialog is already pending. Add
+1. Exercise Save/Save As cancellation and filesystem-failure presentation on
+   the native Electron dialog. Add
    host-specific acknowledgements for plug-in bypass/Keep Awake/retry only if
    callers need to know host application. Structural chain edits have exact
    editor outcomes, but that is not proof a vendor instance finished loading.

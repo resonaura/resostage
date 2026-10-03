@@ -49,6 +49,10 @@ The 2026-10-03 optimized production Core rebuild (`RESOSTAGE_ENABLE_TEST_HOOKS=O
 and full `scripts/verification/editor-state.mjs` acceptance passed after this
 Recent-open consolidation. It exercises the shared HTTP lifecycle path; the
 native Electron menu call site was compiled but not UI-driven by that harness.
+Electron Save As dialog Promise rejection now cancels Core's pending callback,
+shows a best-effort native error, and clears the dialog guard in `finally`.
+Electron typecheck and all 37 Vitest plus two alias-resolution tests passed;
+platform-native rejection and filesystem failure still need direct acceptance.
 
 ## Verified root causes and committed fixes
 

@@ -2406,9 +2406,25 @@ ipcMain.on("menu-state", (_event, s: Partial<MenuState>) => {
     }
     if (menuState.saveAsPending && !isSaveDialogActive) {
       isSaveDialogActive = true;
-      void handleFileDialogAction("save_project_as").then(() => {
-        isSaveDialogActive = false;
-      });
+      void handleFileDialogAction("save_project_as")
+        .catch((error: unknown) => {
+          // If the native dialog itself fails, settle Core's pending Save As
+          // callback just as an explicit Cancel would. Otherwise Core remains
+          // stuck waiting and the next state frame can never recover the UI.
+          void postAction("cancel_save_as").catch(() => {});
+          const activeWindow = mainWindow;
+          if (!activeWindow || activeWindow.isDestroyed()) return;
+          const detail = error instanceof Error ? error.message : String(error);
+          void dialog.showMessageBox(activeWindow, {
+            type: "error",
+            title: "Save As failed",
+            message: "ResoStage could not open the Save As dialog.",
+            detail,
+          }).catch(() => {});
+        })
+        .finally(() => {
+          isSaveDialogActive = false;
+        });
     }
     refreshTouchBar();
   }
