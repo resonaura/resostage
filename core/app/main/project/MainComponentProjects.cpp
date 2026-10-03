@@ -580,7 +580,17 @@ void MainComponent::saveProjectClicked(bool saveAs, std::function<void(bool)> on
 
     const bool isElectron = (std::getenv("RESOSTAGE_SPAWNED_BY_SHELL") != nullptr);
     if (isElectron) {
-        pendingSaveAsCallback = onDone;
+        if (pendingSaveAsCallback) {
+            setStatus("A Save As dialog is already pending");
+            if (onDone)
+                onDone(false);
+            publishWebState();
+            return;
+        }
+        // Even a direct Save As needs a non-empty completion token so Electron
+        // can observe the request, open its native dialog, and settle it on
+        // cancel or after the selected path finishes saving.
+        pendingSaveAsCallback = onDone ? std::move(onDone) : [](bool) {};
         publishWebState();
         return;
     }

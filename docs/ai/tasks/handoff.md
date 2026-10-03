@@ -54,12 +54,14 @@ malformed archive rejection after explicit discard, and a competing Recent open
 preserve the prior document and pending target. Upload temporary files are
 cleaned on cancel, failed Save/load, queue rejection and Core shutdown. This
 does not verify successful browser archive round-trip or packaged media assets.
-Electron Save As dialog Promise rejection now cancels Core's pending callback,
-shows a best-effort native error, and clears the dialog guard in `finally`.
-One launch is latched per Core pending interval to prevent duplicate dialogs
-from stale frames.
-Electron typecheck and all 37 Vitest plus two alias-resolution tests passed;
-platform-native rejection and filesystem failure still need direct acceptance.
+Electron Save As now publishes a real pending token for direct requests,
+protects it from duplicate requests, and settles it on cancel/completion.
+Remote export-to-controller flows request cancellation from the original
+captured Core on all terminal paths. The native dialog watcher recovers from Promise rejection and
+uses a per-pending-interval latch. Electron typecheck, 45 Vitest tests, two
+alias-resolution tests and the actual-Core Save As pending/duplicate/cancel
+acceptance passed. Actual OS dialog failures and disk-full behaviour remain
+platform smoke tests.
 
 ## Verified root causes and committed fixes
 

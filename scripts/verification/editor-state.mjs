@@ -1143,6 +1143,21 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(getRegion(cancelledOpen).name, "Transient before same-Core reopen",
       "cancelling a recent-project open must preserve unsaved project content");
 
+    await request("/api/v1/project/save-as", {});
+    const pendingSaveAs = await waitFor((snapshot) => snapshot.saveAsPending,
+      "remote/native Save As must publish its pending callback state");
+    await request("/api/v1/project/save-as", {});
+    const duplicateSaveAs = await waitFor((snapshot) => snapshot.saveAsPending
+      && snapshot.statusMessage?.startsWith("A Save As dialog is already pending"),
+    "duplicate Save As must not replace the pending completion token");
+    await request("/api/v1/action", { action: "cancel_save_as" });
+    const cancelledSaveAs = await waitFor((snapshot) => !snapshot.saveAsPending,
+      "cancel Save As after controller-side export");
+    assert.equal(cancelledSaveAs.projectEpoch, pendingSaveAs.projectEpoch,
+      "settling a Save As dialog must not replace the active project");
+    assert.equal(duplicateSaveAs.projectEpoch, pendingSaveAs.projectEpoch,
+      "duplicate Save As must remain within the active project");
+
     const malformedProjectUpload = Buffer.from("not a ResoStage project container");
     const postMalformedProjectUpload = async () => {
       const response = await fetch(origin + "/api/v1/project/upload", {

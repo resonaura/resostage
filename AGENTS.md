@@ -151,7 +151,13 @@ request-specific completion errors.
 Active-document lifecycle requests (New, Save, Save As, Open Recent, Export,
 and the native open-dialog request) are fenced too. Recent-list clearing and
 quit/open confirmation responses remain app/dialog state, not edits to the
-active document.
+active document. In Electron mode, `saveAsPending` is a non-empty completion
+token: even a direct Save As with no follow-up callback must publish it so the
+shell can open its native dialog. A duplicate request must not replace an
+already-pending continuation. Explicit cancellation, dialog failure, or a
+completed Save As settles the token; a browser/remote export that writes only
+on the controller must cancel rather than adopt that local path as the Core's
+project location.
 
 Internal frontend imports use the `@/` alias rooted at `ui/src`; TypeScript,
 Vite, and Vitest must keep that mapping aligned. Electron has its own `@/`

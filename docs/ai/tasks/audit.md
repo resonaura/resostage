@@ -410,39 +410,54 @@ busy rejection and absent status; full UI suite passed 785 tests in 118 files;
 TypeScript build passed. This is status presentation only, not a Save As dialog,
 filesystem-failure, or remote-device acceptance.
 
-## Closed this audit — native Save As dialog rejection recovery
+## Closed this audit — Electron Save As request settlement
 
-The Electron state watcher previously reset `isSaveDialogActive` only in a
-`.then()` continuation. If `dialog.showSaveDialog()` rejected, the Promise was
-unhandled, the guard stayed set, and Core's pending Save As callback was never
-cancelled. The watcher now catches that error, sends the same `cancel_save_as`
-action used for an explicit dialog dismissal, best-effort displays a native
-error message, and clears its active guard in `finally`.
-The watcher also latches one dialog launch per `saveAsPending` interval, so
-stale repeated menu-state frames cannot reopen the native dialog while Core is
-still settling the callback; a Core `false` frame resets the latch.
+Two lifecycle gaps are closed. First, direct embedded Save As requests passed
+an empty completion callback, so Core never published `saveAsPending` and the
+Electron shell had no signal to open its native dialog. Core now publishes a
+non-empty completion token even without a continuation, preserves the first
+token on duplicate requests, and settles it on cancel or completion. Second,
+the remote Save As path exports a copy to the controller and previously failed
+to clear the remote Core's pending callback on cancel or several error paths.
+That flow now sends a cancellation request to the original captured Core in
+`finally` on every terminal path and never adopts the controller path as the
+remote project's path. If the remote Core is disconnected, application cannot
+be confirmed.
+
+The Electron state watcher also catches local native dialog Promise rejection,
+sends the same `cancel_save_as` action as explicit dismissal, best-effort shows
+an error, and clears its active guard in `finally`. It latches one dialog
+launch per `saveAsPending` interval, so stale frames cannot reopen it before
+Core settles the callback.
 
 Verification (2026-10-03): Electron typecheck passed; 37 Vitest tests and both
-Node alias-resolution tests passed. These checks compile the recovery path but
-do not force macOS/Windows/Linux native dialog rejection or filesystem failure.
+Node alias-resolution tests passed at the initial recovery change. The expanded
+suite passes 45 Vitest tests and both Node alias-resolution tests; UI-independent
+tests cover remote export success, start failure, timeout, destination cancel,
+native dialog rejection, download rejection, write failure and message-box
+failure. The actual-Core harness verifies direct Save As publishes its pending
+state, a duplicate does not replace it, and cancellation clears it without
+changing project identity. Core production build and the full actual-Core
+harness pass. Native OS dialog rejection and actual disk-full behaviour remain
+platform smoke-test limits; injected tests do not emulate AppKit/Win32 dialogs
+or guarantee crash-safe replacement of a pre-existing destination.
 
 Next implementation:
 
-1. Exercise Save/Save As cancellation and filesystem-failure presentation on
-   the native Electron dialog. Add
-   host-specific acknowledgements for plug-in bypass/Keep Awake/retry only if
-   callers need to know host application. Structural chain edits have exact
-   editor outcomes, but that is not proof a vendor instance finished loading.
-   Document lifecycle currently uses fenced admission, single-flight busy/
-   status state, and explicit prompt flags; do not overload the editor-history
-   result ring or treat Save/Open as history mutations. The UI now has a
-   regression where an
-   accepted edit's state poll returns an old-epoch exact result only after the
-   observed project changes; it rejects the stale result, triggers refresh, and
-   verifies there is one POST only. Core-side restart coverage pauses loopback
-   dequeue, accepts an edit without a result/state effect, kills Core, and
-   proves unchanged reload plus HTTP 409 on stale retry. Keep accepted-result
-   expiry unknown and never infer application from another request's later
+1. Perform local native Save As smoke tests on macOS/Windows/Linux, including
+   user cancellation and write failure. Add host-specific acknowledgements for
+   plug-in bypass/Keep Awake/retry only if callers need to know host
+   application. Structural chain edits have exact editor outcomes, but that is
+   not proof a vendor instance finished loading. Document lifecycle currently
+   uses fenced admission, single-flight busy/status state, and explicit prompt
+   flags; do not overload the editor-history result ring or treat Save/Open as
+   history mutations. The UI now has a regression where an accepted edit's
+   state poll returns an old-epoch exact result only after the observed project
+   changes; it rejects the stale result, triggers refresh, and verifies there
+   is one POST only. Core-side restart coverage pauses loopback dequeue,
+   accepts an edit without a result/state effect, kills Core, and proves
+   unchanged reload plus HTTP 409 on stale retry. Keep accepted-result expiry
+   unknown and never infer application from another request's later
    state.
 2. Add exact completion only to remaining structural mutations that truly
    participate in history. Do not make high-rate fader or knob streams await

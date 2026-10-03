@@ -68,6 +68,7 @@ import {
 } from "@/discovery.js";
 import { UdpTelemetryTracker } from "@/udpTelemetry.js";
 import { chooseAudioRenderDirectory } from "@/audioRenderDirectory.js";
+import { exportRemoteProjectAs } from "@/remoteProjectSaveAs.js";
 import {
   createPlatformAdapter,
   type PlatformAdapter,
@@ -1196,58 +1197,55 @@ async function handleFileDialogAction(action: string): Promise<boolean> {
     }
 
     if (action === "save_project_as") {
-      // Kick off an export on the remote, then pull the archive once ready.
-      try {
-        const exp = await remoteHttp(`${base}/api/v1/project/export`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-          timeoutMs: 5000,
-        });
-        if (!exp.ok) {
+      // Remote Save As exports a copy to this controller; it never adopts the
+      // local path as the remote project's authoritative package location.
+      await exportRemoteProjectAs({
+        startExport: async () => {
+          const result = await remoteHttp(`${base}/api/v1/project/export`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+            timeoutMs: 5000,
+          });
+          return { ok: result.ok, status: result.status };
+        },
+        waitForExport: () => waitForRemoteExport(base),
+        chooseDestination: async (defaultPath) => {
+          if (!mainWindow || mainWindow.isDestroyed()) return { canceled: true };
+          const result = await dialog.showSaveDialog(mainWindow, {
+            title: "Save Remote Project As",
+            defaultPath,
+            filters: [{ name: "ResoStage Project", extensions: ["rsnraset"] }],
+            showsTagField: false,
+          });
+          return { canceled: result.canceled, filePath: result.filePath };
+        },
+        downloadExport: async () => {
+          const result = await remoteHttp(`${base}/api/v1/project/download`, {
+            timeoutMs: 120_000,
+          });
+          return { ok: result.ok, status: result.status, bytes: result.rawBody };
+        },
+        writeFile: (filePath, bytes) => writeFileSync(filePath, bytes),
+        showError: async (title, message) => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
           await dialog.showMessageBox(mainWindow, {
             type: "error",
-            title: "Remote export failed",
-            message: `The remote host could not start an export (HTTP ${exp.status}).`,
+            title,
+            message,
           });
-          return true;
-        }
-      } catch (err: any) {
-        await dialog.showMessageBox(mainWindow, {
-          type: "error",
-          title: "Remote export failed",
-          message: String(err?.message ?? err),
-        });
-        return true;
-      }
-      const ready = await waitForRemoteExport(base);
-      const res = await dialog.showSaveDialog(mainWindow, {
-        title: "Save Remote Project As",
-        defaultPath: ready?.fileName || "Project.rsnraset",
-        filters: [{ name: "ResoStage Project", extensions: ["rsnraset"] }],
-        showsTagField: false,
+        },
+        cancelPendingSaveAs: async () => {
+          // Settle the operation on the Core that raised this dialog. The
+          // active remote target may have changed while export/download ran.
+          const result = await remoteHttp(`${base}/api/v1/action`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "cancel_save_as" }),
+          });
+          return result.ok;
+        },
       });
-      if (res.canceled || !res.filePath) return true;
-      try {
-        const dl = await remoteHttp(`${base}/api/v1/project/download`, {
-          timeoutMs: 120_000,
-        });
-        if (!dl.ok) {
-          await dialog.showMessageBox(mainWindow, {
-            type: "error",
-            title: "Download failed",
-            message: `Could not download the exported project (HTTP ${dl.status}).`,
-          });
-          return true;
-        }
-        writeFileSync(res.filePath, dl.rawBody ?? Buffer.alloc(0));
-      } catch (err: any) {
-        await dialog.showMessageBox(mainWindow, {
-          type: "error",
-          title: "Download failed",
-          message: String(err?.message ?? err),
-        });
-      }
       return true;
     }
 
