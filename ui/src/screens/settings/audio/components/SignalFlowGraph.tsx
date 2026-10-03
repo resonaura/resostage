@@ -10,8 +10,8 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { resolveCssVar, withHexAlpha } from "@/lib/theme/cssColor";
 import { roleColor } from "@/lib/theme";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
-import { NODE_HEIGHT, NODE_WIDTH, layoutSignalFlow, pathThrough, sourceChannelLabel } from "@/screens/settings/audio/logic/signalFlowLayout";
-import type { SignalFlowEdge, SignalFlowModel } from "@/screens/settings/audio/logic/signalFlowModel";
+import { NODE_HEIGHT, NODE_WIDTH, layoutSignalFlow, sourceChannelLabel } from "@/screens/settings/audio/logic/signalFlowLayout";
+import { pathThroughSignalFlow, type SignalFlowEdge, type SignalFlowModel } from "@/screens/settings/audio/logic/signalFlowModel";
 import { SignalFlowNodeCard, type FlowNodeData } from "@/screens/settings/audio/components/SignalFlowNodes";
 import { signalFlowNodeColor } from "@/screens/settings/audio/logic/signalFlowColors";
 
@@ -65,7 +65,9 @@ export const SignalFlowGraph = memo(function SignalFlowGraph({
     geometryCache.current = { model, positions };
     return positions;
   }, [model]);
-  const focused = useMemo(() => focusId ? pathThrough(model.edges, focusId) : null, [model.edges, focusId]);
+  const focused = useMemo(() => focusId
+    ? pathThroughSignalFlow(model, focusId, focusNodeId != null)
+    : null, [model, focusId, focusNodeId]);
 
   const { nodes, edges } = useMemo(() => {
     const nodeColors = new Map(model.strips.map((node) => [node.id, signalFlowNodeColor(node)]));

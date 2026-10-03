@@ -548,8 +548,11 @@ are in [audit.md](audit.md).
   need an explicit project/song scoping policy before this feature is fully
   generalized to project-bound controls.
 - useChannelClipHold reads a bounded external store keyed by Core/project
-  identity and stable strip ID. Timeline and Mixer controls share it and the
-  same reset. Inspector wiring and cross-surface live acceptance remain open.
+  identity and stable strip ID. Timeline `TrackGainControl`, Mixer
+  `ChannelStrip`, and EditorInspector's `TrackStrip` / `BusStrip` all consume
+  the same latch and reset. The store tests cover multiple subscribers and
+  reset; mounted cross-surface acceptance for the reported stale value remains
+  open, but a missing Inspector store is not a confirmed cause.
 - Mixer aux/main bus strips now open the Settings Audio Flow dialog with a
   stable bus focus and a full-tree toggle. Plugin sidechain input edges and
   actual sidechain processing remain absent; see audio-flow.md.
@@ -667,8 +670,7 @@ Focused UI control/cancellation tests passed 10/10; full UI passed 821 tests in
 none in changed files; `git diff --check` passed. No hardware, remote Core, or
 real AU/VST3 playback check was performed.
 
-Latest verified commit at the start of this continuation was
-`e13d512b Record integrated state audit verification`. Subsequent commits
-`3eed5f88` and `940ec4d7` recorded the task documentation and shared clip-hold
-block. The offline fail-closed source/test block is being verified separately;
-no push was performed.
+The verified local history now also includes `1bb1226b` and `1f1d3e5f` for
+Core-published live gain/pan/send automation, and `66b7fe3f` for mixer bus
+signal-flow focus. The latest completed hash is updated below as each following
+block is committed. No push was performed.

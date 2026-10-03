@@ -1093,9 +1093,12 @@ acceptance is split into [automation.md](automation.md),
 - useChannelClipHold now reads the bounded shared store in
   `ui/src/lib/audio/channelClipHold.ts`; decoded meter telemetry publishes
   once under Core origin/session/project epoch plus stable strip ID. Timeline
-  `TrackGainControl` and Mixer `ChannelStrip` share the same latch and clear
-  action. The Inspector still needs integration and real cross-surface
-  acceptance for the reported stale peak symptom.
+  `TrackGainControl`, Mixer `ChannelStrip`, and Inspector `TrackStrip` /
+  `BusStrip` all read that same latch and clear action. No separate Inspector
+  meter state was found. Existing store tests prove multiple subscribers and
+  global reset; still reproduce the reported stale peak across actual mounted
+  Timeline/Inspector/Mixer surfaces and telemetry updates before claiming the
+  original symptom is closed.
 - Audio Flow already exists under Settings > Audio and reads Core's MixGraph,
   with MIDI configuration shown as separate dotted routes. Mixer aux/main bus
   strips now open it focused on their stable ID and can toggle the full graph;

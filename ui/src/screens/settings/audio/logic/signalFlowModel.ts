@@ -6,6 +6,7 @@
 
 import type { MixGraphEdge, MixGraphPayload, MixGraphStrip } from "@/lib/audio/mixGraph";
 import type { TrackRow, WebUiState } from "@/lib/state/types";
+import { pathThrough, type FocusedPath } from "@/screens/settings/audio/logic/signalFlowLayout";
 
 export interface AudioFlowNode {
   id: string;
@@ -32,6 +33,26 @@ export interface SignalFlowModel {
   strips: SignalFlowNode[];
   edges: SignalFlowEdge[];
   midiConnections: number;
+}
+
+/** Resolve a node's connected path while preserving indices into model.edges. */
+export function pathThroughSignalFlow(
+  model: SignalFlowModel,
+  stripId: string,
+  audioOnly = false,
+): FocusedPath {
+  const originalIndices: number[] = [];
+  const candidates: SignalFlowEdge[] = [];
+  model.edges.forEach((edge, index) => {
+    if (audioOnly && edge.protocol !== "audio") return;
+    originalIndices.push(index);
+    candidates.push(edge);
+  });
+  const path = pathThrough(candidates, stripId);
+  return {
+    strips: path.strips,
+    edges: new Set([...path.edges].map((index) => originalIndices[index])),
+  };
 }
 
 export function resolveSignalFlowFocus(

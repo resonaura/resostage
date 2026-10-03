@@ -107,10 +107,17 @@ in the full graph and is not mislabeled as an audio edge. If a refresh no longer
 contains the focused ID, the dialog reports that explicitly and shows the full
 graph instead of following a replacement row at the old index.
 
+Bus focus restricts its path walk to typed audio edges while retaining the
+complete graph for layout and rendering. A source track's separate MIDI
+dispatcher/output configuration therefore cannot be highlighted as though it
+were audio passing through the selected bus. Full-tree mode clears that path
+highlight without removing the configured MIDI view.
+
 Added regressions for the icon action being bus-only, its pressed state and
 activation, stable-ID path reachability around a send bus, target deletion and
-project-epoch/session changes during the dialog lifetime. UI TypeScript passed;
-the full UI suite passed 827 tests in 125 files; lint exited 0 with 12 existing
-warnings in unrelated files; `git diff --check` passed. This block changes no
+project-epoch/session changes during the dialog lifetime, and strict audio-vs-
+MIDI path highlighting. UI TypeScript passed; the full UI suite passed 828
+tests in 125 files; lint exited 0 with 12 existing warnings in unrelated
+files; `git diff --check` passed. This block changes no
 Core graph data and makes no sidechain claim. Remote Core, visual density,
 stale in-flight graph response and hardware audio acceptance remain open.

@@ -9,6 +9,7 @@ import type { MixGraphPayload, MixGraphStrip } from "@/lib/audio/mixGraph";
 import { emptyState, type SongRow, type TrackRow } from "@/lib/state/types";
 import {
   buildSignalFlowModel,
+  pathThroughSignalFlow,
   resolveSignalFlowFocus,
   type SignalFlowModel,
 } from "@/screens/settings/audio/logic/signalFlowModel";
@@ -43,6 +44,30 @@ describe("signal flow model", () => {
     expect(resolveSignalFlowFocus(model, "bus-1", true, openedProject,
       { stateSessionId: "core-session", projectEpoch: 5 }))
       .toEqual({ projectMatches: false, targetExists: false, focusNodeId: null });
+  });
+
+  it("does not mix configured MIDI paths into an audio-bus focus path", () => {
+    const model: SignalFlowModel = {
+      strips: [
+        { id: "track", kind: "track", strip: strip("track") },
+        { id: "bus", kind: "send", strip: strip("bus", { kind: "send" }) },
+        { id: "main", kind: "main", strip: strip("main", { kind: "main" }) },
+        { id: "audio::out:1", kind: "output", strip: strip("audio::out:1", { kind: "output" }) },
+        { id: "midi::dispatcher", kind: "midi-router", name: "MIDI output", detail: "fan-out" },
+        { id: "midi::output:1", kind: "midi-output", name: "MIDI 1", detail: "device" },
+      ],
+      edges: [
+        { from: "track", to: "bus", protocol: "audio", level: 50, preFader: true, active: true, sourceChannel: -1 },
+        { from: "bus", to: "main", protocol: "audio", level: 100, preFader: false, active: true, sourceChannel: -1 },
+        { from: "main", to: "audio::out:1", protocol: "audio", level: 100, preFader: false, active: true, sourceChannel: 0 },
+        { from: "track", to: "midi::dispatcher", protocol: "midi", level: 100, preFader: false, active: true, sourceChannel: -1 },
+        { from: "midi::dispatcher", to: "midi::output:1", protocol: "midi", level: 100, preFader: false, active: true, sourceChannel: -1 },
+      ],
+      midiConnections: 2,
+    };
+    const focused = pathThroughSignalFlow(model, "bus", true);
+    expect([...focused.strips].sort()).toEqual(["audio::out:1", "bus", "main", "track"]);
+    expect([...focused.edges].map((index) => model.edges[index].protocol)).toEqual(["audio", "audio", "audio"]);
   });
 
   it("preserves direct L/R, bus physical routes and shadow lanes from Core", () => {
