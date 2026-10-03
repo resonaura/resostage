@@ -5,6 +5,7 @@
  */
 
 import { useKnobDrag } from "@/hooks/useKnobDrag";
+import { controlDisplayTransition } from "@/components/daw/logic/controlMotion";
 
 /**
  * Floor for a send knob that hasn't been touched yet -- matches native
@@ -134,9 +135,10 @@ export function SendArcKnob({
             // cursor, not lag it. `dragging` is real state (not a ref) so this
             // actually re-renders when the drag starts and ends; reading a ref
             // here never did.
-            transition: knob.dragging
-              ? "none"
-              : "stroke-dashoffset 0.1s ease-out",
+            transition: controlDisplayTransition(
+              "stroke-dashoffset",
+              knob.dragging,
+            ),
           }}
         />
       </svg>

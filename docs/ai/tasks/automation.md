@@ -462,3 +462,10 @@ Focused Piano Roll tests passed 10/10; the full UI suite passed 845 tests across
 128 files; UI TypeScript, changed-file lint and production build passed.
 `git diff --check` passed. No device playback/recording or manual visual
 acceptance was performed.
+
+## Display motion note — 2026-10-03
+
+Automated gain, pan and send control geometry now shares the CSS-only easing
+policy documented in `performance.md`. It is disabled during direct gestures
+and respects reduced motion. Readout strings are not interpolated yet; future
+work must avoid adding one React render loop per control just to animate text.

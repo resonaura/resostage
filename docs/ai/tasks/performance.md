@@ -251,3 +251,20 @@ overwriting them or changing the user's saved rig settings.
 No waiting, spinning, process I/O, vendor-state capture or allocation on the
 device callback. Preserve immutable publication epochs/layouts, helper reuse,
 bounded restart, MIDI/live voice ownership, tails and dry/silence fallback.
+
+## Telemetry-driven control easing — implemented subset (2026-10-03)
+
+Timeline meter-fader handles, Mixer gain-fader fill/caps, shared pan knobs, and
+Mixer send arcs now use one CSS-only ease-out policy (`controlMotion.ts`) for
+externally observed value movement. During a pointer gesture they switch to
+`transition: none`, so the local control remains attached to the hand. The
+motion preference is checked at render time and reduced-motion users get no
+interpolation. This adds no React animation loop, telemetry-to-Core feedback,
+or audio-callback work.
+
+Focused control-value tests passed 9/9; full UI passed 846 tests across 128
+files; UI TypeScript and production build passed; changed-file lint and
+`git diff --check` passed. This smooths painted fader/knob geometry only;
+numeric readout text is still updated at telemetry cadence, and Inspector or
+hosted plug-in parameter controls are not yet covered. No hardware or remote
+telemetry run was performed.

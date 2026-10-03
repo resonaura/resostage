@@ -5,6 +5,7 @@
  */
 
 import { useKnobDrag } from "@/hooks/useKnobDrag";
+import { controlDisplayTransition } from "@/components/daw/logic/controlMotion";
 
 /**
  * Shared rotary knob (mixer canonical). Vertical drag maps to value;
@@ -84,16 +85,13 @@ export function Knob({
       style={{ width: size, height: size }}
     >
       <div
-        className={`absolute left-1/2 top-1/2 w-0.5 -translate-x-1/2 -translate-y-full rounded-full ${
-          knob.dragging
-            ? "transition-none"
-            : "transition-transform duration-75 ease-out motion-reduce:transition-none"
-        }`}
+        className="absolute left-1/2 top-1/2 w-0.5 -translate-x-1/2 -translate-y-full rounded-full motion-reduce:transition-none"
         style={{
           height: size * 0.4,
           backgroundColor: accent,
           transformOrigin: "bottom center",
           transform: `translateX(-50%) rotate(${angleFor(knob.value)}deg)`,
+          transition: controlDisplayTransition("transform", knob.dragging),
         }}
       />
     </div>

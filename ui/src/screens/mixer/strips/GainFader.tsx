@@ -15,6 +15,7 @@ import React, {
 import { useEscRevert } from "@/hooks/useEscRevert";
 import { FaderLaw } from "@/screens/mixer/logic/audioCurves";
 import { GAIN_MAX, GAIN_MIN } from "@/screens/mixer/logic/constants";
+import { controlDisplayTransition } from "@/components/daw/logic/controlMotion";
 
 interface GainFaderProps {
   /**
@@ -164,24 +165,26 @@ const FaderVisuals = memo(function FaderVisuals({
 
       {/* Travelled part of the throw */}
       <div
-        className="pointer-events-none absolute bottom-0 left-1/2 w-0.75 -translate-x-1/2 rounded-full bg-default-foreground/25"
-        style={{ height: `${normalized * 100}%` }}
+        className="pointer-events-none absolute bottom-0 left-1/2 w-0.75 -translate-x-1/2 rounded-full bg-default-foreground/25 motion-reduce:transition-none"
+        style={{
+          height: `${normalized * 100}%`,
+          transition: controlDisplayTransition("height", isDragging),
+        }}
       />
 
       {/* Cap - styled with HeroUI surface-secondary and surface tones */}
       <div
-        className={`pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md bg-linear-to-b from-surface-secondary to-surface shadow-[0_2px_6px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] border border-default/50 ${
-          isDragging
-            ? "transition-none"
-            : "transition-[top] duration-75 ease-out motion-reduce:transition-none"
-        } ${
+        className={`pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md bg-linear-to-b from-surface-secondary to-surface shadow-[0_2px_6px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] border border-default/50 motion-reduce:transition-none ${
           isNarrow
             ? "h-5 w-3.5"
             : isWide
               ? "h-6 w-5"
               : "h-5.5 w-4 sm:h-6 sm:w-4.5"
         }`}
-        style={{ top: `${(1 - normalized) * 100}%` }}
+        style={{
+          top: `${(1 - normalized) * 100}%`,
+          transition: controlDisplayTransition("top", isDragging),
+        }}
       >
         {/* Tactile DAW cap grip lines */}
         <div className="flex flex-col items-center gap-0.5">

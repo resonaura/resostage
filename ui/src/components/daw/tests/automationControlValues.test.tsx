@@ -15,8 +15,15 @@ import { automatableValueForDisplay } from "@/components/daw/logic/automatableVa
 import { outputSendsToClickRows } from "@/lib/state/types";
 import { GainFader } from "@/screens/mixer/strips/GainFader";
 import { PanControl } from "@/screens/mixer/strips/PanControl";
+import { controlDisplayTransition } from "@/components/daw/logic/controlMotion";
 
 describe("automation-driven mixer control values", () => {
+  it("eases telemetry-driven control paint without easing a live gesture", () => {
+    expect(controlDisplayTransition("top", false)).toContain("120ms");
+    expect(controlDisplayTransition("transform", false)).toContain("cubic-bezier");
+    expect(controlDisplayTransition("left", true)).toBe("none");
+  });
+
   it("prefers optimistic edits until they reconcile with authoritative state", () => {
     expect(automatableValueForDisplay(-12, -6, -9)).toBe(-9);
     expect(automatableValueForDisplay(-12, -6, -12)).toBe(-6);

@@ -7,6 +7,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { addRafTask } from "@/lib/state/rafLoop";
 import { useEscRevert } from "@/hooks/useEscRevert";
+import { controlDisplayTransition } from "@/components/daw/logic/controlMotion";
 import {
   clipColor,
   CLIP_GLOW_BLUR_PX,
@@ -407,15 +408,12 @@ export const MeterFader = memo(function MeterFader({
       {/* The handle. Translucent so the level under it stays readable, and
           inset by its own radius so it never hangs off either end. */}
       <div
-        className={`pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/25 shadow-[0_1px_3px_rgba(0,0,0,0.5)] ${
-          isDragging
-            ? "transition-none"
-            : "transition-[left] duration-75 ease-out motion-reduce:transition-none"
-        }`}
+        className="pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/25 shadow-[0_1px_3px_rgba(0,0,0,0.5)] motion-reduce:transition-none"
         style={{
           height: handleSize,
           width: handleSize,
           left: `calc(${handleSize / 2}px + (100% - ${handleSize}px) * ${percent})`,
+          transition: controlDisplayTransition("left", isDragging),
           backgroundColor:
             "color-mix(in oklab, var(--default) 78%, transparent)",
         }}
