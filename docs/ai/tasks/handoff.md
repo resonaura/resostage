@@ -116,8 +116,12 @@ in scope after this transaction boundary is trustworthy.
 - Current block extends the same real-Core harness to the deferred message
   queue: exact 1024-command and 4 MiB body limits, exact `applied=false` overflow
   outcomes with unchanged project revision, and count/byte recovery after drain.
-  The hold is deterministic and test-only; stress while a real long save/import
-  is in flight remains open.
+  In addition, real asynchronous Save and streamed media-import jobs now each
+  overlap with an exact MIDI-region edit. Both observe Core busy and prove that
+  the edit applies after same-epoch package reopen; the import case also checks
+  terminal ticket status, full region duration/song-end extension, and existing
+  resource preservation. No test-only hold is used for either I/O operation.
+  Large real plug-in-state serialization and acoustic continuity remain open.
 - Current lighting block adds exact outcomes for lighting
   configuration, fixture, light-track and cue mutations. Results identify the
   `lighting` application domain and confirm the synchronous immutable-project

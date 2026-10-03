@@ -35,6 +35,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
   const metadataPath = join(project, "project.rsnrasetmeta");
   const settingsPath = join(temp, "settings.json");
   const audioFixture = join(temp, "fixture.wav");
+  const importStressFixture = join(temp, "import-overlap.wav");
   const saveStressAsset = join(project, "Audio", "save-stress.bin");
   const probe = createServer();
   await new Promise((done) => probe.listen(0, "127.0.0.1", done));
@@ -55,6 +56,31 @@ export async function verifyEditorState(coreExecutable, inspect) {
   wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36);
   wav.writeUInt32LE(2, 40); wav.writeInt16LE(0, 44);
   writeFileSync(audioFixture, wav);
+  // A long, valid PCM source makes the actual upload/peak-build/package-rewrite
+  // window observable without relying on timing hooks or changing user files.
+  const importDataBytes = 64 * 1024 * 1024;
+  const importHeader = Buffer.alloc(44);
+  importHeader.write("RIFF", 0);
+  importHeader.writeUInt32LE(36 + importDataBytes, 4);
+  importHeader.write("WAVEfmt ", 8);
+  importHeader.writeUInt32LE(16, 16);
+  importHeader.writeUInt16LE(1, 20);
+  importHeader.writeUInt16LE(2, 22);
+  importHeader.writeUInt32LE(48000, 24);
+  importHeader.writeUInt32LE(192000, 28);
+  importHeader.writeUInt16LE(4, 32);
+  importHeader.writeUInt16LE(16, 34);
+  importHeader.write("data", 36);
+  importHeader.writeUInt32LE(importDataBytes, 40);
+  const importFixtureFd = openSync(importStressFixture, "w");
+  try {
+    writeSync(importFixtureFd, importHeader);
+    const zeroChunk = Buffer.alloc(1024 * 1024);
+    for (let remaining = importDataBytes; remaining > 0; remaining -= zeroChunk.length)
+      writeSync(importFixtureFd, zeroChunk, 0, Math.min(remaining, zeroChunk.length));
+  } finally {
+    closeSync(importFixtureFd);
+  }
   // Make the real asynchronous package-save copy window observable without
   // changing project schema or touching any user data. ProjectLoader preserves
   // package resources even when the fixture does not reference this blob.
@@ -525,6 +551,76 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "Deferred Across Real Save", "an edit admitted while save is busy must survive the package rewrite and apply to the same project");
     assert.equal(statSync(saveStressAsset).size, 64 * 1024 * 1024,
       "real save must preserve the fixture resource while reopening its project package");
+
+    // Exercise the complete media-upload ticket and asynchronous import path.
+    // The pre-existing 64 MiB project resource plus a real 64 MiB WAV makes
+    // the package rewrite long enough to submit a normal editor command while
+    // Core is genuinely busy; no test-only pause is involved.
+    const importStartState = await request("/api/v1/state");
+    commandState = importStartState;
+    const importTrackIndex = importStartState.tracks.findIndex((track) => track.id === "audio::track:2");
+    assert.ok(importTrackIndex >= 0, "real import overlap target audio track must exist");
+    const importedIdsBefore = new Set(importStartState.songs[0].regions.map((region) => region.id));
+    const importRequestId = randomUUID().replaceAll("-", "");
+    await request("/api/v1/builder/track/import-wav/begin", {
+      songIndex: 0,
+      index: importTrackIndex,
+      fileName: "import-overlap.wav",
+      startSeconds: 11,
+      requestId: importRequestId,
+    });
+    const uploadResponse = await fetch(
+      `${origin}/api/v1/builder/track/import-wav/upload?requestId=${importRequestId}`,
+      {
+        method: "POST",
+        headers: {
+          "X-ResoStage-Session": commandState.stateSessionId,
+          "X-ResoStage-Project-Epoch": String(commandState.projectEpoch),
+          "Content-Type": "application/octet-stream",
+        },
+        body: readFileSync(importStressFixture),
+        signal: AbortSignal.timeout(30000),
+      },
+    );
+    const uploadText = await uploadResponse.text();
+    assert.ok(uploadResponse.ok, `real import upload: ${uploadResponse.status} ${uploadText}`);
+    const importBusyState = await waitFor((snapshot) => snapshot.busy,
+      "actual media import background conversion and package rewrite");
+    const importedDeferredEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", {
+      songIndex: 0,
+      regionId,
+      name: "Deferred Across Real Import",
+    });
+    assert.equal(importedDeferredEdit.state.projectEpoch, importBusyState.projectEpoch,
+      "same-document media import must preserve project identity for deferred edits");
+    assert.equal(importedDeferredEdit.state.busy, false,
+      "deferred edit must settle only after import has reopened its package");
+    assert.equal(importedDeferredEdit.state.songs[0].midiRegions.find((region) => region.id === regionId)?.name,
+      "Deferred Across Real Import",
+      "an edit accepted during real import must apply after the package rewrite, not be lost");
+    let importStatus = null;
+    for (let attempt = 0; attempt < 1800; ++attempt) {
+      importStatus = await request(
+        `/api/v1/builder/track/import-status?requestId=${importRequestId}`,
+      );
+      if (importStatus.finished) break;
+      await sleep(50);
+    }
+    assert.ok(importStatus?.finished, "real media-import job must publish an exact terminal result");
+    assert.equal(importStatus.success, true,
+      `real media import must complete successfully: ${importStatus.error || "no error detail"}`);
+    const importedState = await waitFor((snapshot) => snapshot.songs[0].regions.some(
+      (region) => !importedIdsBefore.has(region.id),
+    ), "new audio region from real async import");
+    const importedRegion = importedState.songs[0].regions.find((region) => !importedIdsBefore.has(region.id));
+    assert.equal(importedRegion.trackId, "audio::track:2");
+    assert.equal(importedRegion.startSeconds, 11);
+    assert.ok(importedRegion.durationSeconds > 300,
+      "imported WAV duration and audio region must match the complete source file");
+    assert.ok(importedState.songs[0].endSeconds >= 11 + importedRegion.durationSeconds,
+      "importing media beyond the current song end must extend the song boundary");
+    assert.equal(statSync(saveStressAsset).size, 64 * 1024 * 1024,
+      "real import must preserve existing package resources when rewriting the project");
 
     const quantized = notes.map((note) => ({ ...note,
       startBeats: Math.round(note.startBeats * 2) / 2, durationBeats: 0.5 }));
@@ -1102,6 +1198,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "audio/MIDI region CRUD and embedded-automation rejection",
       "lighting config/fixture/track/cue exact outcomes",
       "edit deferred through real busy Save and applied after same-epoch package reopen",
+      "edit deferred through real busy media import with exact job result and full region/song extent",
       "detached plug-in automation rebind rejection",
       "structural song/bus/event/section/cycle results",
       "project-epoch and Core-session fences, request-ID reuse after restart",

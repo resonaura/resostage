@@ -290,8 +290,11 @@ Still open; do not call this full editor transactionality:
   run. Transactional rollback or retry needs an isolated edit transaction
   model.
 - Exact outcomes now cover the structural/audio/MIDI/automation and lighting
-  route families listed above, but not plug-in lifecycle, import-job
-  completion, active-document save/open completion, or most scalar/mixer controls. The
+  route families listed above, but not plug-in lifecycle, active-document
+  save/open completion, or most scalar/mixer controls. Media import has its
+  separate bounded ticket/status result; the real async job is exercised
+  concurrently with an editor mutation below, but is not in the editor
+  command-result ring. The
   session/epoch fence covers their admission/application boundary, but this is
   not per-request applied acknowledgement for every app mutation.
 - Reordered concurrent audio/MIDI edits and matching graph revisions pass the
@@ -323,24 +326,39 @@ Still open; do not call this full editor transactionality:
 
 Next implementation:
 
-1. Stress deferred admission during real import work; a real asynchronous Save
-   overlap is now covered separately by the Core harness. It writes a private
-   64 MiB package resource, observes `busy=true`, submits an exact MIDI-region
-   edit, and verifies the edit applies after the same-epoch package rewrite
-   finishes. This is not an import-overlap test and does not prove large vendor
-   state serialization or acoustic continuity. Keep accepted-result expiry
+1. Complete same-Core reopen/reused-ID and late-response cases. A Core restart
+   already proves stale-session rejection and safe numeric request-ID reuse,
+   but it does not cover an accepted command still in flight during restart.
+   Queue a project mutation and replacement deliberately, then verify the
+   terminal result retains its captured epoch and cannot affect the replacement
+   even when the entity ID/index exists there too. Keep accepted-result expiry
    unknown and never infer application from another request's later state.
-2. Complete same-Core reopen/reused-ID, Core restart during pending edits, and
-   late-response cases. Add exact completion only to remaining structural
-   mutations that truly participate in history. Do not make high-rate fader or
-   knob streams await one ACK per value; keep continuous latest-wins controls
-   separate. HTTP/TCP remains the reliable-command channel; UDP remains sampled
-   telemetry and a WebSocket/Socket.IO swap does not supply these semantics.
-3. The API-to-footer recovery path is now unit-tested with a simulated exact
+2. Exercise Core restart while a command is accepted but not yet applied, and
+   verify late state/results from the dead process cannot settle the new
+   session's request. The existing process-restart test covers a request made
+   after restart using the old session fence, not a response delayed across it.
+3. Add exact completion only to remaining structural mutations that truly
+   participate in history. Do not make high-rate fader or knob streams await
+   one ACK per value; keep continuous latest-wins controls separate. HTTP/TCP
+   remains the reliable-command channel; UDP remains sampled telemetry and a
+   WebSocket/Socket.IO swap does not supply these semantics.
+4. The API-to-footer recovery path is now unit-tested with a simulated exact
    graph-publication failure result. If extending this, preserve separate
    evidence labels: current real-Core injection proves backend state/transport;
    the UI test proves refetch/rejection/no-resend/footer behavior. A single
    real-Core-to-renderer injected run remains future integration work.
+
+Real asynchronous I/O overlap verification (2026-10-02):
+`editor-state.mjs` uploads a private 64 MiB PCM WAV through the actual
+begin-ticket/raw-body/status endpoints while the project package already holds
+a separate private 64 MiB resource. It observes the actual import busy window,
+submits a reliable MIDI-region edit, waits for the exact media-import terminal
+status, verifies the edit applies only after the same-epoch project package is
+reopened, and checks the full imported audio-region duration, song-boundary
+extension, and preservation of the pre-existing package resource. This uses no
+test-only import pause. It does not prove plug-in-state serialization, acoustic
+continuity, or active-playback import: the current import path intentionally
+stops playback before package mutation.
 
 ## P1 — manual Touch/Latch/Write is only partially integrated
 
