@@ -118,6 +118,19 @@ unverified platform or acoustic scope.
   never writes interpolated values back to Core. Automated sends,
   Inspector/plugin parameters, and device/remote acceptance remain open; do not
   report all automatable displays as complete.
+- Implemented 2026-10-03 follow-up: Timeline and Mixer numeric gain/pan labels
+  now use the shared `EasedReadout` UI component. It writes text through one
+  rAF-owned DOM node rather than triggering per-frame React renders, shares the
+  existing UI frame driver, registers frame work only during active easing,
+  removes the task on completion, bypasses interpolation during direct
+  gestures and reduced motion, and snaps on a
+  Core-session/project-epoch/song-index key change. It never writes a
+  displayed/interpolated value back to Core.
+  Verification: UI Vitest passed 853 tests / 130 files, `tsc -b` and
+  production build passed, lint had zero errors and 12 existing unrelated
+  warnings, and `git diff --check` passed. This does not include Inspector,
+  plug-in parameter controls, automated-send numbers, a multi-strip frame-cost
+  benchmark, or remote-device visual acceptance.
 - Test same-strip values and peak reset in Timeline/Inspector/Mixer simultaneously,
   track switching with reused components, remote Core/session changes, delayed
   and reordered telemetry, disconnected/stale telemetry, clipping on either

@@ -34,6 +34,7 @@ export function MixerSendRack({
   onShowSignalFlow,
   signalFlowOpenId,
   onMenuTarget,
+  motionKey,
 }: {
   state: SendRackState;
   compact: boolean;
@@ -50,6 +51,7 @@ export function MixerSendRack({
   onShowSignalFlow: (stripId: string, stripName: string) => void;
   signalFlowOpenId: string | null;
   onMenuTarget: (target: StripMenuTarget) => void;
+  motionKey: string;
 }) {
   const stripWidth =
     density === "narrow" ? "w-16" : density === "wide" ? "w-28" : "w-20";
@@ -100,6 +102,7 @@ export function MixerSendRack({
         >
           <BusStrip
             b={bus}
+            motionKey={motionKey}
             index={state.busses.indexOf(bus)}
             meters={state.meters}
             master={master}

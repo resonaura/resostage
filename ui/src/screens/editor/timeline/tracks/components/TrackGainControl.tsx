@@ -8,7 +8,7 @@ import { memo } from "react";
 import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
 import { useChannelClipHold } from "@/hooks/useChannelClipHold";
 import type { TrackRow } from "@/lib/state/types";
-import { MeterFader } from "@/components/daw";
+import { EasedReadout, MeterFader } from "@/components/daw";
 import { automatableValueForDisplay } from "@/components/daw/logic/automatableValue";
 
 /** Timeline-only gain and meter row; state and gesture ownership live in hooks. */
@@ -24,6 +24,7 @@ export const TrackGainControl = memo(function TrackGainControl({
   onDragCancel,
   onReadoutPointerDown,
   onReadoutDoubleClick,
+  motionKey,
 }: {
   track: TrackRow;
   gain: number;
@@ -36,6 +37,7 @@ export const TrackGainControl = memo(function TrackGainControl({
   onDragCancel?: (originalValue: number) => void;
   onReadoutPointerDown: (event: React.PointerEvent<HTMLSpanElement>) => void;
   onReadoutDoubleClick: (event: React.MouseEvent<HTMLSpanElement>) => void;
+  motionKey?: string;
 }) {
   const trackName = track.name || track.id;
   const shownGain = automatableValueForDisplay(
@@ -74,7 +76,12 @@ export const TrackGainControl = memo(function TrackGainControl({
         onPointerDown={onReadoutPointerDown}
         onDoubleClick={onReadoutDoubleClick}
       >
-        {shownGain > 0 ? `+${shownGain.toFixed(1)}` : shownGain.toFixed(1)}
+        <EasedReadout
+          value={shownGain}
+          interacting={gain !== (track.gainDb ?? 0)}
+          format={(next) => next > 0 ? `+${next.toFixed(1)}` : next.toFixed(1)}
+          motionKey={motionKey}
+        />
       </span>
     </div>
   );

@@ -5,7 +5,7 @@
  */
 
 import { useRef } from "react";
-import { clipColor, clipGlow, LiveReadout } from "@/components/daw";
+import { clipColor, clipGlow, EasedReadout, LiveReadout } from "@/components/daw";
 
 function formatDbReadout(v: number): string {
   if (!Number.isFinite(v) || v <= -59.5) return "-inf";
@@ -30,6 +30,8 @@ export function GainPeakReadout({
   getHeldPeakDb,
   onClear,
   onGainChange,
+  interacting = false,
+  motionKey,
   density = "standard",
 }: {
   gainDb: number;
@@ -39,6 +41,8 @@ export function GainPeakReadout({
   getHeldPeakDb: () => number;
   onClear: () => void;
   onGainChange?: (v: number) => void;
+  interacting?: boolean;
+  motionKey?: string;
   density?: "narrow" | "standard" | "wide";
 }) {
   const getLiveDbRef = useRef(getLiveDb);
@@ -99,7 +103,7 @@ export function GainPeakReadout({
         }}
       >
         <span className="block truncate whitespace-nowrap">
-          {formatDbReadout(gainDb)}
+          <EasedReadout value={gainDb} format={formatDbReadout} interacting={interacting} motionKey={motionKey} />
         </span>
       </div>
       <button

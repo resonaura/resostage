@@ -527,7 +527,21 @@ acceptance was performed.
 
 ## Display motion note — 2026-10-03
 
-Automated gain, pan and send control geometry now shares the CSS-only easing
-policy documented in `performance.md`. It is disabled during direct gestures
-and respects reduced motion. Readout strings are not interpolated yet; future
-work must avoid adding one React render loop per control just to animate text.
+Automated gain, pan and send control geometry shares the CSS-only easing policy
+documented in `performance.md`. Numeric gain/pan labels in the Timeline and
+Mixer now use `components/daw/EasedReadout.tsx`: display-only easing runs on
+the shared `rafLoop`, does not send interpolated values to Core or rerender
+the owning strip every frame, and snaps during a direct gesture, reduced-motion
+preference, or Core/project/song identity change. Timeline and Mixer pass the
+same `stateSessionId:projectEpoch:songIndex` fence so a reused strip never
+animates from a previous document or song.
+
+Focused coverage verifies curve bounds, easing halfway through a transition,
+identity-change snapping, and the existing automation control geometry.
+The frame task is registered only while a readout is actively easing and is
+removed as soon as it reaches its target; idle strips do not keep this feature's
+frame work alive. Verification: full UI Vitest passed 853 tests across 130 files; TypeScript,
+production build, lint and `git diff --check` passed. Lint reports the same
+12 existing warnings in unrelated files. Automated sends still do not have a
+numeric readout interpolation path; Inspector and plug-in parameter controls
+also remain open. Do not describe every automatable value as smoothed.

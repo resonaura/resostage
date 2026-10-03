@@ -63,6 +63,11 @@ export function MixerScreen({
   }, []);
 
   const songIndex = state.songIndex >= 0 ? state.songIndex : 0;
+  const motionKey = [
+    state.stateSessionId ?? "legacy",
+    state.projectEpoch ?? "legacy",
+    songIndex,
+  ].join(":");
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
@@ -100,6 +105,7 @@ export function MixerScreen({
               onOpenPlugins={openPlugins}
               onMenuTarget={setMenu}
               songIndex={songIndex}
+              motionKey={motionKey}
             />
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
@@ -120,6 +126,7 @@ export function MixerScreen({
               onShowSignalFlow={openSignalFlow}
               signalFlowOpenId={signalFlowTarget?.stripId ?? null}
               onMenuTarget={setMenu}
+              motionKey={motionKey}
             />
 
             <div className="mx-2 w-px shrink-0 self-stretch bg-default/40" />
@@ -136,6 +143,7 @@ export function MixerScreen({
               onShowSignalFlow={openSignalFlow}
               signalFlowOpenId={signalFlowTarget?.stripId ?? null}
               onMenuTarget={setMenu}
+              motionKey={motionKey}
             />
           </>
         )}

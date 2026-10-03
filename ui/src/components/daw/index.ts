@@ -20,6 +20,7 @@
 export { Knob } from "@/components/daw/Knob";
 export { RotaryControlMenu } from "@/components/daw/RotaryControlMenu";
 export { LevelMeterBar } from "@/components/daw/LevelMeterBar";
+export { EasedReadout } from "@/components/daw/EasedReadout";
 export { LiveReadout } from "@/components/daw/LiveReadout";
 export { MeterFader } from "@/components/daw/MeterFader";
 export { TrackPanControl } from "@/components/daw/TrackPanControl";

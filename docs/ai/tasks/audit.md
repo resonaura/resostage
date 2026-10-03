@@ -12,6 +12,16 @@ UI entry paths abbreviated as `timeline/...` below are relative to
 
 ### Latest continuation addendum — 2026-10-03
 
+Timeline and Mixer fader/pan numeric labels now ease between current Core
+automation telemetry values through the shared UI frame driver. The readout
+keeps text updates outside React's per-frame reconciliation and receives a
+Core-session/project-epoch/song-index identity fence; manual gestures,
+reduced-motion mode and identity changes snap immediately. Full UI verification
+passed 853 tests across 130 files; TypeScript and production build passed; lint
+had zero errors and the 12 pre-existing warnings in unrelated files; diff check
+passed. Automated-send numeric labels, Inspector/plugin parameter controls,
+frame-cost benchmarking, and visual acceptance remain open.
+
 Core project format v11 now persists a bounded per-song cache for curves
 detached by track-lane target swaps. Rebind validation, staging and cache
 capacity reservation precede the single ProjectHistory transaction; serialization

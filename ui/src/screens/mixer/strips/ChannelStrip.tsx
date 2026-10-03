@@ -27,6 +27,7 @@ const noop = () => {};
 
 export function ChannelStrip({
   stripId,
+  motionKey,
   name,
   subtitle,
   color,
@@ -229,6 +230,8 @@ export function ChannelStrip({
         <PanControl
           value={displayPan}
           automatedValue={shownAutomatedPan}
+          interacting={displayPan !== (pan ?? 0)}
+          motionKey={motionKey}
           onChange={commitPan}
           size={knobSize}
           midiTarget={panMidiTarget}
@@ -241,6 +244,8 @@ export function ChannelStrip({
       <div className="w-full px-0.5">
         <GainPeakReadout
           gainDb={shownGainDb}
+          interacting={displayGainDb !== gainDb}
+          motionKey={motionKey}
           getLiveDb={() => (liveLeft() + liveRight()) / 2}
           clipped={stripClip.clipped}
           getHeldPeakDb={stripClip.getHeldPeakDb}

@@ -23,6 +23,7 @@ import { rotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 function TrackStripInner({
   t,
+  motionKey,
   index,
   destinationBusses,
   allBusses,
@@ -101,6 +102,7 @@ function TrackStripInner({
     <>
       <ChannelStrip
         stripId={t.id}
+        motionKey={motionKey}
         name={t.name || t.id}
         subtitle={`Track ${index + 1}`}
         color={color}

@@ -15,9 +15,20 @@ import { automatableValueForDisplay } from "@/components/daw/logic/automatableVa
 import { outputSendsToClickRows } from "@/lib/state/types";
 import { GainFader } from "@/screens/mixer/strips/GainFader";
 import { PanControl } from "@/screens/mixer/strips/PanControl";
-import { controlDisplayTransition } from "@/components/daw/logic/controlMotion";
+import {
+  controlDisplayTransition,
+  easeControlValue,
+} from "@/components/daw/logic/controlMotion";
 
 describe("automation-driven mixer control values", () => {
+  it("eases numeric display values monotonically and clamps the animation bounds", () => {
+    expect(easeControlValue(0, 10, -1)).toBe(0);
+    expect(easeControlValue(0, 10, 0.5)).toBeCloseTo(8.75);
+    expect(easeControlValue(0, 10, 1)).toBe(10);
+    expect(easeControlValue(10, 0, 0.5)).toBeCloseTo(1.25);
+    expect(easeControlValue(7, Number.NaN, 0.5)).toBe(7);
+  });
+
   it("eases telemetry-driven control paint without easing a live gesture", () => {
     expect(controlDisplayTransition("top", false)).toContain("120ms");
     expect(controlDisplayTransition("transform", false)).toContain("cubic-bezier");
@@ -66,7 +77,7 @@ describe("automation-driven mixer control values", () => {
     );
 
     expect(markup).toContain("rotate(135deg)");
-    expect(markup).toContain(">R100</div>");
+    expect(markup).toContain(">R100</span>");
   });
 
   it("positions the mixer meter-fader from automation without changing its edit baseline", () => {

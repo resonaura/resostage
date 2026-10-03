@@ -11,6 +11,7 @@ import { RotaryControlMenu } from "@/components/daw/RotaryControlMenu";
 import type { RotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 import { ContextMenuDivider, ContextMenuItem } from "@/components/common/ContextMenu";
 import type { TrackPanLawOption } from "@/components/daw/logic/panLaw";
+import { EasedReadout } from "@/components/daw/EasedReadout";
 
 /** Presentational track-pan control; state and commands come from its owner. */
 export function TrackPanControl({
@@ -24,6 +25,8 @@ export function TrackPanControl({
   color,
   knobSize,
   showPanValue,
+  interacting = false,
+  motionKey,
   midiTarget,
   onCommit,
   onDragStart,
@@ -43,6 +46,8 @@ export function TrackPanControl({
   color: string;
   knobSize: number;
   showPanValue: boolean;
+  interacting?: boolean;
+  motionKey?: string;
   midiTarget: RotaryMidiTarget;
   onCommit: (value: number) => void;
   onDragStart?: (initialValue: number) => void;
@@ -77,7 +82,16 @@ export function TrackPanControl({
       />
       {showPanValue && (
         <span className="w-4 text-center font-mono font-medium text-foreground/50 text-[8px]">
-          {shownValueLabel}
+          {automationValue == null
+            ? <span>{shownValueLabel}</span>
+            : (
+              <EasedReadout
+                value={automationValue}
+                format={formatPan}
+                interacting={interacting}
+                motionKey={motionKey}
+              />
+            )}
         </span>
       )}
       {menuPosition && (

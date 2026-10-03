@@ -30,6 +30,7 @@ export function MixerClickMasterLane({
   onShowSignalFlow,
   signalFlowOpenId,
   onMenuTarget,
+  motionKey,
 }: {
   state: WebUiState;
   density: MixerDensity;
@@ -42,6 +43,7 @@ export function MixerClickMasterLane({
   onShowSignalFlow: (stripId: string, stripName: string) => void;
   signalFlowOpenId: string | null;
   onMenuTarget: (target: StripMenuTarget) => void;
+  motionKey: string;
 }) {
   const clickSends = state.click
     ? outputSendsToClickRows(state.click.output)
@@ -72,6 +74,7 @@ export function MixerClickMasterLane({
       >
         <MetronomeStrip
           state={state}
+          motionKey={motionKey}
           density={density}
           targetPluginSlots={targetPluginSlots}
           onDirectOutput={onDirectOutput}
@@ -99,6 +102,7 @@ export function MixerClickMasterLane({
         >
           <BusStrip
             b={bus}
+            motionKey={motionKey}
             index={state.busses.indexOf(bus)}
             meters={state.meters}
             master={master}

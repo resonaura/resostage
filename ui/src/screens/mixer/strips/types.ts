@@ -21,6 +21,8 @@ import type { RotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 export type ChannelStripProps = {
   stripId: string;
+  /** Identity fence for eased telemetry readouts. */
+  motionKey?: string;
   name: string;
   subtitle?: string;
   color: string;
@@ -89,6 +91,7 @@ export type ChannelStripProps = {
 
 export type TrackStripProps = {
   t: TrackRow;
+  motionKey?: string;
   index: number;
   destinationBusses: BusRow[];
   allBusses: BusRow[];

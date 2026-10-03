@@ -16,7 +16,14 @@ import type { StripMenuTarget } from "@/screens/mixer/strips/StripContextMenu";
 
 type TrackRackState = Pick<
   WebUiState,
-  "tracks" | "busses" | "meters" | "settings" | "recording" | "activeTrackId"
+  | "tracks"
+  | "busses"
+  | "meters"
+  | "settings"
+  | "recording"
+  | "activeTrackId"
+  | "stateSessionId"
+  | "projectEpoch"
 >;
 
 /** The horizontally virtualized track strips in the mixer. */
@@ -36,6 +43,7 @@ export function MixerTrackRack({
   onOpenPlugins,
   onMenuTarget,
   songIndex,
+  motionKey,
 }: {
   state: TrackRackState;
   compact: boolean;
@@ -52,6 +60,7 @@ export function MixerTrackRack({
   onOpenPlugins: (stripId: string, stripName: string) => void;
   onMenuTarget: (target: StripMenuTarget) => void;
   songIndex: number;
+  motionKey: string;
 }) {
   return (
     <ConsolePane
@@ -89,6 +98,7 @@ export function MixerTrackRack({
           >
             <TrackStrip
               t={track}
+              motionKey={motionKey}
               index={index}
               destinationBusses={destinationBusses}
               allBusses={state.busses}

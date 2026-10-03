@@ -20,6 +20,7 @@ import { rotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 function MetronomeStripInner({
   state,
+  motionKey,
   onDirectOutput,
   onOpenPlugins,
   pluginCatalog,
@@ -27,6 +28,7 @@ function MetronomeStripInner({
   targetPluginSlots,
 }: {
   state: WebUiState;
+  motionKey?: string;
   /** Shared Ext. Out helper — reuses/creates a bus then sets clickBusId. */
   onDirectOutput: (startChannel: number, pair: boolean) => void;
   onOpenPlugins: (stripId: string, stripName: string) => void;
@@ -103,6 +105,11 @@ function MetronomeStripInner({
   return (
     <ChannelStrip
       stripId="audio::click"
+      motionKey={motionKey ?? [
+        state.stateSessionId ?? "legacy",
+        state.projectEpoch ?? "legacy",
+        state.songIndex,
+      ].join(":")}
       name={clickName}
       subtitle="Metronome"
       color={metronomeColor()}

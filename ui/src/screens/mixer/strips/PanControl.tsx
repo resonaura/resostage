@@ -5,7 +5,7 @@
  */
 
 import { useState } from "react";
-import { Knob, RotaryControlMenu } from "@/components/daw";
+import { EasedReadout, Knob, RotaryControlMenu } from "@/components/daw";
 import type { RotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 import { createVerticalValueDragHandler } from "@/screens/mixer/strips/logic/verticalValueDrag";
 
@@ -21,12 +21,16 @@ export function PanControl({
   onChange,
   size,
   midiTarget,
+  interacting = false,
+  motionKey,
 }: {
   value: number;
   automatedValue?: number | null;
   onChange: (value: number) => void;
   size: number;
   midiTarget?: RotaryMidiTarget;
+  interacting?: boolean;
+  motionKey?: string;
 }) {
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const handlePointerDown = createVerticalValueDragHandler(value, onChange, {
@@ -69,7 +73,7 @@ export function PanControl({
           onChange(0);
         }}
       >
-        {formatPan(shownValue)}
+        <EasedReadout value={shownValue} format={formatPan} interacting={interacting} motionKey={motionKey} />
       </div>
       {menuPosition && (
         <RotaryControlMenu

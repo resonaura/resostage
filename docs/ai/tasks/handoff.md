@@ -7,6 +7,17 @@ agent. Read the complete repository `AGENTS.md` first. Check `git status` and
 recent commits before acting: code changes after this snapshot take precedence.
 Do not redo completed implementation from obsolete chat history.
 
+Latest verified UI display block (see recent git history):
+Timeline and Mixer numeric fader-gain/pan labels use the shared
+`components/daw/EasedReadout.tsx`, which eases authoritative automation display
+values on the existing UI frame loop without feeding them back to Core. The
+frame task exists only while easing. Direct gestures, reduced motion and a
+changed Core-session/project-epoch/song-index identity snap immediately. Full
+UI Vitest passed 853 tests / 130 files,
+TypeScript and production build passed, lint has zero errors plus 12 existing
+unrelated warnings, and `git diff --check` passed. Keep this separate from
+audio DSP smoothing.
+
 ## Current continuation focus
 
 Continue the state-integrity work. The latest block adds Core-session and

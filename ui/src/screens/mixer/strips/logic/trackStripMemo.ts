@@ -23,6 +23,7 @@ export function areTrackStripPropsEqual(
 ): boolean {
   return (
     prev.index === next.index &&
+    prev.motionKey === next.motionKey &&
     prev.density === next.density &&
     prev.targetPluginSlots === next.targetPluginSlots &&
     prev.anySoloInGroup === next.anySoloInGroup &&

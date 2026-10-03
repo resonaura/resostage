@@ -115,6 +115,11 @@ export function TimelineSidebar({
     useState<SidebarRenameState | null>(null);
 
   const songIndex = state.songIndex ?? 0;
+  const motionKey = [
+    state.stateSessionId ?? "legacy",
+    state.projectEpoch ?? "legacy",
+    songIndex,
+  ].join(":");
   const currentSong = state.songs[songIndex];
   const songBpm = currentSong?.bpm ?? 120;
   const songTempoMap = useMemo(
@@ -405,6 +410,7 @@ export function TimelineSidebar({
                       }}>
                     <TrackHeaderControl
                       track={state.tracks[trackIdx] as TrackRow}
+                      motionKey={motionKey}
                       index={trackIdx}
                       color={row.color}
                       verticalZoom={verticalZoom}

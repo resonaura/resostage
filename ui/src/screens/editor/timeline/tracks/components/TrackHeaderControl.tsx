@@ -29,6 +29,7 @@ import { TrackIdentityLabel } from "@/screens/editor/timeline/tracks/components/
 export const TrackHeaderControl = memo(
   function TrackHeaderControl({
     track,
+    motionKey,
     index,
     color,
     verticalZoom,
@@ -47,6 +48,7 @@ export const TrackHeaderControl = memo(
     onPanDragCancel,
   }: {
     track: TrackRow;
+    motionKey?: string;
     index: number;
     color: string;
     verticalZoom: number;
@@ -298,6 +300,8 @@ export const TrackHeaderControl = memo(
     const panControl = showPan && (
       <TrackPanControl
         value={pan.value}
+        interacting={pan.value !== (track.pan ?? 0)}
+        motionKey={motionKey}
         automationValue={pan.value === (track.pan ?? 0) ? track.automatedPan : null}
         valueLabel={pan.value !== (track.pan ?? 0)
           ? formatPan(pan.value)
@@ -373,6 +377,7 @@ export const TrackHeaderControl = memo(
               <div className="flex min-w-0 flex-1 items-center gap-1">
                 <TrackGainControl
                   track={track}
+                  motionKey={motionKey}
                   gain={gain.gain}
                   color={color}
                   nameSize={nameSize}

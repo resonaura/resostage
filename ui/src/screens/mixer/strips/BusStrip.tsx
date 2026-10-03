@@ -19,6 +19,7 @@ import { rotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 function BusStripInner({
   b,
+  motionKey,
   index,
   meters,
   master,
@@ -33,6 +34,7 @@ function BusStripInner({
   signalFlowOpenId,
 }: {
   b: BusRow;
+  motionKey?: string;
   index: number;
   meters: MeterRow[];
   master?: BusRow;
@@ -55,6 +57,7 @@ function BusStripInner({
   return (
     <ChannelStrip
       stripId={b.id}
+      motionKey={motionKey}
       name={b.name || b.id}
       subtitle={isMaster ? "Master Output" : "Send"}
       color={color}
@@ -123,6 +126,7 @@ function BusStripInner({
 export const BusStrip = memo(BusStripInner, (prev, next) => {
   return (
     prev.index === next.index &&
+    prev.motionKey === next.motionKey &&
     prev.density === next.density &&
     prev.targetPluginSlots === next.targetPluginSlots &&
     prev.isMaster === next.isMaster &&
