@@ -217,6 +217,9 @@ public:
     PluginPowerState getSlotPowerState(const std::string& slotId) const noexcept;
     PluginPowerState getStripSlotPowerState(const std::string& stripId,
                                             const std::string& slotId) const noexcept;
+    /** Monotonic identity of the live helper process for this slot's chain. */
+    uint64_t getStripSlotHostGeneration(const std::string& stripId,
+                                        const std::string& slotId) const noexcept;
     /** Prepared index query for helper DSP; no string search per block. */
     PluginPowerState slotPowerState(size_t stripIndex, size_t slotIndex) const noexcept;
     /** Apply typed power intent to a prepared node; never touches its DSP counters. */

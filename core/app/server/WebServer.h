@@ -390,6 +390,9 @@ struct WebUiState {
         std::string powerState = "active";
         std::string loadState = "loading";
         std::string loadError;
+        // Shared by every slot in one isolated strip helper; changes only
+        // when that helper process is replaced, enabling restart diagnostics.
+        uint64_t hostGeneration = 0;
     };
 
     struct PluginLoadingRow {

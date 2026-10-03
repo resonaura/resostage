@@ -35,6 +35,7 @@ WPluginSlotTelemetry pluginSlotToWire(const WebUiState::PluginSlotRow& slot) {
     wire.powerState = slot.powerState;
     wire.loadState = slot.loadState;
     wire.loadError = slot.loadError;
+    wire.hostGeneration = slot.hostGeneration;
     return wire;
 }
 

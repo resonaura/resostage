@@ -238,6 +238,13 @@ The intended priority order is audio first, then lighting/event scheduling, then
 UI/network/background work. Do not fix UI latency by moving work onto a
 real-time thread.
 
+Live plug-in slot telemetry exposes `hostGeneration`, a volatile helper-process
+identity shared by every plug-in slot in one serial strip chain. It changes
+when that helper is replaced and is zero when no live helper is available for
+the slot. It is diagnostic only: never persist it or treat it as plug-in
+identity, state compatibility, activation, or proof of audible output. Loading
+and progress state remain separate from this process-generation signal.
+
 ### Keyboard and track-selection ownership
 
 `ui/src/lib/interaction/HotkeyManager.ts` is the renderer's single keyboard

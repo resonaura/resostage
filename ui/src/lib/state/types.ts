@@ -95,6 +95,8 @@ export interface PluginSlotRow {
   /** Runtime processor state; never persisted in the project. */
   loadState?: "loading" | "loaded" | "missing" | "failed";
   loadError?: string;
+  /** Live isolated helper identity; unchanged chains keep this across retries. */
+  hostGeneration?: number;
 }
 
 /** Immutable names/identities plus the helper's latest normalized value snapshot. */

@@ -117,6 +117,28 @@ No real AU/VST3 duplicate-slot fixture or audible vendor acceptance was run,
 so this closes identity leakage in code paths, not the full writetest
 reload/reopen report.
 
+### Latest continuation addendum — live helper generations and Writetest retry (2026-10-03)
+
+Plug-in slot telemetry now includes volatile `hostGeneration`, the live helper
+process generation shared by all slots on one isolated strip chain. It is
+diagnostic only, is not persisted, and does not itself mean a plug-in loaded or
+produced audible output. The new private-copy actual-Core probe observed all
+five AU slots in the user's Writetest project reaching `loaded`: IOF Drummer 4
+and Magma StressBox (s) on one chain, Serum 2 on each of two chains, and Ozone
+9 Elements on Main. A second copied fixture deliberately changed one AU
+identifier to an unavailable ID, retried its exact `(stripId, slotId)`, and
+asserted that only the target chain got a new helper generation; all three
+unrelated live chain generations were unchanged. The test uses temporary copies
+and removes only its own temporary directory.
+
+This demonstrates current project loading and scoped retry/reuse under this
+fixture, but does not reproduce the historical reopen symptom, verify editor
+windows, or measure/audibly confirm audio continuity. Still test multi-chain
+failures, same-chain multi-slot failure, rapid retry and project-switch races,
+plus vendor-state/audibility with real playback. Keep the full harness output
+and recovery assertions; never replace this with an unverified UI loading-state
+claim.
+
 ### Latest continuation addendum — foldable automation lanes (2026-10-03)
 
 The Timeline now shows simultaneous independent track-scope automation lanes

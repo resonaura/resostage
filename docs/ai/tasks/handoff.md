@@ -71,6 +71,19 @@ production build, changed-file lint and `git diff --check` passed. Real vendor
 duplicate-slot behavior and the reported project reload/reopen symptom still
 need a private fixture and AU/VST acceptance.
 
+Latest verified plug-in retry block (2026-10-03): Core now publishes volatile
+`hostGeneration` per plug-in slot, shared across slots hosted by the same strip
+helper. `scripts/verification/plugin-retry.mjs` ran against a copied Writetest
+package: its five AU slots loaded successfully; a second temporary copy with one
+deliberately missing AU was retried by exact strip/slot identity, the target
+helper generation changed, and all three unrelated live helper generations
+remained unchanged. Core build, full CTest, UI 894 tests / 136 files, UI
+TypeScript/production build, script syntax and diff checks passed. This proves
+scoped process replacement for this fixture, not audible playback, editor-window
+continuity, or the historical reopen failure. Remaining stress and device/vendor
+acceptance are in `performance.md`. The harness removes only its temporary
+copies; do not run it against or mutate the Recent project. Do not push.
+
 Latest verified UI display block (see recent git history):
 Timeline and Mixer numeric fader-gain/pan labels use the shared
 `components/daw/EasedReadout.tsx`, which eases authoritative automation display

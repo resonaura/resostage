@@ -97,6 +97,8 @@ void MainComponent::publishWebState() {
                     activeBank->getStripSlotPowerState(stripId, slot.id));
                 row.loadState = activeBank->getStripSlotLoadState(stripId, slot.id);
                 row.loadError = activeBank->getStripSlotLoadError(stripId, slot.id);
+                row.hostGeneration = activeBank->getStripSlotHostGeneration(
+                    stripId, slot.id);
                 if (row.loadState == "loading" && loading.phase != "loading") {
                     row.loadState = "failed";
                     row.loadError = "Plug-in slot was not initialized (host capacity or load failure)";

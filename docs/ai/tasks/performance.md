@@ -286,12 +286,18 @@ Verification: optimized `ResoStage` and `resostage_engine_tests` built;
 `ctest --test-dir core/build --output-on-failure` passed; pure tests cover exact
 stable-strip matching and scoped two-slot progress; actual Core
 `scripts/verification/editor-state.mjs` passed its complete state/transport/
-history/save/reopen suite. The actual-Core fixture contains no vendor plug-ins,
-so none of these results proves an AU/VST3 process was preserved or that its
-audio/editor remained uninterrupted. Still obtain a private-copy writetest
-reproduction, helper launch/reuse counters, two failed chains, two failed slots
-in one chain, rapid retries, superseding project replacement and real AU/VST3
-state/audibility acceptance. Never mutate the Recent project for the test.
+history/save/reopen suite. A private-copy Writetest probe now opens the real
+project with five AU slots loaded (IOF Drummer 4, Magma StressBox (s), two Serum
+2 instances, and Ozone 9 Elements). It then deliberately makes one instrument
+identifier unavailable in a second temporary copy, retries that strip, and
+verifies its helper generation changes while all three unrelated live helper
+chains retain their generations. This confirms current scoped retry/reuse
+behavior for that fixture; it does not explain the original historical failure
+or prove uninterrupted/audible plug-in output or editor-window continuity.
+Remaining acceptance: multiple failed chains, multiple failed slots in one
+chain, rapid retry supersession, project replacement during retry, and real
+vendor state/audibility/editor checks under playback. Never mutate the Recent
+project for a test.
 
 The following ownership changes are implemented in `d23fdeb` and retained:
 

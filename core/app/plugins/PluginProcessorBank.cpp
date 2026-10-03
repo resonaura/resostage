@@ -1890,6 +1890,17 @@ PluginPowerState PluginProcessorBank::getStripSlotPowerState(
     return slotPowerState(location.stripIndex, location.slotIndex);
 }
 
+uint64_t PluginProcessorBank::getStripSlotHostGeneration(
+    const std::string& stripId, const std::string& slotId) const noexcept {
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return 0;
+    const auto& chain = chains[location.stripIndex];
+    return chain != nullptr && chain->hostedProcess != nullptr
+        && chain->hostedProcess->process != nullptr
+        ? chain->hostedProcess->process->generation() : 0;
+}
+
 PluginPowerState PluginProcessorBank::slotPowerState(
     size_t stripIndex, size_t slotIndex) const noexcept {
     if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)

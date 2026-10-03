@@ -319,6 +319,7 @@ struct WPluginSlotTelemetry {
     std::string powerState = "active";
     std::string loadState = "loading";
     std::string loadError;
+    uint64_t hostGeneration = 0;
 };
 
 struct WPluginParameterInfo {
