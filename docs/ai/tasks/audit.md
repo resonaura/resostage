@@ -123,10 +123,11 @@ stale or future reset/reuse cases. The result is published with the same state
 frame; the renderer refreshes the
 authoritative project and rejects blind retry when audio still uses its
 last-good graph. This is explicit mismatch recovery, not transactional rollback:
-the stored project edit is not undone if snapshot preparation fails. Add a
-fault-injected Core test for this path, sanitizer/concurrent stress coverage,
-callback deadline/allocation measurements, and audible/sample continuity tests
-with loaded AU/VST3 chains. Resolved vendor parameter indices are not yet fully
+the stored project edit is not undone if snapshot preparation fails. The
+message-thread snapshot-publication failure path now has a real-Core test hook
+and HTTP acceptance; sanitizer/concurrent stress coverage, callback
+deadline/allocation measurements, and audible/sample continuity tests with
+loaded AU/VST3 chains remain open. Resolved vendor parameter indices are not yet fully
 prebound in this playback snapshot; automation parameter metadata caching
 remains separate pending work.
 
@@ -233,6 +234,19 @@ failure-injection, callback/device, deadline and acoustic acceptance open until
 the original symptom is reproduced or runtime signals are observed under a
 representative stress test.
 
+Actual Core failure-injection acceptance (2026-10-02): a dedicated
+`RESOSTAGE_ENABLE_TEST_HOOKS` CMake option (default `OFF`) adds a test-only
+loopback command and one-shot message-thread flag. With the option enabled, the
+real-Core HTTP harness forced the next content snapshot to fail while playing.
+It verified the exact result reported `applied=true` and
+`playbackApplied=false`, the committed lane remained in project state, the
+previous graph epoch/revision remained active, playhead continued, and the next
+successful edit published the previously missed project revision without a
+transport stop. The hook was removed from the local build configuration before
+the ordinary acceptance run. This covers the injected publication
+boundary, not allocation failure, acoustic output, loaded plug-ins, or
+whole-callback deadline guarantees.
+
 Still open; do not call this full editor transactionality:
 
 - A failed playback snapshot is now observable and surfaced, but the editor
@@ -242,9 +256,9 @@ Still open; do not call this full editor transactionality:
   single graph failure. Recovery currently refreshes state and tells the user
   audio remains on the last-good graph. Native tests prove the existing
   bounded validator rejects an oversized snapshot and `RoutingEngine` refuses
-  an incomplete candidate while retaining the last-good graph; still add an
-  actual Core-level failure-injection test that observes transport/callback
-  continuity and the matching exact command result. Transactional rollback or
+  an incomplete candidate while retaining the last-good graph. The actual
+  Core-level failure-injection test also observes the exact command result and
+  transport playhead progress on the retained and recovered graph. Transactional rollback or
   retry needs an isolated edit transaction model.
 - Exact outcomes now cover the structural/audio/MIDI/automation route families
   listed above, but not plug-in lifecycle, lighting, import-job completion,
@@ -272,18 +286,18 @@ Still open; do not call this full editor transactionality:
 
 Next implementation:
 
-1. Fault-inject playback-snapshot preparation failure from an accepted editor
-   command; prove Core retains the previous graph, reports `applied=true` but
-   `playbackApplied=false`, UI refreshes once, and transport does not stop.
-2. Exercise HTTP command-queue and deferred-message-queue exhaustion. Show
+1. Exercise HTTP command-queue and deferred-message-queue exhaustion. Show
    accepted-result expiry as unknown and never infer application from another
    request's later state.
-3. Complete same-Core reopen/reused-ID, Core restart during pending edits, and
+2. Complete same-Core reopen/reused-ID, Core restart during pending edits, and
    late-response cases. Add exact completion only to remaining structural
    mutations that truly participate in history. Do not make high-rate fader or
    knob streams await one ACK per value; keep continuous latest-wins controls
    separate. HTTP/TCP remains the reliable-command channel; UDP remains sampled
    telemetry and a WebSocket/Socket.IO swap does not supply these semantics.
+3. Add UI-level rejection/failure recovery coverage for the injected graph
+   publication mismatch. Current real-Core acceptance proves backend state and
+   transport progress, not the renderer's one-refetch UX under this fault.
 
 ## P1 — manual Touch/Latch/Write is not yet a complete live lifecycle
 
@@ -492,9 +506,10 @@ clock.
 
 ## Execution order for remaining work
 
-1. Connect immutable playback-snapshot preparation/publication success or
-   failure to the originating request result without blocking audio or lying
-   about project-history application. Keep the prior graph active on failure.
+1. The real-Core injected snapshot-failure/last-good-graph/exact-result path is
+   now covered with a compile-time test hook that defaults off. Keep the
+   separate unresolved limits above: no transactional rollback, allocator-fail
+   injection, acoustic continuity, or device/deadline proof.
 2. Extend exact request outcomes to remaining region/project mutations with
    deliberate idempotent/no-op semantics. Do not make high-rate controls await
    one acknowledgement per sample/value.

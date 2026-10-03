@@ -296,6 +296,10 @@ enum class WebCommandKind : uint8_t {
     // Generic native menu / hotkey dispatch (Electron shell menu bar, etc.).
     // `json` = {"action":"..."}; handled via MainComponent::performAction().
     PerformAction,
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    // Routed only when RESOSTAGE_ENABLE_TEST_HOOKS is enabled.
+    TestFailNextPlaybackSnapshot,
+#endif
 };
 
 struct WebCommand {

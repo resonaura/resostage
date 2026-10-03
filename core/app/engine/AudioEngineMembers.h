@@ -84,6 +84,9 @@
     // only reads it, and never accepts a graph/bank from another epoch.
     std::atomic<uint64_t> projectEpoch{1};
     std::atomic<bool> projectTransitioning{false};
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    std::atomic<bool> failNextPlaybackSnapshotForTestingFlag{false};
+#endif
     // Includes stopped/tail callbacks that touch meters before routingMutex.
     // A document replacement waits for this count after blocking new entries.
     std::atomic<uint32_t> audioCallbacksInFlight{0};

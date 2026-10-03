@@ -212,6 +212,10 @@ target_compile_definitions(ResoStage
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:ResoStage,JUCE_VERSION>"
 )
 
+if(RESOSTAGE_ENABLE_TEST_HOOKS)
+  target_compile_definitions(ResoStage PRIVATE RESOSTAGE_ENABLE_TEST_HOOKS=1)
+endif()
+
 target_link_libraries(ResoStage
   PRIVATE
     resostage_engine

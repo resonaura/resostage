@@ -166,9 +166,11 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   prove an expired result triggers one refetch,
   stays unknown and is not resent, rejects an apparently newer revision from
   the wrong playback epoch, and surfaces fire-and-forget rejection without
-  retry. No full Electron run, acoustic/vendor proof, AudioEngine-level injected snapshot
-  failure, HTTP/deferred queue-saturation stress, or callback-deadline evidence
-  in this block. Exact result coverage remains incomplete; see [audit.md](audit.md).
+  retry. The real-Core injected snapshot-failure acceptance was added in the
+  current block; ordinary builds keep the route disabled. No full Electron
+  run, acoustic/vendor proof, HTTP/deferred queue-saturation stress, or
+  callback-deadline evidence in this block. Exact result coverage remains
+  incomplete; see [audit.md](audit.md).
 
 The command-identity and active-document lifecycle blocks, tests and
 documentation are committed locally and not pushed. Start by checking
@@ -200,16 +202,17 @@ callback/underrun/silent-block/device diagnostics on timeout. One standalone
 run and five consecutive serialized acceptance runs passed. An earlier
 intermittent stalled-playhead report remains unproven/unresolved; do not
 reinterpret green retries as acoustic continuity evidence or remove the
-failure-injection and loaded-device acceptance items.
+allocator-failure and loaded-device acceptance items.
 
 ## Immediate next actions
 
-1. Add actual Core-level fault injection for playback-snapshot preparation
-   failure. Native coverage rejects an oversized snapshot and proves
-   `RoutingEngine` retains its last-good publication when a candidate lacks
-   playback state; this does not yet exercise AudioEngine transport/callback
-   continuity or the matching exact HTTP command result. Do not claim rollback;
-   gesture coalescing makes an unscoped Undo unsafe.
+1. Core-level playback-snapshot failure is now exercised by the real HTTP
+   harness through `RESOSTAGE_ENABLE_TEST_HOOKS` (default OFF). It verifies the
+   exact applied-vs-playback result, last-good graph retention, continued
+   playhead and recovery on the next edit while transport stays live. This is
+   not allocation-failure injection, rollback, acoustic, vendor or deadline
+   proof. Do not compensate with unscoped Undo; gesture coalescing makes that
+   unsafe.
 2. Stress Core HTTP queue saturation, deferred queue exhaustion, same-Core
    project replacement, Core restart during an in-flight command, and late
    responses. The Core now has a fixed 1024-command/32 MiB admission ceiling;

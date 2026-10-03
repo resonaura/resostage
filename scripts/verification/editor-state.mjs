@@ -98,9 +98,9 @@ export async function verifyEditorState(coreExecutable, inspect) {
       stateRevision: lastObserved.stateRevision,
       playbackProjectRevision: lastObserved.playbackProjectRevision,
       sampleRate: lastObserved.sampleRate,
-      audioCallbackCount: lastObserved.audioCallbackCount,
-      underrunCount: lastObserved.underrunCount,
-      silentBlockCount: lastObserved.silentBlockCount,
+      audioCallbackCount: lastObserved.health?.audioCallbackCount,
+      underrunCount: lastObserved.health?.underrunCount,
+      silentBlockCount: lastObserved.health?.silentBlockCount,
       hardwareAlarm: lastObserved.hardwareAlarm,
       statusMessage: lastObserved.statusMessage,
     }) : "none";
@@ -178,6 +178,17 @@ export async function verifyEditorState(coreExecutable, inspect) {
       await sleep(100);
     }
     assert.equal(stableSamples, 8, `project epoch must settle before editing\n${diagnostic}`);
+    if (process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE !== "1") {
+      const testHookProbe = await fetch(`${origin}/api/v1/test/fail-next-playback-snapshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: AbortSignal.timeout(8000),
+      });
+      await testHookProbe.arrayBuffer();
+      assert.equal(testHookProbe.status, 404,
+        "ordinary Core builds must not expose the snapshot-fault test route");
+    }
   };
   const getRegion = (state) => state.songs?.[0]?.midiRegions?.find((region) => region.id === regionId);
   try {
@@ -331,11 +342,73 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.ok(getRegion(noteRedo)?.notes.every((note) => note.durationBeats === 0.5),
       "Redo note edit must restore the quantized durations");
 
-    const laneCreation = await confirmEditorMutation("/api/v1/builder/automation-lane/add", {
+    const lanePayload = {
       songIndex: 0, domain: "midiCC", entityId: "audio::track:1",
       parameterId: "cc:1", valueType: "integer", defaultValue: 0, minValue: 0, maxValue: 127, points: [],
-    });
-    let state = laneCreation.state;
+    };
+    let laneCreation;
+    let state;
+    if (process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE === "1") {
+      await request("/api/v1/transport/play", {});
+      const beforeInjectedFailure = await waitFor((current) => current.playing,
+        "play before injected playback-snapshot failure");
+      await request("/api/v1/test/fail-next-playback-snapshot", {});
+      await waitFor((current) => current.statusMessage
+        === "Test-only playback snapshot failure armed",
+      "test-only snapshot failure arm");
+
+      const acceptedFailure = await request("/api/v1/builder/automation-lane/add", lanePayload);
+      assert.ok(Number.isSafeInteger(acceptedFailure.requestId),
+        "injected-failure edit must return an exact request ID");
+      const failedPublicationState = await waitFor((current) => current.editorCommandResults?.some(
+        (result) => result.requestId === acceptedFailure.requestId,
+      ), "exact editor result for injected playback-snapshot failure");
+      const failedPublication = failedPublicationState.editorCommandResults.find(
+        (result) => result.requestId === acceptedFailure.requestId,
+      );
+      assert.equal(failedPublication.applied, true,
+        "snapshot failure must not misreport the committed project-history edit");
+      assert.equal(failedPublication.playbackApplied, false,
+        "snapshot failure must be explicit in the exact editor result");
+      assert.match(failedPublication.error, /last valid snapshot/);
+      assert.equal(failedPublication.playbackProjectEpoch,
+        failedPublicationState.playbackProjectEpoch,
+        "the failed result must identify the still-active graph epoch");
+      assert.equal(failedPublication.playbackRevision,
+        failedPublicationState.playbackProjectRevision,
+        "the previous graph revision must remain published after the injected failure");
+      assert.ok(failedPublication.playbackRevision < failedPublication.projectRevision,
+        "the last-good graph must remain behind the committed project edit");
+      assert.equal(failedPublicationState.playing, true,
+        "snapshot preparation failure must not stop transport");
+      assert.equal(failedPublicationState.songs[0].automationLanes.length, 1,
+        "the committed project edit remains visible while audio uses its last-good graph");
+      const failedStateProgress = await waitFor((current) => current.playing
+        && current.playheadSeconds > failedPublicationState.playheadSeconds,
+      "transport advances on the retained graph after snapshot failure");
+
+      const recovered = await confirmEditorMutation("/api/v1/builder/automation-points/replace", {
+        songIndex: 0,
+        laneId: failedPublicationState.songs[0].automationLanes[0].id,
+        points: [{ timeBeats: 0, value: 0, curve: 0 }],
+      });
+      assert.ok(recovered.result.playbackApplied,
+        "the next valid publication must recover the graph from authoritative project state");
+      assert.ok(recovered.state.playbackProjectRevision >= failedPublication.projectRevision,
+        "recovery publication must include the edit whose first snapshot failed");
+      assert.equal(recovered.state.playing, true,
+        "transport must remain live through snapshot recovery");
+      state = await waitFor((current) => current.playing
+        && current.playheadSeconds > failedStateProgress.playheadSeconds,
+      "audio sample clock advances through failed and recovered snapshot publication");
+      assert.equal(typeof state.health?.audioCallbackCount, "number",
+        "Core health must expose callback progress diagnostics during the scenario");
+      laneCreation = { state: failedPublicationState, result: failedPublication, accepted: acceptedFailure };
+    } else {
+      laneCreation = await confirmEditorMutation("/api/v1/builder/automation-lane/add", lanePayload);
+      state = laneCreation.state;
+    }
+    state = laneCreation.state;
     const lane = state.songs[0].automationLanes[0];
     assert.deepEqual(lane.points, [], "Empty lane must not fabricate points");
     const points = Array.from({ length: 512 }, (_, index) => ({ timeBeats: index / 4, value: index % 128, curve: 0.4 }));

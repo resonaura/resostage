@@ -283,6 +283,15 @@ void AudioEngine::publishRoutingSnapshot() {
     }
     mutableGraph->contentRevision = projectContentRevision
         + (playbackContentChanged ? 1u : 0u);
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    if (playbackContentChanged && publishedGraph != nullptr
+        && failNextPlaybackSnapshotForTestingFlag.exchange(
+            false, std::memory_order_acq_rel)) {
+        juce::Logger::writeToLog(
+            "Test hook rejected the next playback snapshot publication");
+        return;
+    }
+#endif
     const auto playback = buildProjectPlaybackSnapshot(
         loader.project(), *mutableGraph, mutableGraph->projectEpoch,
         mutableGraph->contentRevision, previousPlayback, playbackContentChanged);

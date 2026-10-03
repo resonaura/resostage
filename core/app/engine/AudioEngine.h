@@ -218,6 +218,13 @@ public:
     // a manual test trigger, never called in normal operation.
     void simulateUnderrun(double milliseconds) { simulatedStallMs.store(milliseconds, std::memory_order_release); }
 
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    /** Deterministically reject the next content snapshot publication in tests. */
+    void failNextPlaybackSnapshotForTesting() noexcept {
+        failNextPlaybackSnapshotForTestingFlag.store(true, std::memory_order_release);
+    }
+#endif
+
     // Per-bus / per-track telemetry for the UI to poll.
     const SeqLock<MeterFrame>* busMeterAt(size_t index) const;
 

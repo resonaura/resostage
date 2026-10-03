@@ -34,6 +34,7 @@ endif()
 
 option(RESOSTAGE_BUILD_TESTS "Build engine unit tests" ON)
 option(RESOSTAGE_BUILD_APP "Build the ResoStage JUCE app" ON)
+option(RESOSTAGE_ENABLE_TEST_HOOKS "Enable loopback-only deterministic Core fault-injection hooks" OFF)
 
 include(FetchContent)
 

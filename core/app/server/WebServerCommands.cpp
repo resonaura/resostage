@@ -308,6 +308,11 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
     WebCommand cmd;
     bool ok = true;
 
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    if (std::strcmp(path, "/api/v1/test/fail-next-playback-snapshot") == 0) {
+        cmd = {WebCommandKind::TestFailNextPlaybackSnapshot, 0};
+    } else
+#endif
     if (std::strcmp(path, "/api/v1/transport/play") == 0) {
         cmd = {WebCommandKind::Play, 0};
     } else if (std::strcmp(path, "/api/v1/transport/record") == 0) {

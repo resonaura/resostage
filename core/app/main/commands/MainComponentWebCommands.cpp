@@ -569,6 +569,13 @@ void MainComponent::drainWebCommands() {
                     performAction(action);
                 break;
             }
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+            case WebCommandKind::TestFailNextPlaybackSnapshot:
+                engine.failNextPlaybackSnapshotForTesting();
+                setStatus("Test-only playback snapshot failure armed");
+                publishWebState();
+                break;
+#endif
         }
         if (cmd.editorRequestId != 0) {
             const uint64_t revisionAfter = engine.projectHistoryRevision();
