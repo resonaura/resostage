@@ -275,6 +275,10 @@ bool AudioEngine::selectSongInternal(size_t songIndex, std::string& error, bool 
             pluginPub->bank->requestAllNotesOff();
         }
 
+        if (songIndex != currentSongIndex()) {
+            activeManualAutomationLanes.clear();
+            manualAutomationLaneSnapshot.reset();
+        }
         setCurrentSongIndex(songIndex);
         // Keep LightEngine in sync with the active song index and BPM so
         // tempo-synced effects use the correct rate immediately.

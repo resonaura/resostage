@@ -24,6 +24,11 @@ export interface UseAutomationTouchRecorderProps {
   onWriteModeRevert?: (laneId: string) => void;
 }
 
+interface ManualOverrideOwner {
+  songIndex: number;
+  projectIdentity: string;
+}
+
 export function useAutomationTouchRecorder({
   songIndex,
   projectIdentity = null,
@@ -45,6 +50,18 @@ export function useAutomationTouchRecorder({
   const projectIdentityRef = useRef<string | null>(projectIdentity);
   projectIdentityRef.current = projectIdentity;
   const sessionIdentityRef = useRef(new Map<string, string>());
+  const manualOverrideOwnersRef = useRef(new Map<string, ManualOverrideOwner>());
+
+  const setManualOverride = useCallback((laneId: string, owner: ManualOverrideOwner, active: boolean) => {
+    if (owner.projectIdentity !== projectIdentityRef.current) return;
+    void builder.automationManualOverride({
+      songIndex: owner.songIndex,
+      laneId,
+      active,
+    }).catch((error: unknown) => {
+      console.warn("Could not update Core-owned automation gesture state", error);
+    });
+  }, []);
 
   const commitPayload = useCallback(
     (payload: AutomationGestureCommitPayload) => {
@@ -52,13 +69,16 @@ export function useAutomationTouchRecorder({
       if (!capturedIdentity || capturedIdentity !== projectIdentityRef.current) {
         controllerRef.current.cancelAll();
         sessionIdentityRef.current.clear();
+        manualOverrideOwnersRef.current.clear();
         return;
       }
 
+      let recording: Promise<void>;
       if (onCommitGesture) {
         onCommitGesture(payload);
+        recording = Promise.resolve();
       } else {
-        void builder.automationRecordGesture({
+        recording = builder.automationRecordGesture({
           songIndex,
           laneId: payload.laneId,
           punchInBeats: payload.punchInBeats,
@@ -79,9 +99,21 @@ export function useAutomationTouchRecorder({
 
       if (!controllerRef.current.isLaneActive(payload.laneId)) {
         sessionIdentityRef.current.delete(payload.laneId);
+        const owner = manualOverrideOwnersRef.current.get(payload.laneId);
+        if (owner) {
+          manualOverrideOwnersRef.current.delete(payload.laneId);
+          void recording.then(
+            () => setManualOverride(payload.laneId, owner, false),
+            () => setManualOverride(payload.laneId, owner, false),
+          );
+        } else {
+          void recording.catch(() => {});
+        }
+      } else {
+        void recording.catch(() => {});
       }
     },
-    [songIndex, onCommitGesture, onWriteModeRevert],
+    [songIndex, onCommitGesture, onWriteModeRevert, setManualOverride],
   );
 
   const startGesture = useCallback(
@@ -100,9 +132,20 @@ export function useAutomationTouchRecorder({
         currentBeats,
         lanesRef.current,
       );
-      if (session) sessionIdentityRef.current.set(session.laneId, projectIdentityRef.current);
+      if (session) {
+        const identity = projectIdentityRef.current;
+        sessionIdentityRef.current.set(session.laneId, identity);
+        const lane = lanesRef.current.find((candidate) => candidate.id === session.laneId);
+        if (identity && lane?.target.domain === "strip" && lane.scope === "track"
+          && (lane.target.parameterId === "faderGainDb" || lane.target.parameterId === "pan")
+          && !manualOverrideOwnersRef.current.has(session.laneId)) {
+          const owner = { songIndex, projectIdentity: identity };
+          manualOverrideOwnersRef.current.set(session.laneId, owner);
+          setManualOverride(session.laneId, owner, true);
+        }
+      }
     },
-    [],
+    [songIndex, setManualOverride],
   );
 
   const recordValue = useCallback(
@@ -144,10 +187,15 @@ export function useAutomationTouchRecorder({
   // A document/session transition cancels old capture before a stopped-transport
   // effect can accidentally commit those points against the replacement project.
   useEffect(() => {
+    for (const [laneId, owner] of manualOverrideOwnersRef.current) {
+      if (owner.projectIdentity === projectIdentity && owner.songIndex !== songIndex)
+        setManualOverride(laneId, owner, false);
+    }
+    manualOverrideOwnersRef.current.clear();
     controllerRef.current.cancelAll();
     sessionIdentityRef.current.clear();
     lastBeatsRef.current = getCurrentBeatsRef.current();
-  }, [projectIdentity, songIndex]);
+  }, [projectIdentity, songIndex, setManualOverride]);
 
   const currentBeats = getCurrentBeatsRef.current();
 
@@ -190,9 +238,12 @@ export function useAutomationTouchRecorder({
 
   // Component unmount: discard any incomplete gesture without stale commits.
   useEffect(() => () => {
+    for (const [laneId, owner] of manualOverrideOwnersRef.current)
+      setManualOverride(laneId, owner, false);
+    manualOverrideOwnersRef.current.clear();
     controllerRef.current.cancelAll();
     sessionIdentityRef.current.clear();
-  }, []);
+  }, [setManualOverride]);
 
   return {
     startGesture,

@@ -159,6 +159,12 @@ void AudioEngine::stop() {
     clock.stop();
     midiDispatcher.stopClock();
 
+    if (!activeManualAutomationLanes.empty()) {
+        activeManualAutomationLanes.clear();
+        manualAutomationLaneSnapshot.reset();
+        publishRoutingSnapshot(false);
+    }
+
     transportTelemetry.playheadSamples.store(clock.currentSamplePosition(), std::memory_order_relaxed);
     transportTelemetry.playheadSeconds.store(clock.currentSeconds(), std::memory_order_relaxed);
     transportTelemetry.running.store(false, std::memory_order_relaxed);

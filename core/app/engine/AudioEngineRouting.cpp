@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -209,11 +210,12 @@ void AudioEngine::refreshMonitoringAndArmCounts() {
     focusedMidiMonitorActive.store(focusedMidi, std::memory_order_release);
 }
 
-void AudioEngine::publishRoutingSnapshot() {
+void AudioEngine::publishRoutingSnapshot(bool markProjectDirty) {
     if (!projectLoaded)
         return;
 
-    markDirty();
+    if (markProjectDirty)
+        markDirty();
     refreshMonitoringAndArmCounts();
 
     // ── Everything below, up to the lock, runs UNLOCKED on purpose ──────────
@@ -266,6 +268,7 @@ void AudioEngine::publishRoutingSnapshot() {
     const bool tracksChanged = trackIdByIndex != newTrackIds;
 
     auto mutableGraph = std::make_shared<MixGraph>(buildMixGraph(loader.project(), outputs));
+    mutableGraph->manualAutomationLaneOverrides = manualAutomationLaneSnapshot;
     mutableGraph->projectEpoch = projectEpoch.load(std::memory_order_acquire);
     mutableGraph->projectHistoryRevision = projectHistoryRevision();
     mutableGraph->trackLayoutRevision = trackLayoutRevision
@@ -500,6 +503,84 @@ void AudioEngine::setTrackGainDb(size_t songIndex, size_t trackIndex, double gai
         return;
     t->gainDb = gainDb;
     publishRoutingSnapshot();
+}
+
+bool AudioEngine::setAutomationManualOverride(size_t songIndex,
+                                              const std::string& laneId,
+                                              bool active) {
+    if (!projectLoaded || laneId.empty() || laneId.size() > 256)
+        return false;
+
+    if (!active) {
+        if (!activeManualAutomationLanes.contains(laneId))
+            return true;
+        try {
+            auto next = activeManualAutomationLanes;
+            next.erase(laneId);
+            auto snapshot = next.empty()
+                ? std::shared_ptr<const std::unordered_set<std::string>>{}
+                : std::make_shared<const std::unordered_set<std::string>>(next);
+            activeManualAutomationLanes = std::move(next);
+            manualAutomationLaneSnapshot = std::move(snapshot);
+        } catch (const std::bad_alloc&) {
+            // Releasing a gesture must never leave its lane permanently owned.
+            // If a replacement snapshot cannot be allocated, clear all owners
+            // and publish that safe fallback instead of retaining stale state.
+            activeManualAutomationLanes.clear();
+            manualAutomationLaneSnapshot.reset();
+            if (songIndex == currentSongIndex())
+                publishRoutingSnapshot(false);
+            return false;
+        }
+        if (songIndex == currentSongIndex())
+            publishRoutingSnapshot(false);
+        return true;
+    }
+
+    if (songIndex >= loader.project().songs.size() || songIndex != currentSongIndex()
+        || !playing.load(std::memory_order_acquire))
+        return false;
+
+    const auto& lanes = loader.project().songs[songIndex].automationLanes;
+    const AutomationLane* target = nullptr;
+    for (const auto& lane : lanes) {
+        if (lane.id != laneId)
+            continue;
+        if (target != nullptr)
+            return false;
+        target = &lane;
+    }
+    if (target == nullptr || !target->enabled || target->muted
+        || target->writeMode == AutomationWriteMode::Read
+        || target->target.domain != AutomationDomain::Strip
+        || target->scope != AutomationScope::Track
+        || (target->target.parameterId != "faderGainDb"
+            && target->target.parameterId != "pan"))
+        return false;
+
+    const bool targetTrackExists = std::any_of(
+        loader.project().tracks.begin(), loader.project().tracks.end(),
+        [&](const TrackDef& track) { return track.id == target->target.entityId; });
+    if (!targetTrackExists)
+        return false;
+
+    if (activeManualAutomationLanes.contains(laneId))
+        return true;
+    constexpr size_t kMaximumActiveManualAutomationLanes = 64;
+    if (activeManualAutomationLanes.size() >= kMaximumActiveManualAutomationLanes)
+        return false;
+    try {
+        auto next = activeManualAutomationLanes;
+        next.insert(laneId);
+        auto snapshot = std::make_shared<const std::unordered_set<std::string>>(next);
+        activeManualAutomationLanes = std::move(next);
+        manualAutomationLaneSnapshot = std::move(snapshot);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    if (songIndex == currentSongIndex())
+        publishRoutingSnapshot(false);
+    return true;
 }
 
 void AudioEngine::setTrackPan(size_t songIndex, size_t trackIndex, double pan) {

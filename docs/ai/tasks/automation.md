@@ -46,9 +46,13 @@ Previous arrangement UI existed, but had significant functional gaps:
   endpoint-preserving compaction. The compacted marker is validated by Core and
   reported in its success status. A rejected/unknown reliable mutation raises
   the shared editor-command failure notification and is never blindly retried.
-  These are session/data-safety improvements only: the capture still has no
-  Core-owned manual-value override, remains wired only at the arrangement
-  Sidebar, does not retain a retryable draft after rejection, and its telemetry-
+  A Core-owned transient manual lane override is now published with the
+  immutable `MixGraph` for Timeline track gain/pan gestures. While that lane is
+  owned, the callback skips its automation binding and leaves other lanes
+  active. It is cleared on Stop, song change, and project replacement; it is
+  not persisted or added to project history. This is only wired at the
+  arrangement Sidebar and is not yet end-to-end audible/device proof. The
+  capture does not retain a retryable draft after rejection, and its telemetry-
   inferred cycle split cannot distinguish every seek or missed wrap. See the
   audit before extending it.
 - Compact lane height density scaling (<= 32px), omitting curve handles, scaling breakpoint nodes,
@@ -123,10 +127,11 @@ live-vendor rebind and visual/device acceptance are not established.
    `Mod+X`, `Mod+V`, `Mod+D`) and context menu are fully implemented and covered by unit tests.
 5. Complete Touch/Latch/Write ownership and recording according to `audit.md`.
    Session identity, TempoMap lookup, bounded point storage, transport-stop and
-   telemetry-observed cycle splitting now exist, but actual manual override
-   while Touch/Latch is active must beat playback and remain correct across
-   sparse cycle telemetry, seek, all supported surfaces and rejected/unknown
-   commits. Preserve an explicit recovery path rather than blindly retrying.
+   telemetry-observed cycle splitting exist. Core arbitration currently covers
+   Timeline gain/pan only; prove audible Touch return, held Latch, Stop/seek,
+   sparse cycle telemetry, multiple controls and all supported surfaces.
+   Pointer-cancel/lost-capture policy and bounded recovery for rejected/unknown
+   commits remain open; never blindly retry.
 6. Compile binding tables off audio instead of repeated string/region lookups.
    Native sample-offset vendor automation, Trim/relative layers, VCA and advanced
    hardware/lighting integrations remain separate explicit tasks.
@@ -145,6 +150,28 @@ scheduler-sensitive miss in the real VST3 64-sample helper deadline; the
 isolated VST3 test and serialized full suite passed. This is not device or
 acoustic proof. Manual parameter ownership, missed-wrap/seek distinction,
 rejection draft recovery, and wider surface coverage remain open.
+
+Timeline manual-ownership continuation (2026-10-02): Core now admits transient
+owners only for enabled, unmuted, non-Read track-scope Strip gain/pan lanes on
+the active song, with a 64-lane ceiling. The owner IDs are published as an
+immutable graph snapshot; the audio callback performs read-only lane-ID lookup
+and skips only the owned binding. Stop, song change and project replacement
+clear the set. A native renderer regression confirms owned gain stays at the
+manual graph value while an unrelated pan lane continues to automate. A UI API
+test verifies project session/epoch fencing. This does not exercise a real UI
+gesture, prove Touch/Latch/Write transition behavior, measure callback cost, or
+prove audible hardware output. Mixer/inspector/plugin surfaces, seek-vs-wrap
+authority, pointer cancellation/lost capture, and retryable rejection recovery
+remain open. Re-run focused and full suites and record exact results before
+considering this block verified.
+
+Verification for this implementation block: `cmake --build core/build --target
+ResoStage resostage_engine_tests -j8` passed; the focused native ownership case
+passed 1/1 test and 4/4 assertions; full native CTest passed 1/1 target. Focused
+UI recorder/identity tests passed 15/15; full UI Vitest passed 774 tests across
+114 files; `tsc -b`, production UI build and lint passed (zero lint errors,
+12 existing warnings). This verifies compilation, project fencing and the
+renderer arbitration rule, not live pointer ownership or device output.
 
 Parameter discovery optimization verification on 2026-10-02: UI suite passed
 757 tests across 109 files, TypeScript build passed, Core and native test

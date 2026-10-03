@@ -179,6 +179,21 @@ Every source keeps the standard license header. English comments/commits,
 `@/` frontend imports, separate components/hooks/logic/tests, lowercase one-word
 folders. Commit each finished block; do not push.
 
+Latest continuation (2026-10-02): a Core-owned transient manual-automation
+override is implemented for arrangement Timeline track gain/pan. The message
+thread owns and bounds active lane IDs, publishes them as an immutable
+`MixGraph` snapshot, and the callback skips only an owned strip binding. Stop,
+song change and project replacement clear the ownership. Native coverage proves
+the named gain lane is skipped while unrelated pan automation remains active;
+the UI API test verifies project-epoch headers. This is not yet complete
+Touch/Latch/Write acceptance or acoustic proof. Before expanding elsewhere,
+rebuild and rerun the focused native/UI tests and complete UI suite, typecheck,
+build and lint. Then add interaction-level tests for pointer cancel/lost
+capture, seek, simultaneous controls and rejection handling; confirm audible
+Touch return and held Latch on a device. Remaining surfaces include Mixer,
+Inspector and plug-in parameters. Update the audit/task docs with measured
+results, commit in English, and do not push.
+
 The committed `06c3819` Touch/Latch/Write capture-session block additionally
 requires confirmed Core-session/project-epoch identity, maps playhead time with
 the song TempoMap, detects cycle wraps from sampled playhead movement, resumes
@@ -266,13 +281,11 @@ gestures, playback crossing and save/reopen; UI tests are not device proof.
 3. Finish publication acceptance: sanitizer/concurrency coverage, callback
    allocation/deadline measurement, and loaded AU/VST3 continuity proof. Do not
    conceal failures by stopping transport or restarting healthy helpers.
-4. Finish actual Touch/Latch/Write manual ownership, supported surface bindings,
-   Core-session/project-epoch fences, song TempoMap mapping and bounded
-   recording are now present in the current UI block. Finish Core-side live
-   manual-value ownership, explicit lost-pointer/seek handling, authoritative
-   cycle-pass identity, more surface bindings, and bounded draft recovery after
-   rejected/unknown results. Recorded point collections and endpoint tests alone
-   do not establish this lifecycle.
+4. Extend the current Core-owned Timeline gain/pan manual arbitration only after
+   real UI/playback/device acceptance. Add explicit lost-pointer/seek handling,
+   authoritative cycle-pass identity, more surface bindings, and bounded draft
+   recovery after rejected/unknown results. Recorded point collections and
+   renderer tests alone do not establish audible Touch/Latch/Write behavior.
 5. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
 6. Validate light/dark visual geometry, compact heights, reduced motion and
    exclusive/cancellable gestures. Run complete UI suite/typecheck/lint and relevant native suites/build after

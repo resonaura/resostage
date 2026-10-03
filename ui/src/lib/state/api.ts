@@ -1218,6 +1218,11 @@ export const builder = {
     points: { timeBeats: number; value: number }[];
     gestureId?: string;
   }) => postEditorMutation("/api/v1/builder/automation/record-gesture", patch),
+  automationManualOverride: (patch: {
+    songIndex: number;
+    laneId: string;
+    active: boolean;
+  }) => postEditorMutation("/api/v1/builder/automation/manual-override", patch),
 
   async trackImportWAV(
     songIndex: number,

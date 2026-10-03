@@ -36,6 +36,7 @@ Project automationProject() {
 
 AutomationLane envelope(const char* parameter, float value) {
     AutomationLane lane;
+    lane.id = std::string("lane-") + parameter;
     lane.target.domain = AutomationDomain::Strip;
     lane.target.entityId = "audio::track:1";
     lane.target.parameterId = parameter;
@@ -103,6 +104,39 @@ TEST_CASE("prepared gain and pan envelopes change actual audio without changing 
     audio.settle(graph, 0, 0.0, false);
     CHECK(audio.left == doctest::Approx(0.25f).epsilon(1e-5));
     CHECK(audio.right == doctest::Approx(0.25f).epsilon(1e-5));
+}
+
+TEST_CASE("manual automation ownership suppresses only its named strip lane") {
+    auto project = automationProject();
+    project.tracks[0].gainDb = -6.0206;
+    project.tracks[0].pan = -1.0;
+    auto gain = envelope("faderGainDb", -12.0f);
+    gain.id = "manual-gain-lane";
+    auto pan = envelope("pan", 1.0f);
+    pan.id = "automated-pan-lane";
+    project.songs[0].automationLanes = {gain, pan};
+
+    auto graph = preparedGraph(project);
+    auto manualOverrides = std::make_shared<std::unordered_set<std::string>>();
+    manualOverrides->insert("manual-gain-lane");
+    graph.manualAutomationLaneOverrides = manualOverrides;
+    AutomationRender audio(graph);
+    for (int block = 0; block < 40; ++block) {
+        audio.renderer.beginBlock(graph, kSamples);
+        graph.stripAutomation->apply(0, 0.0, audio.renderer,
+                                     graph.manualAutomationLaneOverrides.get());
+        const auto track = graph.find("audio::track:1");
+        std::fill_n(audio.renderer.sourceChannel(track, 0), kSamples, 0.25f);
+        std::fill_n(audio.renderer.sourceChannel(track, 1), kSamples, 0.25f);
+        audio.renderer.process(graph, kSamples);
+    }
+
+    // The gain follows the latest manual graph value (-6 dB), while the
+    // unrelated pan lane continues automating to the right.
+    CHECK(audio.renderer.postChannel(graph.find("audio::track:1"), 0)[kSamples - 1]
+          == doctest::Approx(0.0f).epsilon(1e-5));
+    CHECK(audio.renderer.postChannel(graph.find("audio::track:1"), 1)[kSamples - 1]
+          == doctest::Approx(0.125f).epsilon(1e-4));
 }
 
 TEST_CASE("empty disabled muted unbound and unsupported lanes leave manual coefficients alone") {

@@ -97,6 +97,12 @@
     // Project data (see setTrackSend() doc above for the full rationale).
     void setTrackGainDb(size_t songIndex, size_t trackIndex, double gainDb);
 
+    // Starts or ends an ephemeral manual owner for a supported track-scope
+    // strip automation lane. It changes only the published runtime graph,
+    // never project history or saved content.
+    bool setAutomationManualOverride(size_t songIndex, const std::string& laneId,
+                                     bool active);
+
     void setTrackPan(size_t songIndex, size_t trackIndex, double pan);
 
     void setTrackPanLaw(size_t songIndex, size_t trackIndex, PanLaw law);

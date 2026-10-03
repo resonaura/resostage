@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace resostage {
@@ -44,13 +45,15 @@ public:
 
     // Audio/offline DSP owner only, after renderer.beginBlock(). Bounded by
     // the admitted plan, with no strings, allocation or mutable project access.
-    void apply(size_t songIndex, double segmentBeat, MixRenderer& renderer) const noexcept;
+    void apply(size_t songIndex, double segmentBeat, MixRenderer& renderer,
+               const std::unordered_set<std::string>* manualOverrides = nullptr) const noexcept;
 
     [[nodiscard]] size_t bindingCount(size_t songIndex) const noexcept;
 
 private:
     enum class Parameter : uint8_t { GainDb, Pan, Mute, SendGain };
     struct Binding {
+        std::string laneId;
         uint32_t stripIndex = 0;
         uint32_t edgeIndex = 0;
         Parameter parameter = Parameter::GainDb;

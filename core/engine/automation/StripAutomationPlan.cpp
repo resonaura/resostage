@@ -152,7 +152,7 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
                 reportSkippedLane("Strip automation has invalid or unordered envelope points; that lane was skipped");
                 continue;
             }
-            bindings.push_back({stripIndex, targetEdgeIndex, parameter, lane.target.minValue,
+            bindings.push_back({lane.id, stripIndex, targetEdgeIndex, parameter, lane.target.minValue,
                                 lane.target.maxValue, lane.points});
             if (parameter == Parameter::SendGain) {
                 boundEdges[targetEdgeIndex] = true;
@@ -167,10 +167,13 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
 }
 
 void StripAutomationPlan::apply(size_t songIndex, double segmentBeat,
-                                MixRenderer& renderer) const noexcept {
+                                MixRenderer& renderer,
+                                const std::unordered_set<std::string>* manualOverrides) const noexcept {
     if (songIndex >= songs.size() || !std::isfinite(segmentBeat))
         return;
     for (const auto& binding : songs[songIndex].lanes) {
+        if (manualOverrides != nullptr && manualOverrides->contains(binding.laneId))
+            continue;
         const float value = std::clamp(
             AutomationEvaluator::evaluatePoints(binding.points, segmentBeat),
             binding.minValue, binding.maxValue);

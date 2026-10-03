@@ -199,6 +199,7 @@ enum class WebCommandKind : uint8_t {
     BuilderAutomationPointRemove,
     BuilderAutomationPointsReplace,
     BuilderAutomationRecordGesture,
+    BuilderAutomationManualOverride,
     BuilderBusAdd,
     BuilderBusRemove,
     BuilderBusMove,

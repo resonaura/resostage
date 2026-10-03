@@ -53,6 +53,8 @@ void AudioEngine::beginProjectMutation() {
 
 void AudioEngine::beginProjectReplacement() {
     beginProjectMutation();
+    activeManualAutomationLanes.clear();
+    manualAutomationLaneSnapshot.reset();
     {
         std::lock_guard lock(pluginBankMutex);
         projectEpoch.fetch_add(1, std::memory_order_acq_rel);

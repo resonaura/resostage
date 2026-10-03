@@ -78,6 +78,32 @@ describe("project-scoped command identity", () => {
     });
   });
 
+  it("fences transient automation ownership to the project observed at gesture start", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetch);
+    observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 12 });
+
+    await builder.automationManualOverride({
+      songIndex: 2,
+      laneId: "lane-1",
+      active: true,
+    });
+
+    const [url, request] = fetch.mock.calls[0] as unknown as [RequestInfo | URL, RequestInit];
+    expect(String(url)).toMatch(/\/api\/v1\/builder\/automation\/manual-override$/);
+    expect(request.headers).toMatchObject({
+      "X-ResoStage-Session": "Core A",
+      "X-ResoStage-Project-Epoch": "12",
+    });
+    expect(JSON.parse(String(request.body))).toEqual({
+      songIndex: 2,
+      laneId: "lane-1",
+      active: true,
+    });
+  });
+
   it("does not treat a committed project edit as audible when Core retained an older graph", async () => {
     const requestId = 42;
     const applySnapshot = vi.fn();

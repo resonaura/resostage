@@ -99,6 +99,10 @@
     // it" from the same structure the audio thread renders -- rather than a
     // second, drifting implementation of the grouping rule.
     std::shared_ptr<const MixGraph> publishedGraph;
+    // Message-thread-only transient strip-automation owners. These are never
+    // serialized and are cleared whenever a new document replaces the old one.
+    std::unordered_set<std::string> activeManualAutomationLanes;
+    std::shared_ptr<const std::unordered_set<std::string>> manualAutomationLaneSnapshot;
     std::shared_ptr<const TempoMap> activeTempoMap;
     std::shared_ptr<const ProjectActivityIndex> projectActivityIndex;
     uint64_t projectContentRevision = 0; // Message-thread publication generation.
@@ -588,7 +592,7 @@
     // always observe false by the time this runs.
     void handleSampleRateChanged(double newSampleRate, double previousPlayheadSeconds, bool wasPlaying);
 
-    void publishRoutingSnapshot(); // message-thread: build RoutingSnapshot from Project
+    void publishRoutingSnapshot(bool markProjectDirty = true); // message-thread: build RoutingSnapshot from Project
     void refreshSongActivityIndex();
     void publishStandaloneTempoMap(std::shared_ptr<const TempoMap> map);
     void ensureTrackMeters(size_t count);

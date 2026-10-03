@@ -476,6 +476,22 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::BuilderAutomationPointRemove: builderAutomationPointRemove(cmd.json); break;
             case WebCommandKind::BuilderAutomationPointsReplace: builderAutomationPointsReplace(cmd.json); break;
             case WebCommandKind::BuilderAutomationRecordGesture: builderAutomationRecordGesture(cmd.json); break;
+            case WebCommandKind::BuilderAutomationManualOverride: {
+                glz::generic payload;
+                int songIndex = -1;
+                std::string laneId;
+                bool active = false;
+                if (!builder_json::parseJson(cmd.json, payload)
+                    || !builder_json::getInt(payload, "songIndex", songIndex)
+                    || !builder_json::getString(payload, "laneId", laneId)
+                    || !builder_json::getBool(payload, "active", active)
+                    || songIndex < 0
+                    || !engine.setAutomationManualOverride(
+                        static_cast<size_t>(songIndex), laneId, active)) {
+                    setStatus("Could not update live automation ownership; the lane may be unsupported or no longer available");
+                }
+                break;
+            }
             case WebCommandKind::BuilderBusAdd: builderBusAdd(); break;
             case WebCommandKind::BuilderBusRemove: builderBusRemove(cmd.json); break;
             case WebCommandKind::BuilderBusMove: builderBusMove(cmd.json); break;

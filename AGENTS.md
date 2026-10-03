@@ -1035,6 +1035,19 @@ ignores. Recording completion returns Write lanes to Touch safety. Keep this
 policy aligned across strip, plug-in, MIDI CC, and region automation so an armed
 or interrupted Write lane cannot make an export differ from live playback.
 
+For live Timeline gain/pan Touch, Latch, and Write gestures, Core's JUCE
+message thread owns a bounded, transient set of manually controlled lane IDs.
+It publishes an immutable copy with `MixGraph`; the audio callback skips only
+the matching live strip-automation binding while the operator owns that lane.
+The fader/pan value itself still arrives through the ordinary Core control
+command and graph publication path. This ownership set is runtime-only: it is
+not serialized, does not enter project history, and is cleared on Stop, song
+change, and project replacement. Keep allocation, mutation, and publication on
+the message thread; callback lookup is read-only and must not acquire a lock.
+This currently covers the arrangement Timeline's track gain and pan controls
+only. Do not infer that mixer, inspector, plug-in parameters, MIDI/region
+automation, seek cancellation, or audible device behavior are covered.
+
 Punching a recorded automation interval preserves the original envelope before
 the punch exactly at the boundary value and after the punch within `1e-4` target
 units. A curved segment cut by punch-out is adaptively linearized with a hard

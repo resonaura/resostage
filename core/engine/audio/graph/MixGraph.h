@@ -44,6 +44,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace resostage {
@@ -163,6 +164,11 @@ struct MixGraph {
     // Prepared strip-index bindings and owned envelope data share this
     // publication's retirement lifetime, never mutable project vectors.
     std::shared_ptr<const StripAutomationPlan> stripAutomation;
+
+    // Ephemeral Core-owned manual control sessions. The message thread
+    // publishes this immutable set with the graph; audio only performs
+    // bounded lookups and never reads editor state.
+    std::shared_ptr<const std::unordered_set<std::string>> manualAutomationLaneOverrides;
 
     // Immutable callback inputs are published with the render graph and share
     // its retirement lifetime. A callback must never traverse ProjectLoader.

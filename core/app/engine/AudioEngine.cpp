@@ -1703,7 +1703,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* inputChan
             ? tempoMap->samplesToBeats(playheadSample, currentSampleRate)
             : (static_cast<double>(playheadSample) / currentSampleRate)
                 * renderSong->bpm / 60.0;
-        graph.stripAutomation->apply(callbackSongIndex, segmentBeat, mixRenderer);
+        graph.stripAutomation->apply(callbackSongIndex, segmentBeat, mixRenderer,
+                                     graph.manualAutomationLaneOverrides.get());
     }
 
     // Hand each track's decoded block to its strip. Strip index == track

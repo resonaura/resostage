@@ -301,7 +301,7 @@ Next implementation:
    publication mismatch. Current real-Core acceptance proves backend state and
    transport progress, not the renderer's one-refetch UX under this fault.
 
-## P1 — manual Touch/Latch/Write is not yet a complete live lifecycle
+## P1 — manual Touch/Latch/Write is only partially integrated
 
 Entry points: `timeline/automation/hooks/useAutomationTouchRecorder.ts`,
 `logic/automationTouchController.ts`, `logic/automationTouchSession.ts`,
@@ -310,9 +310,13 @@ and `MainComponentBuilderAutomation`/native automation playback.
 
 The hook is instantiated only in TimelineSidebar and buffers points until
 release/Stop; adding callbacks to shared controls does not wire every
-mixer/inspector/plugin surface. It still has no Core-owned manual-value override,
-so collection/persistence is not proof that Touch/Latch takes precedence over
-automation playback or that the operator hears the moved control.
+mixer/inspector/plugin surface. A Core-owned live lane override now exists for
+the Timeline track gain and pan gestures: the message thread publishes a
+bounded immutable set of active lane IDs with `MixGraph`, and the callback
+skips only a matching strip-automation binding. The ordinary gain/pan command
+continues to publish the manually moved value. This is an arbitration
+implementation, not yet evidence that an operator hears the control on a
+physical device.
 
 The 2026-10-02 continuation closes several UI session hazards: capture now
 requires the confirmed `(stateSessionId, projectEpoch)` pair, cancels on song or
@@ -324,12 +328,20 @@ validates the optional compaction marker; reliable record-mutation rejection
 already reaches the shared editor failure notification and is not retried.
 Compaction is explicitly reported by Core status.
 
+Core ownership is runtime-only, is not serialized/history state, and is cleared
+on Stop, song change, and project replacement. Activation is admitted only for
+an enabled, unmuted, non-Read track-scope strip gain/pan lane on the active song;
+the active set is bounded to 64 lanes. If allocation fails while releasing an
+owner, Core clears all transient owners and publishes that safe fallback.
+
 Remaining session risks: cycle detection still infers wraps from sampled UI
-playhead telemetry and can miss a sparse wrap or confuse a seek; the capture is
-not bound to every supported surface; a rejected/unknown command has no retained
-retryable draft; and browser pointer cancellation/lost capture needs an explicit
-per-control policy. Endpoint tests do not prove manual-control ownership while
-Touch/Latch is active or audible output.
+playhead telemetry and can miss a sparse wrap or confuse a seek; ownership is
+not bound to mixer/inspector/plugin or other parameter surfaces; a rejected or
+unknown recording command has no retained retryable draft; and browser pointer
+cancellation/lost capture still needs an explicit per-control policy. The
+native regression proves only that the named gain lane is suppressed while an
+unrelated pan lane continues. It does not drive React pointer gestures, prove
+all Touch/Latch/Write transitions, or establish audible output.
 
 Verification for the 2026-10-02 capture-session block: UI Vitest passed 752
 tests across 108 files; TypeScript and the production UI build passed; lint had
@@ -347,12 +359,14 @@ song-end, result and Core status diagnostics if that intermittent failure
 recurs; it remains an unresolved transport-continuity signal rather than a
 verified fix.
 
-Required implementation:
+Remaining implementation and acceptance:
 
-- Establish one explicit owner for manual override versus automation playback.
-  Touch must sound the live value while held, then return to the underlying
-  curve. Latch must continue the last touched value until punch-out/Stop. Write
-  must have a documented destructive interval and reliable safety revert.
+- Extend the Core-owned arbitration deliberately to each supported surface and
+  parameter. Preserve the current invariant that the callback reads only the
+  immutable `MixGraph` owner snapshot and performs no locking/allocation.
+  Acceptance must prove Touch sounds the live value while held and returns to
+  the underlying curve, Latch holds until punch-out/Stop, and Write has a
+  documented destructive interval and reliable safety revert.
 - Bind all supported surfaces intentionally, or disable/label unsupported
   write modes rather than claiming full integration. Do not install a second
   application hotkey dispatcher or infer touch from telemetry echoes.
@@ -372,6 +386,15 @@ Acceptance: actual UI fader/knob gestures while playing, audible manual override
 release ramps, sustained Latch, Stop/seek/cycle, multiple controls, rejection,
 same-ID reopen, Undo/Redo branch and save/reopen. Include failed/removed vendor
 parameters and do not call packet collection alone live recording acceptance.
+
+2026-10-02 implementation verification: optimized `ResoStage` and
+`resostage_engine_tests` targets built; the focused native ownership test passed
+1 test/4 assertions and full native CTest passed 1/1 target. Focused UI recorder
+and command-identity suites passed 15 tests; full UI Vitest passed 774 tests in
+114 files; TypeScript, production build and lint passed (0 errors, 12 existing
+warnings). This validates the renderer skip rule and project-identity request
+fencing only. It does not satisfy the UI gesture, cancel/seek, acoustic or
+physical-device acceptance listed above.
 
 ## Closed this audit — preserve automation outside recorded punches
 
@@ -611,9 +634,11 @@ alone. Do not alter Core's clock or claim acoustic proof from UI tests.
    snapshots: sanitizer/concurrency coverage, callback allocation/deadline
    measurement and actual AU/VST3 audio-continuity proof. Keep transport running
    and do not hide races by locking editor commands or restarting healthy helpers.
-4. Complete Core-owned live manual-value arbitration for Touch/Latch/Write, then
-   wire each supported control surface and handle TempoMap, cycle wrap, Stop,
-   seek, project epoch, rejection recovery and one coherent history action.
+4. Extend Core-owned live manual-value arbitration beyond Timeline gain/pan
+   only after real UI, playback and device acceptance. Keep it aligned with
+   TempoMap, cycle wrap, Stop, seek, project epoch, rejection recovery and one
+   coherent history action; recorded points and renderer tests alone do not
+   prove audible Touch/Latch/Write behavior.
 5. Embedded MIDI-region automation input is now bounded and validated before
    history/mutation. Immutable parameter-descriptor caching is also implemented
    above; live/offline Write behavior and punch-window preservation are tracked
