@@ -6,12 +6,16 @@
 
 #pragma once
 
+#include "AutomationEvaluator.h"
 #include "project/ProjectSchema.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -33,6 +37,16 @@ class MixRenderer;
  */
 class StripAutomationPlan {
 public:
+    enum class Parameter : uint8_t { GainDb, Pan, Mute, SendGain };
+
+    struct EvaluatedValue {
+        std::string_view laneId;
+        uint32_t stripIndex = 0;
+        uint32_t edgeIndex = 0;
+        Parameter parameter = Parameter::GainDb;
+        float value = 0.0f;
+    };
+
     static constexpr size_t kMaximumSongs = 4096;
     static constexpr size_t kMaximumLanes = 65536;
     static constexpr size_t kMaximumPoints = 1048576;
@@ -48,10 +62,54 @@ public:
     void apply(size_t songIndex, double segmentBeat, MixRenderer& renderer,
                const std::unordered_set<std::string>* manualOverrides = nullptr) const noexcept;
 
+    // Shared evaluation of every admitted binding. The audio/offline renderer
+    // uses this path too; visitors used there must remain noexcept, bounded,
+    // and allocation-free. It exposes scalar values and resolved indices,
+    // never mutable project references or target-string lookups.
+    template <typename Visitor>
+    void visitValues(size_t songIndex, double segmentBeat,
+                     const std::unordered_set<std::string>* manualOverrides,
+                     Visitor&& visitor) const {
+        if (songIndex >= songs.size() || !std::isfinite(segmentBeat))
+            return;
+        for (const auto& binding : songs[songIndex].lanes) {
+            if (manualOverrides != nullptr && manualOverrides->contains(binding.laneId))
+                continue;
+            const float value = std::clamp(
+                AutomationEvaluator::evaluatePoints(binding.points, segmentBeat),
+                binding.minValue, binding.maxValue);
+            visitor(EvaluatedValue{binding.laneId, binding.stripIndex,
+                                   binding.edgeIndex, binding.parameter, value});
+        }
+    }
+
+    // Message-thread control telemetry only. Preparation indexes the winning
+    // gain/pan binding per strip, so a 60 Hz state publication does not scan
+    // unrelated mute/send lanes; each envelope still needs a bounded lookup.
+    template <typename Visitor>
+    void visitControlValues(size_t songIndex, double segmentBeat,
+                            const std::unordered_set<std::string>* manualOverrides,
+                            Visitor&& visitor) const {
+        if (songIndex >= songs.size() || !std::isfinite(segmentBeat))
+            return;
+        const auto& song = songs[songIndex];
+        for (const size_t index : song.controlValues) {
+            if (index >= song.lanes.size())
+                continue;
+            const auto& binding = song.lanes[index];
+            if (manualOverrides != nullptr && manualOverrides->contains(binding.laneId))
+                continue;
+            const float value = std::clamp(
+                AutomationEvaluator::evaluatePoints(binding.points, segmentBeat),
+                binding.minValue, binding.maxValue);
+            visitor(EvaluatedValue{binding.laneId, binding.stripIndex,
+                                   binding.edgeIndex, binding.parameter, value});
+        }
+    }
+
     [[nodiscard]] size_t bindingCount(size_t songIndex) const noexcept;
 
 private:
-    enum class Parameter : uint8_t { GainDb, Pan, Mute, SendGain };
     struct Binding {
         std::string laneId;
         uint32_t stripIndex = 0;
@@ -63,6 +121,7 @@ private:
     };
     struct SongBindings {
         std::vector<Binding> lanes;
+        std::vector<size_t> controlValues;
     };
     std::vector<SongBindings> songs;
 };

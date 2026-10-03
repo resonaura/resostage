@@ -417,8 +417,13 @@ struct WebUiState {
     std::string clickOutputType = "main"; // "main" | "sends-only" | "ext-out" | "bus"
     std::string clickOutputTarget;        // empty unless type is ext-out or bus
     double clickGainDb = 0.0;
+    // Current Core-evaluated automation values for live mixer controls. These
+    // remain separate from the persisted/manual values above and are populated
+    // only when the published playback graph matches the active project.
+    std::optional<double> clickAutomatedGainDb;
     // Project-global metronome pan (-1..+1).
     double clickPan = 0.0;
+    std::optional<double> clickAutomatedPan;
     // Force mono click (L=R, pan balance ignored).
     bool clickMono = false;
     // Metronome solo -- joins the same solo group as track solo (see
@@ -786,7 +791,9 @@ struct WebUiState {
         std::string stripId;
         int channels = 2; // 1 = mono (stereo regions summed L+R before pan/sends)
         double gainDb = 0.0;
+        std::optional<double> automatedGainDb;
         double pan = 0.0;
+        std::optional<double> automatedPan;
         std::string panLaw = "0dB";
         bool mute = false;
         bool solo = false;
@@ -826,7 +833,9 @@ struct WebUiState {
         std::string id;
         std::string name;
         double gainDb = 0.0;
+        std::optional<double> automatedGainDb;
         double pan = 0.0; // -1..+1 balance on physical outs
+        std::optional<double> automatedPan;
         bool mute = false;
         bool solo = false;
         bool soloSafe = false;

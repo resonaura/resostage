@@ -18,9 +18,12 @@ import { GAIN_MAX, GAIN_MIN } from "@/screens/mixer/logic/constants";
 
 interface GainFaderProps {
   /**
-   * The dB the fader should draw RIGHT NOW -- already optimistic.
+   * Persisted / optimistic dB value. This remains the edit and Esc-revert
+   * baseline even while playback automation is moving the visible cap.
    */
   value: number;
+  /** Current Core-evaluated automation value; display only. */
+  automationValue?: number | null;
   onChange: (v: number) => void;
   defaultValue?: number;
   step?: number;
@@ -144,9 +147,11 @@ const FaderScale = memo(function FaderScale({
  */
 const FaderVisuals = memo(function FaderVisuals({
   normalized,
+  isDragging,
   density = "standard",
 }: {
   normalized: number;
+  isDragging: boolean;
   density?: "narrow" | "standard" | "wide";
 }) {
   const isNarrow = density === "narrow";
@@ -165,7 +170,11 @@ const FaderVisuals = memo(function FaderVisuals({
 
       {/* Cap - styled with HeroUI surface-secondary and surface tones */}
       <div
-        className={`pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md bg-linear-to-b from-surface-secondary to-surface shadow-[0_2px_6px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] border border-default/50 transition-colors ${
+        className={`pointer-events-none absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-md bg-linear-to-b from-surface-secondary to-surface shadow-[0_2px_6px_rgba(0,0,0,0.6),inset_0_1px_0_rgba(255,255,255,0.08)] border border-default/50 ${
+          isDragging
+            ? "transition-none"
+            : "transition-[top] duration-75 ease-out motion-reduce:transition-none"
+        } ${
           isNarrow
             ? "h-5 w-3.5"
             : isWide
@@ -187,6 +196,7 @@ const FaderVisuals = memo(function FaderVisuals({
 
 export const GainFader = memo<GainFaderProps>(function GainFader({
   value,
+  automationValue,
   onChange,
   defaultValue = 0,
   step = 0.1,
@@ -195,6 +205,7 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
   const escRevert = useEscRevert(() => value, onChange);
   const trackRef = useRef<HTMLDivElement>(null);
   const [trackHeight, setTrackHeight] = useState<number>(200);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Monitor physical track height for adaptive scale decimation
   useEffect(() => {
@@ -211,7 +222,8 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
     return () => observer.disconnect();
   }, []);
 
-  const normalized = useMemo(() => normalizedFor(value), [value]);
+  const displayValue = automationValue ?? value;
+  const normalized = useMemo(() => normalizedFor(displayValue), [displayValue]);
 
   const calculateValueFromPointer = useCallback(
     (clientY: number, isFine = false) => {
@@ -253,6 +265,7 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
       return;
     }
     e.currentTarget.setPointerCapture(e.pointerId);
+    setIsDragging(true);
     calculateValueFromPointer(e.clientY, e.metaKey || e.shiftKey || e.ctrlKey);
   };
 
@@ -269,6 +282,7 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
+    setIsDragging(false);
   };
 
   const handleDoubleClick = useCallback(
@@ -305,8 +319,10 @@ export const GainFader = memo<GainFaderProps>(function GainFader({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={() => setIsDragging(false)}
+        onLostPointerCapture={() => setIsDragging(false)}
       >
-        <FaderVisuals normalized={normalized} density={density} />
+        <FaderVisuals normalized={normalized} isDragging={isDragging} density={density} />
       </div>
     </div>
   );

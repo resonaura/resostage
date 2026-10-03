@@ -350,7 +350,9 @@ struct WClickTelemetry {
     std::string name = "Click";
     int channels = 2;
     double gainDb = 0.0;
+    std::optional<double> automatedGainDb;
     double pan = 0.0;
+    std::optional<double> automatedPan;
     bool mute = false;
     bool solo = false;
     bool soloSafe = true;
@@ -614,7 +616,9 @@ struct WTrackTelemetry {
     std::optional<std::string> stripId;
     int channels = 2; // 1 = mono (stereo regions summed L+R before pan/sends)
     double gainDb = 0.0;
+    std::optional<double> automatedGainDb;
     double pan = 0.0;
+    std::optional<double> automatedPan;
     std::string panLaw = "0dB";
     bool mute = false;
     bool solo = false;
@@ -640,7 +644,9 @@ struct WBusTelemetry {
     std::string id;
     std::string name;
     double gainDb = 0.0;
+    std::optional<double> automatedGainDb;
     double pan = 0.0;
+    std::optional<double> automatedPan;
     bool mute = false;
     bool solo = false;
     bool soloSafe = false;

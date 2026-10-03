@@ -7,9 +7,9 @@
 /**
  * Telling "this strip changed" apart from "this strip got louder".
  *
- * Peak and loudness numbers live inside the same wire rows as the structural
- * ones -- a TrackRow carries `name`, `mute` and `output` next to `peakDb`.
- * They are also the only fields that change on a quiet frame, so during
+ * Peak, loudness and live automation values live inside the same wire rows as
+ * the structural ones -- a TrackRow carries `name`, `mute` and `output` next
+ * to `peakDb`. They are also the only fields that change on a quiet frame, so during
  * playback every row object is new ~60 times a second and structural sharing
  * (see ./structuralShare) has nothing left to share. To React that reads as
  * "every track changed", and a `memo` around a mixer strip never once hits.

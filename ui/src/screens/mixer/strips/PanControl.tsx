@@ -17,11 +17,13 @@ function formatPan(value: number): string {
 
 export function PanControl({
   value,
+  automatedValue,
   onChange,
   size,
   midiTarget,
 }: {
   value: number;
+  automatedValue?: number | null;
   onChange: (value: number) => void;
   size: number;
   midiTarget?: RotaryMidiTarget;
@@ -35,6 +37,7 @@ export function PanControl({
     fineSensitivity: 0.01,
     fineStep: 0.01,
   });
+  const shownValue = automatedValue ?? value;
 
   return (
     <div
@@ -47,6 +50,8 @@ export function PanControl({
     >
       <Knob
         value={value}
+        automationValue={automatedValue}
+        cancelValue={value}
         min={-1}
         max={1}
         defaultValue={0}
@@ -64,7 +69,7 @@ export function PanControl({
           onChange(0);
         }}
       >
-        {formatPan(value)}
+        {formatPan(shownValue)}
       </div>
       {menuPosition && (
         <RotaryControlMenu

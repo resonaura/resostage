@@ -48,7 +48,9 @@ export type ChannelStripProps = {
   };
   busDestination?: React.ReactNode;
   gainDb: number;
+  automatedGainDb?: number | null;
   pan: number | null;
+  automatedPan?: number | null;
   panMidiTarget?: RotaryMidiTarget;
   peakDb: number | undefined;
   peakDbL?: number;

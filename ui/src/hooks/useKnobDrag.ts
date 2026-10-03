@@ -61,6 +61,7 @@ export interface KnobDrag {
 
 export function useKnobDrag({
   value,
+  cancelValue,
   min,
   max,
   onCommit,
@@ -72,6 +73,8 @@ export function useKnobDrag({
   onDragCancel,
 }: {
   value: number;
+  /** State restored in Core if this gesture is cancelled; defaults to value. */
+  cancelValue?: number;
   min: number;
   max: number;
   onCommit: (v: number) => void;
@@ -89,6 +92,7 @@ export function useKnobDrag({
   const activePointerId = useRef<number | null>(null);
   const startY = useRef(0);
   const startValue = useRef(0);
+  const startCancelValue = useRef(0);
   const rafId = useRef<number | null>(null);
   const pendingCommit = useRef<number | null>(null);
   const lastEditTime = useRef(0);
@@ -102,6 +106,8 @@ export function useKnobDrag({
   onDragEndRef.current = onDragEnd;
   const onDragCancelRef = useRef(onDragCancel);
   onDragCancelRef.current = onDragCancel;
+  const cancelValueRef = useRef(cancelValue);
+  cancelValueRef.current = cancelValue;
   const roundRef = useRef(round);
   roundRef.current = round;
 
@@ -178,7 +184,7 @@ export function useKnobDrag({
     pendingCommit.current = null; // whatever was queued is now wrong
     disarm();
     setLocalValue(original);
-    onCommitRef.current(original);
+    onCommitRef.current(startCancelValue.current);
     onDragCancelRef.current?.(original);
   };
 
@@ -236,6 +242,7 @@ export function useKnobDrag({
         lastEditTime.current = Date.now();
         startY.current = e.clientY;
         startValue.current = localValue;
+        startCancelValue.current = cancelValueRef.current ?? value;
         onDragStartRef.current?.(localValue);
         cancelRef.current?.end();
         cancelRef.current = beginCancellableDrag(cancelAndRevert);

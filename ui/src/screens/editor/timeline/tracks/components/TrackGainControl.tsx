@@ -9,6 +9,7 @@ import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
 import { useChannelClipHold } from "@/hooks/useChannelClipHold";
 import type { TrackRow } from "@/lib/state/types";
 import { MeterFader } from "@/components/daw";
+import { automatableValueForDisplay } from "@/components/daw/logic/automatableValue";
 
 /** Timeline-only gain and meter row; state and gesture ownership live in hooks. */
 export const TrackGainControl = memo(function TrackGainControl({
@@ -37,12 +38,17 @@ export const TrackGainControl = memo(function TrackGainControl({
   onReadoutDoubleClick: (event: React.MouseEvent<HTMLSpanElement>) => void;
 }) {
   const trackName = track.name || track.id;
+  const shownGain = automatableValueForDisplay(
+    track.gainDb, track.automatedGainDb, gain,
+  );
   const clipHold = useChannelClipHold(track.id);
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1">
       <MeterFader
         value={gain}
+        automationValue={gain === (track.gainDb ?? 0) ? track.automatedGainDb : null}
+        cancelValue={gain}
         min={-60}
         max={12}
         step={0.5}
@@ -66,7 +72,7 @@ export const TrackGainControl = memo(function TrackGainControl({
         onPointerDown={onReadoutPointerDown}
         onDoubleClick={onReadoutDoubleClick}
       >
-        {gain > 0 ? `+${gain.toFixed(1)}` : gain.toFixed(1)}
+        {shownGain > 0 ? `+${shownGain.toFixed(1)}` : shownGain.toFixed(1)}
       </span>
     </div>
   );

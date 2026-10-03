@@ -239,7 +239,11 @@ std::string WebServer::buildStateJson(const char* view) const {
         wc.enabled = snap.click;
         wc.name = snap.clickName.empty() ? "Click" : snap.clickName;
         wc.gainDb = finiteOrZero(snap.clickGainDb);
+        if (snap.clickAutomatedGainDb.has_value())
+            wc.automatedGainDb = finiteOrZero(*snap.clickAutomatedGainDb);
         wc.pan = finiteOrZero(snap.clickPan);
+        if (snap.clickAutomatedPan.has_value())
+            wc.automatedPan = finiteOrZero(*snap.clickAutomatedPan);
         wc.channels = snap.clickMono ? 1 : 2;
         wc.solo = snap.clickSolo;
         wc.soloSafe = snap.clickSoloSafe;
@@ -525,7 +529,11 @@ std::string WebServer::buildStateJson(const char* view) const {
             wT.stripId = t.stripId.empty() ? std::nullopt : std::make_optional(t.stripId);
             wT.channels = t.channels;
             wT.gainDb = finiteOrZero(t.gainDb);
+            if (t.automatedGainDb.has_value())
+                wT.automatedGainDb = finiteOrZero(*t.automatedGainDb);
             wT.pan = finiteOrZero(t.pan);
+            if (t.automatedPan.has_value())
+                wT.automatedPan = finiteOrZero(*t.automatedPan);
             wT.panLaw = t.panLaw;
             wT.mute = t.mute;
             wT.solo = t.solo;
@@ -572,7 +580,11 @@ std::string WebServer::buildStateJson(const char* view) const {
             wB.id = b.id;
             wB.name = b.name;
             wB.gainDb = finiteOrZero(b.gainDb);
+            if (b.automatedGainDb.has_value())
+                wB.automatedGainDb = finiteOrZero(*b.automatedGainDb);
             wB.pan = finiteOrZero(b.pan);
+            if (b.automatedPan.has_value())
+                wB.automatedPan = finiteOrZero(*b.automatedPan);
             wB.mute = b.mute;
             wB.solo = b.solo;
             wB.soloSafe = b.soloSafe;

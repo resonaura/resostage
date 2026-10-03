@@ -139,6 +139,59 @@ TEST_CASE("manual automation ownership suppresses only its named strip lane") {
           == doctest::Approx(0.125f).epsilon(1e-4));
 }
 
+TEST_CASE("automation telemetry observes the same values and ownership as DSP") {
+    auto project = automationProject();
+    auto gain = envelope("faderGainDb", -12.0f);
+    gain.id = "gain-lane";
+    gain.points = {{0.0, -12.0f, 0.0f}, {4.0, 0.0f, 0.0f}};
+    auto pan = envelope("pan", -1.0f);
+    pan.id = "pan-lane";
+    pan.points = {{0.0, -1.0f, 0.0f}, {4.0, 1.0f, 0.0f}};
+    project.songs[0].automationLanes = {gain, pan};
+    auto graph = preparedGraph(project);
+
+    std::vector<StripAutomationPlan::EvaluatedValue> values;
+    graph.stripAutomation->visitValues(0, 2.0, nullptr,
+        [&values](const StripAutomationPlan::EvaluatedValue& value) {
+            values.push_back(value);
+        });
+    REQUIRE(values.size() == 2);
+    CHECK(values[0].laneId == "gain-lane");
+    CHECK(values[0].stripIndex == graph.find("audio::track:1"));
+    CHECK(values[0].parameter == StripAutomationPlan::Parameter::GainDb);
+    CHECK(values[0].value == doctest::Approx(-6.0f));
+    CHECK(values[1].laneId == "pan-lane");
+    CHECK(values[1].parameter == StripAutomationPlan::Parameter::Pan);
+    CHECK(values[1].value == doctest::Approx(0.0f));
+
+    std::vector<StripAutomationPlan::EvaluatedValue> controls;
+    graph.stripAutomation->visitControlValues(0, 2.0, nullptr,
+        [&controls](const StripAutomationPlan::EvaluatedValue& value) {
+            controls.push_back(value);
+        });
+    REQUIRE(controls.size() == 2);
+    CHECK(controls[0].laneId == values[0].laneId);
+    CHECK(controls[0].value == doctest::Approx(values[0].value));
+    CHECK(controls[1].laneId == values[1].laneId);
+    CHECK(controls[1].value == doctest::Approx(values[1].value));
+
+    std::unordered_set<std::string> manualOverrides{"gain-lane"};
+    values.clear();
+    graph.stripAutomation->visitValues(0, 2.0, &manualOverrides,
+        [&values](const StripAutomationPlan::EvaluatedValue& value) {
+            values.push_back(value);
+        });
+    REQUIRE(values.size() == 1);
+    CHECK(values[0].laneId == "pan-lane");
+    controls.clear();
+    graph.stripAutomation->visitControlValues(0, 2.0, &manualOverrides,
+        [&controls](const StripAutomationPlan::EvaluatedValue& value) {
+            controls.push_back(value);
+        });
+    REQUIRE(controls.size() == 1);
+    CHECK(controls[0].laneId == "pan-lane");
+}
+
 TEST_CASE("empty disabled muted unbound and unsupported lanes leave manual coefficients alone") {
     auto project = automationProject();
     auto empty = envelope("faderGainDb", -24.0f);

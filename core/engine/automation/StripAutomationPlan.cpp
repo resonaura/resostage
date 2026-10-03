@@ -152,8 +152,11 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
                 reportSkippedLane("Strip automation has invalid or unordered envelope points; that lane was skipped");
                 continue;
             }
+            const size_t bindingIndex = bindings.size();
             bindings.push_back({lane.id, stripIndex, targetEdgeIndex, parameter, lane.target.minValue,
                                 lane.target.maxValue, lane.points});
+            if (parameter == Parameter::GainDb || parameter == Parameter::Pan)
+                plan->songs[songIndex].controlValues.push_back(bindingIndex);
             if (parameter == Parameter::SendGain) {
                 boundEdges[targetEdgeIndex] = true;
             } else {
@@ -169,27 +172,25 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
 void StripAutomationPlan::apply(size_t songIndex, double segmentBeat,
                                 MixRenderer& renderer,
                                 const std::unordered_set<std::string>* manualOverrides) const noexcept {
-    if (songIndex >= songs.size() || !std::isfinite(segmentBeat))
-        return;
-    for (const auto& binding : songs[songIndex].lanes) {
-        if (manualOverrides != nullptr && manualOverrides->contains(binding.laneId))
-            continue;
-        const float value = std::clamp(
-            AutomationEvaluator::evaluatePoints(binding.points, segmentBeat),
-            binding.minValue, binding.maxValue);
-        if (binding.parameter == Parameter::GainDb) {
+    visitValues(songIndex, segmentBeat, manualOverrides,
+        [&renderer](const EvaluatedValue& evaluated) noexcept {
+        if (evaluated.parameter == Parameter::GainDb) {
             // A second physical bound prevents a damaged imported target
             // range from producing an infinite coefficient or unsafe gain.
-            const float gain = std::pow(10.0f, std::clamp(value, -144.0f, 36.0f) / 20.0f);
-            renderer.setAutomationGain(binding.stripIndex, gain);
-        } else if (binding.parameter == Parameter::Pan) {
-            renderer.setAutomationPan(binding.stripIndex, std::clamp(value, -1.0f, 1.0f));
-        } else if (binding.parameter == Parameter::Mute) {
-            renderer.setAutomationMute(binding.stripIndex, value >= 0.5f);
-        } else if (binding.parameter == Parameter::SendGain) {
-            renderer.setAutomationEdgeGain(binding.edgeIndex, std::clamp(value, 0.0f, 10.0f));
+            const float gain = std::pow(10.0f,
+                std::clamp(evaluated.value, -144.0f, 36.0f) / 20.0f);
+            renderer.setAutomationGain(evaluated.stripIndex, gain);
+        } else if (evaluated.parameter == Parameter::Pan) {
+            renderer.setAutomationPan(evaluated.stripIndex,
+                                      std::clamp(evaluated.value, -1.0f, 1.0f));
+        } else if (evaluated.parameter == Parameter::Mute) {
+            renderer.setAutomationMute(evaluated.stripIndex,
+                                       evaluated.value >= 0.5f);
+        } else if (evaluated.parameter == Parameter::SendGain) {
+            renderer.setAutomationEdgeGain(evaluated.edgeIndex,
+                std::clamp(evaluated.value, 0.0f, 10.0f));
         }
-    }
+    });
 }
 
 size_t StripAutomationPlan::bindingCount(size_t songIndex) const noexcept {

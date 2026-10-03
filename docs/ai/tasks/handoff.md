@@ -634,6 +634,25 @@ The BPM/signature editor was already implemented in
 not implement a duplicate. Regression coverage and confirmation of active-song
 and time-map behavior are still open.
 
+### Completed subset — automation display on gain/pan controls (2026-10-03)
+
+Core publishes active graph-evaluated track/click/main/aux gain and pan
+separately from manual state when playback graph epoch/revision exactly matches
+the project snapshot. Timeline and Mixer controls use those values for
+position only; optimistic edits and Esc cancellation retain manual baselines.
+The plan pre-indexes only gain/pan bindings for state publication. Automated
+sends, Inspector/plugin controls, pseudo-track/project curve cache, pedal
+recording overlays, complete Touch/Latch/Write ownership and hardware/remote
+acceptance remain open.
+
+Verification on 2026-10-03: `ResoStage` and `resostage_engine_tests` built;
+focused native automation telemetry passed 1 case / 19 assertions; full CTest
+passed 1/1 and the direct native suite passed 590 cases / 428,735 assertions.
+Focused UI control/cancellation tests passed 10/10; full UI passed 821 tests in
+124 files; UI TypeScript passed; lint exited 0 with 12 existing warnings and
+none in changed files; `git diff --check` passed. No hardware, remote Core, or
+real AU/VST3 playback check was performed.
+
 Latest verified commit at the start of this continuation was
 `e13d512b Record integrated state audit verification`. Subsequent commits
 `3eed5f88` and `940ec4d7` recorded the task documentation and shared clip-hold

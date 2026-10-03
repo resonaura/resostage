@@ -18,6 +18,7 @@ describe("useKnobDrag cancellation", () => {
   let commit: ReturnType<typeof vi.fn<(value: number) => void>>;
   let finish: ReturnType<typeof vi.fn<(value: number) => void>>;
   let cancel: ReturnType<typeof vi.fn<(value: number) => void>>;
+  let cancelValue = 0;
 
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -27,6 +28,7 @@ describe("useKnobDrag cancellation", () => {
     commit = vi.fn<(value: number) => void>();
     finish = vi.fn<(value: number) => void>();
     cancel = vi.fn<(value: number) => void>();
+    cancelValue = 0;
   });
 
   afterEach(() => {
@@ -39,6 +41,7 @@ describe("useKnobDrag cancellation", () => {
   function Harness() {
     drag = useKnobDrag({
       value: 0,
+      cancelValue,
       min: -1,
       max: 1,
       onCommit: commit,
@@ -103,5 +106,19 @@ describe("useKnobDrag cancellation", () => {
     expect(commit).toHaveBeenLastCalledWith(0);
     expect(finish).not.toHaveBeenCalled();
     expect(cancel).toHaveBeenCalledWith(0);
+  });
+
+  it("restores the manual baseline captured at pointerdown, not later telemetry", () => {
+    cancelValue = -0.5;
+    render();
+    act(() => drag.dragProps.onPointerDown(pointerEvent(3, 100, 1)));
+    act(() => drag.dragProps.onPointerMove(pointerEvent(3, 40, 1)));
+
+    cancelValue = -0.25;
+    render();
+    act(() => drag.dragProps.onPointerCancel(pointerEvent(3, 40, 0)));
+
+    expect(commit).toHaveBeenLastCalledWith(-0.5);
+    expect(cancel).toHaveBeenLastCalledWith(0);
   });
 });

@@ -130,7 +130,11 @@ export interface Click {
   /** 1 = mono (force L=R, ignore pan), 2 = stereo. */
   channels: number;
   gainDb: number;
+  /** Current Core-evaluated strip automation value; absent when not playing. */
+  automatedGainDb?: number | null;
   pan: number;
+  /** Current Core-evaluated strip automation value; absent when not playing. */
+  automatedPan?: number | null;
   mute: boolean;
   /** Joins the same solo group as a TrackDef. */
   solo: boolean;
@@ -467,7 +471,11 @@ export interface TrackRow {
   /** 1 = mono (stereo regions summed L+R before pan/sends). */
   channels: number;
   gainDb: number;
+  /** Current Core-evaluated strip automation value; separate from manual gain. */
+  automatedGainDb?: number | null;
   pan: number;
+  /** Current Core-evaluated strip automation value; separate from manual pan. */
+  automatedPan?: number | null;
   panLaw?: PanLawWire;
   mute: boolean;
   solo: boolean;
@@ -497,8 +505,12 @@ export interface BusRow {
   id: string;
   name: string;
   gainDb: number;
+  /** Current Core-evaluated strip automation value; separate from manual gain. */
+  automatedGainDb?: number | null;
   /** Balance pan on physical outs (-1..+1). Master + aux/sends. */
   pan?: number;
+  /** Current Core-evaluated strip automation value; separate from manual pan. */
+  automatedPan?: number | null;
   mute: boolean;
   solo: boolean;
   /** Solo-safe (isolate) flag prevents this strip from being muted when others are soloed. */

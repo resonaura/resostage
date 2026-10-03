@@ -19,6 +19,8 @@ import { useKnobDrag } from "@/hooks/useKnobDrag";
  */
 export function Knob({
   value,
+  automationValue,
+  cancelValue,
   min,
   max,
   defaultValue = 0,
@@ -31,6 +33,10 @@ export function Knob({
   title,
 }: {
   value: number;
+  /** Core-evaluated value used for playback display; never committed by render. */
+  automationValue?: number | null;
+  /** Persisted/manual value restored if a drag is cancelled. */
+  cancelValue?: number;
   min: number;
   max: number;
   defaultValue?: number;
@@ -45,7 +51,8 @@ export function Knob({
   const roundValue = (v: number) => Math.round(v * 100) / 100;
 
   const knob = useKnobDrag({
-    value,
+    value: automationValue ?? value,
+    cancelValue: cancelValue ?? value,
     min,
     max,
     onCommit,
@@ -77,7 +84,11 @@ export function Knob({
       style={{ width: size, height: size }}
     >
       <div
-        className="absolute left-1/2 top-1/2 w-0.5 -translate-x-1/2 -translate-y-full rounded-full"
+        className={`absolute left-1/2 top-1/2 w-0.5 -translate-x-1/2 -translate-y-full rounded-full ${
+          knob.dragging
+            ? "transition-none"
+            : "transition-transform duration-75 ease-out motion-reduce:transition-none"
+        }`}
         style={{
           height: size * 0.4,
           backgroundColor: accent,

@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { addRafTask } from "@/lib/state/rafLoop";
 import { useEscRevert } from "@/hooks/useEscRevert";
 import {
@@ -50,6 +50,10 @@ const HANDLE_OVERSIZE_PX = 4;
 export interface MeterFaderProps {
   /** Gain in dB -- already optimistic; see useLiveValue. */
   value: number;
+  /** Current Core-evaluated automation value; display only. */
+  automationValue?: number | null;
+  /** Manual/optimistic value restored on Esc while automation is displayed. */
+  cancelValue?: number;
   min: number;
   max: number;
   step?: number;
@@ -78,6 +82,8 @@ export interface MeterFaderProps {
 
 export const MeterFader = memo(function MeterFader({
   value,
+  automationValue,
+  cancelValue,
   min,
   max,
   step = 0.5,
@@ -97,6 +103,7 @@ export const MeterFader = memo(function MeterFader({
   title,
   "aria-label": ariaLabel = "Volume",
 }: MeterFaderProps) {
+  const [isDragging, setIsDragging] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const rafId = useRef<number | null>(null);
@@ -107,7 +114,6 @@ export const MeterFader = memo(function MeterFader({
     pendingClientX.current = null;
     onDragCancel?.(originalValue);
   }, [onDragCancel]);
-  const escRevert = useEscRevert(() => value, onChange, cancelPendingGesture);
 
   // Everything the paint loop reads lives behind a ref: the loop is installed
   // once and must never be a reason for this component to re-render.
@@ -120,7 +126,15 @@ export const MeterFader = memo(function MeterFader({
   const fillRef = useRef(meterFill(accent));
   fillRef.current = meterFill(accent);
 
-  const percent = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const displayValue = automationValue ?? value;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const escRevert = useEscRevert(
+    () => ({ displayed: displayValue, cancel: cancelValue ?? value }),
+    ({ cancel }) => onChangeRef.current(cancel),
+    ({ displayed }) => cancelPendingGesture(displayed),
+  );
+  const percent = Math.max(0, Math.min(1, (displayValue - min) / (max - min)));
   // The handle stands a little proud of the bar, so the row is as tall as the
   const handleSize = height + HANDLE_OVERSIZE_PX;
   const calculateSteppedValue = useCallback(
@@ -330,7 +344,7 @@ export const MeterFader = memo(function MeterFader({
       aria-label={ariaLabel}
       aria-valuemin={min}
       aria-valuemax={max}
-      aria-valuenow={value}
+      aria-valuenow={displayValue}
       title={title ?? "Drag to set level · double-click to reset"}
       // No overflow clipping here: the row is as tall as the handle, and the
       // handle is what overhangs. Clipping lives on the bar inside.
@@ -343,8 +357,9 @@ export const MeterFader = memo(function MeterFader({
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         e.currentTarget.setPointerCapture(e.pointerId);
+        setIsDragging(true);
         escRevert.onPointerDown(e);
-        onDragStart?.(value);
+        onDragStart?.(displayValue);
         // Flush immediately on press so the first click is instant.
         flushCommit(e.clientX);
       }}
@@ -359,6 +374,7 @@ export const MeterFader = memo(function MeterFader({
         // emits lostpointercapture as part of release and that must not turn a
         // normal pointerup into a cancelled fader gesture.
         escRevert.onPointerUp();
+        setIsDragging(false);
         // Flush pending frame commit so the final position is always sent.
         const finalValue = flushCommit(e.clientX);
         if (e.currentTarget.hasPointerCapture(e.pointerId))
@@ -367,8 +383,13 @@ export const MeterFader = memo(function MeterFader({
       }}
       onPointerCancel={(e) => {
         escRevert.onPointerCancel();
+        setIsDragging(false);
         if (e.currentTarget.hasPointerCapture(e.pointerId))
           e.currentTarget.releasePointerCapture(e.pointerId);
+      }}
+      onLostPointerCapture={() => {
+        escRevert.onLostPointerCapture();
+        setIsDragging(false);
       }}
       onDoubleClick={(e) => {
         e.preventDefault();
@@ -386,7 +407,11 @@ export const MeterFader = memo(function MeterFader({
       {/* The handle. Translucent so the level under it stays readable, and
           inset by its own radius so it never hangs off either end. */}
       <div
-        className="pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/25 shadow-[0_1px_3px_rgba(0,0,0,0.5)]"
+        className={`pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-foreground/25 shadow-[0_1px_3px_rgba(0,0,0,0.5)] ${
+          isDragging
+            ? "transition-none"
+            : "transition-[left] duration-75 ease-out motion-reduce:transition-none"
+        }`}
         style={{
           height: handleSize,
           width: handleSize,

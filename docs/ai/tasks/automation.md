@@ -11,6 +11,37 @@ This section records the next automation/control work. It is not a claim that
 the items below are implemented. Preserve the existing lane API/history path
 unless the model audit demonstrates a required persisted-schema change.
 
+### Implemented subset — gain/pan automation reaches live controls (2026-10-03)
+
+Core now publishes evaluated gain and pan for track, click, main, and aux
+strips as separate optional values in the existing per-view state DTO. It uses
+the same `AutomationEvaluator` and prepared `StripAutomationPlan` bindings as
+rendering, skips Core-owned manual lane overrides, and publishes only when the
+active `MixGraph` epoch/revision exactly matches the project snapshot. Manual
+project values are never overwritten. `visitControlValues()` indexes at most
+one gain and pan binding per strip, so a 60 Hz publication does not scan
+unrelated mute/send lanes. The graph snapshot is shared with signal-flow
+projection so the values correspond to that exact graph.
+
+Timeline track gain/pan and Mixer track/bus/click gain/pan controls use these
+values for display only. Optimistic user edits take precedence; fader/rotary
+gesture and Esc-cancel baselines remain the manual values. Short transitions
+honor reduced motion. These values travel through the existing per-view JSON
+state path, not the binary meter UDP frame, and are never sent back to Core.
+
+Still open: automated send-knob display, Inspector and hosted-plugin parameter
+controls, end-to-end Touch/Latch/Write ownership on all surfaces, and visual/
+remote-session playback acceptance. This does not complete all control-display
+requirements in this document.
+
+Verification on 2026-10-03: `ResoStage` and `resostage_engine_tests` built;
+focused native automation telemetry passed 1 case / 19 assertions; the full
+native suite passed 590 cases / 428,735 assertions and CTest passed 1/1. Focused
+UI control/cancellation tests passed 10/10; the full UI suite passed 821 tests
+across 124 files; UI TypeScript passed; lint exited 0 with 12 existing warnings
+and none in changed files; `git diff --check` passed. No hardware/remote/vendor
+playback test was run.
+
 ### Automation lanes and the actual controls
 
 - Automation playback must be visible on the relevant controls, not only as a

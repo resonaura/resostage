@@ -149,7 +149,9 @@ function MetronomeStripInner({
         },
       }}
       gainDb={clickGain}
+      automatedGainDb={state.click?.automatedGainDb}
       pan={clickPan}
+      automatedPan={state.click?.automatedPan}
       panMidiTarget={rotaryMidiTarget.clickPan()}
       peakDb={clickPeak}
       peakDbL={clickPeakL}

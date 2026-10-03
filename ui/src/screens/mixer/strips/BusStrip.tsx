@@ -74,7 +74,9 @@ function BusStripInner({
         },
       }}
       gainDb={b.gainDb ?? 0}
+      automatedGainDb={b.automatedGainDb}
       pan={b.pan ?? 0}
+      automatedPan={b.automatedPan}
       panMidiTarget={isMaster ? rotaryMidiTarget.masterPan() : rotaryMidiTarget.busPan(b.id)}
       peakDb={peakDb}
       peakDbL={peakDbL}

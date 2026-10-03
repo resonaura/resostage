@@ -6,6 +6,7 @@
 
 import type { MouseEventHandler } from "react";
 import { Knob } from "@/components/daw/Knob";
+import { formatPan } from "@/components/daw/logic/panLaw";
 import { RotaryControlMenu } from "@/components/daw/RotaryControlMenu";
 import type { RotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 import { ContextMenuDivider, ContextMenuItem } from "@/components/common/ContextMenu";
@@ -14,6 +15,7 @@ import type { TrackPanLawOption } from "@/components/daw/logic/panLaw";
 /** Presentational track-pan control; state and commands come from its owner. */
 export function TrackPanControl({
   value,
+  automationValue,
   valueLabel,
   trackName,
   activePanLaw,
@@ -32,6 +34,7 @@ export function TrackPanControl({
   onSelectPanLaw,
 }: {
   value: number;
+  automationValue?: number | null;
   valueLabel: string;
   trackName: string;
   activePanLaw: string;
@@ -49,14 +52,19 @@ export function TrackPanControl({
   onCloseMenu: () => void;
   onSelectPanLaw: (lawId: number) => void;
 }) {
+  const shownValueLabel = automationValue == null
+    ? valueLabel
+    : formatPan(automationValue);
   return (
     <div
       className="flex shrink-0 items-center gap-0.5"
-      title={`Pan: ${valueLabel} · ${activePanLaw} pan law (right-click for options)`}
+      title={`Pan: ${shownValueLabel} · ${activePanLaw} pan law (right-click for options)`}
       onContextMenu={onContextMenu}
     >
       <Knob
         value={value}
+        automationValue={automationValue}
+        cancelValue={value}
         min={-1}
         max={1}
         defaultValue={0}
@@ -69,7 +77,7 @@ export function TrackPanControl({
       />
       {showPanValue && (
         <span className="w-4 text-center font-mono font-medium text-foreground/50 text-[8px]">
-          {valueLabel}
+          {shownValueLabel}
         </span>
       )}
       {menuPosition && (

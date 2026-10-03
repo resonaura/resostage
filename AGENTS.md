@@ -874,6 +874,14 @@ automation lanes, is copied into `WebUiState` by
 `MainComponent::publishWebState()` on the JUCE message thread. `WebServer`
 serializes that immutable snapshot only; it must not read mutable `Project`
 objects from the libwebsockets thread.
+While playing, the same per-view JSON snapshot may carry optional evaluated
+gain/pan values for track, click, main, and aux strips. Core derives them from
+the prepared automation plan only when the published graph's project epoch and
+history revision match the current state; the plan pre-indexes at most one
+winning gain/pan lane per graph strip. These fields are view observations, not
+persisted values or commands, and are not added to binary UDP meter telemetry.
+The UI must keep manual/optimistic control state separate and must not feed
+visual easing back to Core.
 
 ### ResoLink Core-to-Core session protocol and serialization
 

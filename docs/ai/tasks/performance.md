@@ -103,6 +103,15 @@ unverified platform or acoustic scope.
   and target changes. Pointer gesture values win until release/rejection; then
   snap or ease to the latest accepted Core value. Respect reduced motion and
   avoid a React rerender of whole strips per meter frame.
+- Implemented 2026-10-03 subset: Core publishes graph-evaluated gain/pan as
+  separate optional per-view values for track, click, main and aux strips. The
+  evaluator skips manually owned lanes and visits only prepared gain/pan
+  bindings. Timeline and Mixer controls display them with reduced-motion-aware
+  transitions while retaining manual/optimistic values as edit and Esc-cancel
+  baselines. This uses existing JSON view state, not UDP meter frames, and
+  never writes interpolated values back to Core. Automated sends,
+  Inspector/plugin parameters, and device/remote acceptance remain open; do not
+  report all automatable displays as complete.
 - Test same-strip values and peak reset in Timeline/Inspector/Mixer simultaneously,
   track switching with reused components, remote Core/session changes, delayed
   and reordered telemetry, disconnected/stale telemetry, clipping on either

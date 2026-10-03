@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { LevelMeterBar } from "@/components/daw";
 import { Select } from "@/components/ui";
 import { useChannelClipHold } from "@/hooks/useChannelClipHold";
+import { automatableValueForDisplay } from "@/components/daw/logic/automatableValue";
 import { useLiveValue } from "@/lib/state/optimistic";
 import { ROUTING_SELECT_SIZE } from "@/screens/mixer/logic/constants";
 import { GainFader } from "@/screens/mixer/strips/GainFader";
@@ -36,7 +37,9 @@ export function ChannelStrip({
   sends,
   busDestination,
   gainDb,
+  automatedGainDb,
   pan,
+  automatedPan,
   panMidiTarget,
   peakDb,
   peakDbL,
@@ -73,6 +76,13 @@ export function ChannelStrip({
   // last confirmed ────────────────────────────────────────────────────────
   const [displayGainDb, commitGain] = useLiveValue(gainDb, onGain);
   const [displayPan, commitPan] = useLiveValue(pan ?? 0, onPan ?? noop);
+  // A local edit wins for the hook's optimistic window (including while the
+  // pointer is still down); automation telemetry resumes after Core confirms
+  // or rejects that edit and the shared value hook reconciles.
+  const shownGainDb = automatableValueForDisplay(
+    gainDb, automatedGainDb, displayGainDb,
+  );
+  const shownAutomatedPan = displayPan !== (pan ?? 0) ? null : automatedPan;
   // If this strip is solo-safed, it is isolated and never dimmed by others' solos!
   const isDimmed = !!anySoloInGroup && !solo && !soloSafe;
 
@@ -215,6 +225,7 @@ export function ChannelStrip({
       {onPan && pan !== null ? (
         <PanControl
           value={displayPan}
+          automatedValue={shownAutomatedPan}
           onChange={commitPan}
           size={knobSize}
           midiTarget={panMidiTarget}
@@ -226,7 +237,7 @@ export function ChannelStrip({
       {/* 6. Gain Peak Readout & Master Broadcast Metering */}
       <div className="w-full px-0.5">
         <GainPeakReadout
-          gainDb={displayGainDb}
+          gainDb={shownGainDb}
           getLiveDb={() => (liveLeft() + liveRight()) / 2}
           clipped={stripClip.clipped}
           heldPeakDb={stripClip.heldPeakDb}
@@ -240,6 +251,7 @@ export function ChannelStrip({
       <div className="flex min-h-0 flex-1 w-full items-stretch justify-center gap-1.5 py-0.5 overflow-hidden">
         <GainFader
           value={displayGainDb}
+          automationValue={displayGainDb === gainDb ? automatedGainDb : null}
           onChange={commitGain}
           density={density}
         />

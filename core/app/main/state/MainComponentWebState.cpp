@@ -11,6 +11,9 @@
 // the state ownership or publication cadence.
 
 #include "MainComponent.h"
+#include "audio/graph/MixGraph.h"
+#include "audio/graph/ProjectPlaybackSnapshot.h"
+#include "automation/StripAutomationPlan.h"
 #include "engine/AudioEngineInternal.h"
 #include "lighting/LightOutputResolver.h"
 #include "plugins/PluginProcessorBank.h"
@@ -203,9 +206,10 @@ void MainComponent::publishWebState() {
     state.stateRevision = engine.projectHistoryRevision();
     state.playbackProjectEpoch = 0;
     state.playbackProjectRevision = 0;
-    if (const auto graph = engine.mixGraph()) {
-        state.playbackProjectEpoch = graph->projectEpoch;
-        state.playbackProjectRevision = graph->projectHistoryRevision;
+    const auto publishedGraph = engine.mixGraph();
+    if (publishedGraph != nullptr) {
+        state.playbackProjectEpoch = publishedGraph->projectEpoch;
+        state.playbackProjectRevision = publishedGraph->projectHistoryRevision;
     }
     state.lastHistoryRequestId = lastHistoryRequestId_;
     state.historyResults.assign(historyResults_.begin(), historyResults_.end());
@@ -530,15 +534,80 @@ void MainComponent::publishWebState() {
         state.busses.push_back(std::move(br));
     }
 
+    // Show automation on the actual live fader/knob values, not by rewriting
+    // persisted gain/pan fields in the UI snapshot. Only the graph that
+    // exactly matches this project publication may drive these values; while
+    // a replacement graph is being prepared the controls safely fall back to
+    // their last authoritative manual values.
+    if (state.playing && publishedGraph != nullptr
+        && publishedGraph->projectEpoch == state.projectEpoch
+        && publishedGraph->projectHistoryRevision == state.stateRevision
+        && publishedGraph->playbackState != nullptr
+        && publishedGraph->playbackState->projectEpoch == state.projectEpoch
+        && publishedGraph->stripAutomation != nullptr
+        && state.songIndex >= 0
+        && static_cast<size_t>(state.songIndex) < proj.songs.size()) {
+        const auto* playbackSong = publishedGraph->playbackState->songAt(
+            static_cast<size_t>(state.songIndex));
+        if (playbackSong != nullptr && playbackSong->tempoMap != nullptr) {
+            const double beat = playbackSong->tempoMap->secondsToBeats(
+                state.playheadSeconds);
+            publishedGraph->stripAutomation->visitControlValues(
+                static_cast<size_t>(state.songIndex), beat,
+                publishedGraph->manualAutomationLaneOverrides.get(),
+                [&](const StripAutomationPlan::EvaluatedValue& value) {
+                    if (value.stripIndex >= publishedGraph->strips.size())
+                        return;
+                    const MixStrip& strip =
+                        publishedGraph->strips[value.stripIndex];
+                    WebUiState::TrackRow* track = nullptr;
+                    WebUiState::BusRow* bus = nullptr;
+                    bool click = false;
+                    if (strip.kind == StripKind::Track
+                        && strip.projectIndex < state.tracks.size()
+                        && state.tracks[strip.projectIndex].id == strip.id) {
+                        track = &state.tracks[strip.projectIndex];
+                    } else if (strip.kind == StripKind::Click) {
+                        click = (strip.id == "audio::click");
+                    } else if (strip.kind == StripKind::Main
+                               && !state.busses.empty()
+                               && state.busses.front().id == strip.id) {
+                        bus = &state.busses.front();
+                    } else if (strip.kind == StripKind::Send) {
+                        const size_t busIndex =
+                            static_cast<size_t>(strip.projectIndex) + 1;
+                        if (busIndex < state.busses.size()
+                            && state.busses[busIndex].id == strip.id)
+                            bus = &state.busses[busIndex];
+                    }
+                    if (value.parameter == StripAutomationPlan::Parameter::GainDb) {
+                        if (track != nullptr)
+                            track->automatedGainDb = value.value;
+                        else if (bus != nullptr)
+                            bus->automatedGainDb = value.value;
+                        else if (click)
+                            state.clickAutomatedGainDb = value.value;
+                    } else if (value.parameter == StripAutomationPlan::Parameter::Pan) {
+                        if (track != nullptr)
+                            track->automatedPan = value.value;
+                        else if (bus != nullptr)
+                            bus->automatedPan = value.value;
+                        else if (click)
+                            state.clickAutomatedPan = value.value;
+                    }
+                });
+        }
+    }
+
     // Signal-flow diagram data: a direct projection of the graph the audio
     // thread is rendering right now. Deliberately a copy of the engine's own
     // structure rather than a re-derivation -- the whole value of the diagram
     // is that it cannot disagree with what you hear.
     state.mixGraph.strips.clear();
     state.mixGraph.edges.clear();
-    if (const auto graph = engine.mixGraph()) {
-        state.mixGraph.strips.reserve(graph->strips.size());
-        for (const MixStrip& strip : graph->strips) {
+    if (publishedGraph != nullptr) {
+        state.mixGraph.strips.reserve(publishedGraph->strips.size());
+        for (const MixStrip& strip : publishedGraph->strips) {
             WebUiState::MixGraphRow::StripRow row;
             row.id = strip.id;
             row.name = strip.name;
@@ -573,13 +642,14 @@ void MainComponent::publishWebState() {
             }
             state.mixGraph.strips.push_back(std::move(row));
         }
-        state.mixGraph.edges.reserve(graph->edges.size());
-        for (const MixEdge& edge : graph->edges) {
-            if (edge.from >= graph->strips.size() || edge.to >= graph->strips.size())
+        state.mixGraph.edges.reserve(publishedGraph->edges.size());
+        for (const MixEdge& edge : publishedGraph->edges) {
+            if (edge.from >= publishedGraph->strips.size()
+                || edge.to >= publishedGraph->strips.size())
                 continue;
             WebUiState::MixGraphRow::EdgeRow row;
-            row.from = graph->strips[edge.from].id;
-            row.to = graph->strips[edge.to].id;
+            row.from = publishedGraph->strips[edge.from].id;
+            row.to = publishedGraph->strips[edge.to].id;
             row.level = static_cast<double>(edge.gainLinear) * 100.0;
             row.preFader = edge.preFader;
             row.active = edge.active;

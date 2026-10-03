@@ -1193,3 +1193,27 @@ The initial audit also confirmed that active-song BPM/time-signature editing
 and Tap Tempo were already present in SongTempoControl; do not duplicate this
 surface. Only regression coverage and point-map preservation verification
 remain.
+
+### Implementation progress — show Core-evaluated gain and pan (2026-10-03)
+
+`StripAutomationPlan::visitControlValues()` evaluates only the prepared
+winning gain/pan bindings needed by strip controls. It shares the exact curve
+evaluator and manual-lane-override policy used by live/offline DSP. Core maps
+results through the graph strip index and attaches them only to matching
+stable track/bus/click rows when project epoch and history revision match. The
+graph snapshot is acquired once and shared with signal-flow projection. No
+audio-callback work or binary protocol layout changed.
+
+Timeline and Mixer controls display these optional values separately from
+persisted manual values. Local optimistic edits win, and manual values remain
+the edit/Esc-cancel baseline. Short CSS transitions honor reduced motion.
+Native and UI regressions were added. Automated send knobs, Inspector/plugin
+controls, physical-device/remote playback, and the broader pseudo-track/cache
+work remain open.
+
+Verification on 2026-10-03: `ResoStage` and `resostage_engine_tests` built;
+the focused native case passed 1/1 with 19 assertions; full CTest passed 1/1;
+direct full native suite passed 590/590 cases and 428,735 assertions. Focused
+UI control/cancellation tests passed 10/10; full UI passed 821 tests/124 files;
+UI TypeScript passed; lint exited 0 with 12 existing warnings, none in changed
+files; `git diff --check` passed. No device or remote playback was exercised.

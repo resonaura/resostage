@@ -189,7 +189,9 @@ function TrackStripInner({
           },
         }}
         gainDb={t.gainDb ?? 0}
+        automatedGainDb={t.automatedGainDb}
         pan={t.pan ?? 0}
+        automatedPan={t.automatedPan}
         panMidiTarget={rotaryMidiTarget.trackPan(t.id)}
         peakDb={peakDb}
         peakDbL={peakDbL}

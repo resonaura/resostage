@@ -17,6 +17,7 @@ import { trackSelectionGesture, type TrackSelectionGesture } from "@/screens/edi
 import { getTrackHeaderLayout } from "@/screens/editor/timeline/tracks/logic/trackHeaderLayout";
 import { useTrackPanControl } from "@/screens/editor/timeline/tracks/hooks/useTrackPanControl";
 import { useTrackGainControl } from "@/screens/editor/timeline/tracks/hooks/useTrackGainControl";
+import { formatPan } from "@/components/daw/logic/panLaw";
 import { TrackGainControl } from "@/screens/editor/timeline/tracks/components/TrackGainControl";
 import { TrackIdentityLabel } from "@/screens/editor/timeline/tracks/components/TrackIdentityLabel";
 
@@ -295,7 +296,12 @@ export const TrackHeaderControl = memo(
     const panControl = showPan && (
       <TrackPanControl
         value={pan.value}
-        valueLabel={pan.valueLabel}
+        automationValue={pan.value === (track.pan ?? 0) ? track.automatedPan : null}
+        valueLabel={pan.value !== (track.pan ?? 0)
+          ? formatPan(pan.value)
+          : track.automatedPan != null
+            ? formatPan(track.automatedPan)
+            : pan.valueLabel}
         trackName={track.name || track.id}
         activePanLaw={pan.activePanLaw}
         panLaws={pan.panLaws}
@@ -441,7 +447,9 @@ export const TrackHeaderControl = memo(
     prev.track.solo === next.track.solo &&
     prev.track.soloSafe === next.track.soloSafe &&
     prev.track.gainDb === next.track.gainDb &&
+    prev.track.automatedGainDb === next.track.automatedGainDb &&
     prev.track.pan === next.track.pan &&
+    prev.track.automatedPan === next.track.automatedPan &&
     prev.track.panLaw === next.track.panLaw &&
     prev.track.polarity === next.track.polarity &&
     prev.track.phaseInvert === next.track.phaseInvert &&
