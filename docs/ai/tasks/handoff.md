@@ -89,6 +89,17 @@ project-identity tests, this confirms current protocol and persistence behavior.
 It does not prove physical audio continuity, AU/VST3 vendor behavior, native OS
 dialog behavior, or audible manual Touch/Latch/Write.
 
+Latest automation continuation (2026-10-03): Core-evaluated gain/pan values
+display on Timeline and Mixer controls; aux-send arcs now display Core's
+evaluated per-edge value as separate per-view telemetry. The manual send level
+remains the edit and Escape-cancel baseline. Core and native tests built; the
+full native suite passed 590 cases / 428,745 assertions; full UI passed 823
+tests / 124 files; TypeScript and lint passed (12 existing warnings). No live
+device, remote Core or vendor plug-in playback was tested. Record the commit
+hash after final diff review; do not push. The original remaining scope and
+acceptance rules continue below and in audit.md, automation.md, performance.md
+and audio-flow.md.
+
 ## Verified root causes and committed fixes
 
 - `341342a`: partial HTTP track/bus rows stripped UDP-owned mute/solo flags,
@@ -640,10 +651,11 @@ Core publishes active graph-evaluated track/click/main/aux gain and pan
 separately from manual state when playback graph epoch/revision exactly matches
 the project snapshot. Timeline and Mixer controls use those values for
 position only; optimistic edits and Esc cancellation retain manual baselines.
-The plan pre-indexes only gain/pan bindings for state publication. Automated
-sends, Inspector/plugin controls, pseudo-track/project curve cache, pedal
-recording overlays, complete Touch/Latch/Write ownership and hardware/remote
-acceptance remain open.
+The plan pre-indexes the winning gain/pan binding per strip and send binding
+per edge for state publication. Automated sends now display on Mixer arcs;
+Inspector/plugin controls, pseudo-track/project curve cache, pedal recording
+overlays, complete Touch/Latch/Write ownership and hardware/remote acceptance
+remain open.
 
 Verification on 2026-10-03: `ResoStage` and `resostage_engine_tests` built;
 focused native automation telemetry passed 1 case / 19 assertions; full CTest

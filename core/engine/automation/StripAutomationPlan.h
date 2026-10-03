@@ -84,8 +84,9 @@ public:
     }
 
     // Message-thread control telemetry only. Preparation indexes the winning
-    // gain/pan binding per strip, so a 60 Hz state publication does not scan
-    // unrelated mute/send lanes; each envelope still needs a bounded lookup.
+    // gain/pan binding per strip and send binding per edge, so a 60 Hz state
+    // publication does not scan unrelated mute lanes. The total indexed work
+    // is bounded by the prepared strip and edge counts.
     template <typename Visitor>
     void visitControlValues(size_t songIndex, double segmentBeat,
                             const std::unordered_set<std::string>* manualOverrides,

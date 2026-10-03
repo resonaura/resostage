@@ -28,6 +28,8 @@ export type PanLawWire = "0dB" | "-3dB" | "-4.5dB" | "-6dB";
 export interface SendConfig {
   bus: string;
   level: number;
+  /** Current Core-evaluated level while its automation lane is active. */
+  automatedLevel?: number | null;
   preFader?: boolean;
   enabled?: boolean;
   tap?: SendTapMode;
@@ -170,6 +172,8 @@ export interface SongEventRow {
 export interface ClickSendRow {
   busId: string;
   level: number;
+  /** Current Core-evaluated level while its automation lane is active. */
+  automatedLevel?: number | null;
   enabled: boolean;
   preFader?: boolean;
   tap?: SendTapMode;
@@ -692,6 +696,7 @@ export function outputSendsToClickRows(
   return (output.sends ?? []).map((s) => ({
     busId: s.bus,
     level: s.level,
+    automatedLevel: s.automatedLevel,
     enabled: s.enabled ?? true,
     preFader: s.preFader,
     tap: s.tap ?? (s.preFader ? "pre-fader" : "post-pan"),

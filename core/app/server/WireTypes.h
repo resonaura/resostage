@@ -272,6 +272,7 @@ struct WLivePeakChunkResponse {
 struct WSendConfig {
     std::string bus;
     double level = 100.0;
+    std::optional<double> automatedLevel;
     bool preFader = false;
     bool enabled = true;
     bool lowLatencySafe = false;

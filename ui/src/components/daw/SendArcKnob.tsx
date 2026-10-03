@@ -35,6 +35,8 @@ export const SEND_CEILING_DB = 0;
  */
 export function SendArcKnob({
   value,
+  automationValue,
+  cancelValue,
   min = SEND_FLOOR_DB,
   max = SEND_CEILING_DB,
   busColor,
@@ -45,6 +47,10 @@ export function SendArcKnob({
   label,
 }: {
   value: number;
+  /** Core-evaluated value used for playback display, never committed by render. */
+  automationValue?: number | null;
+  /** Persisted/manual value restored if the drag is cancelled. */
+  cancelValue?: number;
   min?: number;
   max?: number;
   busColor: string;
@@ -57,7 +63,8 @@ export function SendArcKnob({
   const roundValue = (v: number) => Math.round(v * 10) / 10;
 
   const knob = useKnobDrag({
-    value,
+    value: automationValue ?? value,
+    cancelValue: cancelValue ?? value,
     min,
     max,
     onCommit: onChange,
@@ -73,6 +80,10 @@ export function SendArcKnob({
 
   return (
     <div
+      role="slider"
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={knob.value}
       className="relative flex items-center justify-center cursor-ns-resize select-none touch-none"
       title={title}
       {...knob.dragProps}

@@ -259,6 +259,8 @@ std::string WebServer::buildStateJson(const char* view) const {
             WSendConfig wS;
             wS.bus = cs.busId;
             wS.level = finiteOrZero(cs.level);
+            if (cs.automatedLevel.has_value())
+                wS.automatedLevel = finiteOrZero(*cs.automatedLevel);
             wS.enabled = cs.enabled;
             wc.output.sends.push_back(std::move(wS));
         }
@@ -555,6 +557,8 @@ std::string WebServer::buildStateJson(const char* view) const {
                 WSendConfig wS;
                 wS.bus = s.bus;
                 wS.level = s.level;
+                if (s.automatedLevel.has_value())
+                    wS.automatedLevel = finiteOrZero(*s.automatedLevel);
                 wS.preFader = s.preFader;
                 wS.enabled = s.enabled;
                 wS.lowLatencySafe = s.lowLatencySafe;

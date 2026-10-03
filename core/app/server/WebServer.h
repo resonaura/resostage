@@ -439,6 +439,7 @@ struct WebUiState {
         // dB: a round trip through dB and back can never land on exactly 0
         // or exactly 100, which is what the send presets need.
         double level = 100.0;
+        std::optional<double> automatedLevel;
         bool enabled = true;
     };
     std::vector<ClickSendRow> clickSends;
@@ -804,6 +805,7 @@ struct WebUiState {
         struct SendRow {
             std::string bus;
             double level = 100.0; // 0-100 LINEAR percent, 100 = unity/0 dB
+            std::optional<double> automatedLevel;
             bool preFader = false;
             bool enabled = true;
             bool lowLatencySafe = false;

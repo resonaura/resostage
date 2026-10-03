@@ -594,6 +594,28 @@ void MainComponent::publishWebState() {
                             bus->automatedPan = value.value;
                         else if (click)
                             state.clickAutomatedPan = value.value;
+                    } else if (value.parameter == StripAutomationPlan::Parameter::SendGain
+                               && value.edgeIndex < publishedGraph->edges.size()) {
+                        const MixEdge& edge = publishedGraph->edges[value.edgeIndex];
+                        if (edge.from != value.stripIndex
+                            || edge.sendIndex == MixEdge::kNoSend
+                            || edge.to >= publishedGraph->strips.size())
+                            return;
+                        const std::string& destinationId =
+                            publishedGraph->strips[edge.to].id;
+                        const double level = static_cast<double>(
+                            std::clamp(value.value, 0.0f, 1.0f) * 100.0f);
+                        if (track != nullptr
+                            && edge.sendIndex < track->output.sends.size()) {
+                            auto& send = track->output.sends[edge.sendIndex];
+                            if (send.bus == destinationId && send.enabled)
+                                send.automatedLevel = level;
+                        } else if (click
+                                   && edge.sendIndex < state.clickSends.size()) {
+                            auto& send = state.clickSends[edge.sendIndex];
+                            if (send.busId == destinationId && send.enabled)
+                                send.automatedLevel = level;
+                        }
                     }
                 });
         }

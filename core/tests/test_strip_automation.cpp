@@ -141,13 +141,26 @@ TEST_CASE("manual automation ownership suppresses only its named strip lane") {
 
 TEST_CASE("automation telemetry observes the same values and ownership as DSP") {
     auto project = automationProject();
+    SendBus sendBus;
+    sendBus.id = "audio::send:1";
+    sendBus.name = "Reverb";
+    project.sends.push_back(sendBus);
+    SendConfig sendConfig;
+    sendConfig.bus = sendBus.id;
+    sendConfig.level = 100.0;
+    project.tracks[0].output.sends.push_back(sendConfig);
     auto gain = envelope("faderGainDb", -12.0f);
     gain.id = "gain-lane";
     gain.points = {{0.0, -12.0f, 0.0f}, {4.0, 0.0f, 0.0f}};
     auto pan = envelope("pan", -1.0f);
     pan.id = "pan-lane";
     pan.points = {{0.0, -1.0f, 0.0f}, {4.0, 1.0f, 0.0f}};
-    project.songs[0].automationLanes = {gain, pan};
+    auto send = envelope("send:audio::send:1", 0.25f);
+    send.id = "send-lane";
+    send.target.minValue = 0.0f;
+    send.target.maxValue = 1.0f;
+    send.points = {{0.0, 0.25f, 0.0f}, {4.0, 0.75f, 0.0f}};
+    project.songs[0].automationLanes = {gain, pan, send};
     auto graph = preparedGraph(project);
 
     std::vector<StripAutomationPlan::EvaluatedValue> values;
@@ -155,7 +168,7 @@ TEST_CASE("automation telemetry observes the same values and ownership as DSP") 
         [&values](const StripAutomationPlan::EvaluatedValue& value) {
             values.push_back(value);
         });
-    REQUIRE(values.size() == 2);
+    REQUIRE(values.size() == 3);
     CHECK(values[0].laneId == "gain-lane");
     CHECK(values[0].stripIndex == graph.find("audio::track:1"));
     CHECK(values[0].parameter == StripAutomationPlan::Parameter::GainDb);
@@ -163,17 +176,25 @@ TEST_CASE("automation telemetry observes the same values and ownership as DSP") 
     CHECK(values[1].laneId == "pan-lane");
     CHECK(values[1].parameter == StripAutomationPlan::Parameter::Pan);
     CHECK(values[1].value == doctest::Approx(0.0f));
+    CHECK(values[2].laneId == "send-lane");
+    CHECK(values[2].parameter == StripAutomationPlan::Parameter::SendGain);
+    CHECK(values[2].value == doctest::Approx(0.5f));
+    REQUIRE(values[2].edgeIndex < graph.edges.size());
+    CHECK(graph.edges[values[2].edgeIndex].sendIndex == 0);
 
     std::vector<StripAutomationPlan::EvaluatedValue> controls;
     graph.stripAutomation->visitControlValues(0, 2.0, nullptr,
         [&controls](const StripAutomationPlan::EvaluatedValue& value) {
             controls.push_back(value);
         });
-    REQUIRE(controls.size() == 2);
+    REQUIRE(controls.size() == 3);
     CHECK(controls[0].laneId == values[0].laneId);
     CHECK(controls[0].value == doctest::Approx(values[0].value));
     CHECK(controls[1].laneId == values[1].laneId);
     CHECK(controls[1].value == doctest::Approx(values[1].value));
+    CHECK(controls[2].laneId == values[2].laneId);
+    CHECK(controls[2].edgeIndex == values[2].edgeIndex);
+    CHECK(controls[2].value == doctest::Approx(values[2].value));
 
     std::unordered_set<std::string> manualOverrides{"gain-lane"};
     values.clear();
@@ -181,15 +202,17 @@ TEST_CASE("automation telemetry observes the same values and ownership as DSP") 
         [&values](const StripAutomationPlan::EvaluatedValue& value) {
             values.push_back(value);
         });
-    REQUIRE(values.size() == 1);
+    REQUIRE(values.size() == 2);
     CHECK(values[0].laneId == "pan-lane");
+    CHECK(values[1].laneId == "send-lane");
     controls.clear();
     graph.stripAutomation->visitControlValues(0, 2.0, &manualOverrides,
         [&controls](const StripAutomationPlan::EvaluatedValue& value) {
             controls.push_back(value);
         });
-    REQUIRE(controls.size() == 1);
+    REQUIRE(controls.size() == 2);
     CHECK(controls[0].laneId == "pan-lane");
+    CHECK(controls[1].laneId == "send-lane");
 }
 
 TEST_CASE("empty disabled muted unbound and unsupported lanes leave manual coefficients alone") {

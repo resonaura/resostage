@@ -875,13 +875,16 @@ automation lanes, is copied into `WebUiState` by
 serializes that immutable snapshot only; it must not read mutable `Project`
 objects from the libwebsockets thread.
 While playing, the same per-view JSON snapshot may carry optional evaluated
-gain/pan values for track, click, main, and aux strips. Core derives them from
+gain/pan values for track, click, main, and aux strips, plus evaluated aux-send
+levels on the corresponding track/click output rows. Core derives them from
 the prepared automation plan only when the published graph's project epoch and
 history revision match the current state; the plan pre-indexes at most one
-winning gain/pan lane per graph strip. These fields are view observations, not
-persisted values or commands, and are not added to binary UDP meter telemetry.
-The UI must keep manual/optimistic control state separate and must not feed
-visual easing back to Core.
+winning gain/pan lane per graph strip and one send lane per graph edge. Send
+automation remains normalized 0..1 in the DSP plan and is projected as the
+schema's 0..100 linear percent for the UI. These fields are view observations,
+not persisted values or commands, and are not added to binary UDP meter
+telemetry. The UI must keep manual/optimistic control state separate and must
+not feed visual easing back to Core.
 
 ### ResoLink Core-to-Core session protocol and serialization
 

@@ -155,7 +155,8 @@ std::shared_ptr<const StripAutomationPlan> StripAutomationPlan::prepare(
             const size_t bindingIndex = bindings.size();
             bindings.push_back({lane.id, stripIndex, targetEdgeIndex, parameter, lane.target.minValue,
                                 lane.target.maxValue, lane.points});
-            if (parameter == Parameter::GainDb || parameter == Parameter::Pan)
+            if (parameter == Parameter::GainDb || parameter == Parameter::Pan
+                || parameter == Parameter::SendGain)
                 plan->songs[songIndex].controlValues.push_back(bindingIndex);
             if (parameter == Parameter::SendGain) {
                 boundEdges[targetEdgeIndex] = true;

@@ -9,8 +9,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { Knob } from "@/components/daw/Knob";
+import { SendArcKnob } from "@/components/daw/SendArcKnob";
 import { MeterFader } from "@/components/daw/MeterFader";
 import { automatableValueForDisplay } from "@/components/daw/logic/automatableValue";
+import { outputSendsToClickRows } from "@/lib/state/types";
 import { GainFader } from "@/screens/mixer/strips/GainFader";
 import { PanControl } from "@/screens/mixer/strips/PanControl";
 
@@ -19,6 +21,31 @@ describe("automation-driven mixer control values", () => {
     expect(automatableValueForDisplay(-12, -6, -9)).toBe(-9);
     expect(automatableValueForDisplay(-12, -6, -12)).toBe(-6);
     expect(automatableValueForDisplay(-12, Number.NaN, -12)).toBe(-12);
+  });
+
+  it("keeps Core automation separate when projecting source send rows", () => {
+    expect(
+      outputSendsToClickRows({
+        type: "main",
+        sends: [
+          {
+            bus: "audio::send:1",
+            level: 40,
+            automatedLevel: 75,
+            enabled: true,
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        busId: "audio::send:1",
+        level: 40,
+        automatedLevel: 75,
+        enabled: true,
+        preFader: undefined,
+        tap: "post-pan",
+      },
+    ]);
   });
 
   it("places a knob at the evaluated pan and displays its label", () => {
@@ -95,5 +122,22 @@ describe("automation-driven mixer control values", () => {
 
     expect(markup).toContain('aria-valuenow="-1"');
     expect(markup).toContain("rotate(-135deg)");
+  });
+
+  it("positions an automated send arc while retaining its manual edit baseline", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SendArcKnob, {
+        value: -60,
+        automationValue: -12,
+        cancelValue: -60,
+        min: -60,
+        max: 0,
+        busColor: "var(--accent)",
+        onChange: vi.fn(),
+      }),
+    );
+
+    expect(markup).toContain('aria-valuenow="-12"');
+    expect(markup).toContain("stroke-dashoffset");
   });
 });

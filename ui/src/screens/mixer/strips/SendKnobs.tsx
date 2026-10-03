@@ -147,6 +147,11 @@ export function SendKnobs({
                 existing !== undefined
                   ? sendLevelToDb(existing.level)
                   : SEND_FLOOR_DB;
+              const automatedValue =
+                existing?.automatedLevel == null
+                  ? null
+                  : sendLevelToDb(existing.automatedLevel);
+              const shownValue = automatedValue ?? value;
               const enabled = existing ? existing.enabled !== false : true;
               const tap: SendTapMode =
                 existing?.tap ??
@@ -189,6 +194,8 @@ export function SendKnobs({
                 >
                   <SendArcKnob
                     value={value}
+                    automationValue={automatedValue}
+                    cancelValue={value}
                     min={SEND_FLOOR_DB}
                     max={SEND_CEILING_DB}
                     busColor={ringColor}
@@ -197,8 +204,8 @@ export function SendKnobs({
                     title={
                       enabled
                         ? advanced
-                          ? `${label} (${tap.toUpperCase()}): ${Math.round(value)}dB — right-click for options`
-                          : `${label}: ${Math.round(value)}dB — right-click for options`
+                          ? `${label} (${tap.toUpperCase()}): ${Math.round(shownValue)}dB — right-click for options`
+                          : `${label}: ${Math.round(shownValue)}dB — right-click for options`
                         : `${label} — disabled`
                     }
                     onChange={(v) => writeLevel(bus.id, sendDbToLevel(v))}

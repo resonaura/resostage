@@ -1,6 +1,6 @@
 # Arrangement automation: verified state and remaining work
 
-Updated 2026-10-02. Read [audit.md](audit.md), [handoff.md](handoff.md), complete `AGENTS.md` and
+Updated 2026-10-03. Read [audit.md](audit.md), [handoff.md](handoff.md), complete `AGENTS.md` and
 [automation model](../../architecture/AUTOMATION_MODEL.md). This task remains open.
 
 ## Audit findings
@@ -19,9 +19,10 @@ the same `AutomationEvaluator` and prepared `StripAutomationPlan` bindings as
 rendering, skips Core-owned manual lane overrides, and publishes only when the
 active `MixGraph` epoch/revision exactly matches the project snapshot. Manual
 project values are never overwritten. `visitControlValues()` indexes at most
-one gain and pan binding per strip, so a 60 Hz publication does not scan
-unrelated mute/send lanes. The graph snapshot is shared with signal-flow
-projection so the values correspond to that exact graph.
+one gain/pan binding per strip and one send binding per edge, so a 60 Hz
+publication is bounded by prepared graph strips/edges and does not scan mute
+lanes. The graph snapshot is shared with signal-flow projection so the values
+correspond to that exact graph.
 
 Timeline track gain/pan and Mixer track/bus/click gain/pan controls use these
 values for display only. Optimistic user edits take precedence; fader/rotary
@@ -29,10 +30,10 @@ gesture and Esc-cancel baselines remain the manual values. Short transitions
 honor reduced motion. These values travel through the existing per-view JSON
 state path, not the binary meter UDP frame, and are never sent back to Core.
 
-Still open: automated send-knob display, Inspector and hosted-plugin parameter
-controls, end-to-end Touch/Latch/Write ownership on all surfaces, and visual/
-remote-session playback acceptance. This does not complete all control-display
-requirements in this document.
+Still open: Inspector and hosted-plugin parameter controls, end-to-end
+Touch/Latch/Write ownership on all surfaces, and visual/remote-session playback
+acceptance. This does not complete all control-display requirements in this
+document.
 
 Verification on 2026-10-03: `ResoStage` and `resostage_engine_tests` built;
 focused native automation telemetry passed 1 case / 19 assertions; the full
@@ -41,6 +42,29 @@ UI control/cancellation tests passed 10/10; the full UI suite passed 821 tests
 across 124 files; UI TypeScript passed; lint exited 0 with 12 existing warnings
 and none in changed files; `git diff --check` passed. No hardware/remote/vendor
 playback test was run.
+
+### Implemented subset — automation display on aux-send controls (2026-10-03)
+
+The prepared `StripAutomationPlan` indexes each winning send automation lane
+by its resolved graph edge. When the active graph epoch and history revision
+match the project, Core projects the evaluated normalized value onto the
+matching track/click output send as a distinct optional `automatedLevel` in
+0..100 linear percent. It verifies source strip, edge slot, destination bus
+and enabled state before publishing. This is per-view JSON state, not persisted
+routing and not binary UDP meter telemetry.
+
+Mixer send arcs display Core's evaluated amount and tooltip while retaining the
+manual value as the control's write and Esc-cancel baseline. An edit suppresses
+only its Core-owned automation lane, after which the manual value is shown.
+Missing, disabled or stale edges do not redirect a lane to another send.
+
+Verification on 2026-10-03: Core application and native test targets built;
+the focused native automation-observation case passed 1 case / 29 assertions;
+full CTest passed 1/1 and the direct native suite passed 590 cases / 428,745
+assertions. Focused UI automation control tests passed 8/8; full UI passed 823
+tests across 124 files; TypeScript passed; lint exited 0 with the existing 12
+warnings and none in changed files; `git diff --check` passed. No live audio
+device, remote Core or vendor plug-in playback was exercised.
 
 ### Automation lanes and the actual controls
 
