@@ -79,6 +79,16 @@ admission, HTTP 413 upload and export-status HTTP failure. Full UI Vitest passed
 errors with the existing 12 warnings. Native OS dialog, disk-full and successful
 slow-export behavior still require platform smoke testing.
 
+Integrated verification on 2026-10-03: `pnpm --dir electron test` passed 47
+Vitest tests plus two import-alias tests; Electron typecheck passed. Optimized
+Core and native test targets built with `-j2`; CTest passed 1/1 target. The
+actual-Core `scripts/verification/editor-state.mjs` harness passed its complete
+state/history/save-reopen/automation/import/lighting/restart/short-cycle suite.
+Together with 802 UI tests, UI TypeScript/lint/build and the 14 focused
+project-identity tests, this confirms current protocol and persistence behavior.
+It does not prove physical audio continuity, AU/VST3 vendor behavior, native OS
+dialog behavior, or audible manual Touch/Latch/Write.
+
 ## Verified root causes and committed fixes
 
 - `341342a`: partial HTTP track/bus rows stripped UDP-owned mute/solo flags,
@@ -401,8 +411,10 @@ gestures, playback crossing and save/reopen; UI tests are not device proof.
    real UI/playback/device acceptance. A Core-owned cycle-pass sequence now
    distinguishes wraps from seeks and short-loop UI tests cover dropped wrap
    frames. Backwards seeks segment/re-arm capture; a gap over four passes commits
-   only sampled points before resuming at the current phase. Continue with more
-   surface bindings and bounded draft recovery after rejected/unknown results.
+   only sampled points before resuming at the current phase. Bounded draft
+   recovery for rejected/unknown results is implemented and verified above.
+   Continue with additional surface bindings only after actual playback/device
+   acceptance; renderer tests alone do not establish audibility.
    Recorded point collections and
    renderer tests alone do not establish audible Touch/Latch/Write behavior.
 5. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).

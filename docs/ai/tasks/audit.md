@@ -927,6 +927,14 @@ production UI build passed. `git diff --check` passed. These are renderer/API
 contract tests, not live-device recording acceptance. The broader manual
 Touch/Latch/Write surface and acoustic acceptance remain open below.
 
+Cross-repository rerun on 2026-10-03: Electron passed 47 Vitest tests, two
+alias-resolution tests and typecheck. Optimized Core plus `resostage_engine_tests`
+built with `-j2`; CTest passed 1/1 target. The actual-Core
+`scripts/verification/editor-state.mjs` harness passed its state/history,
+save/reopen, automation, media-import, lighting, epoch/restart, and short-cycle
+suite. This is current protocol/persistence evidence, not physical audio,
+loaded-vendor, native-dialog or audible Touch/Latch/Write acceptance.
+
 ## Execution order for remaining work
 
 1. The real-Core injected snapshot-failure/last-good-graph/exact-result path is
