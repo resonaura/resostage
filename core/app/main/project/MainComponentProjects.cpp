@@ -412,23 +412,9 @@ void MainComponent::loadProjectClicked() {
             setStatus("Project operation in progress; retry when it finishes");
             return;
         }
-
-        std::string error;
-        closeAllPluginEditors();
-        if (!engine.loadProject(file.getFullPathName().toStdString(), error)) {
-            setStatus("Load failed: " + juce::String(error));
-            return;
-        }
-
-        applyGlobalBindings();
-        onProjectLoaded();
-        setStatus("Loaded '" + juce::String(engine.project().name) + "' | "
-                  + juce::String(static_cast<int>(engine.project().songs.size())) + " songs | "
-                  + juce::String(static_cast<int>(engine.busCount())) + " busses");
-        rememberRecentProject(file);
-
-        if (!engine.project().songs.empty())
-            goToSong(0);
+        // Keep native file-picker opens on the same unsaved-change path as
+        // externally requested and recent-project opens.
+        openProjectFromIpc(file.getFullPathName().toStdString());
     });
 }
 

@@ -170,7 +170,9 @@ Implemented in the current continuation block (2026-10-02):
 - Active-document lifecycle requests (New, Save, Save As, Open Recent, Export,
   and native open-dialog requests) are also fenced. Recent-list clearing and
   quit/open confirmation responses remain app/dialog state, not active-document
-  edits.
+  edits. Recent-project opens and native file-picker results route through
+  `openProjectFromIpc`, so unsaved edits now block replacement behind the
+  existing Save/Don't Save/Cancel prompt rather than bypassing it.
 - Media import begin tickets preserve session/epoch through streamed upload and
   final message-thread conversion. A project switch between begin and upload
   now settles the import as a failure, removes temporary bytes and cannot
@@ -358,6 +360,25 @@ checks. Bypass/Keep Awake and Retry/editor/park/unpark
 remain outside this graph-result protocol because their effects are applied by
 the plug-in bank/host or editor lifecycle; they need a host-specific ACK before
 the UI may claim host completion.
+
+## Closed this audit — guard unsaved state for Recent and file-picker opens
+
+Web Recent-project opens and native file-picker selections previously called
+the direct loader, bypassing the existing unsaved-change confirmation used by
+Finder/Explorer opens. Both now route through `openProjectFromIpc`; Recent only
+removes a history entry when its path no longer exists. The project epoch and
+current in-memory content remain authoritative until the operator chooses
+Save, Don't Save, or Cancel. Cancel preserves the document; Don't Save follows
+the existing single project-replacement path.
+
+Verification (2026-10-02): the optimized Core build with
+`RESOSTAGE_ENABLE_TEST_HOOKS=OFF` passed. The actual-Core acceptance verifies
+Recent first raises `openConfirmPending`, leaves unsaved MIDI edits and epoch
+unchanged, preserves them on Cancel, and only replaces the same-ID project
+after an explicit Don't Save decision. The optional test-hook acceptance also
+passed with the same confirmation path before Core restart testing. Save-path
+terminal feedback still uses busy/status state; no claim is made that Save/Open
+have request-specific operation IDs.
 
 Next implementation:
 

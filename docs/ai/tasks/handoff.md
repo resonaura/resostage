@@ -37,7 +37,9 @@ The current block also adds exact graph-result handling for structural
 plug-in-chain edits, while deliberately leaving vendor-load readiness in
 generation-scoped plug-in telemetry and bypass/Keep Awake in the host-control
 protocol. Continue with active-document Save/Open terminal-feedback audit,
-then the unresolved automation, Piano Roll, callback-deadline, AU/VST3 and
+Recent and native file-picker opens now share the unsaved-state confirmation
+path; actual-Core checks cover Cancel preservation and explicit discard. Then
+continue the unresolved automation, Piano Roll, callback-deadline, AU/VST3 and
 hardware acceptance items in [audit.md](audit.md).
 
 ## Verified root causes and committed fixes
@@ -380,6 +382,16 @@ This confirms saved chain state and
 matching routing graph only; it does not confirm vendor instantiation/audio.
 Bypass/Keep Awake/retry/editor/park/unpark still need a distinct host lifecycle
 or control ACK contract before any UI claims they completed in the live host.
+
+Unsaved project-open guard block (2026-10-02):
+Recent-project and native file-picker opens now call the shared
+unsaved-change-gated open path. The actual-Core test confirms project identity
+and unsaved MIDI edits survive Cancel, and only change after an explicit
+Don't Save choice. The same path passes the optional pending-command Core
+restart acceptance. Optimized Core is restored with test hooks OFF. Save/Open
+still expose busy/status and prompt state rather than request-specific terminal
+operation IDs; assess whether callers need a separate bounded lifecycle-result
+protocol before adding one.
 
 ## Remaining task files and transport decision
 

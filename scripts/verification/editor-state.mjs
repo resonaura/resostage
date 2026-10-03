@@ -1116,6 +1116,24 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.ok(Number.isSafeInteger(lateAcceptedEdit.requestId),
       "same-Core late-response mutation must be accepted before project replacement");
     await request("/api/v1/project/open-recent", { path: project });
+    const openPrompt = await waitFor((snapshot) => snapshot.openConfirmPending,
+      "recent-project open must request an unsaved-changes decision");
+    assert.equal(openPrompt.projectEpoch, beforeSameCoreReopen.projectEpoch,
+      "the current project must remain authoritative until the user resolves the open prompt");
+    assert.equal(getRegion(openPrompt).name, "Transient before same-Core reopen",
+      "opening Recent must keep the unsaved in-memory edit visible while prompting");
+    await request("/api/v1/project/open-decision", { index: 0 });
+    const cancelledOpen = await waitFor((snapshot) => !snapshot.openConfirmPending,
+      "cancel recent-project open");
+    assert.equal(cancelledOpen.projectEpoch, beforeSameCoreReopen.projectEpoch,
+      "cancelling a recent-project open must preserve the current project epoch");
+    assert.equal(getRegion(cancelledOpen).name, "Transient before same-Core reopen",
+      "cancelling a recent-project open must preserve unsaved project content");
+    await request("/api/v1/project/open-recent", { path: project });
+    const confirmedOpenPrompt = await waitFor((snapshot) => snapshot.openConfirmPending,
+      "reopened recent-project prompt after cancellation");
+    assert.equal(confirmedOpenPrompt.projectEpoch, beforeSameCoreReopen.projectEpoch);
+    await request("/api/v1/project/open-decision", { index: 2 });
     const reloadedState = await waitFor((snapshot) => snapshot.projectEpoch !== beforeSameCoreReopen.projectEpoch
       && !snapshot.busy
       && snapshot.songs?.[0]?.midiRegions?.some((region) => region.id === regionId),
@@ -1277,6 +1295,11 @@ export async function verifyEditorState(coreExecutable, inspect) {
       const beforeReload = await request("/api/v1/state");
       commandState = beforeReload;
       await request("/api/v1/project/open-recent", { path: project });
+      const restartOpenPrompt = await waitFor((snapshot) => snapshot.openConfirmPending,
+        "restart fixture recent-project open confirmation");
+      assert.equal(restartOpenPrompt.projectEpoch, beforeReload.projectEpoch,
+        "pending Core restart fixture must not discard edits before confirmation");
+      await request("/api/v1/project/open-decision", { index: 2 });
       const restoredProject = await waitFor((snapshot) => snapshot.projectEpoch !== beforeReload.projectEpoch
         && !snapshot.busy
         && snapshot.tracks?.some((track) => track.name === "Fixture MIDI")
