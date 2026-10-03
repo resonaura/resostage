@@ -26,6 +26,24 @@ listed in the audit. Unified lighting automation and native per-note MIDI 2.0
 glide remain separate integration work. Never describe channel bend as per-note
 expression.
 
+Track-scope automation target swaps are message-thread project edits. Before a
+lane changes target, Core validates the destination against the current track,
+send, MIDI target or fully loaded automatable plug-in metadata. The prior
+curve is moved into `SongDef::automationCurveCache`; a curve for the new target
+is restored only when its stable identity, scope, value type and range remain
+compatible. Otherwise the lane starts empty and the detached curve remains
+recoverable. Cache and lane mutate in one ProjectHistory snapshot, so Undo,
+Redo, Save and reopen share the same state. The bounded cache holds at most 128
+entries and 65,536 points per song and evicts oldest entries first. It is
+project content, not callback state or local UI storage. The external project
+migrator adds an empty cache when upgrading older documents (format v11).
+
+The current Timeline still presents one automation-control row per audio
+track. The backend target-swap/cache contract is implemented, but independent
+foldable pseudo-track rows and the UI wiring from each row's selector to this
+Core transaction remain unfinished; do not claim the user-facing multi-lane
+workflow is complete until that layout and its geometry/selection tests land.
+
 The type excerpts below are design summaries. The schema is the source of
 truth and includes `AutomationLane::scope` in addition to the abbreviated fields.
 

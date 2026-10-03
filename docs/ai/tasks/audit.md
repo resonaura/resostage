@@ -10,6 +10,36 @@ UI entry paths abbreviated as `timeline/...` below are relative to
 
 ## Evidence and limits
 
+### Latest continuation addendum — 2026-10-03
+
+Core project format v11 now persists a bounded per-song cache for curves
+detached by track-lane target swaps. Rebind validation, staging and cache
+capacity reservation precede the single ProjectHistory transaction; serialization
+and the v10→v11 migrator preserve existing lanes and initialize absent caches.
+The backend target set currently accepts loaded automatable plug-in parameters,
+track gain/pan/mute, unique enabled sends, and MIDI CC/pitch bend for MIDI tracks.
+The Timeline UI has not yet become a set of independent foldable automation
+pseudo-tracks; its selector still chooses/activates a single lane. This is a
+backend subset only.
+
+Latest verification for this block: `cmake --build core/build --target
+resostage_engine_tests ResoStage -j4` passed; `ctest --test-dir core/build
+--output-on-failure` passed 1/1; migration tests passed 2/2; the actual-Core
+`scripts/verification/editor-state.mjs` passed target swap, empty new target,
+exact point/curve restore and continued playback; `git diff --check` passed.
+No UI suite was rerun because no UI source changed in this block. These results
+do not verify history Undo/Redo of dormant curves via the UI or visible
+save/reopen workflow; preserve those as explicit acceptance gaps.
+
+Plug-in retry source audit confirms that a retry starts a project-wide loading
+generation and full bank walk, but the bank builder reuses healthy strip chains
+whose stable strip/ordered slot identities and runtime compatibility match. A
+failed helper is one strip-chain boundary, so sibling slots in that same helper
+rebuild; other failed chains are also retried. This is source evidence, not a
+reproduction of the user's writetest report. The next audit should add explicit
+scoped retry semantics and tests for unrelated failed chains, same-chain peers,
+stale generations and rapid retries; see performance.md.
+
 The audited starting revision was `35166f50`. The current audit's initial UI
 run passed 706 tests; an expanded run passed 724 tests across 105 files. After
 the Piano Roll playhead/seek TempoMap fix, UI Vitest passed 729 tests across

@@ -100,6 +100,29 @@ hash after final diff review; do not push. The original remaining scope and
 acceptance rules continue below and in audit.md, automation.md, performance.md
 and audio-flow.md.
 
+Current continuation block adds a project-persisted bounded
+automation curve cache for track-lane target changes (project format v11),
+validated plugin/strip/MIDI target rebinding, and migration/JSON/native/real-Core
+regressions. During final review, cache allocation/validation was moved before
+ProjectHistory begins, so target swaps do not have a validation-driven partial
+transaction exit. Latest verification: Core + native tests built; CTest passed
+1/1; migration tests passed 2/2; actual-Core `editor-state.mjs` passed, including
+fader→pan→fader curve preservation during playback; `git diff --check` passed.
+This does not complete the requested foldable automation pseudo-track UI: the
+current Timeline still exposes one active lane selector/overlay per track.
+The block is ready for its own English commit after final diff review. Continue
+UI work in a separate tested block. Do not delete automation.md; it contains
+unfinished UI/history/selection/geometry acceptance.
+
+Plug-in retry source audit: a retry increments a project-wide loading-session
+generation, while `PluginProcessorBank` reuses healthy chains by stable strip
+and ordered slot identity. A failed helper is strip-chain scoped and its sibling
+instances necessarily rebuild with it; other failed chains are also retried by
+the current full bank walk. This explains a global-looking progress state but
+does not reproduce the reported project or prove unrelated editor windows are
+affected. See the 2026-10-03 retry audit in performance.md; add scoped retry and
+chain-count tests before claiming this issue fixed.
+
 ## Verified root causes and committed fixes
 
 - `341342a`: partial HTTP track/bus rows stripped UDP-owned mute/solo flags,

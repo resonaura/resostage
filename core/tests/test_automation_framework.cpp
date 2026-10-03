@@ -10,6 +10,7 @@
 #include "automation/AutomationEvaluator.h"
 #include "automation/AutomationRecorder.h"
 #include "automation/RamerDouglasPeucker.h"
+#include "project/AutomationCurveCache.h"
 #include "project/ProjectJson.h"
 #include "project/ProjectSchema.h"
 #include "server/AutomationJson.h"
@@ -498,6 +499,58 @@ TEST_CASE("AutomationRecorder rejects an over-budget preserved punch without mut
     }
 }
 
+TEST_CASE("Automation curve cache restores by stable target, bounds memory, and evicts oldest") {
+    SongDef song;
+    AutomationLane lane;
+    lane.id = "lane:gain";
+    lane.target.domain = AutomationDomain::Strip;
+    lane.target.entityId = "audio::track:1";
+    lane.target.parameterId = "faderGainDb";
+    lane.target.valueType = ParameterValueType::Decibels;
+    lane.target.defaultValue = 0.0f;
+    lane.target.minValue = -60.0f;
+    lane.target.maxValue = 12.0f;
+    lane.points = {{0.0, 0.0f, 0.0f}, {4.0, -12.0f, 0.5f}};
+
+    std::string error;
+    REQUIRE(automation_curve_cache::stash(song, lane, error));
+    CHECK(song.automationCurveCache.size() == 1);
+    lane.target.parameterId = "pan";
+    lane.target.valueType = ParameterValueType::FloatNormalized;
+    lane.target.defaultValue = 0.0f;
+    lane.target.minValue = -1.0f;
+    lane.target.maxValue = 1.0f;
+    lane.points.clear();
+    CHECK(automation_curve_cache::restore(song, lane)
+          == automation_curve_cache::RestoreResult::NotFound);
+    lane.target.parameterId = "faderGainDb";
+    lane.target.valueType = ParameterValueType::Decibels;
+    lane.target.minValue = -60.0f;
+    lane.target.maxValue = 12.0f;
+    CHECK(automation_curve_cache::restore(song, lane)
+          == automation_curve_cache::RestoreResult::Restored);
+    REQUIRE(lane.points.size() == 2);
+    CHECK(lane.points[1].value == doctest::Approx(-12.0f));
+    CHECK(lane.points[1].curve == doctest::Approx(0.5f));
+    CHECK(song.automationCurveCache.empty());
+
+    for (size_t index = 0; index < kMaximumAutomationCurveCacheEntries + 1; ++index) {
+        AutomationLane cached = lane;
+        cached.target.parameterId = "parameter:" + std::to_string(index);
+        REQUIRE(automation_curve_cache::stash(song, cached, error));
+    }
+    CHECK(song.automationCurveCache.size() == kMaximumAutomationCurveCacheEntries);
+    CHECK(song.automationCurveCache.front().target.parameterId == "parameter:1");
+    CHECK(song.automationCurveCache.back().target.parameterId
+          == "parameter:" + std::to_string(kMaximumAutomationCurveCacheEntries));
+
+    AutomationLane invalid = lane;
+    invalid.points = {{0.0, 100.0f, 0.0f}};
+    const auto beforeInvalid = song.automationCurveCache.size();
+    CHECK_FALSE(automation_curve_cache::stash(song, invalid, error));
+    CHECK(song.automationCurveCache.size() == beforeInvalid);
+}
+
 TEST_CASE("ProjectJson: Lossless roundtrip of AutomationLanes") {
     Project original;
     original.name = "Automation Test Project";
@@ -523,6 +576,16 @@ TEST_CASE("ProjectJson: Lossless roundtrip of AutomationLanes") {
         {8.0, +3.0f, -0.5f}
     };
     song.automationLanes.push_back(songLane);
+
+    AutomationCurveCacheEntry cachedCurve;
+    cachedCurve.target = songLane.target;
+    cachedCurve.target.parameterId = "pan";
+    cachedCurve.target.valueType = ParameterValueType::FloatNormalized;
+    cachedCurve.target.defaultValue = 0.0f;
+    cachedCurve.target.minValue = -1.0f;
+    cachedCurve.target.maxValue = 1.0f;
+    cachedCurve.points = {{0.0, -0.5f, 0.0f}, {4.0, 0.75f, -0.25f}};
+    song.automationCurveCache.push_back(cachedCurve);
 
     MidiRegion mr;
     mr.id = "midi_reg:synth";
@@ -570,6 +633,12 @@ TEST_CASE("ProjectJson: Lossless roundtrip of AutomationLanes") {
     CHECK(s.automationLanes[0].points.size() == 3);
     CHECK(s.automationLanes[0].points[1].value == doctest::Approx(-6.0f));
     CHECK(s.automationLanes[0].points[1].curve == doctest::Approx(0.5f));
+    REQUIRE(s.automationCurveCache.size() == 1);
+    CHECK(s.automationCurveCache[0].target.parameterId == "pan");
+    CHECK(s.automationCurveCache[0].scope == AutomationScope::Track);
+    REQUIRE(s.automationCurveCache[0].points.size() == 2);
+    CHECK(s.automationCurveCache[0].points[1].value == doctest::Approx(0.75f));
+    CHECK(s.automationCurveCache[0].points[1].curve == doctest::Approx(-0.25f));
 
     CHECK(s.midiRegions.size() == 1);
     const auto& parsedMr = s.midiRegions[0];

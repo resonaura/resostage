@@ -1028,6 +1028,37 @@ export async function verifyEditorState(coreExecutable, inspect) {
     state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[1]?.writeMode === "touch", "auto-revert writeMode to touch safety");
     assert.equal(state.playing, true, "Write recording must preserve playback");
 
+    const cachedFaderCurve = structuredClone(state.songs[0].automationLanes[1].points);
+    const panTarget = {
+      domain: "strip", entityId: "audio::track:1", parameterId: "pan",
+      valueType: "floatNormalized", defaultValue: 0, minValue: -1, maxValue: 1,
+    };
+    const reboundToPan = await confirmEditorMutation(
+      "/api/v1/builder/automation-lane/update",
+      { songIndex: 0, laneId: faderLane.id, target: panTarget },
+    );
+    state = reboundToPan.state;
+    const reboundFader = state.songs[0].automationLanes.find((entry) => entry.id === faderLane.id);
+    assert.equal(reboundFader.target.parameterId, "pan");
+    assert.deepEqual(reboundFader.points, [],
+      "an uncached destination parameter starts with an empty curve");
+
+    const restoredFader = await confirmEditorMutation(
+      "/api/v1/builder/automation-lane/update",
+      { songIndex: 0, laneId: faderLane.id, target: {
+        domain: "strip", entityId: "audio::track:1", parameterId: "faderGainDb",
+        valueType: "decibels", defaultValue: 0, minValue: -60, maxValue: 12,
+      } },
+    );
+    state = restoredFader.state;
+    assert.deepEqual(
+      state.songs[0].automationLanes.find((entry) => entry.id === faderLane.id).points,
+      cachedFaderCurve,
+      "rebinding to the previous parameter restores its exact curve from the project cache",
+    );
+    assert.equal(state.playing, true,
+      "atomic lane target swaps preserve active transport");
+
     // Pan automation lane
     await request("/api/v1/builder/automation-lane/add", { songIndex: 0, domain: "strip", entityId: "audio::track:1",
       parameterId: "pan", valueType: "floatNormalized", defaultValue: 0, minValue: -1, maxValue: 1, points: [

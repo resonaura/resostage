@@ -23,7 +23,8 @@
  * and always emits the same current canon (v4 adds plug-in slots; v5 adds
  * retained MIDI channel/event data; v6 adds MIDI 2.0 UMP storage; v7 adds
  * per-track pan-law choice; v8 adds trimmed MIDI loop source windows; v9
- * adds optional original-video references on imported audio regions):
+ * adds optional original-video references; v10 adds click solo-safe state;
+ * v11 adds the bounded per-song automation curve cache):
  *
  *   ids            "<ns>::<kind>:<n>"  audio::track:1, audio::send:2,
  *                                      audio::out:11, light::bar:1,
@@ -44,7 +45,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 10;
+export const TARGET_FORMAT_VERSION = 11;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -482,6 +483,7 @@ function migrateSongs(old, busIds, trackIds, lightTrackIds) {
     onEnded: normalizeOnEnded(s),
     regions: migrateRegions(s, trackIds),
     midiRegions: Array.isArray(s.midiRegions) ? s.midiRegions : [],
+    automationCurveCache: [],
     tempoPoints: Array.isArray(s.tempoPoints) ? s.tempoPoints : [],
     signaturePoints: Array.isArray(s.signaturePoints) ? s.signaturePoints : [],
     events: Array.isArray(s.events) ? s.events : [],
@@ -673,6 +675,16 @@ export function upgradeFormat9ClickSoloSafe(old) {
   return upgraded;
 }
 
+/** Add project-persisted automation curve storage without changing live lanes. */
+export function upgradeFormat10AutomationCurveCache(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  for (const song of upgraded.songs ?? []) {
+    if (!Array.isArray(song.automationCurveCache)) song.automationCurveCache = [];
+  }
+  return upgraded;
+}
+
 function resolveProjectJsonPath(target) {
   const abs = path.resolve(target);
   if (!fs.existsSync(abs)) {
@@ -728,10 +740,13 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
       migrated = upgradeFormat8VideoSources(oldObj);
     } else if (!isLegacy && fromVersion === 9) {
       migrated = upgradeFormat9ClickSoloSafe(oldObj);
+    } else if (!isLegacy && fromVersion === 10) {
+      migrated = upgradeFormat10AutomationCurveCache(oldObj);
     } else {
       migrated = upgradeFormat6PanLawData(migrateProjectObject(oldObj));
     }
     if (fromVersion < 10) migrated = upgradeFormat9ClickSoloSafe(migrated);
+    if (fromVersion < 11) migrated = upgradeFormat10AutomationCurveCache(migrated);
     fs.writeFileSync(outPath, `${JSON.stringify(migrated, null, 2)}\n`, "utf-8");
     if (isLegacy) fs.rmSync(jsonPath, { force: true });
     console.log(

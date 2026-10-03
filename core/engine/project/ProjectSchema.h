@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <array>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -32,7 +33,10 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 10;
+inline constexpr int kCurrentFormatVersion = 11;
+// Format 11 stores bounded, project-persisted automation curves detached while
+// an automation lane is rebound to another parameter. Older projects
+// start with an empty curve cache.
 // Format 10 persists an explicit metronome solo-safe opt-out. Older projects
 // adopt the solo-safe default; v10 false values must survive a save/reopen.
 // Format 9 retains optional original video resources next to prepared audio.
@@ -520,6 +524,18 @@ struct AutomationLane {
     std::vector<AutomationPoint> points;
 };
 
+// A curve temporarily detached from a lane when the lane is rebound to a
+// different target. This is project content so a target can be restored after
+// save/reopen or moving the project to another computer.
+struct AutomationCurveCacheEntry {
+    AutomationTarget target;
+    AutomationScope scope = AutomationScope::Track;
+    std::vector<AutomationPoint> points;
+};
+
+inline constexpr size_t kMaximumAutomationCurveCacheEntries = 128;
+inline constexpr size_t kMaximumAutomationCurveCachePoints = 65536;
+
 // An audio clip placed on a global track for a specific song. Ids are
 // UUIDv7 (see Uuid.h) -- regions are created/deleted constantly while
 // editing a timeline, unlike tracks/busses/songs which are edited in place.
@@ -841,6 +857,7 @@ struct SongDef {
     std::vector<Region> regions;
     std::vector<MidiRegion> midiRegions;
     std::vector<AutomationLane> automationLanes;
+    std::vector<AutomationCurveCacheEntry> automationCurveCache;
     std::vector<TempoPoint> tempoPoints;
     std::vector<SignaturePoint> signaturePoints;
     std::vector<TimelineEvent> events;

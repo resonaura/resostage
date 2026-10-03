@@ -758,8 +758,9 @@ bool ProjectLoader::reparseProject(std::string& error) {
         // channels/events; v5 -> v6 defaults MIDI 2.0 UMP storage; v6 -> v7
         // defaults the per-track pan law to its legacy curve. These are additive.
         // v7 -> v8 defaults trimmed MIDI loop windows; v8 -> v9 defaults
-        // optional video sources. Promote only the private in-memory snapshot
-        // so opening a document never rewrites its package.
+        // optional video sources; v10 -> v11 defaults the automation curve
+        // cache. Promote only the private in-memory snapshot so opening a
+        // document never rewrites its package.
         out.format.version = kCurrentFormatVersion;
         return true;
     };

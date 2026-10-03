@@ -100,7 +100,7 @@ TEST_CASE("Project format 10 preserves explicit click solo-safe disengagement") 
     json = serializeProjectJson(original);
     Project restored;
     REQUIRE(parseProjectJson(json, restored, error));
-    CHECK(restored.format.version == 10);
+    CHECK(restored.format.version == 11);
     CHECK_FALSE(restored.click.soloSafe);
     original.format.version = 9;
     json = serializeProjectJson(original);

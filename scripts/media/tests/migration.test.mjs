@@ -6,7 +6,11 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TARGET_FORMAT_VERSION, upgradeFormat9ClickSoloSafe } from "../../migrate.mjs";
+import {
+  TARGET_FORMAT_VERSION,
+  upgradeFormat9ClickSoloSafe,
+  upgradeFormat10AutomationCurveCache,
+} from "../../migrate.mjs";
 
 test("format 9 upgrade preserves canonical IDs, media and plug-in state", () => {
   const original = {
@@ -15,10 +19,26 @@ test("format 9 upgrade preserves canonical IDs, media and plug-in state", () => 
     songs: [{ regions: [{ source: { file: "Audio/audio.wav", videoFile: "Video/video.mp4" } }] }],
   };
   const upgraded = upgradeFormat9ClickSoloSafe(original);
-  assert.equal(TARGET_FORMAT_VERSION, 10);
-  assert.equal(upgraded.format.version, 10);
+  assert.equal(TARGET_FORMAT_VERSION, 11);
+  assert.equal(upgraded.format.version, 11);
   assert.equal(upgraded.click.soloSafe, true);
   assert.deepEqual(upgraded.tracks, original.tracks);
   assert.deepEqual(upgraded.songs, original.songs);
   assert.equal(original.click.soloSafe, false);
+});
+
+test("format 10 upgrade adds an empty automation cache without changing lanes", () => {
+  const original = {
+    format: { version: 10 },
+    songs: [{
+      automationLanes: [{ id: "lane", target: { parameterId: "pan" }, points: [] }],
+      automationCurveCache: [{ target: { parameterId: "obsolete" }, points: [] }],
+    }],
+  };
+  const upgraded = upgradeFormat10AutomationCurveCache(original);
+  assert.equal(upgraded.format.version, 11);
+  assert.deepEqual(upgraded.songs[0].automationLanes, original.songs[0].automationLanes);
+  assert.deepEqual(upgraded.songs[0].automationCurveCache, original.songs[0].automationCurveCache);
+  assert.deepEqual(upgradeFormat10AutomationCurveCache({ songs: [{}] }).songs[0].automationCurveCache, []);
+  assert.equal(original.format.version, 10);
 });

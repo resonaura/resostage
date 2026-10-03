@@ -389,6 +389,12 @@ struct WAutomationLane {
     std::vector<WAutomationPoint> points;
 };
 
+struct WAutomationCurveCacheEntry {
+    WAutomationTarget target;
+    std::string scope = "track";
+    std::vector<WAutomationPoint> points;
+};
+
 struct WRegion {
     std::string id;
     std::string trackId;
@@ -537,6 +543,7 @@ struct WSong {
     std::vector<WRegion> regions;
     std::vector<WMidiRegion> midiRegions;
     std::vector<WAutomationLane> automationLanes;
+    std::vector<WAutomationCurveCacheEntry> automationCurveCache;
     std::vector<WTempoPoint> tempoPoints;
     std::vector<WSignaturePoint> signaturePoints;
     std::vector<WEvent> events;
@@ -761,6 +768,28 @@ AutomationLane fromWireAutomationLane(const WAutomationLane& wl) {
     for (const auto& wp : wl.points)
         l.points.push_back(fromWireAutomationPoint(wp));
     return l;
+}
+
+WAutomationCurveCacheEntry toWireAutomationCurveCacheEntry(
+    const AutomationCurveCacheEntry& entry) {
+    WAutomationCurveCacheEntry wire;
+    wire.target = toWireAutomationTarget(entry.target);
+    wire.scope = automationScopeToString(entry.scope);
+    wire.points.reserve(entry.points.size());
+    for (const auto& point : entry.points)
+        wire.points.push_back(toWireAutomationPoint(point));
+    return wire;
+}
+
+AutomationCurveCacheEntry fromWireAutomationCurveCacheEntry(
+    const WAutomationCurveCacheEntry& wire) {
+    AutomationCurveCacheEntry entry;
+    entry.target = fromWireAutomationTarget(wire.target);
+    entry.scope = automationScopeFromString(wire.scope);
+    entry.points.reserve(wire.points.size());
+    for (const auto& point : wire.points)
+        entry.points.push_back(fromWireAutomationPoint(point));
+    return entry;
 }
 
 WColor toWireColor(const RgbColor& c) {
@@ -1010,6 +1039,9 @@ WProject toWire(const Project& p) {
 
         for (const auto& al : s.automationLanes)
             ws.automationLanes.push_back(toWireAutomationLane(al));
+        for (const auto& entry : s.automationCurveCache)
+            ws.automationCurveCache.push_back(
+                toWireAutomationCurveCacheEntry(entry));
 
         for (const auto& tp : s.tempoPoints) {
             WTempoPoint wtp;
@@ -1409,6 +1441,25 @@ Project fromWire(const WProject& w) {
 
         for (const auto& wal : s.automationLanes)
             song.automationLanes.push_back(fromWireAutomationLane(wal));
+
+        // Cache is recoverability data, not playback state. Enforce the same
+        // deterministic per-song limits used by lane rebind commands before
+        // exposing it to the live Project model.
+        size_t cachedPoints = 0;
+        for (const auto& wireEntry : s.automationCurveCache) {
+            if (song.automationCurveCache.size()
+                    >= kMaximumAutomationCurveCacheEntries
+                || wireEntry.points.size()
+                    > kMaximumAutomationCurveCachePoints - cachedPoints)
+                break;
+            auto entry = fromWireAutomationCurveCacheEntry(wireEntry);
+            if (entry.target.entityId.empty()
+                || entry.target.parameterId.empty()
+                || entry.points.empty())
+                continue;
+            cachedPoints += entry.points.size();
+            song.automationCurveCache.push_back(std::move(entry));
+        }
 
         for (const auto& tp : s.tempoPoints) {
             TempoPoint pt;

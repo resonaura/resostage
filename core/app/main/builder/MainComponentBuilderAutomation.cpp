@@ -13,6 +13,7 @@
 #include "automation/AutomationRecorder.h"
 #include "automation/RamerDouglasPeucker.h"
 #include "engine/AudioEngineInternal.h"
+#include "project/AutomationCurveCache.h"
 #include "project/ProjectJson.h"
 #include "server/BuilderJson.h"
 #include "server/AutomationJson.h"
@@ -21,6 +22,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <charconv>
 #include <cmath>
 #include <limits>
 
@@ -101,6 +103,8 @@ void MainComponent::builderAutomationLaneAdd(const std::string& json) {
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Add automation lane");
 
+    if (regionId.empty() && lane.scope == AutomationScope::Track)
+        (void)automation_curve_cache::restore(s, lane);
     destination->push_back(std::move(lane));
 
     engine.projectHistoryCommitEdit();
@@ -168,8 +172,9 @@ void MainComponent::builderAutomationLaneUpdate(const std::string& json) {
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
     AutomationLane* lanePtr = nullptr;
+    bool isSongTrackLane = false;
     for (auto& l : s.automationLanes) {
-        if (l.id == laneId) { lanePtr = &l; break; }
+        if (l.id == laneId) { lanePtr = &l; isSongTrackLane = true; break; }
     }
     if (!lanePtr) {
         for (auto& mr : s.midiRegions) {
@@ -205,52 +210,169 @@ void MainComponent::builderAutomationLaneUpdate(const std::string& json) {
             || !getString(targetDoc, "valueType", valueType)
             || !getDouble(targetDoc, "defaultValue", defaultValue)
             || !getDouble(targetDoc, "minValue", minValue)
-            || !getDouble(targetDoc, "maxValue", maxValue)
-            || domain != "plugin" || valueType != "floatNormalized"
-            || lanePtr->target.domain != AutomationDomain::Plugin
+            || !getDouble(targetDoc, "maxValue", maxValue)) {
+            setStatus("Could not rebind automation lane: target fields are incomplete");
+            return;
+        }
+        const auto parsedType = parameterValueTypeFromString(valueType);
+        const bool knownType = valueType == parameterValueTypeToString(parsedType);
+        if (!isSongTrackLane || lanePtr->scope != AutomationScope::Track
+            || (domain != "plugin" && domain != "strip" && domain != "midiCC")
+            || !knownType
             || target.entityId.empty() || target.entityId.size() > 128
             || target.parameterId.empty() || target.parameterId.size() > 1024
             || !std::isfinite(defaultValue) || !std::isfinite(minValue)
-            || !std::isfinite(maxValue) || minValue < 0.0 || maxValue > 1.0
-            || minValue > maxValue || defaultValue < minValue || defaultValue > maxValue
-            || defaultValue > std::numeric_limits<float>::max()) {
-            setStatus("Could not rebind automation lane: target must be a finite normalized plug-in parameter");
+            || !std::isfinite(maxValue) || minValue < -1.0e9 || maxValue > 1.0e9
+            || minValue >= maxValue || defaultValue < minValue || defaultValue > maxValue
+            || std::abs(defaultValue) > std::numeric_limits<float>::max()
+            || std::abs(minValue) > std::numeric_limits<float>::max()
+            || std::abs(maxValue) > std::numeric_limits<float>::max()) {
+            setStatus("Could not rebind automation lane: target is malformed, unsupported, or not a song track lane");
             return;
         }
 
-        target.domain = AutomationDomain::Plugin;
-        target.valueType = ParameterValueType::FloatNormalized;
+        target.domain = automationDomainFromString(domain);
+        target.valueType = parsedType;
         target.defaultValue = static_cast<float>(defaultValue);
         target.minValue = static_cast<float>(minValue);
         target.maxValue = static_cast<float>(maxValue);
-        const bool slotExists = std::any_of(proj.tracks.begin(), proj.tracks.end(),
-            [&](const TrackDef& track) {
-                return std::any_of(track.plugins.begin(), track.plugins.end(),
-                    [&](const PluginSlot& slot) { return slot.id == target.entityId; });
+
+        const auto targetTrack = std::find_if(proj.tracks.begin(), proj.tracks.end(),
+            [&](const TrackDef& track) { return track.id == target.entityId; });
+        const auto hasRange = [&](float min, float max) {
+            constexpr float tolerance = 1.0e-4f;
+            return std::abs(target.minValue - min) <= tolerance
+                && std::abs(target.maxValue - max) <= tolerance;
+        };
+        bool supported = false;
+        if (domain == "plugin") {
+            const bool slotExists = std::any_of(proj.tracks.begin(), proj.tracks.end(),
+                [&](const TrackDef& track) {
+                    return std::any_of(track.plugins.begin(), track.plugins.end(),
+                        [&](const PluginSlot& slot) { return slot.id == target.entityId; });
+                });
+            const auto bank = engine.activePluginProcessorBank();
+            const int resolvedParameter = bank != nullptr
+                ? bank->resolvePluginParameterIndex(target.entityId,
+                                                     target.parameterId) : -1;
+            const auto parameterInfo = bank != nullptr
+                ? bank->parametersForSlot(target.entityId)
+                : std::vector<PluginProcessorBank::ParameterInfo>{};
+            const bool automatableParameter = std::any_of(
+                parameterInfo.begin(), parameterInfo.end(), [&](const auto& info) {
+                    return resolvedParameter >= 0
+                        && info.index == static_cast<uint32_t>(resolvedParameter)
+                        && info.automatable;
+                });
+            supported = slotExists && target.valueType == ParameterValueType::FloatNormalized
+                && hasRange(0.0f, 1.0f)
+                && automatableParameter;
+        } else if (domain == "strip" && targetTrack != proj.tracks.end()) {
+            if (target.parameterId == "faderGainDb") {
+                supported = target.valueType == ParameterValueType::Decibels
+                    && hasRange(-60.0f, 12.0f);
+            } else if (target.parameterId == "pan") {
+                supported = target.valueType == ParameterValueType::FloatNormalized
+                    && hasRange(-1.0f, 1.0f);
+            } else if (target.parameterId == "mute") {
+                supported = target.valueType == ParameterValueType::Boolean
+                    && hasRange(0.0f, 1.0f);
+            } else if (target.parameterId.rfind("send:", 0) == 0
+                       && target.valueType == ParameterValueType::FloatNormalized
+                       && hasRange(0.0f, 1.0f)) {
+                const auto route = target.parameterId.substr(5);
+                const auto matches = std::count_if(
+                    targetTrack->output.sends.begin(), targetTrack->output.sends.end(),
+                    [&](const SendConfig& send) {
+                        if (!send.enabled) return false;
+                        if (route == send.bus) return true;
+                        if (route.rfind("audio::send:", 0) == 0) return false;
+                        size_t sendIndex = 0;
+                        const auto parsed = std::from_chars(route.data(),
+                            route.data() + route.size(), sendIndex);
+                        return parsed.ec == std::errc{}
+                            && parsed.ptr == route.data() + route.size()
+                            && sendIndex < targetTrack->output.sends.size()
+                            && &send == &targetTrack->output.sends[sendIndex];
+                    });
+                supported = matches == 1;
+            }
+        } else if (domain == "midiCC" && targetTrack != proj.tracks.end()
+                   && isMidiInputTrack(targetTrack->kind)
+                   && target.valueType == ParameterValueType::Integer) {
+            if (target.parameterId == "pitchBend") {
+                supported = hasRange(-8192.0f, 8191.0f);
+            } else if (target.parameterId.rfind("cc:", 0) == 0
+                       && hasRange(0.0f, 127.0f)) {
+                int controller = -1;
+                const auto text = target.parameterId.substr(3);
+                const auto parsed = std::from_chars(text.data(),
+                    text.data() + text.size(), controller);
+                supported = parsed.ec == std::errc{}
+                    && parsed.ptr == text.data() + text.size()
+                    && controller >= 0 && controller <= 127;
+            }
+        }
+
+        const bool duplicateTarget = std::any_of(s.automationLanes.begin(),
+            s.automationLanes.end(), [&](const AutomationLane& candidate) {
+                return candidate.id != laneId
+                    && candidate.scope == lanePtr->scope
+                    && automation_curve_cache::sameTarget(candidate.target, target);
             });
-        const auto bank = engine.activePluginProcessorBank();
-        const int resolvedParameter = bank != nullptr
-            ? bank->resolvePluginParameterIndex(target.entityId, target.parameterId) : -1;
-        const auto parameterInfo = bank != nullptr
-            ? bank->parametersForSlot(target.entityId)
-            : std::vector<PluginProcessorBank::ParameterInfo>{};
-        const bool automatableParameter = std::any_of(
-            parameterInfo.begin(), parameterInfo.end(), [&](const auto& info) {
-                return info.index == static_cast<uint32_t>(resolvedParameter)
-                    && info.automatable;
-            });
-        if (!slotExists || resolvedParameter < 0 || !automatableParameter) {
-            setStatus("Could not rebind automation lane: destination parameter is not loaded and automatable in this project");
+        if (!supported || duplicateTarget) {
+            setStatus(!supported
+                ? "Could not rebind automation lane: destination parameter is not loaded or supported"
+                : "Could not rebind automation lane: another lane already controls this parameter");
             return;
         }
         replacementTarget = std::move(target);
+    }
+
+    std::optional<automation_curve_cache::StagedEntry> stagedCurve;
+    if (replacementTarget) {
+        const bool targetIdentityChanges = !automation_curve_cache::sameTarget(
+            lanePtr->target, *replacementTarget);
+        if (!automation_curve_cache::validForTarget(lanePtr->points,
+                                                    targetIdentityChanges
+                                                        ? lanePtr->target
+                                                        : *replacementTarget)
+            || (targetIdentityChanges
+                && lanePtr->points.size() > kMaximumAutomationCurveCachePoints)) {
+            setStatus("Could not rebind automation lane: existing curve is invalid or exceeds the project cache limit");
+            return;
+        }
+        if (targetIdentityChanges && !lanePtr->points.empty()) {
+            automation_curve_cache::StagedEntry staged;
+            std::string cacheError;
+            if (!automation_curve_cache::prepareStash(*lanePtr, staged,
+                                                       cacheError)) {
+                setStatus("Could not rebind automation lane: "
+                          + juce::String(cacheError));
+                return;
+            }
+            stagedCurve = std::move(staged);
+            s.automationCurveCache.reserve(kMaximumAutomationCurveCacheEntries);
+        }
     }
 
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Update automation lane");
 
-    if (replacementTarget) lanePtr->target = std::move(*replacementTarget);
+    if (replacementTarget) {
+        if (!automation_curve_cache::sameTarget(lanePtr->target,
+                                                 *replacementTarget)) {
+            if (stagedCurve)
+                automation_curve_cache::applyStash(
+                    s, std::move(stagedCurve->entry));
+            lanePtr->target = std::move(*replacementTarget);
+            lanePtr->points.clear();
+            (void)automation_curve_cache::restore(s, *lanePtr);
+        } else {
+            lanePtr->target = std::move(*replacementTarget);
+        }
+    }
     bool bVal;
     std::string strVal;
     if (getBool(doc, "enabled", bVal)) lanePtr->enabled = bVal;

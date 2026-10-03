@@ -7,6 +7,43 @@ Updated 2026-10-03. Read [audit.md](audit.md), [handoff.md](handoff.md), complet
 
 ## Added requirements — 2026-10-03
 
+### Implemented subset — project-persisted target-swap curve cache (2026-10-03)
+
+Core format v11 stores detached curves on their owning `SongDef`. A
+track-scope lane target swap validates the destination before history starts,
+stashes the old curve, then restores a compatible cached curve for the new
+target (or leaves the lane empty) in the same `ProjectHistory` transaction.
+Returning to a previously-used target restores the original points and curve
+shape. Adding a track-scope lane also restores a cached curve. Cache identity is
+song + automation scope + domain + entity + parameter + value type; range
+compatibility is checked before restore. Bounds are 128 cached targets and
+65,536 total points per song; oldest entries are evicted deterministically.
+Older projects default to an empty cache; `scripts/migrate.mjs` now emits v11.
+
+Rebind destinations currently cover loaded/automatable track plug-in
+parameters, track gain/pan/mute, a unique enabled track send, and MIDI CC/pitch
+bend on MIDI-capable tracks. Missing targets, unloaded/unbound plug-in
+parameters, malformed ranges, duplicate bindings, and region-scope lanes reject
+before the edit is accepted. No cache data is read by the audio callback.
+
+Verification: native cache identity/restore/eviction/invalid-curve and JSON
+round-trip regressions pass with the full native CTest target. Project migration
+tests pass 2/2, including the v10-to-v11 empty default and preservation of
+existing lane/cache data. The real-Core acceptance fixture now swaps a populated
+fader lane to pan, confirms the uncached destination is empty, swaps back and
+checks exact point/curve restoration while transport continues.
+
+The rebind path copies/validates the outgoing curve and reserves bounded cache
+capacity before beginning ProjectHistory. Once the transaction starts there is
+no validation-driven early return. Cache insertion and target replacement are
+part of the same history snapshot.
+
+This is backend/schema coverage only. The Timeline still shows one automation
+header/curve per audio track: separate foldable pseudo-track rows, per-row
+selector wiring, collapse state, geometry/virtualization, and visible project
+save/reopen acceptance remain open. Do not call the multi-automation UI
+complete until those pieces are implemented and tested.
+
 This section records the next automation/control work. It is not a claim that
 the items below are implemented. Preserve the existing lane API/history path
 unless the model audit demonstrates a required persisted-schema change.

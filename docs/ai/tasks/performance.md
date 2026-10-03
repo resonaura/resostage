@@ -156,6 +156,29 @@ for actual fixes and the still-open live publication/ownership contract.
 
 ## Current correctness/performance pass
 
+### Retry/rebuild audit — 2026-10-03
+
+`AudioEngine::retryPluginSlot()` currently starts a new project-wide plug-in
+loading-session generation (`slotTotal` includes every strip), although its
+comment and user-facing status describe retrying one slot. `PluginProcessorBank`
+does reuse healthy helper chains by stable strip/ordered-slot identity, so a
+failed helper does not automatically imply that healthy chains are recreated.
+However, a helper process is atomic for one serial strip chain: if one insert in
+that chain is failed, retrying it must rebuild that strip's helper and sibling
+instances in that chain. The rebuild walk also retries other failed chains;
+the global progress generation can therefore look like a project-wide reload.
+
+This code audit narrows the suspected coupling but does not reproduce the
+reported writetest behavior or prove editor-window independence. Next, add an
+explicit retry scope (stable strip/slot plus project epoch), preserve healthy
+and unrelated failed chains, and publish per-chain progress/load status without
+misrepresenting a retry as initial whole-project loading. Do not weaken chain
+atomicity or allow a failed helper's audio path to block the callback. Test one
+failed chain among healthy peers, two independently failed chains, two failed
+slots in one chain, a stale retry superseded by project replacement, and rapid
+retry. Capture helper launch/reuse counts and slot load states from Core; a UI
+spinner alone is not evidence of a plug-in reload.
+
 The following ownership changes are implemented in `d23fdeb` and retained:
 
 - JUCE-free `PluginDelayBank`: builder never reads live mutable ring samples;
