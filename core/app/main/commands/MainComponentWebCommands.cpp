@@ -128,6 +128,8 @@ void MainComponent::drainWebCommands() {
                         builder_json::getString(payload, "requestId", requestId);
                     webServer.finishTrackImport(requestId, false, error);
                 }
+                if (cmd.kind == WebCommandKind::LoadProjectFromPath)
+                    std::remove(cmd.path.c_str());
                 if (cmd.historyRequestId != 0) {
                     historyResults_.push_back({cmd.historyRequestId, false,
                                                engine.projectHistoryRevision(), error});
@@ -369,20 +371,7 @@ void MainComponent::drainWebCommands() {
                 saveProjectClicked(true);
                 break;
             case WebCommandKind::LoadProjectFromPath: {
-                std::string error;
-                closeAllPluginEditors();
-                const bool loaded = engine.loadProject(cmd.path, error);
-                if (loaded) {
-                    applyGlobalBindings();
-                    onProjectLoaded();
-                    setStatus("Loaded '" + juce::String(engine.project().name) + "' (uploaded from browser)");
-                    rememberRecentProject(juce::File(cmd.path));
-                    if (!engine.project().songs.empty())
-                        goToSong(0);
-                } else {
-                    std::remove(cmd.path.c_str());
-                    setStatus("Upload load failed: " + juce::String(error));
-                }
+                openUploadedProjectFromIpc(cmd.path);
                 break;
             }
             case WebCommandKind::OpenRecentProject: {

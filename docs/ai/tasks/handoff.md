@@ -47,8 +47,13 @@ hardware acceptance items in [audit.md](audit.md).
 
 The 2026-10-03 optimized production Core rebuild (`RESOSTAGE_ENABLE_TEST_HOOKS=OFF`)
 and full `scripts/verification/editor-state.mjs` acceptance passed after this
-Recent-open consolidation. It exercises the shared HTTP lifecycle path; the
-native Electron menu call site was compiled but not UI-driven by that harness.
+project-replacement consolidation. It exercises the shared HTTP lifecycle
+path; the native Electron menu call site was compiled but not UI-driven by that
+harness. Browser uploads now use the same unsaved-change prompt; cancellation,
+malformed archive rejection after explicit discard, and a competing Recent open
+preserve the prior document and pending target. Upload temporary files are
+cleaned on cancel, failed Save/load, queue rejection and Core shutdown. This
+does not verify successful browser archive round-trip or packaged media assets.
 Electron Save As dialog Promise rejection now cancels Core's pending callback,
 shows a best-effort native error, and clears the dialog guard in `finally`.
 One launch is latched per Core pending interval to prevent duplicate dialogs
@@ -397,15 +402,16 @@ matching routing graph only; it does not confirm vendor instantiation/audio.
 Bypass/Keep Awake/retry/editor/park/unpark still need a distinct host lifecycle
 or control ACK contract before any UI claims they completed in the live host.
 
-Unsaved project-open guard block (2026-10-02):
-Recent-project and native file-picker opens now call the shared
-unsaved-change-gated open path. The actual-Core test confirms project identity
-and unsaved MIDI edits survive Cancel, and only change after an explicit
-Don't Save choice. The same path passes the optional pending-command Core
-restart acceptance. Optimized Core is restored with test hooks OFF. Save/Open
-still expose busy/status and prompt state rather than request-specific terminal
-operation IDs; assess whether callers need a separate bounded lifecycle-result
-protocol before adding one.
+Unsaved project-replacement guard block (2026-10-03):
+Recent-project, native file-picker and browser-upload opens use the same
+Save/Don't Save/Cancel ownership path. Actual-Core checks verify Cancel,
+explicit discard, malformed-upload preservation and a competing request while
+the upload confirmation is pending. Temporary upload cleanup covers prompt
+cancel, failed Save/load, deferred-queue rejection and shutdown. Production
+Core and the full actual-Core harness pass with test hooks OFF. Successful
+browser archive/media round-trip is not asserted. Save/Open still expose
+busy/status and prompt state rather than request-specific terminal operation
+IDs; assess whether callers need that protocol before adding one.
 
 Project Save label block (2026-10-02):
 The Project menu no longer interprets generic Core `busy` (which also covers

@@ -361,31 +361,39 @@ remain outside this graph-result protocol because their effects are applied by
 the plug-in bank/host or editor lifecycle; they need a host-specific ACK before
 the UI may claim host completion.
 
-## Closed this audit — guard unsaved state for Recent and file-picker opens
+## Closed this audit — guard unsaved state for project replacement
 
-Web Recent-project opens, the native Electron Recent menu, and native
-file-picker selections previously called direct loaders in some paths,
-bypassing the existing unsaved-change confirmation used by Finder/Explorer
-opens. Both Recent entry points now share `openRecentProjectFromPath`, then
-`openProjectFromIpc`; only a genuinely missing path is removed from history.
-An existing but invalid project is retained so the operator can recover it.
-The project epoch and current in-memory content remain authoritative until the
-operator chooses Save, Don't Save, or Cancel. Cancel preserves the document;
-Don't Save follows the existing single project-replacement path. A second open
-request while the prompt is visible does not retarget the first confirmation;
-it keeps the first path and reports that the current decision must be resolved.
+Web Recent-project opens, the native Electron Recent menu, native file-picker
+selections and browser project uploads previously called direct loaders in
+some paths, bypassing the existing unsaved-change confirmation used by
+Finder/Explorer opens. Both Recent entry points share
+`openRecentProjectFromPath` and `openProjectFromIpc`; browser uploads now enter
+the same Save/Don't Save/Cancel decision before replacement. A pending upload's
+temporary file is removed on Cancel, failed Save, failed load, queue rejection
+or Core shutdown. Only a genuinely missing Recent path is removed from history;
+an existing but invalid project remains recoverable. A competing open cannot
+retarget the visible prompt, even if another action clears the dirty flag
+before the operator responds.
+
+The project epoch and current in-memory content remain authoritative until a
+successful replacement. Cancel preserves the document. If the user explicitly
+discards edits but an uploaded package is malformed, parse failure preserves
+the existing in-memory document and reports the error; it does not claim the
+discarded work was saved.
 
 Verification (2026-10-03): the optimized Core build with
 `RESOSTAGE_ENABLE_TEST_HOOKS=OFF` and the full actual-Core editor-state harness
 passed. The acceptance verifies
 Recent first raises `openConfirmPending`, leaves unsaved MIDI edits and epoch
 unchanged, preserves them on Cancel, and only replaces the same-ID project
-after an explicit Don't Save decision. It also issues a competing open while
-the first prompt is pending, verifies the current edits remain intact, and
-confirms the original target is opened after the user's decision. The optional
-test-hook acceptance also passed on 2026-10-02 with the same confirmation path
-before Core restart testing. Save-path terminal feedback still uses busy/status
-state; no claim is made that Save/Open have request-specific operation IDs.
+after explicit Don't Save. Browser upload also prompts, Cancel preserves the
+document, and discarding into a malformed package leaves the prior in-memory
+content/epoch intact. A competing Recent open cannot replace a pending upload
+target. The optional test-hook acceptance also passed on 2026-10-02 with the
+Recent confirmation path before Core restart testing. This tests malformed
+upload recovery, not successful browser archive round-trip or media inclusion.
+Save-path terminal feedback still uses busy/status state; no claim is made that
+Save/Open have request-specific operation IDs.
 
 ## Closed this audit — project Save button status
 

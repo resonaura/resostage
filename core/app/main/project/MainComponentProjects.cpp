@@ -35,6 +35,37 @@ void MainComponent::openRecentProjectFromPath(const std::string& path) {
     openProjectFromIpc(path);
 }
 
+void MainComponent::openUploadedProjectFromIpc(const std::string& path) {
+    if (!juce::File(path).existsAsFile()) {
+        std::remove(path.c_str());
+        setStatus("Uploaded project is no longer available");
+        publishWebState();
+        return;
+    }
+    if (awaitingOpenDecision) {
+        // A dialog is bound to the first path even if another action clears
+        // the dirty flag before the operator answers it.
+        std::remove(path.c_str());
+        setStatus("Resolve the current project-open prompt before opening another project");
+        publishWebState();
+        return;
+    }
+    if (engine.isBusy()) {
+        std::remove(path.c_str());
+        setStatus("Project operation in progress; retry the upload after it finishes");
+        publishWebState();
+        return;
+    }
+    if (engine.hasUnsavedChanges()) {
+        awaitingOpenDecision = true;
+        pendingOpenPath = path;
+        pendingOpenIsUpload = true;
+        publishWebState();
+        return;
+    }
+    loadUploadedProjectFromPath(path);
+}
+
 void MainComponent::openProjectFromIpc(const std::string& path) {
     if (engine.isBusy()) {
         setStatus("Project operation in progress; retry opening after it finishes");
@@ -59,21 +90,21 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
         return;
     }
 
+    if (awaitingOpenDecision) {
+        // Keep the first destination bound to the visible confirmation even
+        // if another action clears the dirty flag before the response arrives.
+        setStatus("Resolve the current project-open prompt before opening another project");
+        publishWebState();
+        return;
+    }
+
     // If the current project has unsaved changes, ask first (same Save/Don't
     // Save/Cancel prompt as quitting). Await the answer before loading so we
     // don't silently discard work by opening the external project.
     if (engine.hasUnsavedChanges()) {
-        if (awaitingOpenDecision) {
-            // Keep the first destination bound to the visible confirmation.
-            // Silently replacing it would make the user's answer apply to a
-            // different request than the one they saw; silently ignoring it
-            // gives no feedback when two open requests arrive close together.
-            setStatus("Resolve the current project-open prompt before opening another project");
-            publishWebState();
-            return;
-        }
         awaitingOpenDecision = true;
         pendingOpenPath = path;
+        pendingOpenIsUpload = false;
         publishWebState();
         return;
     }
@@ -85,6 +116,32 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
         // Trigger UI to show
         publishWebState();
     }
+}
+
+void MainComponent::loadUploadedProjectFromPath(const std::string& path) {
+    if (engine.isBusy()) {
+        std::remove(path.c_str());
+        setStatus("Project operation in progress; retry the upload after it finishes");
+        publishWebState();
+        return;
+    }
+
+    std::string error;
+    closeAllPluginEditors();
+    if (!engine.loadProject(path, error)) {
+        std::remove(path.c_str());
+        setStatus("Upload load failed: " + juce::String(error));
+        publishWebState();
+        return;
+    }
+
+    applyGlobalBindings();
+    onProjectLoaded();
+    setStatus("Loaded '" + juce::String(engine.project().name) + "' (uploaded from browser)");
+    rememberRecentProject(juce::File(path));
+    if (!engine.project().songs.empty())
+        goToSong(0);
+    publishWebState();
 }
 
 void MainComponent::saveProjectToPath(const std::string& path, std::function<void(bool)> onDone) {
@@ -282,10 +339,20 @@ void MainComponent::handleOpenDecision(int choice) {
     if (!awaitingOpenDecision)
         return;
     const std::string path = pendingOpenPath;
+    const bool isUpload = pendingOpenIsUpload;
     awaitingOpenDecision = false;
     pendingOpenPath.clear();
+    pendingOpenIsUpload = false;
 
-    auto doOpen = [this, path]() {
+    auto discardUpload = [path, isUpload]() {
+        if (isUpload)
+            std::remove(path.c_str());
+    };
+    auto doOpen = [this, path, isUpload]() {
+        if (isUpload) {
+            loadUploadedProjectFromPath(path);
+            return;
+        }
         juce::File f(path);
         juce::File projectDir;
         if (f.hasFileExtension("rsnrasetmeta"))
@@ -296,15 +363,16 @@ void MainComponent::handleOpenDecision(int choice) {
     };
 
     if (choice == 1) { // Save, then open
-        saveProjectClicked(engine.isDraftProject(), [this, doOpen](bool ok) {
+        saveProjectClicked(engine.isDraftProject(), [this, doOpen, discardUpload](bool ok) {
             if (ok) {
                 engine.clearDirty();
                 doOpen();
-            }
+            } else discardUpload();
         });
     } else if (choice == 2) { // Don't Save, open anyway
         doOpen();
     } else { // Cancel
+        discardUpload();
         setStatus("Open cancelled.");
     }
 }

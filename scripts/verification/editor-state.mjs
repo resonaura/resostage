@@ -1142,6 +1142,52 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "cancelling a recent-project open must preserve the current project epoch");
     assert.equal(getRegion(cancelledOpen).name, "Transient before same-Core reopen",
       "cancelling a recent-project open must preserve unsaved project content");
+
+    const malformedProjectUpload = Buffer.from("not a ResoStage project container");
+    const postMalformedProjectUpload = async () => {
+      const response = await fetch(origin + "/api/v1/project/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/zip" },
+        body: malformedProjectUpload,
+        signal: AbortSignal.timeout(8000),
+      });
+      const responseBody = await response.text();
+      assert.ok(response.ok, `project upload admission: ${response.status} ${responseBody}`);
+    };
+    await postMalformedProjectUpload();
+    const uploadOpenPrompt = await waitFor((snapshot) => snapshot.openConfirmPending,
+      "browser project upload must ask before replacing unsaved content");
+    assert.equal(uploadOpenPrompt.projectEpoch, beforeSameCoreReopen.projectEpoch,
+      "browser upload must not replace the current project before a decision");
+    assert.equal(getRegion(uploadOpenPrompt).name, "Transient before same-Core reopen",
+      "browser upload prompt must preserve the current unsaved edit");
+    await request("/api/v1/project/open-decision", { index: 0 });
+    const cancelledUpload = await waitFor((snapshot) => !snapshot.openConfirmPending,
+      "cancel browser project upload");
+    assert.equal(cancelledUpload.projectEpoch, beforeSameCoreReopen.projectEpoch,
+      "cancelling a browser upload must keep the current project identity");
+    assert.equal(getRegion(cancelledUpload).name, "Transient before same-Core reopen",
+      "cancelling a browser upload must preserve all unsaved content");
+
+    await postMalformedProjectUpload();
+    const rejectedUploadPrompt = await waitFor((snapshot) => snapshot.openConfirmPending,
+      "second malformed upload must still use the guarded project-open path");
+    assert.equal(rejectedUploadPrompt.projectEpoch, beforeSameCoreReopen.projectEpoch);
+    await request("/api/v1/project/open-recent", { path: project });
+    const competingOpen = await waitFor((snapshot) => snapshot.openConfirmPending
+      && snapshot.statusMessage?.startsWith("Resolve the current project-open prompt"),
+    "a competing recent open must not retarget a pending upload confirmation");
+    assert.equal(competingOpen.projectEpoch, beforeSameCoreReopen.projectEpoch,
+      "a competing open must leave the current project unchanged while the upload decision is pending");
+    await request("/api/v1/project/open-decision", { index: 2 });
+    const rejectedUpload = await waitFor((snapshot) => !snapshot.openConfirmPending
+      && snapshot.statusMessage?.startsWith("Upload load failed:"),
+    "discarding unsaved edits then rejecting a malformed uploaded project");
+    assert.equal(rejectedUpload.projectEpoch, beforeSameCoreReopen.projectEpoch,
+      "a malformed upload must not replace the current project even after explicit discard");
+    assert.equal(getRegion(rejectedUpload).name, "Transient before same-Core reopen",
+      "failed uploaded-project parsing must retain the prior in-memory document");
+
     await request("/api/v1/project/open-recent", { path: project });
     const confirmedOpenPrompt = await waitFor((snapshot) => snapshot.openConfirmPending,
       "reopened recent-project prompt after cancellation");

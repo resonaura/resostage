@@ -53,6 +53,8 @@ public:
 
     bool loadProjectFromPath(const juce::File& file);
     void openRecentProjectFromPath(const std::string& path);
+    void openUploadedProjectFromIpc(const std::string& path);
+    void loadUploadedProjectFromPath(const std::string& path);
 
     // Settings > UI = "electron": spawn the Electron shell (electron/), which
     // becomes the on-screen window/menu bar/Touch Bar; the JUCE window backs
@@ -120,10 +122,11 @@ private:
     bool awaitingQuitDecision = false;
     std::function<void(bool)> pendingQuitDecision;
 
-    // Pending "open project requested from Finder/Explorer while current
-    // project is dirty" -- see openProjectFromIpc / handleOpenDecision.
+    // Pending project replacement while the current document is dirty -- see
+    // openProjectFromIpc, openUploadedProjectFromIpc and handleOpenDecision.
     bool awaitingOpenDecision = false;
     std::string pendingOpenPath;
+    bool pendingOpenIsUpload = false;
 
     std::function<void(bool)> pendingSaveAsCallback;
 

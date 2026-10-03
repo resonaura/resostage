@@ -70,9 +70,9 @@ export function QuitConfirmDialog({
   );
 }
 
-// A project was opened from Finder/Explorer while the current project has
-// unsaved changes -- MainComponent::openProjectFromIpc() is blocked waiting on
-// our answer (see WebUiState.openConfirmPending / WebCommandKind::OpenDecision).
+// A project was requested from the shell, Recent list, or browser upload while
+// the current project has unsaved changes -- Core waits for our answer (see
+// WebUiState.openConfirmPending / WebCommandKind::OpenDecision).
 // Mirror of QuitConfirmDialog with open-specific wording.
 export function OpenConfirmDialog({ state }: { state: WebUiState }) {
   return (

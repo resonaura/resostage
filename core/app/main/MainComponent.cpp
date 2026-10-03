@@ -434,6 +434,8 @@ void MainComponent::notifyCoreReady() {
 }
 
 MainComponent::~MainComponent() {
+    if (pendingOpenIsUpload)
+        std::remove(pendingOpenPath.c_str());
     closeAllPluginEditors();
     stopTimer();
     cancelAudioRender.store(true, std::memory_order_release);
@@ -444,6 +446,8 @@ MainComponent::~MainComponent() {
     terminateElectronShell();
     udpDiscovery.stop();
     for (const auto& command : deferredWebCommands) {
+        if (command.kind == WebCommandKind::LoadProjectFromPath)
+            std::remove(command.path.c_str());
         if (command.kind == WebCommandKind::BuilderTrackImportWavUpload) {
             std::remove(command.path.c_str());
             glz::generic payload;
