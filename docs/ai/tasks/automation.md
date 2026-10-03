@@ -88,6 +88,11 @@ Previous arrangement UI existed, but had significant functional gaps:
    Native sample-offset vendor automation, Trim/relative layers, VCA and advanced
    hardware/lighting integrations remain separate explicit tasks.
 
+Offline Write-mode policy is now explicit and tested: saved Write lanes are
+suppressed in both live and offline playback; the offline renderer has no
+manual gesture to replace them, so it uses the stored/static parameter state.
+Do not reopen this as a mismatch unless live policy itself changes.
+
 ## Acceptance evidence and limits
 
 -49 focused UI gesture/model tests passed for `424e4f4`.

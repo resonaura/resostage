@@ -610,7 +610,13 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
                 const auto applyAutomationLane = [&](const AutomationLane& lane,
                                                      double laneBeat,
                                                      uint32_t strip) {
-                    if (!lane.enabled || lane.muted || lane.points.empty())
+                    // Write is a live manual-override mode. Offline rendering
+                    // has no manual gesture to capture, and live playback
+                    // suppresses this lane while Write is armed, so exports
+                    // must use the stored/static value rather than applying a
+                    // curve that live playback intentionally ignores.
+                    if (!lane.enabled || lane.muted || lane.points.empty()
+                        || lane.writeMode == AutomationWriteMode::Write)
                         return;
                     const float value = AutomationEvaluator::evaluatePoints(
                         lane.points, laneBeat, lane.target.defaultValue);

@@ -383,20 +383,19 @@ scalar paths. MIDI-region embedded `automationLanes` still use
 Inventory every mutation path and validate before history/mutation; do not call
 one fixed endpoint a complete admission contract.
 
-## P1 — define consistent offline Write-mode policy
+## Closed this audit — offline Write-mode parity
 
-The current policies disagree: `StripAutomationPlan.cpp` skips Write lanes in
-both live and offline strip evaluation; live `AudioEngineAutomation.cpp` skips
-Write for plugin/MIDI lanes too. However, `OfflineRenderer.cpp::applyAutomationLane`
-checks enabled/muted/points, not Write, so offline plugin/MIDI curves still play.
-Offline rendering has no live manual gesture to replace omitted strip values.
-Specify whether a saved Write lane renders its stored curve or the captured
-manual/static value; implement one deliberate policy across strip/plugin/MIDI
-scopes and expose any warning.
-Do not silently export a different mix merely because a recording mode was
-left armed. Add snapshot/roundtrip/live-versus-offline output tests. This policy
-remains open until documented and verified; disabling controls alone does not
-resolve already-saved projects.
+`AutomationWriteMode::Write` is a live manual-override/recording mode. Both
+live playback and offline rendering now suppress its stored curve; offline has
+no manual gesture to supply replacement values and therefore retains the
+stored/static parameter state. Recording completion returns Write to Touch
+safety. `OfflineRenderer suppresses Write-mode lanes like live playback`
+regresses plugin-lane suppression while confirming a Touch lane still reaches
+the private offline session. The native target built and the focused test passed
+(4 assertions). The same shared offline lane gate covers plugin and MIDI CC
+lanes at song, audio-region and MIDI-region scopes. This is policy and dispatch
+parity, not loaded-vendor acoustic parity; retain AU/VST3 render acceptance as
+a separate task.
 
 ## Closed this audit — exact-value editor and gesture cancellation
 

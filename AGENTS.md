@@ -1004,6 +1004,14 @@ renderer/processor state, then records the second pass; do not replace it with
 post-summing an unbounded in-memory tail. Cancellation is cooperative at each
 bounded render block and must close and remove every partial output in the job.
 
+Automation lanes saved in `Write` mode are suppressed by both live and offline
+playback. Write is a live manual-override/recording mode; an offline render has
+no manual gesture to supply replacement values, so it uses the stored/static
+parameter state rather than replaying a curve that live playback intentionally
+ignores. Recording completion returns Write lanes to Touch safety. Keep this
+policy aligned across strip, plug-in, MIDI CC, and region automation so an armed
+or interrupted Write lane cannot make an export differ from live playback.
+
 Audio render requests can include `outputDirectory`: an existing writable
 absolute folder on the Core machine. The explicit empty string selects the
 standard project-adjacent/Documents Exports location; omitted fields keep

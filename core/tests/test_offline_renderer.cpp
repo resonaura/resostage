@@ -100,6 +100,32 @@ private:
     int* updates;
 };
 
+class AutomationCaptureSession final : public OfflineProcessorSession {
+public:
+    AutomationCaptureSession(int* writeCount, int* touchCount,
+                             float* lastTouchValue) noexcept
+        : writeCount(writeCount), touchCount(touchCount),
+          lastTouchValue(lastTouchValue) {}
+
+    MixProcessorView processorView() const noexcept override { return {}; }
+    void publishTransport(const OfflineProcessorTransport&) noexcept override {}
+    void setPluginParameterById(const std::string& slotId,
+                                std::string_view parameterId,
+                                float normalizedValue) noexcept override {
+        if (parameterId != "gain") return;
+        if (slotId == "slot-write") ++*writeCount;
+        if (slotId == "slot-touch") {
+            ++*touchCount;
+            *lastTouchValue = normalizedValue;
+        }
+    }
+
+private:
+    int* writeCount;
+    int* touchCount;
+    float* lastTouchValue;
+};
+
 class MidiCaptureSession final : public OfflineProcessorSession {
 public:
     struct Event { int64_t sample; uint8_t pitch; uint8_t velocity;
@@ -492,6 +518,61 @@ TEST_CASE("OfflineRenderer creates private processor sessions and runs their str
     CHECK(blocks > 0);
     CHECK(transportUpdates == blocks);
     CHECK(maxPcm24Amplitude(path) == doctest::Approx(0.0));
+
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
+}
+
+TEST_CASE("OfflineRenderer suppresses Write-mode lanes like live playback") {
+    Project project;
+    SongDef song;
+    song.id = "meta::song:1";
+    song.name = "Write safety";
+    song.endSeconds = 0.02;
+    const auto makeLane = [](const char* slotId, AutomationWriteMode writeMode,
+                             float value) {
+        AutomationLane lane;
+        lane.id = slotId;
+        lane.target.domain = AutomationDomain::Plugin;
+        lane.target.entityId = slotId;
+        lane.target.parameterId = "gain";
+        lane.target.defaultValue = 0.0f;
+        lane.target.minValue = 0.0f;
+        lane.target.maxValue = 1.0f;
+        lane.writeMode = writeMode;
+        lane.points.push_back({0.0, value, 0.0f});
+        return lane;
+    };
+    song.automationLanes.push_back(
+        makeLane("slot-write", AutomationWriteMode::Write, 0.25f));
+    song.automationLanes.push_back(
+        makeLane("slot-touch", AutomationWriteMode::Touch, 0.75f));
+    project.songs.push_back(std::move(song));
+
+    const auto path = temporaryWAVPath("-write-automation");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.targetKind = RenderTargetKind::Click;
+    request.outputPath = path.string();
+    request.sampleRate = 48000;
+
+    int writeCount = 0;
+    int touchCount = 0;
+    float lastTouchValue = 0.0f;
+    const OfflineRenderer::ProcessorFactory factory =
+        [&writeCount, &touchCount, &lastTouchValue](const Project&, const MixGraph&,
+                          double, int, std::string&)
+            -> std::unique_ptr<OfflineProcessorSession> {
+            return std::make_unique<AutomationCaptureSession>(
+                &writeCount, &touchCount, &lastTouchValue);
+        };
+    const auto result = OfflineRenderer{}.render(
+        project, {}, request, {}, nullptr, factory);
+
+    REQUIRE(result.ok);
+    CHECK(writeCount == 0);
+    CHECK(touchCount > 0);
+    CHECK(lastTouchValue == doctest::Approx(0.75f));
 
     std::error_code ignored;
     std::filesystem::remove(path, ignored);
