@@ -5,6 +5,110 @@ Updated 2026-10-02. Read [audit.md](audit.md), [handoff.md](handoff.md), complet
 
 ## Audit findings
 
+## Added requirements — 2026-10-03
+
+This section records the next automation/control work. It is not a claim that
+the items below are implemented. Preserve the existing lane API/history path
+unless the model audit demonstrates a required persisted-schema change.
+
+### Automation lanes and the actual controls
+
+- Automation playback must be visible on the relevant controls, not only as a
+  curve in the timeline: track/bus gain faders, pan controls, sends, and
+  supported hosted-plugin parameters should display the Core-evaluated value
+  for the exact strip/slot/parameter and active song. Timeline, Mixer,
+  Inspector, and plug-in UI must resolve the same stable target identity and
+  not retain a prior track's value after selection changes.
+- The displayed fader/knob position is an observation of the latest
+  authoritative value, not a new source of automation. Preserve an in-progress
+  manual gesture, Touch/Latch/Write ownership, safe return-to-automation
+  behavior, and command rejection. Never ease stale telemetry through a live
+  manual gesture or across song/project/Core epoch changes.
+- `+` adds one independent automation pseudo-track (one existing
+  `AutomationLane` entity) for the currently chosen target. Each pseudo-track
+  has its own target selector, enabled/mute/mode controls, curve and history;
+  selecting an option on that row rebinds that row, it does not select another
+  pseudo-track or silently create one. `+` is the only explicit creation
+  action. Different automation lanes can coexist for one strip.
+- Each pseudo-track has a left chevron and reduced-motion-aware expand/collapse
+  transition. Collapsed state must have a defined owner/persistence policy,
+  survive virtualized row remounts, and never desynchronize sidebar/body
+  heights, marquee hit testing, region gestures, or vertical zoom. The lane's
+  edit controls and visible envelope must share one row geometry.
+- Changing a pseudo-track's target detaches the old envelope and binds the new
+  one as a single reliable project-history operation. Keep the previous curve
+  in a bounded project-persisted cache keyed by full project/song/scope/domain/
+  entity/parameter identity. Returning to a cached target restores its curve;
+  an uncached target starts empty and displays its non-editable effective-value
+  baseline. Cache eviction, duplicate target bindings, deletion, undo/redo,
+  copied projects, missing plugin parameters, and schema migration must be
+  deterministic. The cache is project content (portable across computers),
+  not localStorage and not a UI-only draft. Reject before opening history if
+  size/point limits or target validation fail. A plugin slot or parameter ID
+  that later disappears must remain recoverable as detached data, not be
+  silently discarded.
+- Parameter choice must be validated against the current complete descriptor
+  table. Loading, failed, missing, truncated, and genuinely unbound metadata
+  remain different states. Plugin replacement or project epoch changes fence
+  late selector responses and drafts.
+- All rotary controls share an RMB context-menu affordance for Reset to
+  Default and (when safe) MIDI Learn. Reset uses the parameter's declared
+  default and normal reliable command path, including units, range, detent,
+  optimistic gesture cancellation and automation recording semantics. Do not
+  hard-code zero for plugin parameters.
+- MIDI Learn eligibility is explicit metadata on the control/action
+  catalogue, not inferred from being numeric. Eligible: continuous,
+  reversible, bounded controls such as gain, pan, send level and a plugin's
+  automatable continuous parameter. Exclude navigation, octave/transpose
+  commands, destructive/structural actions, and controls with unsafe discrete
+  side effects. Bind through the existing typed MIDI mapping flow; cancel,
+  conflict, device/channel changes, and unbind must be visible and tested.
+
+### MIDI controller-event overlays
+
+- Existing partial support to preserve: MidiRegionBlock already derives
+  bounded CC64 on/off intervals (including channel state and trimmed loop
+  source mapping), and Piano Roll's CC64 bottom-lane renderer draws a step
+  trace. The live MIDI-recording preview only publishes note rows; the
+  WLiveRecordingRegion wire DTO has no controller events, so pedal state is
+  absent while recording. Other switch-pedal controllers and a consistent
+  minimal overlay policy are not yet established.
+- Render MIDI controller events (including sustain CC64 and other pedals) as a
+  compact, non-obscuring overlay in both MIDI region previews and the Piano
+  Roll/controller lane. Use explicit on/off state transitions, preserve event
+  channel and source beat, and show a held span between state changes where a
+  range view is more legible. Handle an initial down event before the clip,
+  missing off events, loop source windows, trim/split, mute, take/record
+  previews, zoom, overlapping channels, and all supported controller numbers;
+  do not label arbitrary CC as Sustain.
+- The overlay is derived from persisted MIDI CC events and active recording
+  capture data. It must not invent notes or events, mutate playback, block note
+  selection/drawing, or add an unbounded per-frame scan. Pre-index or bound the
+  visible events and keep the preview consistent with MIDI export.
+- Apple documents CC64 as sustain, its switch off/on values, and that the Piano
+  Roll Automation/MIDI area can display region MIDI controller data; the Score
+  Editor can render sustain pedal markings from CC64. Treat the overlay here as
+  a compact DAW visualization, not as a claim that the Piano Roll uses Score
+  Editor symbols. Sources: [Control change events](https://support.apple.com/guide/logicpro/control-change-events-lgcp2158ecea/10.7/mac/11.0),
+  [Automation/MIDI area in Piano Roll](https://support.apple.com/guide/logicpro/automationmidi-area-in-the-piano-roll-editor-lgcpa90a61bf/mac),
+  [Sustain pedal markers](https://support.apple.com/en-lamr/guide/logicpro/lgcp85358d26/mac).
+
+### Acceptance for this addition
+
+- UI tests prove two independent pseudo-tracks can coexist, target switching
+  caches/restores exact curves, new targets start empty, and rapid target or
+  project changes cannot publish stale state. Native tests prove one atomic
+  history entry and exact undo/redo/save/reopen semantics for target swaps and
+  cache bounds/migration.
+- Browser/device inspection proves automated values reach matching Timeline,
+  Mixer, Inspector and plugin controls without jumping during manual gestures,
+  song switches, stale UDP, or remote Core changes. Reduced-motion and compact
+  vertical zoom preserve geometry.
+- MIDI overlay tests cover CC64 down/up, arbitrary CC, sustain state spanning
+  view/loop boundaries, split/trim, live recording preview and stable selection
+  gestures. No persistence or playback mutation is caused by merely showing it.
+
+
 Previous arrangement UI existed, but had significant functional gaps:
 - Raw buttons/selects, hardcoded write-mode colors, abrupt display transitions.
 - Sidebar added28 px without adding the same body lane height.

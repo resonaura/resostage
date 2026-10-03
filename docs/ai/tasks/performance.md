@@ -4,6 +4,96 @@ Status: current follow-up, 2026-10-02. Read [audit.md](audit.md) first. Earlier 
 work is implemented and preserved in [the power architecture](../../architecture/PLUGIN_POWER_MANAGEMENT.md)
 and [dated benchmark evidence](../../performance/PLUGIN_BASELINE.md).
 
+## Added requirements — 2026-10-03
+
+The following are open requirements, not verified features. Update this file
+after each implementation block with the exact source/test evidence and any
+unverified platform or acoustic scope.
+
+### Per-instance load, editor, and offline render readiness
+
+- Reproduce the writetest report from a private copy/read-only inspection:
+  several slots fail to load, then reopening one slot appears to reopen all.
+  Find whether this is shared bank generation, helper-per-chain restart, shared
+  host state restore, a UI loading snapshot, or an editor request side effect.
+  Opening/retrying one slot must affect only that chain/slot unless a real
+  shared process/session failure is detected. Do not kill/recreate healthy
+  helpers as the repair strategy.
+- Audit slot identity across track/bus/plugin reorder, duplicate slot IDs,
+  Undo/Redo, Save/Open, sample-rate change, project epoch and rapid repeated
+  retry. Late helper replies from an old generation must never publish as the
+  new slot. A failed/missing/loading instance must not be styled as active.
+- Offline rendering must not enter a track before its private vendor processor
+  has been constructed, prepared at the render sample rate/block size, marked
+  non-realtime before prepare, and restored from its exact saved state.
+  Establish explicit ready/failed/cancelled outcomes with a bounded deadline;
+  do not silently render startup silence while an instrument is still loading.
+  If readiness fails, stop publication and surface the slot-specific warning
+  or require an explicit continue-with-available decision. Live instances may
+  never be borrowed by the renderer.
+- Test multi-chain restore order, delayed instruments, effect tails, one broken
+  state blob, timeout, cancellation, project switch during load, and offline
+  processBlock notification semantics. Track render startup latency and ensure
+  a slow plugin cannot hold the UI or live callback.
+
+### Plugin UI and graph integration
+
+- Every plugin editor/slot needs an explicit On/Off (bypass) control and
+  per-plugin preset save/load. The command targets a stable project/slot ID,
+  carries the project epoch, and changes only the intended instance. Bypass
+  must be represented through the plugin-host ABI/process context as plugin
+  bypass (the vendor receives the appropriate bypass state); do not implement
+  it as track mute or destructive removal. Stale editor controls close or
+  rebind visibly when their slot is replaced.
+- Presets are per exact plug-in slot and portable project resources; define
+  whether the operation is project-slot state or a user preset-library state
+  before storing data. Validate identity, byte size, format and restore result;
+  atomic save, duplicate names, missing plugin, failed restore, undo, project
+  clone, and concurrent Save/Render all need explicit behavior. Never capture
+  vendor state on the audio callback.
+- Add real sidechain routing through track/bus source selection to a compatible
+  plugin auxiliary input bus, across project schema, graph construction,
+  plug-in host shared-memory ABI, AU/VST3 bus activation, offline render, save/
+  reopen and UI. Define mono/stereo channel mapping, feedback/cycle rejection,
+  latency/PDC, mute/solo, source deletion, duplicate sends, missing/disabled
+  plugin buses, bypass, hot edits during playback and sidechain-free legacy
+  project migration. Graph preparation and helper audio exchange remain bounded;
+  never allocate or wait in the callback. Sidechain data is a distinct signal
+  edge, not an ordinary post-summed insert input or a UI-only label.
+- The current Audio Flow graph is in Settings > Audio. Extend that same graph
+  so sidechain edges and plugin auxiliary-input endpoints are visible with a
+  distinct theme-aware line style and label. See [audio-flow.md](audio-flow.md)
+  for mixer bus graph buttons, focused/full-tree views and routing-layout
+  acceptance.
+
+### Shared peak/clip state and eased live values
+
+- The peak/clip latch is currently local to useChannelClipHold instances;
+  Timeline, Inspector and Mixer can therefore disagree for the same physical
+  strip. Make one bounded client-side live store keyed by stable strip ID and
+  Core session/project epoch, fed from authoritative meter telemetry. All
+  visible representations read the same held peak/clip state and reset event.
+- Reset is shared for the unique strip across Timeline, Inspector and Mixer;
+  define reset as clearing the UI peak/clip hold, not altering audio or
+  telemetry's raw sample window. If Core exposes a reset command, make ownership
+  and race semantics explicit; do not add per-view independent reset state.
+  On strip deletion, ID reuse after project replacement, Core reconnect, or
+  meter row reorder, old holds must not leak into another strip. Bus/main
+  meter identities follow the same rule where their controls share a display.
+- Faders and all continuously displayed automatable values should interpolate
+  smoothly between fresh authoritative telemetry samples. This is display
+  smoothing only: do not feed eased values back to Core, delay direct manual
+  response, alter audio coefficient smoothing, or animate through stale samples
+  and target changes. Pointer gesture values win until release/rejection; then
+  snap or ease to the latest accepted Core value. Respect reduced motion and
+  avoid a React rerender of whole strips per meter frame.
+- Test same-strip values and peak reset in Timeline/Inspector/Mixer simultaneously,
+  track switching with reused components, remote Core/session changes, delayed
+  and reordered telemetry, disconnected/stale telemetry, clipping on either
+  channel, and reset while audio remains hot. Verify stable output values and
+  frame cost with many strips; audio-meter needles keep their dedicated
+  ballistics rather than generic scalar easing.
+
 Earlier validation snapshots passed the Core build and focused/full regressions.
 The current audit passed UI 706/Electron 39; its first native run passed 563/566.
 An isolated AU rerun passed 67 assertions. Diagnose integrated failures and

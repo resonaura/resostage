@@ -479,3 +479,100 @@ protocol and does not automatically provide applied-command/duplicate protection
 Any future WS command channel must share the same single mutation/history queue,
 bounded admission, request identity, revision/epoch and acknowledgements as HTTP.
 Do not duplicate authority or introduce network/vendor work into audio.
+
+## New user requirements and continuation — 2026-10-03
+
+No implementation result is claimed for this new block until recorded below
+with fresh test evidence. The initial source audit and detailed requirements
+are in [audit.md](audit.md).
+
+### Complete requested scope
+
+- Automation must drive/indicate its actual faders/knobs consistently across
+  Timeline, Mixer, Inspector and plugin controls. Multiple independent
+  automation lanes become per-track foldable pseudo-tracks. The target selector
+  belongs to its lane; changing a lane's target detaches its current curve but
+  caches/restores curves by full target identity in portable project data.
+- All rotary controls get a common RMB menu for reset-to-declared-default and
+  safe MIDI Learn. Use explicit continuous/reversible action eligibility;
+  exclude structural/navigation/destructive operations such as octave changes.
+- Reproduce writetest plugin load/reopen coupling without modifying the recent
+  project. Opening/retrying one plugin must not reset unrelated healthy chains.
+  Offline render must wait for each private instrument/effect bank to be ready
+  before rendering its first relevant block, with bounded timeout/failure and
+  explicit user-visible outcomes.
+- Plugin editor controls need per-plugin bypass On/Off and per-slot preset
+  save/load. Add actual AU/VST3 sidechain auxiliary-bus routing in live and
+  offline paths, including channel mapping, PDC, feedback rejection, graph,
+  persistence and failure semantics.
+- Each mixer bus strip has an icon-only Audio Flow button immediately left of
+  Mute. The existing Settings > Audio graph opens focused on the bus and can
+  toggle to the full graph. Visual sidechain edges must reflect real audio.
+  Study route geometry architecture in /Users/resonaura/resopatch as read-only
+  inspiration; do not copy blindly or add an unchecked dependency.
+- Clip/peak hold and reset are shared per unique stable strip across Timeline,
+  Inspector and Mixer. Faders and other automatable value displays ease between
+  fresh telemetry samples only; no stale easing through a new target or active
+  gesture and no feedback into Core from display interpolation.
+- Active-song BPM and time signature become editable in the top timeline
+  header. Preserve tempo/signature point-map semantics and scope commands to
+  the active song/project epoch.
+- Recorded and persisted MIDI pedal/controller data is shown as a compact
+  region/Piano Roll overlay, covering sustain CC64 and arbitrary CC without
+  mislabeling, mutation, event loss, or note-selection interference.
+- Every requested item and edge case is detailed in automation.md,
+  performance.md and audio-flow.md. Keep those task files and this handoff
+  until all acceptance is verified.
+
+### Audit facts and first implementation priorities
+
+- Current AutomationTrackControls/AudioTrackLanes show only one selected
+  automation overlay per ordinary track row; target choice currently doubles
+  as lane selection/recovery rather than per-lane rebind.
+- Shared Knob only supplies double-click reset; no uniform context-menu/MIDI
+  learn boundary exists.
+- useChannelClipHold stores clip state inside each hook instance; Timeline's
+  MeterFader does not consume that latch.
+- Audio Flow exists in Settings > Audio, but Mixer has no bus-origin focus and
+  the current graph/project route model has no sidechain input edges.
+- Song BPM, base time signature, tempo/signature markers, and song update
+  routes already exist; the timeline header is the missing editing surface.
+- Real plugin report is unconfirmed: the code architecture specifies isolated
+  helpers and offline-private processors, but user-observed chain coupling and
+  offline startup silence still require reproduction/tests. Do not treat the
+  architecture document as a pass result.
+- Apple references for controller semantics and overlays are linked in
+  automation.md. CC64 is sustain; distinguish continuous/controller values
+  from switch-state thresholds. Apple Piano Roll region MIDI-data display is a
+  controller lane, while Score Editor pedal markings are a distinct notation
+  representation.
+
+### Execution and quality contract
+
+1. Keep each mutation block narrow, add a regression test that fails before the
+   fix, run focused and affected full tests, update docs with exact results,
+   then commit the finished block using an English imperative commit message.
+   Do not push.
+2. First stabilize source ownership and reproduction for plugin per-chain
+   loading/render readiness, shared live peak store/reset, and authoritative
+   automated control values. Then tackle pseudo-track/project cache schema and
+   history, followed by MIDI overlay/header, graph entry and sidechain.
+3. Read full AGENTS.md. Keep source headers, English comments, typed
+   boundaries, @ imports, tests in their owning tests folders, no UI-only
+   source of truth, and all code paths bounded. No waits/vendor calls/heap
+   growth in the device callback.
+4. Project target-cache changes require format migration/round-trip and one
+   atomic undo/redo transaction. No destructive edits to writetest or other
+   Recent projects; clone to a private temporary package before exercising it.
+5. Keep HTTP/TCP for reliable project/slot edits, latest-wins telemetry for
+   metering, and precise project/Core/playback epochs. Eased UI values never
+   become commands or engine state.
+6. Real saved-state AU/VST3 and hardware output proof is separate from unit
+   tests. Record vendor skips and machine/configuration; do not claim sound,
+   sidechain, plugin bypass or offline readiness from a mocked UI/synthetic
+   graph alone.
+
+Latest verified commit at the start of this continuation was
+`e13d512b Record integrated state audit verification`. The worktree was clean;
+no push was performed. This new documentation is the only current in-progress
+change until code/test work is recorded in the following dated subsections.

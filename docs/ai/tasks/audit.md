@@ -1071,3 +1071,93 @@ Undo/Redo, save/reopen, stale media ticket after project replacement, stale
 MIDI edit rejection without revision/entity mutation, and bounded HTTP 413.
 This block has not rerun the complete native/Electron suites and establishes no
 acoustic, vendor, sanitizer, hardware, or callback-deadline guarantee.
+
+## Added audit scope — 2026-10-03
+
+The request below is a new open work block. Keep this audit and
+[handoff.md](handoff.md) current after every separate commit. Detailed
+acceptance is split into [automation.md](automation.md),
+[performance.md](performance.md), and [audio-flow.md](audio-flow.md).
+
+### Confirmed implementation gaps from the initial source audit
+
+- Timeline automation currently has one selected lane overlay per track row.
+  AutomationTrackControls selects an existing lane/target in one selector; it
+  does not render one independent foldable pseudo-track row per lane or retain
+  a project-owned curve cache when rebinding a lane target.
+- Shared Knob has double-click reset but no common RMB menu/MIDI Learn policy.
+  MIDI learn's existing action catalogue must distinguish safe continuous
+  controls from dangerous structural/navigation operations.
+- useChannelClipHold stores its latch in each React hook instance. Mixer
+  components sharing a stable track ID can still own separate holds, and the
+  Timeline's MeterFader does not use the same latch store. This is a confirmed
+  ownership mismatch, not yet proof of the exact user's Inspector symptom.
+- Audio Flow already exists under Settings > Audio and reads Core's MixGraph,
+  with MIDI configuration shown as separate dotted routes. Mixer bus strips do
+  not yet open it focused on their bus. Current MixGraph edges do not encode
+  plugin sidechain/aux-input edges; true sidechain audio is not present in the
+  inspected project/schema path.
+- Active-song BPM and signature are present in Core song state and a
+  builder-song-update route exists, but the timeline header currently offers
+  no direct BPM/time-signature editor. Check signature-point semantics before
+  exposing a global meter edit: changing the song base meter must not rewrite
+  explicit later meter markers.
+- MIDI pedal visualization is partially implemented already: MidiRegionBlock
+  derives CC64 sustain intervals from persisted region events, and Piano Roll's
+  CC64 bottom-lane renderer draws a step trace. Do not duplicate or regress
+  those paths. Live recording preview telemetry currently publishes held and
+  completed notes only (WLiveRecordingRegion::midiNotes); it carries no CC/
+  pedal events, so the active-recording preview cannot show pedal state. Other
+  switch-pedal CCs also need an explicit display policy. Apple sources
+  distinguish CC64 state, Piano Roll controller data and Score Editor notation;
+  see automation.md.
+- Plug-in live helpers are per strip chain and offline processors are private.
+  The user-reported writetest multi-load/reopen coupling and render-before-ready
+  behavior are not yet reproduced against a private fixture. Existing
+  architectural prose is not evidence that these exact transitions are sound.
+
+### Required implementation sequence
+
+1. Add/fix regression fixtures for independent plugin-slot retry/editor open,
+   offline ready-before-first-block, shared strip clip-hold identity/reset, and
+   stale active-song/target state. Use a private copy or synthetic project;
+   never save into Recent project originals or operator settings.
+2. Make Core automation evaluation observable by stable target in compact
+   structural/telemetry data, then make all controls read the same live value
+   without treating UI easing as audio authority. Avoid a full-state JSON
+   rebuild at telemetry frequency and keep remote/local epoch handling.
+3. Implement independent foldable automation pseudo-tracks and target-change
+   cache only after defining a bounded portable schema/history transaction and
+   migration. A cache restore is a real project mutation, not a UI illusion.
+4. Introduce shared rotary context-menu/reset/MIDI-learn policy with an
+   explicit eligibility type/catalogue; retain each control's true default.
+5. Integrate MIDI CC/pedal overlays, project BPM/signature header editing, and
+   shared peak/clip state in independent tested blocks.
+6. Extend mixer entry to Audio Flow and design true plugin sidechain support
+   only after measuring graph and helper ABI constraints. Sidechain is not
+   complete when only its edge is visualized.
+7. For each block run focused tests, diff-check, relevant full suite, and
+   commit in English. Do not push. Update task docs with actual results.
+
+Plugin bypass control readiness, per-slot presets, AU/VST3 sidechain, and
+render/plugin state restore acceptance are documented in performance.md. The
+per-bus graph button, focused/full-tree view, route-layout strategy and
+visual/audio parity are detailed in audio-flow.md.
+
+### Evidence required before closure
+
+- Native project serialization/migration/history tests for target cache; undo
+  and redo must restore both active binding and dormant target curves exactly.
+- UI tests for two or more lanes, collapsed virtualization/remount, target
+  changes, current automated knob/fader values, MIDI Learn exclusions, global
+  clip-hold/reset, meter easing, CC overlay and BPM/meter editing.
+- Real Core active-playback and save/reopen tests; no extra graph rebuild or
+  healthy plugin restart for a parameter-only edit.
+- Real saved-state AU and VST3 live and offline runs recording ready timing,
+  per-chain restart counts, first audible block, deadline/underrun telemetry,
+  bypass correctness, preset restoration and sidechain-input signal. Synthetic
+  renderer output alone cannot establish these.
+- Graph focused/full-tree visual tests at dense route counts and live/offline
+  sidechain audio parity. No visual-only sidechain claim.
+- Full acceptance on hardware/platforms is still distinct from local compile
+  and unit tests. Clearly report skipped vendors/devices.
