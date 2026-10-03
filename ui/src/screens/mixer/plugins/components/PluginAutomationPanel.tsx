@@ -19,7 +19,14 @@ interface PluginParameter {
   label: string;
   defaultValue: number;
   steps: number;
+  automatable: boolean;
 }
+
+type PluginParameterCatalog = {
+  identity: string;
+  state: "idle" | "loading" | "loaded" | "missing" | "failed";
+  parameters: PluginParameter[];
+};
 
 /**
  * Parameter discovery and automation lane editing for one plug-in chain.
@@ -40,12 +47,27 @@ export function PluginAutomationPanel({
   valueIdentity: string;
 }) {
   const [automationSlotId, setAutomationSlotId] = useState("");
-  const [automationParameters, setAutomationParameters] = useState<PluginParameter[]>([]);
+  const [parameterCatalog, setParameterCatalog] = useState<PluginParameterCatalog>({
+    identity: "",
+    state: "idle",
+    parameters: [],
+  });
   const [automationParameterIndex, setAutomationParameterIndex] = useState<number | null>(null);
   const [automationSearch, setAutomationSearch] = useState("");
   const [automationError, setAutomationError] = useState("");
   const editGesture = useRef(createEditGesture()).current;
   const automationSlot = slots.find((slot) => slot.id === automationSlotId) ?? null;
+  const automationSlotIdentity = JSON.stringify([
+    valueIdentity,
+    automationSlot?.id ?? "",
+    automationSlot?.pluginId ?? "",
+    automationSlot?.loadState ?? "",
+  ]);
+  const automationSlotLoadState = automationSlot?.loadState ?? "";
+  const currentParameterCatalog = parameterCatalog.identity === automationSlotIdentity
+    ? parameterCatalog
+    : { identity: automationSlotIdentity, state: "loading" as const, parameters: [] };
+  const automationParameters = currentParameterCatalog.parameters;
 
   useEffect(() => {
     if (!slots.some((slot) => slot.id === automationSlotId))
@@ -53,30 +75,84 @@ export function PluginAutomationPanel({
   }, [automationSlotId, slots]);
 
   useEffect(() => {
-    if (!automationSlotId) {
-      setAutomationParameters([]);
+    if (!visible) return;
+    if (!automationSlotId || automationSlotLoadState !== "loaded") {
+      setParameterCatalog({
+        identity: automationSlotIdentity,
+        state: "idle",
+        parameters: [],
+      });
+      setAutomationParameterIndex(null);
       return;
     }
     let disposed = false;
     setAutomationError("");
-    void pluginChains.parameters(automationSlotId)
-      .then((response) => {
+    setParameterCatalog({
+      identity: automationSlotIdentity,
+      state: "loading",
+      parameters: [],
+    });
+    setAutomationParameterIndex(null);
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    async function loadParameters() {
+      try {
+        const response = await pluginChains.parameters(automationSlotId);
         if (disposed) return;
-        setAutomationParameters(response.parameters);
-        setAutomationParameterIndex((current) =>
-          current !== null && response.parameters.some((parameter) => parameter.index === current)
-            ? current
-            : response.parameters[0]?.index ?? null,
+        if (response.slotId !== automationSlotId) {
+          setParameterCatalog({
+            identity: automationSlotIdentity,
+            state: "failed",
+            parameters: [],
+          });
+          setAutomationError("Plug-in identity changed while reading parameters.");
+          return;
+        }
+        if (response.loadState === "loading") {
+          setParameterCatalog({
+            identity: automationSlotIdentity,
+            state: "loading",
+            parameters: [],
+          });
+          setAutomationError(response.loadError);
+          if (visible)
+            retryTimer = setTimeout(() => void loadParameters(), 250);
+          return;
+        }
+        if (response.loadState !== "loaded") {
+          setParameterCatalog({
+            identity: automationSlotIdentity,
+            state: response.loadState,
+            parameters: [],
+          });
+          setAutomationError(response.loadError);
+          return;
+        }
+        const automatableParameters = response.parameters.filter(
+          (parameter) => parameter.automatable === true,
         );
-      })
-      .catch((reason: unknown) => {
+        setParameterCatalog({
+          identity: automationSlotIdentity,
+          state: "loaded",
+          parameters: automatableParameters,
+        });
+        setAutomationParameterIndex(automatableParameters[0]?.index ?? null);
+      } catch (reason: unknown) {
         if (!disposed) {
-          setAutomationParameters([]);
+          setParameterCatalog({
+            identity: automationSlotIdentity,
+            state: "failed",
+            parameters: [],
+          });
           setAutomationError(reason instanceof Error ? reason.message : "Could not read plug-in parameters");
         }
-      });
-    return () => { disposed = true; };
-  }, [automationSlotId, automationSlot?.loadState]);
+      }
+    }
+    void loadParameters();
+    return () => {
+      disposed = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
+    };
+  }, [automationSlotId, automationSlotIdentity, automationSlotLoadState, visible]);
 
   const filteredAutomationParameters = automationParameters.filter((parameter) =>
     `${parameter.name} ${parameter.label}`.toLocaleLowerCase().includes(automationSearch.trim().toLocaleLowerCase()),
@@ -135,8 +211,12 @@ export function PluginAutomationPanel({
           className="h-9 rounded-lg border border-default/35 bg-surface px-3 text-xs outline-none focus:border-accent" />
         {automationSlot?.loadState !== "loaded" ? (
           <p className="text-xs text-foreground/45">Waiting for the isolated plug-in host to finish loading this plug-in…</p>
+        ) : currentParameterCatalog.state === "loading" ? (
+          <p className="text-xs text-foreground/45">Loading plug-in parameters…</p>
+        ) : currentParameterCatalog.state === "failed" || currentParameterCatalog.state === "missing" ? (
+          <p className="text-xs text-foreground/45">{automationError || "Could not read plug-in parameters."}</p>
         ) : automationParameters.length === 0 ? (
-          <p className="text-xs text-foreground/45">{automationError || "This plug-in exposes no automatable parameters."}</p>
+          <p className="text-xs text-foreground/45">This plug-in exposes no automatable parameters.</p>
         ) : (
           <div className="min-h-0 max-h-40 overflow-y-auto rounded-lg border border-default/25 bg-surface">
             {filteredAutomationParameters.map((parameter) => (

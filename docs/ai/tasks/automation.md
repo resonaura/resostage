@@ -156,10 +156,17 @@ rejects stale replies after a Core session/project epoch, plug-in-load
 generation, slot, plug-in, load-state or parameter change. The readout uses
 the shared eased display component. This is low-rate UI feedback, not
 sample-accurate plug-in automation telemetry and not a vendor-editor readout.
+The parameter catalog is also tied to the same identity: changing slots or
+project/plugin generations clears the prior descriptors immediately, late
+responses from the old identity are ignored, and only explicitly automatable
+parameters are offered for lane creation. Hidden panels do not request the
+catalog; a host response still marked loading is retried sequentially every
+250 ms only while the panel remains visible.
 Focused tests cover sequential polling, hidden/loading behavior, stale
-identity, unbound versus zero, and display; all six passed. Full UI passed 873
-tests across 135 files, and TypeScript, production build, changed-file lint
-and diff check passed.
+identity, unbound versus zero, display, descriptor capability filtering, and
+slot-switch races; all ten focused tests passed. Full UI passed 877 tests
+across 136 files, and TypeScript, production build, changed-file lint and diff
+check passed.
 
 Still open: end-to-end Touch/Latch/Write ownership on all surfaces; real
 AU/VST3 and remote-session visual/playback acceptance; and deciding whether

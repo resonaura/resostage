@@ -85,8 +85,12 @@ open.
   identity, plug-in-load generation, slot identity and parameter index. The
   value readout uses the shared eased display component; it is not a
   sample-accurate vendor editor display and does not prove real AU/VST3
-  behavior. Focused tests passed 6/6; full UI passed 873 tests / 135 files;
-  TypeScript, production build, changed-file lint and diff check passed.
+  behavior. The follow-up fences parameter descriptors to the active session,
+  project, plug-in-load generation, slot and plug-in, ignores late old-slot
+  replies, and offers only descriptors explicitly marked automatable. Catalog
+  discovery pauses while hidden and retries a loading host every 250 ms only
+  while visible. Focused tests passed 10/10; full UI passed 877 tests / 136
+  files; TypeScript, production build, changed-file lint and diff check passed.
 - Remaining: define and implement per-plugin preset save/load. Decide whether
   each operation changes a slot's project state or writes a user preset
   library before choosing persistence. Validate identity, byte size, format
@@ -151,7 +155,8 @@ open.
   manual/optimistic values as edit and Esc-cancel baselines. This uses existing
   JSON view state, not UDP meter frames, and never writes interpolated values
   back to Core. Automated send levels were added in the subsequent per-edge
-  block below. Hosted-plugin parameter value surfaces and device/remote
+  block below. The selected plug-in parameter has a low-rate value readout in
+  Plugin Automation, but broad per-control plug-in displays and device/remote
   acceptance remain open; do not report all automatable displays as complete.
 - Implemented 2026-10-03 follow-up: Timeline and Mixer numeric gain/pan labels
   now use the shared `EasedReadout` UI component. It writes text through one
@@ -356,6 +361,7 @@ or audio-callback work.
 Focused control-value tests passed 9/9; full UI passed 847 tests across 129
 files; UI TypeScript and production build passed; changed-file lint and
 `git diff --check` passed. This smooths painted fader/knob geometry only;
-numeric readout text is still updated at telemetry cadence, and Inspector or
-hosted plug-in parameter controls are not yet covered. No hardware or remote
-telemetry run was performed.
+numeric readout text is still updated at telemetry cadence. The selected
+plug-in parameter's normalized value is now shown in Plugin Automation, but
+Inspector-wide plug-in controls and hardware/remote telemetry acceptance are
+not covered here.

@@ -39,6 +39,18 @@ telemetry or proof against real AU/VST3 behavior. End-to-end Touch/Latch/Write,
 remote/vendor acceptance and any need for a dedicated high-rate value channel
 remain open.
 
+Follow-up regression hardening (2026-10-03): the parameter descriptor catalog
+is fenced by the same session/project/plugin-load/slot identity. When the user
+switches slots or a project/plugin generation changes, old descriptors are
+immediately hidden; a late response cannot select or poll an index on the new
+slot. Only descriptors with explicit `automatable=true` are offered for a
+lane. Discovery pauses while hidden and retries a loading host sequentially
+every 250 ms only while visible. An interaction regression covers an
+unresolved old catalog during a slot switch and a false-automatable descriptor.
+Focused tests passed 10/10; full UI passed 877 tests across 136 files;
+production build, targeted lint and diff check passed. Vendor/remote visual and
+audio behavior is still unverified.
+
 ### Latest continuation addendum — foldable automation lanes (2026-10-03)
 
 The Timeline now shows simultaneous independent track-scope automation lanes
