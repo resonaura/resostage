@@ -168,9 +168,10 @@ struct MixGraph {
     // its retirement lifetime. A callback must never traverse ProjectLoader.
     std::shared_ptr<const ProjectPlaybackSnapshot> playbackState;
     uint64_t contentRevision = 0;
-    // ProjectHistory generation represented by this successfully published
-    // graph. A transaction ACK must compare against this, not just history:
-    // snapshot preparation can fail while the last-good graph stays active.
+    // ProjectHistory generation within projectEpoch represented by this
+    // successfully published graph. A transaction ACK must compare both:
+    // history resets on project replacement, and snapshot preparation can
+    // fail while the last-good graph stays active.
     uint64_t projectHistoryRevision = 0;
     uint64_t trackLayoutRevision = 0;
 
@@ -211,6 +212,18 @@ struct MixGraph {
     // re-implementing the rule.
     bool anySoloIn(SoloGroup group) const;
 };
+
+// A history revision is only meaningful within the AudioEngine project epoch
+// that produced it. A previous project's graph can have a numerically newer
+// history revision after the new project's history is cleared.
+inline bool playbackGraphCoversProjectRevision(
+    const MixGraph* graph, uint64_t activeProjectEpoch,
+    uint64_t requiredHistoryRevision) noexcept {
+    return graph != nullptr
+        && graph->playbackState != nullptr
+        && graph->projectEpoch == activeProjectEpoch
+        && graph->projectHistoryRevision >= requiredHistoryRevision;
+}
 
 // Builds the whole graph from project data + the current device channel map.
 // Pure: same inputs, same graph, no allocation-free guarantees needed because

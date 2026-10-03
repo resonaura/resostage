@@ -115,8 +115,10 @@ Implemented in the current source block (not a hardware/acoustic proof):
 
 Snapshot-build failure now remains distinguishable from successful playback
 publication in exact editor results: `applied` means project history changed,
-while `playbackApplied` and `playbackRevision` confirm the immutable graph.
-The result is published with the same state frame; the renderer refreshes the
+while `playbackApplied`, `playbackProjectEpoch`, and `playbackRevision` confirm
+the immutable graph. ProjectHistory revision resets on project replacement,
+so a numerically larger previous-project graph cannot satisfy a new edit. The
+result is published with the same state frame; the renderer refreshes the
 authoritative project and rejects blind retry when audio still uses its
 last-good graph. This is explicit mismatch recovery, not transactional rollback:
 the stored project edit is not undone if snapshot preparation fails. Add a
@@ -196,7 +198,7 @@ Implemented in the current continuation block (2026-10-02):
   cleanliness or physical-platform coverage.
 
 Latest continuation verification (2026-10-02): UI TypeScript passed and the
-complete UI suite passed 744 tests across 108 files; production UI build passed;
+complete UI suite passed 745 tests across 108 files; production UI build passed;
 lint had zero errors and
 12 existing warnings. The optimized Core target built and `ctest --test-dir
 core/build --output-on-failure` passed 1/1 native targets, including a
@@ -209,8 +211,10 @@ Undo/Redo, import/stale edit/reopen, Core restart/session fencing with numeric
 request-ID reuse, and 413 cases. Focused UI tests confirm an
 expired exact result triggers one refetch, remains unknown and is not retried,
 and fire-and-forget command failures are surfaced in the shell without retry.
-This is state/protocol evidence, not audible continuity or vendor/hardware
-proof. No Electron suite was rerun.
+An additional UI regression rejects a playback acknowledgement whose
+AudioEngine epoch differs even when its reported history revision is larger
+than the edit. This is state/protocol evidence, not audible continuity or
+vendor/hardware proof. No Electron suite was rerun.
 
 Still open; do not call this full editor transactionality:
 

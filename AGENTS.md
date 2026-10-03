@@ -113,9 +113,12 @@ Audio- and MIDI-region add/update/remove, plus automation lane/point
 transactions, receive a request ID and a bounded 256-entry exact result in the
 resulting state snapshot. The result separates `applied` (project-history
 mutation) from `playbackApplied` (the immutable graph published for the same
-project epoch includes at least that history revision). State also exposes the
-epoch/revision represented by the last successfully published audio graph. If
-the graph snapshot cannot be prepared, Core retains the last-good graph,
+project epoch includes at least that history revision). The HTTP project epoch
+and AudioEngine playback epoch are independent identities; a graph history
+revision is comparable only within its playback epoch. State and exact results
+expose both playback epoch and revision, and Core requires the current
+AudioEngine epoch to match before confirming publication. If the graph snapshot
+cannot be prepared, Core retains the last-good graph,
 reports the project mutation separately, and tells the renderer not to resend
 it blindly; the renderer refreshes authoritative project state and surfaces
 the audio/project revision mismatch. This is detection and recovery guidance,

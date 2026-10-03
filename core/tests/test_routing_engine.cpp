@@ -93,6 +93,16 @@ TEST_CASE("RoutingEngine: a failed prepared snapshot cannot replace the last-goo
     CHECK(stillActive->playbackState == lastGood->playbackState);
 }
 
+TEST_CASE("Playback revision acknowledgements are fenced by the AudioEngine epoch") {
+    auto previousProjectGraph = std::make_shared<MixGraph>(*makeGraph(8));
+    previousProjectGraph->projectEpoch = 40;
+    previousProjectGraph->projectHistoryRevision = 500;
+
+    CHECK(playbackGraphCoversProjectRevision(previousProjectGraph.get(), 40, 3));
+    CHECK_FALSE(playbackGraphCoversProjectRevision(previousProjectGraph.get(), 41, 3));
+    CHECK_FALSE(playbackGraphCoversProjectRevision(previousProjectGraph.get(), 40, 501));
+}
+
 TEST_CASE("RoutingEngine: a reader's graph stays alive across later publishes") {
     RoutingEngine engine;
     engine.publish(makeGraph(7));

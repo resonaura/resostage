@@ -1082,7 +1082,9 @@ export interface WebUiState {
   projectEpoch?: number;
   /** Monotonic project/history mutation revision (not a transport clock). */
   stateRevision?: number;
-  /** Monotonic history revision represented by the last successfully published audio graph. */
+  /** AudioEngine epoch for the last successfully published playback graph. */
+  playbackProjectEpoch?: number;
+  /** History revision, within playbackProjectEpoch, represented by the last published audio graph. */
   playbackProjectRevision?: number;
   /** Reliable Undo/Redo request last applied to this published snapshot. */
   lastHistoryRequestId?: number;
@@ -1102,6 +1104,8 @@ export interface WebUiState {
     error: string;
     /** False when the edit is in project history but audio keeps its last-good graph. */
     playbackApplied?: boolean;
+    /** AudioEngine epoch; intentionally distinct from the UI project epoch. */
+    playbackProjectEpoch?: number;
     playbackRevision?: number;
   }>;
   /** All views receive loading status, including remote controllers. */

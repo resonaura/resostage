@@ -335,6 +335,7 @@ struct WebUiState {
         uint64_t projectRevision = 0;
         std::string error;
         bool playbackApplied = false;
+        uint64_t playbackProjectEpoch = 0;
         uint64_t playbackRevision = 0;
     };
 
@@ -520,6 +521,7 @@ struct WebUiState {
     std::string stateSessionId;
     uint64_t projectEpoch = 0;
     uint64_t stateRevision = 0;
+    uint64_t playbackProjectEpoch = 0;
     uint64_t playbackProjectRevision = 0;
     uint64_t lastHistoryRequestId = 0;
     std::vector<HistoryResult> historyResults;

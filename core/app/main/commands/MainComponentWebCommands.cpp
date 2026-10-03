@@ -574,11 +574,15 @@ void MainComponent::drainWebCommands() {
             const uint64_t revisionAfter = engine.projectHistoryRevision();
             const bool applied = revisionAfter != revisionBefore;
             std::string error;
+            uint64_t playbackProjectEpoch = 0;
             uint64_t playbackRevision = 0;
             bool playbackApplied = false;
             if (const auto graph = engine.mixGraph()) {
+                playbackProjectEpoch = graph->projectEpoch;
                 playbackRevision = graph->projectHistoryRevision;
-                playbackApplied = playbackRevision >= revisionAfter;
+                playbackApplied = playbackGraphCoversProjectRevision(
+                    graph.get(), engine.currentProjectEpoch(),
+                    revisionAfter);
             }
             if (!applied) {
                 error = "Project edit did not create a new revision";
@@ -592,7 +596,8 @@ void MainComponent::drainWebCommands() {
             }
             editorCommandResults_.push_back({cmd.editorRequestId, applied, projectEpoch_,
                                              revisionAfter, std::move(error),
-                                             playbackApplied, playbackRevision});
+                                             playbackApplied, playbackProjectEpoch,
+                                             playbackRevision});
             while (editorCommandResults_.size() > 256)
                 editorCommandResults_.pop_front();
             publishWebState();

@@ -305,9 +305,11 @@ async function sendReliableSerialized(
           || result.projectRevision > snapshot.stateRevision!)
           throw new Error("Core returned an inconsistent editor-command revision");
         if (result.playbackApplied === true
-          && (!Number.isSafeInteger(result.playbackRevision)
+          && (!Number.isSafeInteger(result.playbackProjectEpoch)
+            || result.playbackProjectEpoch !== snapshot.playbackProjectEpoch
+            || !Number.isSafeInteger(result.playbackRevision)
             || result.playbackRevision! < result.projectRevision))
-          throw new Error("Core returned an inconsistent playback-snapshot revision");
+          throw new Error("Core returned an inconsistent playback-snapshot identity or revision");
         if (result.playbackApplied === false
           || (Number.isSafeInteger(snapshot.playbackProjectRevision)
             && snapshot.playbackProjectRevision! < result.projectRevision)) {

@@ -125,6 +125,9 @@
 
     std::string redoTimelineLabel() const { return projectHistory.redoLabel(); }
     uint64_t projectHistoryRevision() const noexcept { return projectHistory.revision(); }
+    uint64_t currentProjectEpoch() const noexcept {
+        return projectEpoch.load(std::memory_order_acquire);
+    }
 
     // Applies the popped project step and reconciles stable runtime focus,
     // prepared sources, tempo/click, and routing before releasing the callback.

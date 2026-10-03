@@ -20,6 +20,8 @@ explicit:
 - HTTP admission is not application.
 - Project-history mutation is distinct from proof that the matching immutable
   audio playback snapshot was prepared and published (`playbackApplied`).
+  Compare graph history revision only within its AudioEngine project epoch;
+  the UI project epoch is a distinct identity namespace.
 - A last-good audio graph must remain safe if snapshot preparation fails, while
   the exact originating edit receives a rejection/recovery result. Native tests
   now reject an oversized snapshot and prove `RoutingEngine` will not replace
@@ -145,23 +147,24 @@ and transport advancement, not audible manual-control ownership or vendor DSP.
   carried through media import tickets. Exact request outcomes cover song,
   track, bus, event, section and cycle structural edits; audio/MIDI region CRUD;
   automation lane/point edits and a recorded automation gesture. Each result
-  reports the monotonic playback graph revision separately from the mutation
-  revision. On a graph-preparation failure the UI refreshes project state and
+  reports playback graph epoch/revision separately from the mutation revision.
+  On a graph-preparation failure the UI refreshes project state and
   refuses blind retry, while Core retains the last-good graph. This is not
   rollback: project history may be ahead of audio until a later successful
   publication. Verification on 2026-10-02: UI TypeScript passed; full UI Vitest
-  passed 744 tests/108 files; production UI build passed; lint had zero errors
+  passed 745 tests/108 files; production UI build passed; lint had zero errors
   and 12 existing warnings;
   optimized Core target and native `ctest` passed; real-Core
   `editor-state.mjs` passed audio/MIDI region CRUD, structural cycle/section/
   event/bus/song edits, concurrent exact ACKs, 257-edit result-ring eviction,
-  playback-revision checks, active-playback Undo/Redo, stale upload/edit,
+  playback epoch/revision checks, active-playback Undo/Redo, stale upload/edit,
   stale destructive New Project rejection, Core-session rejection after
   restart with request-ID reuse, 413, and save/reopen. Native `ctest` also
   verifies bounded snapshot rejection cannot replace the last-good routing
-  publication. Focused UI tests prove an expired result triggers one refetch, stays unknown and is not
-  resent, and fire-and-forget rejection is surfaced without retry. No full
-  Electron run, acoustic/vendor proof, AudioEngine-level injected snapshot
+  publication. Focused UI tests prove an expired result triggers one refetch,
+  stays unknown and is not resent, rejects an apparently newer revision from
+  the wrong playback epoch, and surfaces fire-and-forget rejection without
+  retry. No full Electron run, acoustic/vendor proof, AudioEngine-level injected snapshot
   failure, HTTP/deferred queue-saturation stress, or callback-deadline evidence
   in this block. Exact result coverage remains incomplete; see [audit.md](audit.md).
 

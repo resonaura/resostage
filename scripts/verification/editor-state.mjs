@@ -107,6 +107,8 @@ export async function verifyEditorState(coreExecutable, inspect) {
         `${path} must publish its project revision for audio: ${JSON.stringify(result)}`);
       assert.ok(result.playbackRevision >= result.projectRevision,
         `${path} audio graph revision must include the edit`);
+      assert.equal(result.playbackProjectEpoch, state.playbackProjectEpoch,
+        `${path} graph epoch must match the exact result`);
       assert.ok(state.playbackProjectRevision >= result.projectRevision,
         `${path} state must expose an audio graph at least as new as the edit`);
     }

@@ -57,10 +57,11 @@ describe("project-scoped command identity", () => {
         stateSessionId: "Core A",
         projectEpoch: 12,
         stateRevision: 88,
+        playbackProjectEpoch: 6,
         playbackProjectRevision: 88,
         editorCommandResults: [{
           requestId: 41, applied: true, projectEpoch: 12, projectRevision: 88, error: "",
-          playbackApplied: true, playbackRevision: 88,
+          playbackApplied: true, playbackProjectEpoch: 6, playbackRevision: 88,
         }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
@@ -90,11 +91,12 @@ describe("project-scoped command identity", () => {
         stateSessionId: "Core A",
         projectEpoch: 12,
         stateRevision: 89,
+        playbackProjectEpoch: 6,
         playbackProjectRevision: 88,
         editorCommandResults: [{
           requestId, applied: true, projectEpoch: 12, projectRevision: 89,
           error: "Project edit was stored, but its audio snapshot could not be published",
-          playbackApplied: false, playbackRevision: 88,
+          playbackApplied: false, playbackProjectEpoch: 6, playbackRevision: 88,
         }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
@@ -108,6 +110,32 @@ describe("project-scoped command identity", () => {
 
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(applySnapshot).toHaveBeenCalledWith(expect.objectContaining({ stateRevision: 89 }));
+  });
+
+  it("rejects a playback ACK from a different AudioEngine project epoch", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/api/v1/builder/midi-region/update"))
+        return new Response(JSON.stringify({
+          accepted: true, requestId: 43, stateSessionId: "Core A", projectEpoch: 12,
+        }), { status: 202, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({
+        stateSessionId: "Core A",
+        projectEpoch: 12,
+        stateRevision: 90,
+        playbackProjectEpoch: 7,
+        playbackProjectRevision: 900,
+        editorCommandResults: [{
+          requestId: 43, applied: true, projectEpoch: 12, projectRevision: 90, error: "",
+          playbackApplied: true, playbackProjectEpoch: 6, playbackRevision: 900,
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 12 });
+
+    await expect(postReliable("/api/v1/builder/midi-region/update", {
+      songIndex: 0, regionId: "r", name: "Old graph has a larger revision",
+    })).rejects.toThrow(/inconsistent playback-snapshot identity/);
   });
 
   it("keeps an evicted exact result unresolved and never resends the accepted edit", async () => {

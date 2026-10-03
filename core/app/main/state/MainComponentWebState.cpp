@@ -200,7 +200,10 @@ void MainComponent::publishWebState() {
     state.redoLabel = engine.redoTimelineLabel();
     state.projectEpoch = projectEpoch_;
     state.stateRevision = engine.projectHistoryRevision();
+    state.playbackProjectEpoch = 0;
+    state.playbackProjectRevision = 0;
     if (const auto graph = engine.mixGraph()) {
+        state.playbackProjectEpoch = graph->projectEpoch;
         state.playbackProjectRevision = graph->projectHistoryRevision;
     }
     state.lastHistoryRequestId = lastHistoryRequestId_;
