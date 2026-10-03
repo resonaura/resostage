@@ -1012,6 +1012,13 @@ ignores. Recording completion returns Write lanes to Touch safety. Keep this
 policy aligned across strip, plug-in, MIDI CC, and region automation so an armed
 or interrupted Write lane cannot make an export differ from live playback.
 
+Punching a recorded automation interval preserves the original envelope before
+the punch exactly at the boundary value and after the punch within `1e-4` target
+units. A curved segment cut by punch-out is adaptively linearized with a hard
+4,096 generated-boundary-point limit and the complete lane remains capped at
+65,536 points. If those limits cannot preserve the boundary, reject the gesture
+before opening history or mutating the lane. Keep Undo as one coherent gesture.
+
 Audio render requests can include `outputDirectory`: an existing writable
 absolute folder on the Core machine. The explicit empty string selects the
 standard project-adjacent/Documents Exports location; omitted fields keep

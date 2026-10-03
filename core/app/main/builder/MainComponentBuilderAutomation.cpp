@@ -439,11 +439,17 @@ void MainComponent::builderAutomationRecordGesture(const std::string& json) {
         return;
     }
 
+    AutomationLane updatedLane = *lanePtr;
+    if (!AutomationRecorder::punchPointsIntoLane(
+            updatedLane, thinned, gesture.punchInBeats, rampEndBeats)) {
+        setStatus("Could not record automation: preserving the surrounding curve exceeds its safe point budget");
+        return;
+    }
+
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Record automation gesture");
-
-    AutomationRecorder::punchPointsIntoLane(*lanePtr, thinned, gesture.punchInBeats, rampEndBeats);
+    lanePtr->points = std::move(updatedLane.points);
 
     // Write mode automatically returns to touch safety to prevent unintentional overwriting
     if (lanePtr->writeMode == AutomationWriteMode::Write) {

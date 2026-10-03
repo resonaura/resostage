@@ -443,6 +443,54 @@ TEST_CASE("AutomationRecorder: Touch, Latch, and punch-out return ramp") {
     }
 }
 
+TEST_CASE("AutomationRecorder preserves the envelope outside linear and curved punch windows") {
+    AutomationLane linear;
+    linear.points = {{0.0, -1.0f, 0.0f}, {10.0, 1.0f, 0.0f},
+                     {20.0, 0.25f, 0.0f}};
+    const auto originalLinear = linear.points;
+    const std::vector<AutomationPoint> pass{{2.0, 0.8f, 0.0f},
+                                             {4.0, 0.2f, 0.0f},
+                                             {6.0, 0.7f, 0.0f}};
+    REQUIRE(AutomationRecorder::punchPointsIntoLane(linear, pass, 2.0, 6.0));
+    for (const double beat : {0.0, 0.5, 1.0, 1.5, 1.999, 6.001, 7.0, 8.0, 9.5, 10.0, 15.0})
+        CHECK(AutomationEvaluator::evaluatePoints(linear.points, beat)
+              == doctest::Approx(AutomationEvaluator::evaluatePoints(originalLinear, beat))
+                     .epsilon(1.0e-6));
+
+    for (const float sourceCurve : {-0.7f, 0.8f}) {
+        AutomationLane curved;
+        curved.points = {{0.0, -0.75f, sourceCurve}, {10.0, 0.9f, 0.45f},
+                         {20.0, -0.2f, 0.0f}};
+        const auto originalCurved = curved.points;
+        REQUIRE(AutomationRecorder::punchPointsIntoLane(curved, pass, 2.0, 6.0));
+        for (int sample = 0; sample <= 2000; ++sample) {
+            const double beat = static_cast<double>(sample) / 100.0;
+            if (beat >= 2.0 && beat <= 6.0) continue;
+            const float before = AutomationEvaluator::evaluatePoints(originalCurved, beat);
+            const float after = AutomationEvaluator::evaluatePoints(curved.points, beat);
+            CHECK(std::abs(static_cast<double>(after - before))
+                  <= AutomationRecorder::kBoundaryPreservationTolerance + 2.0e-6);
+        }
+        CHECK(curved.points.size() > originalCurved.size() + pass.size());
+    }
+}
+
+TEST_CASE("AutomationRecorder rejects an over-budget preserved punch without mutation") {
+    AutomationLane lane;
+    lane.points = {{0.0, -1.0f, -1.0f}, {10.0, 1.0f, 0.0f}};
+    const auto original = lane.points;
+    const std::vector<AutomationPoint> pass{{2.0, 0.5f, 0.0f},
+                                             {6.0, 0.5f, 0.0f}};
+
+    CHECK_FALSE(AutomationRecorder::punchPointsIntoLane(lane, pass, 2.0, 6.0, 3));
+    REQUIRE(lane.points.size() == original.size());
+    for (size_t index = 0; index < original.size(); ++index) {
+        CHECK(lane.points[index].timeBeats == original[index].timeBeats);
+        CHECK(lane.points[index].value == original[index].value);
+        CHECK(lane.points[index].curve == original[index].curve);
+    }
+}
+
 TEST_CASE("ProjectJson: Lossless roundtrip of AutomationLanes") {
     Project original;
     original.name = "Automation Test Project";

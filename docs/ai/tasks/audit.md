@@ -319,13 +319,18 @@ release ramps, sustained Latch, Stop/seek/cycle, multiple controls, rejection,
 same-ID reopen, Undo/Redo branch and save/reopen. Include failed/removed vendor
 parameters and do not call packet collection alone live recording acceptance.
 
-Preserve unrelated automation outside the punch window. The audit found
-`core/engine/automation/AutomationRecorder.cpp` replaces in-window points and
-adds endpoints without preserving the interpolated shape of a segment that
-spans a boundary. Add before/after envelope-evaluation tests for linear and
-curved segments on both sides. If the stored curve representation cannot
-exactly split a segment, document a bounded error-tolerance/resampling policy;
-do not silently change neighboring playback outside the user's recorded pass.
+## Closed this audit — preserve automation outside recorded punches
+
+`AutomationRecorder::punchPointsIntoLane()` now seeds a boundary point from the
+original envelope, retains the exact pre-punch segment, and adaptively samples a
+curved post-punch segment so the unchanged envelope remains within `1e-4`
+target units. Resampling is capped at 4,096 generated boundary points and the
+complete lane at 65,536 points. A request exceeding those limits is rejected
+before history opens; the lane remains unchanged. Native tests compare 2,001
+positions across both sides of linear/curved punch windows and verify that an
+over-budget operation is atomic. The source lane's curve representation cannot
+encode an exact arbitrary subsegment after a curved cut, so the documented
+bounded approximation is deliberate.
 
 ## Closed this audit — new stable send automation identity and exact aux edges
 

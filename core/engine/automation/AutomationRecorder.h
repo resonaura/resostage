@@ -9,6 +9,7 @@
 #include "RamerDouglasPeucker.h"
 #include "project/ProjectSchema.h"
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,10 @@ namespace resostage {
  */
 class AutomationRecorder {
 public:
+    static constexpr size_t kMaximumLanePoints = 65'536;
+    static constexpr size_t kMaximumBoundaryPreservationPoints = 4'096;
+    static constexpr double kBoundaryPreservationTolerance = 1.0e-4;
+
     enum class State : uint8_t {
         Idle = 0,
         Recording = 1,
@@ -76,14 +81,16 @@ public:
         double rdpTolerance = 0.002);
 
     /**
-     * Surgically punches a new series of points into an existing lane, replacing
-     * all points in [rangeStartBeats, rangeEndBeats] and keeping the lane strictly sorted.
+     * Replaces one lane interval while preserving its outside envelope. Curved
+     * post-punch boundary segments are adaptively linearized to the declared
+     * tolerance and bounded point budget. Failure leaves the lane unchanged.
      */
-    static void punchPointsIntoLane(
+    static bool punchPointsIntoLane(
         AutomationLane& lane,
         const std::vector<AutomationPoint>& punchedPoints,
         double rangeStartBeats,
-        double rangeEndBeats);
+        double rangeEndBeats,
+        size_t maximumLanePoints = kMaximumLanePoints);
 };
 
 } // namespace resostage

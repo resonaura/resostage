@@ -92,6 +92,7 @@ in scope after this transaction boundary is trustworthy.
 - `1577c11`: Scaled automation overlay and track controls for compact lane heights (<= 32px), omitted curve handles, scaled breakpoint nodes, and added reduced-motion transitions.
 - `c60cc68`: Added native test in `test_plugin_performance.cpp` for dynamic PDC changed-latency refill continuity and zero allocations during active audio rendering.
 - `e3a4da2`: Suppressed automation playback during Write mode across Strip, Plugin, and MIDI domains so manual fader gestures write without competing against existing points.
+- `d270742`: Aligned offline plugin/MIDI automation with live Write-mode suppression; focused native regression confirms Touch still writes to the offline session.
 - `54f083e`: Normalized UDP telemetry acronym identifiers across server headers and implementations (`kUDPTelemetryPort`, `RemoteUDPSubscriber`, `WSubscribeUDPPayload`, `lastUDPSendTimeSec_`).
 - `2683dc2`: Added manual-gesture/session helpers and fader/knob callback support,
   with TimelineSidebar wiring, final gesture requests, return-ramp helpers and
