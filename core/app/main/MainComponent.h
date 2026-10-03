@@ -52,6 +52,7 @@ public:
     void confirmQuitIfUnsaved(std::function<void(bool)> onDecision = nullptr);
 
     bool loadProjectFromPath(const juce::File& file);
+    void openRecentProjectFromPath(const std::string& path);
 
     // Settings > UI = "electron": spawn the Electron shell (electron/), which
     // becomes the on-screen window/menu bar/Touch Bar; the JUCE window backs

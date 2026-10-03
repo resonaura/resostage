@@ -102,11 +102,10 @@ void MainComponent::performAction(const std::string& action) {
     }
     else if (action.rfind("open_recent:", 0) == 0) {
         const std::string path = action.substr(std::string("open_recent:").size());
-        if (!loadProjectFromPath(juce::File(path))) {
-            // Stale entry -- the file moved/was deleted since it was recorded.
-            removeRecentProject(appSettings.recentProjects, path);
-            saveAppSettingsToDisk();
-        }
+        // Native Electron Recent menu and renderer Recent list share the same
+        // unsaved-change gate. Only a genuinely missing path is pruned; an
+        // existing but invalid project remains available for recovery.
+        openRecentProjectFromPath(path);
     }
     else if (action.rfind("open_path:", 0) == 0) {
         const std::string path = action.substr(std::string("open_path:").size());

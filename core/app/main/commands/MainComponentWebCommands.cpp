@@ -389,14 +389,7 @@ void MainComponent::drainWebCommands() {
                 // Reuse the same unsaved-change gate as Finder/Explorer opens.
                 // A recent-project click must not silently discard in-memory
                 // edits just because it originated inside the renderer.
-                if (!juce::File(cmd.path).exists()) {
-                    removeRecentProject(appSettings.recentProjects, cmd.path);
-                    saveAppSettingsToDisk();
-                    setStatus("Project not found: " + juce::String(cmd.path));
-                    publishWebState();
-                    break;
-                }
-                openProjectFromIpc(cmd.path);
+                openRecentProjectFromPath(cmd.path);
                 break;
             }
             case WebCommandKind::ClearRecentProjects:

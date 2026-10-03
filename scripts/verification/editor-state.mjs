@@ -1108,6 +1108,11 @@ export async function verifyEditorState(coreExecutable, inspect) {
     const persistedRegionName = JSON.parse(readFileSync(metadataPath, "utf8"))
       .songs[0].midiRegions.find((region) => region.id === regionId)?.name;
     assert.ok(persistedRegionName, "same-Core reopen fixture must have a saved MIDI region");
+    const competingProject = join(temp, "Competing Project.rsnraset");
+    mkdirSync(competingProject);
+    const competingMetadata = JSON.parse(readFileSync(metadataPath, "utf8"));
+    competingMetadata.name = "Competing Project";
+    writeFileSync(join(competingProject, "project.rsnrasetmeta"), JSON.stringify(competingMetadata));
     const beforeSameCoreReopen = await request("/api/v1/state");
     commandState = beforeSameCoreReopen;
     const lateAcceptedEdit = await request("/api/v1/builder/midi-region/update", {
@@ -1122,6 +1127,14 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "the current project must remain authoritative until the user resolves the open prompt");
     assert.equal(getRegion(openPrompt).name, "Transient before same-Core reopen",
       "opening Recent must keep the unsaved in-memory edit visible while prompting");
+    await request("/api/v1/project/open-recent", { path: competingProject });
+    const stillPendingOpen = await waitFor((snapshot) => snapshot.openConfirmPending
+      && snapshot.statusMessage?.includes("Resolve the current project-open prompt"),
+    "a competing open request must be reported without replacing the pending target");
+    assert.equal(stillPendingOpen.projectEpoch, beforeSameCoreReopen.projectEpoch,
+      "a second open request must not replace the document while the first confirmation is pending");
+    assert.equal(getRegion(stillPendingOpen).name, "Transient before same-Core reopen",
+      "a second open request must preserve all current unsaved content");
     await request("/api/v1/project/open-decision", { index: 0 });
     const cancelledOpen = await waitFor((snapshot) => !snapshot.openConfirmPending,
       "cancel recent-project open");
@@ -1140,6 +1153,8 @@ export async function verifyEditorState(coreExecutable, inspect) {
     "same-Core reopen of the same package with stable entity IDs");
     assert.equal(reloadedState.stateSessionId, beforeSameCoreReopen.stateSessionId,
       "same-Core document reopen must keep the Core session identity");
+    assert.equal(reloadedState.projectName, "Fixture",
+      "resolving the first prompt must open its original target, not a later competing request");
     const lateResult = reloadedState.editorCommandResults?.find(
       (result) => result.requestId === lateAcceptedEdit.requestId,
     );

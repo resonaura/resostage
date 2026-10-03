@@ -24,7 +24,24 @@
 
 namespace resostage {
 
+void MainComponent::openRecentProjectFromPath(const std::string& path) {
+    if (!juce::File(path).exists()) {
+        removeRecentProject(appSettings.recentProjects, path);
+        saveAppSettingsToDisk();
+        setStatus("Project not found: " + juce::String(path));
+        publishWebState();
+        return;
+    }
+    openProjectFromIpc(path);
+}
+
 void MainComponent::openProjectFromIpc(const std::string& path) {
+    if (engine.isBusy()) {
+        setStatus("Project operation in progress; retry opening after it finishes");
+        publishWebState();
+        return;
+    }
+
     // path may be .rsnrasetmeta file or .rsnraset folder/package
     juce::File f(path);
     if (!f.exists()) {
@@ -46,7 +63,15 @@ void MainComponent::openProjectFromIpc(const std::string& path) {
     // Save/Cancel prompt as quitting). Await the answer before loading so we
     // don't silently discard work by opening the external project.
     if (engine.hasUnsavedChanges()) {
-        if (awaitingOpenDecision) return; // already prompting
+        if (awaitingOpenDecision) {
+            // Keep the first destination bound to the visible confirmation.
+            // Silently replacing it would make the user's answer apply to a
+            // different request than the one they saw; silently ignoring it
+            // gives no feedback when two open requests arrive close together.
+            setStatus("Resolve the current project-open prompt before opening another project");
+            publishWebState();
+            return;
+        }
         awaitingOpenDecision = true;
         pendingOpenPath = path;
         publishWebState();

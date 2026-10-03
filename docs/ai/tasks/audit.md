@@ -1,6 +1,6 @@
 # Post-completion audit and continuation contract
 
-Updated 2026-10-02. Start here, then read the complete `AGENTS.md` and inspect
+Updated 2026-10-03. Start here, then read the complete `AGENTS.md` and inspect
 `git status`/recent commits. This audit supersedes completion claims in older
 task snapshots. Do not repeat finished implementation or overwrite concurrent
 work. Commit each verified block in English; do not push.
@@ -363,22 +363,29 @@ the UI may claim host completion.
 
 ## Closed this audit — guard unsaved state for Recent and file-picker opens
 
-Web Recent-project opens and native file-picker selections previously called
-the direct loader, bypassing the existing unsaved-change confirmation used by
-Finder/Explorer opens. Both now route through `openProjectFromIpc`; Recent only
-removes a history entry when its path no longer exists. The project epoch and
-current in-memory content remain authoritative until the operator chooses
-Save, Don't Save, or Cancel. Cancel preserves the document; Don't Save follows
-the existing single project-replacement path.
+Web Recent-project opens, the native Electron Recent menu, and native
+file-picker selections previously called direct loaders in some paths,
+bypassing the existing unsaved-change confirmation used by Finder/Explorer
+opens. Both Recent entry points now share `openRecentProjectFromPath`, then
+`openProjectFromIpc`; only a genuinely missing path is removed from history.
+An existing but invalid project is retained so the operator can recover it.
+The project epoch and current in-memory content remain authoritative until the
+operator chooses Save, Don't Save, or Cancel. Cancel preserves the document;
+Don't Save follows the existing single project-replacement path. A second open
+request while the prompt is visible does not retarget the first confirmation;
+it keeps the first path and reports that the current decision must be resolved.
 
-Verification (2026-10-02): the optimized Core build with
-`RESOSTAGE_ENABLE_TEST_HOOKS=OFF` passed. The actual-Core acceptance verifies
+Verification (2026-10-03): the optimized Core build with
+`RESOSTAGE_ENABLE_TEST_HOOKS=OFF` and the full actual-Core editor-state harness
+passed. The acceptance verifies
 Recent first raises `openConfirmPending`, leaves unsaved MIDI edits and epoch
 unchanged, preserves them on Cancel, and only replaces the same-ID project
-after an explicit Don't Save decision. The optional test-hook acceptance also
-passed with the same confirmation path before Core restart testing. Save-path
-terminal feedback still uses busy/status state; no claim is made that Save/Open
-have request-specific operation IDs.
+after an explicit Don't Save decision. It also issues a competing open while
+the first prompt is pending, verifies the current edits remain intact, and
+confirms the original target is opened after the user's decision. The optional
+test-hook acceptance also passed on 2026-10-02 with the same confirmation path
+before Core restart testing. Save-path terminal feedback still uses busy/status
+state; no claim is made that Save/Open have request-specific operation IDs.
 
 ## Closed this audit — project Save button status
 

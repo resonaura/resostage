@@ -1,6 +1,6 @@
 # ResoStage: current continuation handoff
 
-Updated 2026-10-02. Read [audit.md](audit.md) first: it supersedes completion
+Updated 2026-10-03. Read [audit.md](audit.md) first: it supersedes completion
 claims below with confirmed remaining gaps and strict acceptance instructions.
 This file is intended to be given directly to the next coding
 agent. Read the complete repository `AGENTS.md` first. Check `git status` and
@@ -36,11 +36,19 @@ Queue/restart/reopen acceptance is now exercised by the actual-Core harness.
 The current block also adds exact graph-result handling for structural
 plug-in-chain edits, while deliberately leaving vendor-load readiness in
 generation-scoped plug-in telemetry and bypass/Keep Awake in the host-control
-protocol. Continue with active-document Save/Open terminal-feedback audit,
-Recent and native file-picker opens now share the unsaved-state confirmation
-path; actual-Core checks cover Cancel preservation and explicit discard. Then
+protocol. Continue with active-document Save/Open terminal-feedback audit.
+Recent entry points and native file-picker opens now share the unsaved-state
+confirmation path; the Electron Recent menu no longer bypasses it, stale
+entries are pruned only when missing, and competing opens cannot replace the
+pending target. Actual-Core checks cover Cancel preservation, explicit discard,
+and the competing-open case. Then
 continue the unresolved automation, Piano Roll, callback-deadline, AU/VST3 and
 hardware acceptance items in [audit.md](audit.md).
+
+The 2026-10-03 optimized production Core rebuild (`RESOSTAGE_ENABLE_TEST_HOOKS=OFF`)
+and full `scripts/verification/editor-state.mjs` acceptance passed after this
+Recent-open consolidation. It exercises the shared HTTP lifecycle path; the
+native Electron menu call site was compiled but not UI-driven by that harness.
 
 ## Verified root causes and committed fixes
 
