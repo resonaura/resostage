@@ -116,9 +116,11 @@ Implemented in the current source block (not a hardware/acoustic proof):
 Snapshot-build failure now remains distinguishable from successful playback
 publication in exact editor results: `applied` means project history changed,
 while `playbackApplied`, `playbackProjectEpoch`, and `playbackRevision` confirm
-the immutable graph. ProjectHistory revision resets on project replacement,
-so a numerically larger previous-project graph cannot satisfy a new edit. The
-result is published with the same state frame; the renderer refreshes the
+the immutable graph. `ProjectHistory` currently preserves its mutation
+generation across document replacement, but the number is not a document
+identity and must not be used as one; the AudioEngine playback epoch fences
+stale or future reset/reuse cases. The result is published with the same state
+frame; the renderer refreshes the
 authoritative project and rejects blind retry when audio still uses its
 last-good graph. This is explicit mismatch recovery, not transactional rollback:
 the stored project edit is not undone if snapshot preparation fails. Add a

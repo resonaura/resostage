@@ -169,9 +169,9 @@ struct MixGraph {
     std::shared_ptr<const ProjectPlaybackSnapshot> playbackState;
     uint64_t contentRevision = 0;
     // ProjectHistory generation within projectEpoch represented by this
-    // successfully published graph. A transaction ACK must compare both:
-    // history resets on project replacement, and snapshot preparation can
-    // fail while the last-good graph stays active.
+    // successfully published graph. ProjectHistory currently preserves its
+    // generation across document replacement, but a revision is not project
+    // identity; ACKs must compare both and also handle a retained last-good graph.
     uint64_t projectHistoryRevision = 0;
     uint64_t trackLayoutRevision = 0;
 
@@ -213,9 +213,9 @@ struct MixGraph {
     bool anySoloIn(SoloGroup group) const;
 };
 
-// A history revision is only meaningful within the AudioEngine project epoch
-// that produced it. A previous project's graph can have a numerically newer
-// history revision after the new project's history is cleared.
+// A history revision does not identify its owning project. Require the graph's
+// AudioEngine project epoch as well, so a reset/reused counter or stale graph
+// can never satisfy an acknowledgement for another project.
 inline bool playbackGraphCoversProjectRevision(
     const MixGraph* graph, uint64_t activeProjectEpoch,
     uint64_t requiredHistoryRevision) noexcept {
