@@ -194,6 +194,12 @@ Touch return and held Latch on a device. Remaining surfaces include Mixer,
 Inspector and plug-in parameters. Update the audit/task docs with measured
 results, commit in English, and do not push.
 
+The graph-publication failure UI path now also has a focused test: a simulated
+exact Core result is passed through a real project mutation API, and the test
+asserts refetch, rejection, no resend, and visible footer error. The real-Core
+failure-injection harness remains separate, so do not report a single
+Core-to-renderer end-to-end fault injection.
+
 The committed `06c3819` Touch/Latch/Write capture-session block additionally
 requires confirmed Core-session/project-epoch identity, maps playhead time with
 the song TempoMap, detects cycle wraps from sampled playhead movement, resumes

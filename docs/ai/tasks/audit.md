@@ -260,8 +260,13 @@ Still open; do not call this full editor transactionality:
   bounded validator rejects an oversized snapshot and `RoutingEngine` refuses
   an incomplete candidate while retaining the last-good graph. The actual
   Core-level failure-injection test also observes the exact command result and
-  transport playhead progress on the retained and recovered graph. Transactional rollback or
-  retry needs an isolated edit transaction model.
+  transport playhead progress on the retained and recovered graph. A new UI
+  integration test feeds the same exact result shape through the real editor
+  mutation API and verifies it rejects, refreshes, does not resend, and appears
+  as an error in the app footer. These Core/UI tests are separate processes;
+  together they do not constitute one real-Core-to-renderer failure-injection
+  run. Transactional rollback or retry needs an isolated edit transaction
+  model.
 - Exact outcomes now cover the structural/audio/MIDI/automation route families
   listed above, but not plug-in lifecycle, lighting, import-job completion,
   active-document save/open completion, or most scalar/mixer controls. The
@@ -297,9 +302,11 @@ Next implementation:
    knob streams await one ACK per value; keep continuous latest-wins controls
    separate. HTTP/TCP remains the reliable-command channel; UDP remains sampled
    telemetry and a WebSocket/Socket.IO swap does not supply these semantics.
-3. Add UI-level rejection/failure recovery coverage for the injected graph
-   publication mismatch. Current real-Core acceptance proves backend state and
-   transport progress, not the renderer's one-refetch UX under this fault.
+3. The API-to-footer recovery path is now unit-tested with a simulated exact
+   graph-publication failure result. If extending this, preserve separate
+   evidence labels: current real-Core injection proves backend state/transport;
+   the UI test proves refetch/rejection/no-resend/footer behavior. A single
+   real-Core-to-renderer injected run remains future integration work.
 
 ## P1 — manual Touch/Latch/Write is only partially integrated
 
