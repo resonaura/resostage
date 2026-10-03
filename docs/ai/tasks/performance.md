@@ -10,6 +10,25 @@ The following are open requirements, not verified features. Update this file
 after each implementation block with the exact source/test evidence and any
 unverified platform or acoustic scope.
 
+### Editor target identity hardening — 2026-10-03
+
+The Core-side native editor registry and `PluginProcessorBank` editor
+create/open/close operations now resolve by the pair `(stripId, slotId)`. The
+previous bank API searched slot IDs across all strip chains, and the local
+window registry also keyed only on `slotId`; a legacy/imported project with
+duplicate slot IDs in different strips could therefore target the wrong
+editor. The isolated helper already owns one serial strip chain and continues
+to address its editor by chain-local slot index. No processor chain is
+restarted by opening or closing an editor.
+
+Verification: the optimized Core and `resostage_plugin_host` built, followed
+by the complete native CTest target passing. This is a source-level identity
+fix; the fixture suite does not construct two vendor editors with deliberately
+duplicated slot IDs. It does not reproduce the reported writetest reload
+coupling or prove AU/VST3 editor independence. Keep the private saved-project
+reproduction, vendor windows, rapid retry, and helper restart-count checks
+open.
+
 ### Per-instance load, editor, and offline render readiness
 
 - Reproduce the writetest report from a private copy/read-only inspection:

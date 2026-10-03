@@ -30,6 +30,17 @@ IDs remain unverified. See [automation.md](automation.md) for the detailed
 geometry and policy contract. This closes the first pseudo-row UI slice, not
 the whole automation workflow.
 
+### Latest continuation addendum — plug-in editor identity (2026-10-03)
+
+Core editor creation/open/close now requires both stable strip and slot IDs;
+the native editor-window registry uses the same pair. This closes an ambiguity
+where duplicate legacy slot IDs in separate chains could target the wrong
+editor. Optimized Core and isolated helper built; native CTest passed 1/1.
+There is not yet a fixture that opens simultaneous vendor editors with
+duplicate IDs, and this does not establish the reported writetest reload cause
+or AU/VST3 independence. Details and remaining acceptance are in
+`performance.md`.
+
 ### Latest continuation addendum — 2026-10-03
 
 The global transport BPM/meter popover had not actually been operable: its

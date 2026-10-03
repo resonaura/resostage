@@ -231,7 +231,8 @@ bool PluginHostRuntime::openEditor(uint32_t slotIndex) {
         editors.erase(hidden);
     }
     const auto& slot = projectLoader.project().tracks.front().plugins[slotIndex];
-    auto editor = builtBank.bank->createEditor(slot.id);
+    auto editor = builtBank.bank->createEditor(
+        projectLoader.project().tracks.front().effectiveStripId(), slot.id);
     if (editor == nullptr)
         return false;
     auto window = std::make_unique<EditorWindow>(

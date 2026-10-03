@@ -1583,10 +1583,11 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
 }
 
 std::unique_ptr<juce::AudioProcessorEditor>
-PluginProcessorBank::createEditor(const std::string& slotId) {
+PluginProcessorBank::createEditor(const std::string& stripId,
+                                  const std::string& slotId) {
     jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
     for (auto& chain : chains)
-        if (chain != nullptr)
+        if (chain != nullptr && chain->stripId == stripId)
             for (auto& node : chain->nodes)
                 if (node->slotId == slotId && node->instance != nullptr) {
                     try {
@@ -1601,9 +1602,11 @@ PluginProcessorBank::createEditor(const std::string& slotId) {
     return {};
 }
 
-bool PluginProcessorBank::openHostedEditor(const std::string& slotId) {
+bool PluginProcessorBank::openHostedEditor(const std::string& stripId,
+                                           const std::string& slotId) {
     for (const auto& chain : chains) {
-        if (chain == nullptr || chain->hostedProcess == nullptr
+        if (chain == nullptr || chain->stripId != stripId
+            || chain->hostedProcess == nullptr
             || chain->hostedProcess->process == nullptr)
             continue;
         for (size_t i = 0; i < chain->nodes.size(); ++i) {
@@ -1616,9 +1619,11 @@ bool PluginProcessorBank::openHostedEditor(const std::string& slotId) {
     return false;
 }
 
-bool PluginProcessorBank::closeHostedEditor(const std::string& slotId) {
+bool PluginProcessorBank::closeHostedEditor(const std::string& stripId,
+                                            const std::string& slotId) {
     for (const auto& chain : chains) {
-        if (chain == nullptr || chain->hostedProcess == nullptr
+        if (chain == nullptr || chain->stripId != stripId
+            || chain->hostedProcess == nullptr
             || chain->hostedProcess->process == nullptr)
             continue;
         for (size_t i = 0; i < chain->nodes.size(); ++i) {

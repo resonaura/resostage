@@ -120,6 +120,14 @@ hash after final diff review; do not push. The original remaining scope and
 acceptance rules continue below and in audit.md, automation.md, performance.md
 and audio-flow.md.
 
+Latest plug-in editor identity continuation (2026-10-03): editor window
+creation/open/close in Core and `PluginProcessorBank` now resolve the exact
+`(stripId, slotId)` pair instead of searching all chains by slot ID alone.
+Optimized Core and plug-in host built; native CTest passed 1/1. This removes a
+real ambiguity for duplicate legacy slot IDs but is not a vendor/editor
+reproduction of the user's writetest report. Continue private-copy AU/VST3
+editor/retry testing and preserve restart counts; see `performance.md`.
+
 Commit `06aaa0b6` adds a project-persisted bounded automation curve cache for
 track-lane target changes (project format v11), validated plugin/strip/MIDI
 target rebinding, and migration/JSON/native/real-Core regressions. Cache

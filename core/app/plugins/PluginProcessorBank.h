@@ -153,9 +153,11 @@ public:
     StateSnapshot snapshotStates(const std::string& stripId = {});
     /** Creates a vendor editor on the JUCE message thread for one live slot. */
     std::unique_ptr<juce::AudioProcessorEditor> createEditor(
-        const std::string& slotId);
-    bool openHostedEditor(const std::string& slotId);
-    bool closeHostedEditor(const std::string& slotId);
+        const std::string& stripId, const std::string& slotId);
+    bool openHostedEditor(const std::string& stripId,
+                          const std::string& slotId);
+    bool closeHostedEditor(const std::string& stripId,
+                           const std::string& slotId);
     bool closeAllHostedEditors();
 
     /** Audio-thread hooks for routing block MIDI messages to instrument strips. */

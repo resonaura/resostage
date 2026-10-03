@@ -21,14 +21,16 @@ constexpr size_t kMaximumOpenPluginEditors = 12;
 class PluginEditorWindow final : public juce::DocumentWindow,
                                  public juce::KeyListener {
 public:
-    PluginEditorWindow(std::string slotIdIn, const juce::String& title,
+    PluginEditorWindow(std::string stripIdIn, std::string slotIdIn,
+                       const juce::String& title,
                        AudioEngine& engineIn,
                        std::shared_ptr<PluginProcessorBank> bankIn,
                        std::unique_ptr<juce::AudioProcessorEditor> editorIn,
                        std::function<void(const std::string&)> onCloseRequestedIn)
         : juce::DocumentWindow(title, juce::Colours::black,
                                juce::DocumentWindow::allButtons, true),
-          slotIdValue(std::move(slotIdIn)), engine(engineIn),
+          stripIdValue(std::move(stripIdIn)), slotIdValue(std::move(slotIdIn)),
+          engine(engineIn),
           bank(std::move(bankIn)), editor(std::move(editorIn)),
           onCloseRequested(std::move(onCloseRequestedIn)) {
         setUsingNativeTitleBar(true);
@@ -150,11 +152,13 @@ public:
     }
 
     const std::string& slotId() const noexcept { return slotIdValue; }
+    const std::string& stripId() const noexcept { return stripIdValue; }
     bool ownsBank(const std::shared_ptr<PluginProcessorBank>& candidate) const {
         return bank == candidate;
     }
 
 private:
+    std::string stripIdValue;
     std::string slotIdValue;
     AudioEngine& engine;
     std::shared_ptr<PluginProcessorBank> bank;
@@ -240,7 +244,7 @@ void MainComponent::pluginSlotAdd(const std::string& json) {
     slot.id = generateUUIDv7();
     slot.plugin = *plugin;
     if (replaceExistingInstrument) {
-        closePluginEditor(chain->front().id);
+        closePluginEditor(stripId, chain->front().id);
         chain->front() = std::move(slot);
     } else if (plugin->instrument) {
         chain->insert(chain->begin(), std::move(slot));
@@ -297,7 +301,7 @@ void MainComponent::pluginSlotReplace(const std::string& json) {
     }
     if (slot->plugin.identifier == replacement->identifier) return;
 
-    closePluginEditor(slotId);
+    closePluginEditor(stripId, slotId);
     const juce::String replacementName(replacement->name);
     engine.projectHistoryBeginEdit("", "Swap plug-in");
     slot->plugin = *replacement;
@@ -314,7 +318,7 @@ void MainComponent::pluginSlotRemove(const std::string& json) {
     std::string slotId;
     if (!parseSlotTarget(json, doc, stripId, slotId))
         return;
-    closePluginEditor(slotId);
+    closePluginEditor(stripId, slotId);
     auto* chain = pluginChainFor(engine.project(), stripId);
     if (chain == nullptr)
         return;
@@ -493,7 +497,8 @@ void MainComponent::pluginSlotOpenEditor(const std::string& json) {
     }
     for (auto it = pluginEditorWindows.begin(); it != pluginEditorWindows.end(); ++it) {
         if (auto* pluginWindow = dynamic_cast<PluginEditorWindow*>(it->get());
-            pluginWindow != nullptr && pluginWindow->slotId() == slotId) {
+            pluginWindow != nullptr && pluginWindow->stripId() == stripId
+                && pluginWindow->slotId() == slotId) {
             if (pluginWindow->ownsBank(bank)) {
                 pluginWindow->bringWindowToFront();
                 return;
@@ -503,14 +508,14 @@ void MainComponent::pluginSlotOpenEditor(const std::string& json) {
         }
     }
 
-    if (bank->openHostedEditor(slotId)) {
+    if (bank->openHostedEditor(stripId, slotId)) {
         setStatus("Opened isolated plug-in editor: "
                   + juce::String(slot->plugin.name));
         return;
     }
 
     restoreForegroundShell();
-    auto editor = bank->createEditor(slotId);
+    auto editor = bank->createEditor(stripId, slotId);
     if (editor == nullptr) {
         setStatus("Plug-in has no native editor or is still loading: "
                   + juce::String(slot->plugin.name));
@@ -527,26 +532,29 @@ void MainComponent::pluginSlotOpenEditor(const std::string& json) {
         }
         pluginEditorWindows.erase(hidden);
     }
-    auto onCloseRequested = [this](const std::string& sid) {
-        closePluginEditor(sid);
+    auto onCloseRequested = [this, stripId](const std::string& sid) {
+        closePluginEditor(stripId, sid);
     };
     pluginEditorWindows.push_back(std::make_unique<PluginEditorWindow>(
-        slotId, juce::String(slot->plugin.name), engine, std::move(bank),
+        stripId, slotId, juce::String(slot->plugin.name), engine, std::move(bank),
         std::move(editor), std::move(onCloseRequested)));
     setStatus("Opened plug-in editor: " + juce::String(slot->plugin.name));
 }
 
-void MainComponent::closePluginEditor(const std::string& slotId) {
+void MainComponent::closePluginEditor(const std::string& stripId,
+                                      const std::string& slotId) {
     if (auto bank = engine.activePluginProcessorBank()) {
         if (slotId.empty()) {
             (void)bank->closeAllHostedEditors();
-        } else if (bank->closeHostedEditor(slotId)) {
+        } else if (bank->closeHostedEditor(stripId, slotId)) {
             return;
         }
     }
     for (auto it = pluginEditorWindows.begin(); it != pluginEditorWindows.end(); ) {
         if (auto* pluginWindow = dynamic_cast<PluginEditorWindow*>(it->get());
-            pluginWindow != nullptr && (slotId.empty() || pluginWindow->slotId() == slotId)) {
+            pluginWindow != nullptr && (slotId.empty()
+                || (pluginWindow->stripId() == stripId
+                    && pluginWindow->slotId() == slotId))) {
             it = pluginEditorWindows.erase(it);
         } else {
             ++it;
@@ -566,7 +574,7 @@ void MainComponent::closePluginEditor(const std::string& slotId) {
 }
 
 void MainComponent::closeAllPluginEditors() {
-    closePluginEditor("");
+    closePluginEditor("", "");
 }
 
 } // namespace resostage

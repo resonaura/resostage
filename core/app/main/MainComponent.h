@@ -201,7 +201,8 @@ private:
     void pluginSlotPark(const std::string& json);
     void pluginSlotUnpark(const std::string& json);
     void pluginSlotOpenEditor(const std::string& json);
-    void closePluginEditor(const std::string& slotId);
+    void closePluginEditor(const std::string& stripId,
+                           const std::string& slotId);
     void closeAllPluginEditors();
     // Vendor editors stay bounded and pin the processor bank they belong to.
     std::vector<std::unique_ptr<juce::DocumentWindow>> pluginEditorWindows;
