@@ -38,11 +38,16 @@ capacity before beginning ProjectHistory. Once the transaction starts there is
 no validation-driven early return. Cache insertion and target replacement are
 part of the same history snapshot.
 
-This is backend/schema coverage only. The Timeline still shows one automation
-header/curve per audio track: separate foldable pseudo-track rows, per-row
-selector wiring, collapse state, geometry/virtualization, and visible project
-save/reopen acceptance remain open. Do not call the multi-automation UI
-complete until those pieces are implemented and tested.
+The actual-Core fixture also saves a detached fader curve, starts a fresh Core
+process on the same temporary project, and rebinds the lane to restore every
+point and curve value. It confirms that save/reopen preserves dormant curve
+data, not just the active lane.
+
+This remains backend/schema coverage only. The Timeline still shows one
+automation header/curve per audio track: separate foldable pseudo-track rows,
+per-row selector wiring, collapse state, geometry/virtualization, and UI-driven
+save/reopen workflow acceptance remain open. Do not call the multi-automation
+UI complete until those pieces are implemented and tested.
 
 This section records the next automation/control work. It is not a claim that
 the items below are implemented. Preserve the existing lane API/history path

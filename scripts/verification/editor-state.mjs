@@ -1088,6 +1088,21 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(state.songs[0].automationLanes[4].target.parameterId, "send:0");
     assert.equal(state.playing, true, "Send automation edit must not stop playback");
 
+    const persistedCurveDetach = await confirmEditorMutation(
+      "/api/v1/builder/automation-lane/update",
+      { songIndex: 0, laneId: faderLane.id, target: {
+        domain: "midiCC", entityId: "audio::track:1", parameterId: "cc:2",
+        valueType: "integer", defaultValue: 0, minValue: 0, maxValue: 127,
+      } },
+    );
+    state = persistedCurveDetach.state;
+    const detachedCurveLane = state.songs[0].automationLanes.find((entry) => entry.id === faderLane.id);
+    assert.equal(detachedCurveLane.target.parameterId, "cc:2");
+    assert.deepEqual(detachedCurveLane.points, [],
+      "a new automation target starts empty while the previous curve is cached");
+    assert.equal(state.playing, true,
+      "detaching an automation curve must not interrupt playback");
+
     await request("/api/v1/transport/stop", {});
     await waitFor((s) => !s.playing, "Stop after strip automation");
 
@@ -1105,14 +1120,28 @@ export async function verifyEditorState(coreExecutable, inspect) {
       if (saved.songs?.[0]?.midiRegions?.[0]?.notes.length === notes.length
           && saved.songs[0].automationLanes?.length === 5
           && saved.songs[0].automationLanes?.[0]?.points.length === points.length
-          && saved.songs[0].automationLanes?.[1]?.points.length >= 5
+          && saved.songs[0].automationLanes?.[1]?.target.parameterId === "cc:2"
+          && saved.songs[0].automationLanes?.[1]?.points.length === 0
           && saved.songs[0].automationLanes?.[1]?.writeMode === "touch"
           && saved.songs[0].automationLanes?.[2]?.points.length === 2
           && saved.songs[0].automationLanes?.[3]?.points.length === 2
-          && saved.songs[0].automationLanes?.[4]?.points.length === 2) break;
+          && saved.songs[0].automationLanes?.[4]?.points.length === 2
+          && saved.songs[0].automationCurveCache?.some((entry) =>
+            entry.target?.domain === "strip"
+            && entry.target?.entityId === "audio::track:1"
+            && entry.target?.parameterId === "faderGainDb"
+            && entry.points?.length === cachedFaderCurve.length)) break;
       if (attempt === 99) throw new Error("Project save did not persist edited collections");
       await sleep(50);
     }
+    const savedAutomationProject = JSON.parse(readFileSync(metadataPath, "utf8"));
+    const persistedFaderCurve = savedAutomationProject.songs[0].automationCurveCache.find(
+      (entry) => entry.target?.domain === "strip"
+        && entry.target?.entityId === "audio::track:1"
+        && entry.target?.parameterId === "faderGainDb",
+    );
+    assert.deepEqual(persistedFaderCurve.points, cachedFaderCurve,
+      "save must preserve every cached automation point and curve value");
     const preRestartIdentity = {
       stateSessionId: commandState.stateSessionId,
       projectEpoch: commandState.projectEpoch,
@@ -1127,8 +1156,21 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(getRegion(state).notes.length, notes.length);
     assert.ok(getRegion(state).notes.every((note) => note.durationBeats === 0.5 && note.startBeats % 0.5 === 0));
     assert.equal(state.songs[0].automationLanes[0].points.length, points.length);
+    assert.equal(state.songs[0].automationLanes[1].target.parameterId, "cc:2");
+    assert.deepEqual(state.songs[0].automationLanes[1].points, []);
+    const restoredPersistedCurve = await confirmEditorMutation(
+      "/api/v1/builder/automation-lane/update",
+      { songIndex: 0, laneId: faderLane.id, target: {
+        domain: "strip", entityId: "audio::track:1", parameterId: "faderGainDb",
+        valueType: "decibels", defaultValue: 0, minValue: -60, maxValue: 12,
+      } },
+    );
+    assert.equal(restoredPersistedCurve.accepted.requestId, firstEditorRequestId,
+      "the first command after restart may reuse the prior session's first request ID");
+    state = restoredPersistedCurve.state;
+    assert.deepEqual(state.songs[0].automationLanes[1].points, cachedFaderCurve,
+      "Core restart must retain dormant automation curves and restore them on target rebind");
     assert.equal(state.songs[0].automationLanes[1].target.parameterId, "faderGainDb");
-    assert.ok(state.songs[0].automationLanes[1].points.length >= 5);
     assert.equal(state.songs[0].automationLanes[1].writeMode, "touch");
     assert.equal(state.songs[0].automationLanes[2].target.parameterId, "pan");
     assert.equal(state.songs[0].automationLanes[2].points.length, 2);
@@ -1160,8 +1202,8 @@ export async function verifyEditorState(coreExecutable, inspect) {
     const reusedIdEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", {
       songIndex: 0, regionId, name: "New Core session command",
     });
-    assert.equal(reusedIdEdit.accepted.requestId, firstEditorRequestId,
-      "request IDs may be reused after restart only within the new session namespace");
+    assert.equal(reusedIdEdit.accepted.requestId, firstEditorRequestId + 1,
+      "the next command after the restarted session's first request gets the next ID");
     assert.equal(getRegion(reusedIdEdit.state).name, "New Core session command");
 
     // Reopen the same package inside this still-running Core. Entity IDs are

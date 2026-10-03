@@ -26,10 +26,12 @@ Latest verification for this block: `cmake --build core/build --target
 resostage_engine_tests ResoStage -j4` passed; `ctest --test-dir core/build
 --output-on-failure` passed 1/1; migration tests passed 2/2; the actual-Core
 `scripts/verification/editor-state.mjs` passed target swap, empty new target,
-exact point/curve restore and continued playback; `git diff --check` passed.
-No UI suite was rerun because no UI source changed in this block. These results
-do not verify history Undo/Redo of dormant curves via the UI or visible
-save/reopen workflow; preserve those as explicit acceptance gaps.
+exact point/curve restore and continued playback. It also saved a detached
+curve, reopened the package in a fresh Core process and restored the exact curve
+on rebind; `git diff --check` passed. No UI suite was rerun because no UI source
+changed in this block. These results do not verify history Undo/Redo of dormant
+curves via the UI or its visible save/reopen workflow; preserve those as
+explicit acceptance gaps.
 
 Plug-in retry source audit confirms that a retry starts a project-wide loading
 generation and full bank walk, but the bank builder reuses healthy strip chains

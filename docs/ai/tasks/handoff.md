@@ -100,19 +100,21 @@ hash after final diff review; do not push. The original remaining scope and
 acceptance rules continue below and in audit.md, automation.md, performance.md
 and audio-flow.md.
 
-Current continuation block adds a project-persisted bounded
-automation curve cache for track-lane target changes (project format v11),
-validated plugin/strip/MIDI target rebinding, and migration/JSON/native/real-Core
-regressions. During final review, cache allocation/validation was moved before
-ProjectHistory begins, so target swaps do not have a validation-driven partial
-transaction exit. Latest verification: Core + native tests built; CTest passed
-1/1; migration tests passed 2/2; actual-Core `editor-state.mjs` passed, including
-fader→pan→fader curve preservation during playback; `git diff --check` passed.
+Commit `06aaa0b6` adds a project-persisted bounded automation curve cache for
+track-lane target changes (project format v11), validated plugin/strip/MIDI
+target rebinding, and migration/JSON/native/real-Core regressions. Cache
+allocation/validation occurs before ProjectHistory begins, so target swaps do
+not have a validation-driven partial-transaction exit. Core + native tests
+built; CTest passed 1/1; migration tests passed 2/2. A follow-up acceptance
+change exercises target swap, empty new target, fader→pan→fader curve
+preservation during playback, and detached-curve restoration after package save
+plus fresh Core-process reopen. The expanded acceptance is in
+`scripts/verification/editor-state.mjs` and passed against the optimized Core
+binary. This is backend verification, not UI workflow or physical-audio proof.
 This does not complete the requested foldable automation pseudo-track UI: the
 current Timeline still exposes one active lane selector/overlay per track.
-The block is ready for its own English commit after final diff review. Continue
-UI work in a separate tested block. Do not delete automation.md; it contains
-unfinished UI/history/selection/geometry acceptance.
+Continue UI work in a separate tested block. Do not delete automation.md; it
+contains unfinished UI/history/selection/geometry acceptance.
 
 Plug-in retry source audit: a retry increments a project-wide loading-session
 generation, while `PluginProcessorBank` reuses healthy chains by stable strip
