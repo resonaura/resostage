@@ -1085,9 +1085,11 @@ acceptance is split into [automation.md](automation.md),
   AutomationTrackControls selects an existing lane/target in one selector; it
   does not render one independent foldable pseudo-track row per lane or retain
   a project-owned curve cache when rebinding a lane target.
-- Shared Knob has double-click reset but no common RMB menu/MIDI Learn policy.
-  MIDI learn's existing action catalogue must distinguish safe continuous
-  controls from dangerous structural/navigation operations.
+- Shared Knob supports double-click reset. A common rotary RMB menu and a
+  typed safe-continuous MIDI Learn catalogue have now been implemented for
+  track/bus/master/click pan and track/click send level. Remaining: expose the
+  policy to any future rotary widget through its shared owner, and define
+  project/song scope for currently rig-wide MIDI mappings.
 - useChannelClipHold stores its latch in each React hook instance. Mixer
   components sharing a stable track ID can still own separate holds, and the
   Timeline's MeterFader does not use the same latch store. This is a confirmed

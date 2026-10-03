@@ -4,7 +4,9 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { Knob } from "@/components/daw";
+import { useState } from "react";
+import { Knob, RotaryControlMenu } from "@/components/daw";
+import type { RotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 import { createVerticalValueDragHandler } from "@/screens/mixer/strips/logic/verticalValueDrag";
 
 function formatPan(value: number): string {
@@ -17,11 +19,14 @@ export function PanControl({
   value,
   onChange,
   size,
+  midiTarget,
 }: {
   value: number;
   onChange: (value: number) => void;
   size: number;
+  midiTarget?: RotaryMidiTarget;
 }) {
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const handlePointerDown = createVerticalValueDragHandler(value, onChange, {
     min: -1,
     max: 1,
@@ -32,7 +37,14 @@ export function PanControl({
   });
 
   return (
-    <div className="my-0.5 flex flex-col items-center gap-0.5">
+    <div
+      className="my-0.5 flex flex-col items-center gap-0.5"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuPosition({ x: event.clientX, y: event.clientY });
+      }}
+    >
       <Knob
         value={value}
         min={-1}
@@ -54,6 +66,16 @@ export function PanControl({
       >
         {formatPan(value)}
       </div>
+      {menuPosition && (
+        <RotaryControlMenu
+          x={menuPosition.x}
+          y={menuPosition.y}
+          onClose={() => setMenuPosition(null)}
+          onReset={() => onChange(0)}
+          resetLabel="Reset Pan to Center"
+          midiTarget={midiTarget}
+        />
+      )}
     </div>
   );
 }

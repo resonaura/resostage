@@ -17,6 +17,7 @@ import type {
   StripFormatToggle,
   StripInputRouting,
 } from "@/screens/mixer/strips/StripInputControls";
+import type { RotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 export type ChannelStripProps = {
   stripId: string;
@@ -48,6 +49,7 @@ export type ChannelStripProps = {
   busDestination?: React.ReactNode;
   gainDb: number;
   pan: number | null;
+  panMidiTarget?: RotaryMidiTarget;
   peakDb: number | undefined;
   peakDbL?: number;
   peakDbR?: number;

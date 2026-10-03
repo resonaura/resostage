@@ -19,6 +19,7 @@ import { getTrackInputOptions, getTrackInputState } from "@/screens/mixer/logic/
 import { PolarityContextMenu } from "@/screens/mixer/strips/PolarityContextMenu";
 import { areTrackStripPropsEqual } from "@/screens/mixer/strips/logic/trackStripMemo";
 import type { TrackStripProps } from "@/screens/mixer/strips/types";
+import { rotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 function TrackStripInner({
   t,
@@ -189,6 +190,7 @@ function TrackStripInner({
         }}
         gainDb={t.gainDb ?? 0}
         pan={t.pan ?? 0}
+        panMidiTarget={rotaryMidiTarget.trackPan(t.id)}
         peakDb={peakDb}
         peakDbL={peakDbL}
         peakDbR={peakDbR}

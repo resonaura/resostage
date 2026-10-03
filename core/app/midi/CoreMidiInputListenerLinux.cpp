@@ -264,11 +264,7 @@ void CoreMidiInputListener::handleIncomingMessage(uint8_t status, uint8_t data1,
             if (m.triggerType != eventType || m.number != number)
                 continue;
             if (eventType == MidiTriggerType::ControlChange
-                && (m.action.rfind("track_gain:", 0) == 0
-                    || m.action.rfind("track_pan:", 0) == 0
-                    || m.action == "master_gain"
-                    || m.action.rfind("send_level:", 0) == 0
-                    || m.action.rfind("plugin_param:", 0) == 0)) {
+                && isContinuousMidiTarget(m.action)) {
                 if (onContinuousAction)
                     onContinuousAction(m.action, static_cast<float>(data2) / 127.0f);
             } else if (onAction) {

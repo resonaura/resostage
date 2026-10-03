@@ -37,6 +37,7 @@ export function ChannelStrip({
   busDestination,
   gainDb,
   pan,
+  panMidiTarget,
   peakDb,
   peakDbL,
   peakDbR,
@@ -165,6 +166,7 @@ export function ChannelStrip({
       {sends && sends.auxBusses.length > 0 && (
         <div className="w-full my-0.5 border-t border-default/20 pt-1">
           <SendKnobs
+            sourceStripId={stripId}
             auxBusses={sends.auxBusses}
             sends={sends.values}
             trackIndex={sends.trackIndex}
@@ -215,6 +217,7 @@ export function ChannelStrip({
           value={displayPan}
           onChange={commitPan}
           size={knobSize}
+          midiTarget={panMidiTarget}
         />
       ) : (
         <div className="h-0.5" />

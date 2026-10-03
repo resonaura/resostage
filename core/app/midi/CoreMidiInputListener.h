@@ -36,6 +36,28 @@ using MidiEndpointRef = MIDIEndpointRef;
 
 namespace resostage {
 
+// Keep controller-value dispatch consistent across CoreMIDI, WinMM and ALSA.
+// These actions consume normalized CC values; all other learned actions are
+// intentionally treated as discrete note/foot-switch commands.
+inline bool isContinuousMidiTarget(const std::string& action) noexcept {
+    return action.rfind("track_gain:", 0) == 0
+        || action.rfind("track_pan:", 0) == 0
+        || action.rfind("bus_pan:", 0) == 0
+        || action == "master_gain"
+        || action == "master_pan"
+        || action == "click_pan"
+        || action.rfind("send_level:", 0) == 0
+        || action.rfind("plugin_param:", 0) == 0
+        || action.rfind("track_send:", 0) == 0
+        || action.rfind("click_send:", 0) == 0;
+}
+
+inline bool supportsMidiTriggerForTarget(
+    const std::string& action, MidiTriggerType trigger) noexcept {
+    return !isContinuousMidiTarget(action)
+        || trigger == MidiTriggerType::ControlChange;
+}
+
 #ifdef _WIN32
 // WinMM midiInProc callback -- declared here so the class below can friend it.
 void midiInProc(void* hMidiIn, unsigned int wMsg, void* dwInstance, void* dwParam1, void* dwParam2);

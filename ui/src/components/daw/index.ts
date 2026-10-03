@@ -18,12 +18,14 @@
  */
 
 export { Knob } from "@/components/daw/Knob";
+export { RotaryControlMenu } from "@/components/daw/RotaryControlMenu";
 export { LevelMeterBar } from "@/components/daw/LevelMeterBar";
 export { LiveReadout } from "@/components/daw/LiveReadout";
 export { MeterFader } from "@/components/daw/MeterFader";
 export { TrackPanControl } from "@/components/daw/TrackPanControl";
 export { clipColor, clipGlow } from "@/components/daw/logic/meterBallistics";
 export { SEND_CEILING_DB, SEND_FLOOR_DB, SendArcKnob } from "@/components/daw/SendArcKnob";
+export { rotaryMidiTarget, type RotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 export { TimeDisplay } from "@/components/daw/TimeDisplay";
 export { formatBarBeat, formatClock, formatClockPrecise } from "@/components/daw/logic/timeFormat";
 export { VUMeter } from "@/components/daw/VUMeter";

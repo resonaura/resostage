@@ -530,14 +530,20 @@ are in [audit.md](audit.md).
 - Current AutomationTrackControls/AudioTrackLanes show only one selected
   automation overlay per ordinary track row; target choice currently doubles
   as lane selection/recovery rather than per-lane rebind.
-- Shared Knob only supplies double-click reset; no uniform context-menu/MIDI
-  learn boundary exists.
+- The rotary reset/MIDI CC block is now implemented for track/bus/master/click
+  pan and track/click sends. It uses typed constructors for safe continuous
+  targets and Core rejects Note-On learning for these targets. The mappings
+  remain rig-wide AppSettings, so target IDs that recur across projects still
+  need an explicit project/song scoping policy before this feature is fully
+  generalized to project-bound controls.
 - useChannelClipHold stores clip state inside each hook instance; Timeline's
   MeterFader does not consume that latch.
 - Audio Flow exists in Settings > Audio, but Mixer has no bus-origin focus and
   the current graph/project route model has no sidechain input edges.
 - Song BPM, base time signature, tempo/signature markers, and song update
-  routes already exist; the timeline header is the missing editing surface.
+  routes already exist; SongTempoControl is already in the global transport
+  header. Regression coverage for active-song routing and point-map semantics
+  remains open.
 - Real plugin report is unconfirmed: the code architecture specifies isolated
   helpers and offline-private processors, but user-observed live chain coupling
   still requires reproduction/tests. Offline rendering now fails closed before
@@ -601,6 +607,27 @@ loaded for this block. The synchronous factory can still hang indefinitely if
 vendor code hangs during construction or state restoration, and a `loaded`
 state alone is not evidence that first-block audio is audible. Process-level
 timeout/cancellation and real-vendor timing/acoustic tests remain open.
+
+### Completed block — shared rotary reset and MIDI CC Learn (2026-10-03)
+
+Added the shared `RotaryControlMenu` with Reset to Default, MIDI CC Learn and
+Clear MIDI Binding, composing each screen's existing pan-law/send options.
+Track, bus, master and click pan use stable strip IDs; track/click sends use
+stable source/bus IDs. Core's `ActionCatalogue` accepts only the enumerated
+continuous parameter target families (structural/editor commands remain
+excluded), resolves stable track/bus identities after reordering, and retains
+legacy numeric track-pan mappings. CoreMIDI, WinMM and ALSA now share the same
+continuous-CC routing predicate; a Note-On during continuous learn leaves learn
+armed and reports that a CC is required. The Settings description reflects the
+safe continuous-control scope.
+
+Verification: `ResoStage` built; full native suite passed 589 cases / 428,716
+assertions. Full UI suite passed 813 tests across 122 files; UI TypeScript
+project build and lint succeeded (12 pre-existing warnings, none in changed
+files); `git diff --check` passed. Focused rotary UI tests passed 5/5. No
+physical MIDI device test was run. AppSettings MIDI mappings are rig-wide, and
+the current namespaced track IDs can repeat between projects; project/song
+scoping remains a follow-up rather than an implicit project-local guarantee.
 
 The BPM/signature editor was already implemented in
 `ui/src/transport/components/SongTempoControl.tsx` (including Tap Tempo); do

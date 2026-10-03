@@ -7,6 +7,7 @@
 import { useRef, useState } from "react";
 import {
   ContextMenu,
+  ContextMenuDivider,
   ContextMenuItem,
 } from "@/components/common/ContextMenu";
 import {
@@ -14,6 +15,8 @@ import {
   SEND_FLOOR_DB,
   SendArcKnob,
 } from "@/components/daw";
+import { RotaryControlMenu } from "@/components/daw/RotaryControlMenu";
+import { rotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 import { mixer } from "@/lib/state/api";
 import { createEditGesture } from "@/lib/interaction/editGesture";
 import {
@@ -44,6 +47,7 @@ type SendMenu = {
  * rather than disappear, so the column never reflows under the cursor.
  */
 export function SendKnobs({
+  sourceStripId,
   auxBusses,
   sends,
   trackIndex,
@@ -52,6 +56,7 @@ export function SendKnobs({
   density = "standard",
   advancedSendRouting,
 }: {
+  sourceStripId: string;
   auxBusses: BusRow[];
   sends: ClickSendRow[];
   trackIndex: number;
@@ -250,12 +255,21 @@ export function SendKnobs({
       )}
 
       {menu && (
-        <ContextMenu
+        <RotaryControlMenu
           x={menu.x}
           y={menu.y}
-          width={190}
           onClose={() => setMenu(null)}
+          onReset={() => writeLevel(menu.busId, 100)}
+          resetLabel="Reset Send to Default"
+          midiTarget={
+            trackIndex >= 0
+              ? rotaryMidiTarget.trackSend(sourceStripId, menu.busId)
+              : sourceStripId === "audio::click"
+                ? rotaryMidiTarget.clickSend(menu.busId)
+                : undefined
+          }
         >
+          <ContextMenuDivider />
           {advanced && (
             <>
               <ContextMenuItem
@@ -299,14 +313,6 @@ export function SendKnobs({
           >
             Set to 0%
           </ContextMenuItem>
-          <ContextMenuItem
-            onClick={() => {
-              writeLevel(menu.busId, 100);
-              setMenu(null);
-            }}
-          >
-            Set to 100%
-          </ContextMenuItem>
           {onSendEnabledChange && (
             <ContextMenuItem
               onClick={() => {
@@ -327,7 +333,7 @@ export function SendKnobs({
           >
             Remove Send
           </ContextMenuItem>
-        </ContextMenu>
+        </RotaryControlMenu>
       )}
     </div>
   );

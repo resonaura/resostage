@@ -303,6 +303,7 @@ export const TrackHeaderControl = memo(
         color={color}
         knobSize={knobSize}
         showPanValue={h >= 52}
+        midiTarget={pan.midiTarget}
         onCommit={pan.setValue}
         onDragStart={pan.onDragStart}
         onDragEnd={pan.onDragEnd}

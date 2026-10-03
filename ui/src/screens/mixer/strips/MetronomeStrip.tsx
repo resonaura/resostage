@@ -16,6 +16,7 @@ import {
 import { ChannelStrip } from "@/screens/mixer/strips/ChannelStrip";
 import { metronomeColor } from "@/screens/mixer/logic/constants";
 import { isMainBusId } from "@/screens/mixer/logic/mixerIds";
+import { rotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 function MetronomeStripInner({
   state,
@@ -149,6 +150,7 @@ function MetronomeStripInner({
       }}
       gainDb={clickGain}
       pan={clickPan}
+      panMidiTarget={rotaryMidiTarget.clickPan()}
       peakDb={clickPeak}
       peakDbL={clickPeakL}
       peakDbR={clickPeakR}

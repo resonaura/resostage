@@ -46,17 +46,39 @@ inline constexpr const char* kActionIds[] = {
     "redo",
 };
 
+inline bool hasNonEmptyTarget(const std::string& action, const char* prefix) {
+    const std::string prefixText(prefix);
+    return action.rfind(prefixText, 0) == 0
+        && action.size() > prefixText.size();
+}
+
+inline bool hasTargetPair(const std::string& action, const char* prefix) {
+    const std::string prefixText(prefix);
+    if (action.rfind(prefixText, 0) != 0)
+        return false;
+    const auto separator = action.find('|', prefixText.size());
+    return separator != std::string::npos
+        && separator > prefixText.size()
+        && separator + 1 < action.size()
+        && action.find('|', separator + 1) == std::string::npos;
+}
+
 inline bool isKnownActionId(const std::string& action) {
     for (const char* a : kActionIds) {
         if (action == a)
             return true;
     }
     // Continuous parameters & dynamic targets
-    if (action.rfind("track_gain:", 0) == 0 ||
-        action.rfind("track_pan:", 0) == 0 ||
+    if (hasNonEmptyTarget(action, "track_gain:") ||
+        hasNonEmptyTarget(action, "track_pan:") ||
+        hasNonEmptyTarget(action, "bus_pan:") ||
         action == "master_gain" ||
+        action == "master_pan" ||
+        action == "click_pan" ||
         action.rfind("send_level:", 0) == 0 ||
         action.rfind("plugin_param:", 0) == 0 ||
+        hasNonEmptyTarget(action, "click_send:") ||
+        hasTargetPair(action, "track_send:") ||
         action.rfind("track_arm:", 0) == 0 ||
         action.rfind("track_monitor:", 0) == 0) {
         return true;
@@ -73,13 +95,18 @@ inline bool isMidiMappableAction(const std::string& action) {
         if (action == a)
             return true;
     }
-    return action.rfind("track_gain:", 0) == 0 ||
-           action.rfind("track_pan:", 0) == 0 ||
+    return hasNonEmptyTarget(action, "track_gain:") ||
+           hasNonEmptyTarget(action, "track_pan:") ||
+           hasNonEmptyTarget(action, "bus_pan:") ||
            action == "master_gain" ||
-           action.rfind("send_level:", 0) == 0 ||
-           action.rfind("plugin_param:", 0) == 0 ||
-           action.rfind("track_arm:", 0) == 0 ||
-           action.rfind("track_monitor:", 0) == 0;
+           action == "master_pan" ||
+           action == "click_pan" ||
+           hasNonEmptyTarget(action, "send_level:") ||
+           hasNonEmptyTarget(action, "plugin_param:") ||
+           hasNonEmptyTarget(action, "click_send:") ||
+           hasTargetPair(action, "track_send:") ||
+           hasNonEmptyTarget(action, "track_arm:") ||
+           hasNonEmptyTarget(action, "track_monitor:");
 }
 
 } // namespace resostage

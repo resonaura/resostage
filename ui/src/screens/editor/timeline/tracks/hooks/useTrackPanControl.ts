@@ -9,6 +9,7 @@ import { mixer } from "@/lib/state/api";
 import { useLiveValue } from "@/lib/state/optimistic";
 import type { TrackRow } from "@/lib/state/types";
 import { TRACK_PAN_LAWS, formatPan } from "@/components/daw/logic/panLaw";
+import { rotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 /** Owns live pan state and pan-law menu actions for the timeline track header. */
 export function useTrackPanControl(
@@ -46,6 +47,7 @@ export function useTrackPanControl(
     setValue,
     valueLabel: formatPan(value),
     activePanLaw: track.panLaw ?? TRACK_PAN_LAWS[0].value,
+    midiTarget: rotaryMidiTarget.trackPan(track.id),
     panLaws: TRACK_PAN_LAWS,
     menuPosition,
     onDragStart: options?.onDragStart,

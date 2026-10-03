@@ -110,6 +110,32 @@ unverified platform or acoustic scope.
   frame cost with many strips; audio-meter needles keep their dedicated
   ballistics rather than generic scalar easing.
 
+### Shared rotary reset and MIDI CC Learn — implemented subset (2026-10-03)
+
+`ui/src/components/daw/RotaryControlMenu.tsx` provides the common context menu
+for app-owned rotary controls. Track, bus, master and click pan plus track/click
+send amount expose Reset to Default, MIDI CC Learn and Clear MIDI Binding while
+retaining their screen-specific pan-law and send-routing actions. Pan resets to
+center; sends reset to their declared schema default (100%/unity). Reset still
+uses the control's regular edit callback, not a display-only local override.
+
+`rotaryMidiTarget.ts` constructs only typed continuous targets. Core's action
+catalogue rejects empty/malformed target identities and continues excluding
+structural/navigation/note-edit actions. CC handlers are consistent across
+CoreMIDI, WinMM and ALSA. Continuous controls only learn Control Change; an
+incompatible Note-On leaves learn armed. Track and bus IDs resolve after
+reordering, with numeric `track_pan` indices retained for backward compatibility.
+
+Tests: focused rotary UI tests 5/5; full UI suite 813/813 (122 files); UI
+TypeScript build passed; lint exited 0 with 12 existing unrelated warnings;
+Core build passed and full native suite passed 589/589 (428,716 assertions);
+diff check passed. No hardware MIDI test was run. Important limit: MIDI mappings
+are rig-wide `AppSettings`; IDs can recur in separate projects, so the new
+targets are stable across reordering but are not yet project/song scoped.
+Future rotary families must opt in through an explicit safe target factory and
+carry the parameter's real reset default; vendor plug-in GUI controls are
+outside this app-owned menu.
+
 Earlier validation snapshots passed the Core build and focused/full regressions.
 The current audit passed UI 706/Electron 39; its first native run passed 563/566.
 An isolated AU rerun passed 67 assertions. Diagnose integrated failures and

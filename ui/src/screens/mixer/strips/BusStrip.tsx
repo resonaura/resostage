@@ -15,6 +15,7 @@ import type { BusRow, MeterRow, SettingsState } from "@/lib/state/types";
 import { BusDestinationRouting } from "@/screens/mixer/routing/components/BusDestinationRouting";
 import { ChannelStrip } from "@/screens/mixer/strips/ChannelStrip";
 import { masterColor, sendColor } from "@/screens/mixer/logic/constants";
+import { rotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
 
 function BusStripInner({
   b,
@@ -74,6 +75,7 @@ function BusStripInner({
       }}
       gainDb={b.gainDb ?? 0}
       pan={b.pan ?? 0}
+      panMidiTarget={isMaster ? rotaryMidiTarget.masterPan() : rotaryMidiTarget.busPan(b.id)}
       peakDb={peakDb}
       peakDbL={peakDbL}
       peakDbR={peakDbR}

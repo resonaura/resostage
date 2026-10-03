@@ -6,11 +6,9 @@
 
 import type { MouseEventHandler } from "react";
 import { Knob } from "@/components/daw/Knob";
-import {
-  ContextMenu,
-  ContextMenuDivider,
-  ContextMenuItem,
-} from "@/components/common/ContextMenu";
+import { RotaryControlMenu } from "@/components/daw/RotaryControlMenu";
+import type { RotaryMidiTarget } from "@/components/daw/logic/rotaryMidiTarget";
+import { ContextMenuDivider, ContextMenuItem } from "@/components/common/ContextMenu";
 import type { TrackPanLawOption } from "@/components/daw/logic/panLaw";
 
 /** Presentational track-pan control; state and commands come from its owner. */
@@ -24,6 +22,7 @@ export function TrackPanControl({
   color,
   knobSize,
   showPanValue,
+  midiTarget,
   onCommit,
   onDragStart,
   onDragEnd,
@@ -41,6 +40,7 @@ export function TrackPanControl({
   color: string;
   knobSize: number;
   showPanValue: boolean;
+  midiTarget: RotaryMidiTarget;
   onCommit: (value: number) => void;
   onDragStart?: (initialValue: number) => void;
   onDragEnd?: (finalValue: number) => void;
@@ -52,7 +52,7 @@ export function TrackPanControl({
   return (
     <div
       className="flex shrink-0 items-center gap-0.5"
-      title={`Pan: ${valueLabel} · ${activePanLaw} pan law (right-click to change)`}
+      title={`Pan: ${valueLabel} · ${activePanLaw} pan law (right-click for options)`}
       onContextMenu={onContextMenu}
     >
       <Knob
@@ -73,12 +73,15 @@ export function TrackPanControl({
         </span>
       )}
       {menuPosition && (
-        <ContextMenu
+        <RotaryControlMenu
           x={menuPosition.x}
           y={menuPosition.y}
-          width={232}
           onClose={onCloseMenu}
+          onReset={() => onCommit(0)}
+          resetLabel="Reset Pan to Center"
+          midiTarget={midiTarget}
         >
+          <ContextMenuDivider />
           <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-foreground/45">
             Pan law · {trackName}
           </div>
@@ -96,7 +99,7 @@ export function TrackPanControl({
           <div className="px-2.5 py-1.5 text-[10px] leading-snug text-foreground/45">
             Right-click the pan knob to choose how its center level is compensated.
           </div>
-        </ContextMenu>
+        </RotaryControlMenu>
       )}
     </div>
   );

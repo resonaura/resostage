@@ -66,6 +66,7 @@ add_executable(resostage_engine_tests
   test_peak_accumulator.cpp
   test_low_latency_plan.cpp
   test_midi_takeover.cpp
+  test_action_catalogue.cpp
   ../app/network/UDPDiscovery.cpp
   ../app/engine/OfflineRenderer.cpp
   ../app/engine/OfflineMidiEvents.cpp

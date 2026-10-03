@@ -6,11 +6,14 @@
 
 #include "MainComponent.h"
 #include "ActionCatalogue.h"
+#include "midi/MidiContinuousTargets.h"
+#include "project/ProjectJson.h"
 #include "project/RecentProjects.h"
 #include "timing/BarSeek.h"
 
 #include <algorithm>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -130,11 +133,51 @@ void MainComponent::performContinuousAction(const std::string& target, float nor
             engine.setTrackGainDb(engine.currentSongIndex(), idx, gainDb);
         } catch (...) {}
     } else if (target.rfind("track_pan:", 0) == 0) {
-        try {
-            const size_t idx = static_cast<size_t>(std::stoul(target.substr(10)));
-            const double pan = static_cast<double>(val * 2.0f - 1.0f);
-            engine.setTrackPan(engine.currentSongIndex(), idx, pan);
-        } catch (...) {}
+        const auto& project = engine.project();
+        const auto idx = midi_control::trackIndexForTarget(
+            project, std::string_view(target).substr(10));
+        if (idx)
+            engine.setTrackPan(engine.currentSongIndex(), *idx,
+                               static_cast<double>(val * 2.0f - 1.0f));
+    } else if (target == "master_pan") {
+        engine.setBusPan(0, static_cast<double>(val * 2.0f - 1.0f));
+    } else if (target == "click_pan") {
+        engine.project().click.pan = static_cast<double>(val * 2.0f - 1.0f);
+        engine.refreshClickState();
+    } else if (target.rfind("bus_pan:", 0) == 0) {
+        const auto& project = engine.project();
+        const auto index = midi_control::sendBusIndexForTarget(
+            project, std::string_view(target).substr(8));
+        if (index)
+            engine.setBusPan(*index, static_cast<double>(val * 2.0f - 1.0f));
+    } else if (target.rfind("track_send:", 0) == 0) {
+        const auto pair = midi_control::parseTrackSendTarget(
+            std::string_view(target).substr(11));
+        if (!pair)
+            return;
+        const auto& project = engine.project();
+        const auto trackIndex = midi_control::trackIndexForTarget(project, pair->trackId);
+        if (!trackIndex)
+            return;
+        auto& sends = engine.project().tracks[*trackIndex].output.sends;
+        const auto send = std::find_if(sends.begin(), sends.end(),
+            [busId = pair->busId](const SendConfig& candidate) { return candidate.bus == busId; });
+        if (send == sends.end())
+            return;
+        SendConfig updated = *send;
+        updated.level = sendDbToLevel(-60.0 + static_cast<double>(val) * 60.0);
+        const auto sendIndex = static_cast<size_t>(send - sends.begin());
+        engine.setTrackSend(engine.currentSongIndex(), *trackIndex,
+                            sendIndex, updated);
+    } else if (target.rfind("click_send:", 0) == 0) {
+        auto& sends = engine.project().click.output.sends;
+        const std::string_view busId = std::string_view(target).substr(11);
+        const auto send = std::find_if(sends.begin(), sends.end(),
+            [busId](const SendConfig& candidate) { return candidate.bus == busId; });
+        if (send == sends.end())
+            return;
+        send->level = sendDbToLevel(-60.0 + static_cast<double>(val) * 60.0);
+        engine.refreshClickState();
     } else if (target.rfind("track_arm:", 0) == 0) {
         try {
             const size_t idx = static_cast<size_t>(std::stoul(target.substr(10)));
@@ -266,6 +309,10 @@ void MainComponent::handleMidiLearnMessage(MidiTriggerType type, int channel1to1
     // Web UI learn: one-shot arm for a named action.
     if (midiLearnAction.empty())
         return;
+    if (!supportsMidiTriggerForTarget(midiLearnAction, type)) {
+        setStatus("Continuous MIDI controls require a Control Change (CC); learn remains armed");
+        return;
+    }
     const std::string action = midiLearnAction;
     midiLearnAction.clear();
 

@@ -364,7 +364,7 @@ export function MidiSettingsTab({ state }: { state: WebUiState }) {
 
       <SettingsSection
         title="Keyboard & MIDI Shortcuts"
-        description="Global actions can be rebound and are saved in app settings. Editor selection and note-editing gestures stay fixed and context-scoped. MIDI Learn is limited to transport, navigation, and performance controls."
+        description="Global actions can be rebound and are saved in app settings. Editor selection and note-editing gestures stay fixed and context-scoped. MIDI Learn is available for safe continuous rotary controls and supported transport/performance actions; structural editing stays unbindable."
       >
         <div className="flex flex-col gap-4">
           {ACTION_GROUPS.map((group) => (
