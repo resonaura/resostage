@@ -1083,6 +1083,46 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "request IDs may be reused after restart only within the new session namespace");
     assert.equal(getRegion(reusedIdEdit.state).name, "New Core session command");
 
+    // Reopen the same package inside this still-running Core. Entity IDs are
+    // intentionally stable across the reload, while project epoch must change.
+    // Queue a mutation immediately before the reopen: its late result may still
+    // arrive in the new state frame, but it must retain its old epoch and the
+    // reloaded package contents must win over that transient in-memory edit.
+    const persistedRegionName = JSON.parse(readFileSync(metadataPath, "utf8"))
+      .songs[0].midiRegions.find((region) => region.id === regionId)?.name;
+    assert.ok(persistedRegionName, "same-Core reopen fixture must have a saved MIDI region");
+    const beforeSameCoreReopen = await request("/api/v1/state");
+    commandState = beforeSameCoreReopen;
+    const lateAcceptedEdit = await request("/api/v1/builder/midi-region/update", {
+      songIndex: 0, regionId, name: "Transient before same-Core reopen",
+    });
+    assert.ok(Number.isSafeInteger(lateAcceptedEdit.requestId),
+      "same-Core late-response mutation must be accepted before project replacement");
+    await request("/api/v1/project/open-recent", { path: project });
+    const reloadedState = await waitFor((snapshot) => snapshot.projectEpoch !== beforeSameCoreReopen.projectEpoch
+      && !snapshot.busy
+      && snapshot.songs?.[0]?.midiRegions?.some((region) => region.id === regionId),
+    "same-Core reopen of the same package with stable entity IDs");
+    assert.equal(reloadedState.stateSessionId, beforeSameCoreReopen.stateSessionId,
+      "same-Core document reopen must keep the Core session identity");
+    const lateResult = reloadedState.editorCommandResults?.find(
+      (result) => result.requestId === lateAcceptedEdit.requestId,
+    );
+    assert.ok(lateResult, "the accepted old-document command must retain its exact late result");
+    assert.equal(lateResult.applied, true,
+      "the FIFO-ordered edit may apply to its original document before the queued reopen");
+    assert.equal(lateResult.projectEpoch, beforeSameCoreReopen.projectEpoch,
+      "a late exact result must retain the identity captured when its command was accepted");
+    assert.notEqual(lateResult.projectEpoch, reloadedState.projectEpoch,
+      "an old-document result must never be presented as belonging to the reloaded document");
+    assert.equal(getRegion(reloadedState).name, persistedRegionName,
+      "reopening the same package must discard the prior document's unsaved transient edit");
+    const afterSameCoreReopenEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", {
+      songIndex: 0, regionId, name: "Edit after same-Core reopen",
+    });
+    assert.equal(afterSameCoreReopenEdit.accepted.requestId, lateAcceptedEdit.requestId + 1,
+      "same-Core reopen must not reset the process-local exact request sequence");
+
     const detachedAutomation = await confirmEditorMutation("/api/v1/builder/automation-lane/add", {
       songIndex: 0,
       domain: "plugin",
@@ -1201,7 +1241,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "edit deferred through real busy media import with exact job result and full region/song extent",
       "detached plug-in automation rebind rejection",
       "structural song/bus/event/section/cycle results",
-      "project-epoch and Core-session fences, request-ID reuse after restart",
+      "same-Core reopen with late old-epoch result and stable entities, Core-session fences and restart-scoped request-ID reuse",
       "active-playback Undo/Redo, automation recording/rejection, 413, save/reopen",
       "(not acoustic or UI manual-override proof)",
     ].join(", "));

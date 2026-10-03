@@ -309,12 +309,13 @@ Still open; do not call this full editor transactionality:
   `applied=false` result and unchanged project revision, then drains and
   confirms both count and byte admission recover. This deterministic hold
   exercises the real deferred admission path but does not replace the separate
-  real-I/O overlap acceptance below. Same-Core reopen/reused IDs, Core
-  restart during a pending edit, and late responses remain additional stress
-  cases. A process restart already proves old-session requests get HTTP 409
-  while a new session may safely reuse the same numeric request ID. HTTP queue
-  admission failure has no editor-result ring entry because that command was
-  never accepted.
+  real-I/O overlap acceptance below. Same-Core reopen with stable entity IDs,
+  process-local request-sequence continuity, and a late exact result retaining
+  its old project epoch now pass. A Core restart during an accepted-but-pending
+  edit remains additional stress. A process restart already proves old-session
+  requests get HTTP 409 while a new session may safely reuse the same numeric
+  request ID. HTTP queue admission failure has no editor-result ring entry
+  because that command was never accepted.
 - Admission result rings remain bounded and process-local. A client that misses
   an exact result does not infer success from field coincidence or a later
   revision; after its bounded wait it refreshes state and reports the outcome
@@ -326,23 +327,21 @@ Still open; do not call this full editor transactionality:
 
 Next implementation:
 
-1. Complete same-Core reopen/reused-ID and late-response cases. A Core restart
-   already proves stale-session rejection and safe numeric request-ID reuse,
-   but it does not cover an accepted command still in flight during restart.
-   Queue a project mutation and replacement deliberately, then verify the
-   terminal result retains its captured epoch and cannot affect the replacement
-   even when the entity ID/index exists there too. Keep accepted-result expiry
-   unknown and never infer application from another request's later state.
-2. Exercise Core restart while a command is accepted but not yet applied, and
+1. Exercise Core restart while a command is accepted but not yet applied, and
    verify late state/results from the dead process cannot settle the new
    session's request. The existing process-restart test covers a request made
    after restart using the old session fence, not a response delayed across it.
-3. Add exact completion only to remaining structural mutations that truly
+   A same-Core reload test now queues a mutation immediately before opening the
+   same saved package: stable entity IDs survive, project epoch changes, the
+   queued result retains its old epoch, and subsequent process-local IDs remain
+   monotonic. Keep accepted-result expiry unknown and never infer application
+   from another request's later state.
+2. Add exact completion only to remaining structural mutations that truly
    participate in history. Do not make high-rate fader or knob streams await
    one ACK per value; keep continuous latest-wins controls separate. HTTP/TCP
    remains the reliable-command channel; UDP remains sampled telemetry and a
    WebSocket/Socket.IO swap does not supply these semantics.
-4. The API-to-footer recovery path is now unit-tested with a simulated exact
+3. The API-to-footer recovery path is now unit-tested with a simulated exact
    graph-publication failure result. If extending this, preserve separate
    evidence labels: current real-Core injection proves backend state/transport;
    the UI test proves refetch/rejection/no-resend/footer behavior. A single
@@ -359,6 +358,16 @@ extension, and preservation of the pre-existing package resource. This uses no
 test-only import pause. It does not prove plug-in-state serialization, acoustic
 continuity, or active-playback import: the current import path intentionally
 stops playback before package mutation.
+
+Same-Core replacement/late-response verification (2026-10-02):
+After a clean restart, the real-Core harness queues a MIDI edit followed by
+opening the same saved project package. The edit's exact result is present in a
+later state frame but carries the pre-reopen project epoch; the reopened
+project retains the same MIDI entity ID and its persisted contents, and the
+next edit continues the same Core-local request-ID sequence. This proves the
+server-side result remains attributable across a same-process replacement; it
+does not simulate a renderer network response arriving after a Core process
+restart.
 
 ## P1 — manual Touch/Latch/Write is only partially integrated
 
