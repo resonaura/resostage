@@ -708,9 +708,9 @@ device test. The capture buffer holds 4,096 MIDI events per recording session,
 and the global live preview holds 512 controller events; overflow is not yet
 surfaced. Piano Roll arbitrary-CC display remains open.
 
-### Completed subset — Piano Roll switch-pedal lanes (2026-10-03)
+### Completed block — Piano Roll switch-pedal lanes (2026-10-03)
 
-The working tree now includes individual Piano Roll bottom lanes for CC64–69.
+Commit `f778dade` adds individual Piano Roll bottom lanes for CC64–69.
 The event projection respects region clip offset and loop occurrence, shows
 down/up transitions and held spans, aggregates overlapping MIDI channels until
 all active channels release, and caps work at 16,384 source events,
@@ -719,5 +719,4 @@ LIMITED`. The rendering is read-only and does not change MIDI region data.
 
 Focused tests passed 10/10; full UI passed 845 tests across 128 files; UI
 TypeScript, changed-file lint and production build passed. There was no manual
-visual or device test. Arbitrary CC lanes and editing remain open. Commit this
-as a separate English-language block after reviewing the staged diff.
+visual or device test. Arbitrary CC lanes and editing remain open.
