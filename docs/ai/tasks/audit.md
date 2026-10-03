@@ -222,6 +222,17 @@ AudioEngine epoch differs even when its reported history revision is larger
 than the edit. This is state/protocol evidence, not audible continuity or
 vendor/hardware proof. No Electron suite was rerun.
 
+Follow-up transport-continuity investigation (2026-10-02): the real-Core
+acceptance now waits for the expected forward playhead observation after the
+live strip-automation edit and includes audio callback, underrun, silent-block,
+sample-rate and device-alarm fields in timeout diagnostics. One standalone run
+and five consecutive serialized runs passed on the same optimized Core. This
+did not reproduce the earlier intermittent freeze, so it narrows the evidence
+but does not close the issue or prove uninterrupted audio output. Keep the
+failure-injection, callback/device, deadline and acoustic acceptance open until
+the original symptom is reproduced or runtime signals are observed under a
+representative stress test.
+
 Still open; do not call this full editor transactionality:
 
 - A failed playback snapshot is now observable and surfaced, but the editor

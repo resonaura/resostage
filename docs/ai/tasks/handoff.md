@@ -177,7 +177,7 @@ Every source keeps the standard license header. English comments/commits,
 `@/` frontend imports, separate components/hooks/logic/tests, lowercase one-word
 folders. Commit each finished block; do not push.
 
-The current uncommitted Touch/Latch/Write capture-session block additionally
+The committed `06c3819` Touch/Latch/Write capture-session block additionally
 requires confirmed Core-session/project-epoch identity, maps playhead time with
 the song TempoMap, detects cycle wraps from sampled playhead movement, resumes
 held Latch passes on retouch, retains the prior finite value when release data
@@ -193,6 +193,14 @@ and Core status if it recurs. Do not treat those retries as resolution of the
 intermittent signal. This block does not implement Core-side manual-value
 ownership, authoritative loop iteration IDs, pointer-loss policy or retained
 recovery drafts after unknown/rejected commits.
+
+Follow-up acceptance investigation: `editor-state.mjs` now waits for forward
+playhead telemetry after the live strip-automation edit and includes Core
+callback/underrun/silent-block/device diagnostics on timeout. One standalone
+run and five consecutive serialized acceptance runs passed. An earlier
+intermittent stalled-playhead report remains unproven/unresolved; do not
+reinterpret green retries as acoustic continuity evidence or remove the
+failure-injection and loaded-device acceptance items.
 
 ## Immediate next actions
 

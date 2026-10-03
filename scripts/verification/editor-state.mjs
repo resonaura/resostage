@@ -78,16 +78,33 @@ export async function verifyEditorState(coreExecutable, inspect) {
     return JSON.parse(text);
   };
   const waitFor = async (predicate, description) => {
+    let lastObserved = null;
     for (let attempt = 0; attempt < 160; ++attempt) {
       if (exited) throw new Error(`Core exited during ${description}\n${diagnostic}`);
       try {
         const state = await request("/api/v1/state");
         commandState = state;
+        lastObserved = state;
         if (predicate(state)) return state;
       } catch (error) { if (attempt === 159) throw error; }
       await sleep(50);
     }
-    throw new Error(`No authoritative confirmation: ${description}\n${diagnostic}`);
+    const lastState = lastObserved ? JSON.stringify({
+      playing: lastObserved.playing,
+      playheadSamples: lastObserved.playheadSamples,
+      playheadSeconds: lastObserved.playheadSeconds,
+      songIndex: lastObserved.songIndex,
+      projectEpoch: lastObserved.projectEpoch,
+      stateRevision: lastObserved.stateRevision,
+      playbackProjectRevision: lastObserved.playbackProjectRevision,
+      sampleRate: lastObserved.sampleRate,
+      audioCallbackCount: lastObserved.audioCallbackCount,
+      underrunCount: lastObserved.underrunCount,
+      silentBlockCount: lastObserved.silentBlockCount,
+      hardwareAlarm: lastObserved.hardwareAlarm,
+      statusMessage: lastObserved.statusMessage,
+    }) : "none";
+    throw new Error(`No authoritative confirmation: ${description}\nLast state: ${lastState}\n${diagnostic}`);
   };
   const confirmEditorMutation = async (path, body, applied = true, extraHeaders = {}) => {
     const expectedEpoch = commandState?.projectEpoch;
@@ -344,7 +361,9 @@ export async function verifyEditorState(coreExecutable, inspect) {
     await request("/api/v1/builder/automation-points/replace", { songIndex: 0, laneId: faderLane.id, points: faderPoints });
     state = await waitFor((current) => current.songs?.[0]?.automationLanes?.[1]?.points.length === 3, "strip fader points replacement");
     assert.equal(state.playing, true, "Strip automation edit must not stop playback");
-    assert.ok(state.playheadSeconds > playingStrip.playheadSeconds, "Transport continuously advances through strip automation edit");
+    state = await waitFor((current) => current.playing
+      && current.playheadSeconds > playingStrip.playheadSeconds,
+    `transport advances through strip automation edit after ${playingStrip.playheadSeconds}s`);
 
     // Live Touch gesture recording while playing
     await request("/api/v1/builder/automation-lane/update", { songIndex: 0, laneId: faderLane.id, writeMode: "touch" });
