@@ -454,6 +454,9 @@ MainComponent::~MainComponent() {
         }
     }
     deferredWebCommands.clear();
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    webServer.setTestDeferredCommandStatus(0, 0);
+#endif
     webServer.stop();
 }
 

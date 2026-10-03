@@ -281,6 +281,9 @@ bool isTransactionalEditorCommand(WebCommandKind kind) {
         WebCommandKind::BuilderAutomationLaneUpdate, WebCommandKind::BuilderAutomationPointAdd,
         WebCommandKind::BuilderAutomationPointRemove, WebCommandKind::BuilderAutomationPointsReplace,
         WebCommandKind::BuilderAutomationRecordGesture,
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+        WebCommandKind::TestDeferredQueueProbe,
+#endif
     };
     return std::find(std::begin(kTransactionalEditorKinds), std::end(kTransactionalEditorKinds), kind)
         != std::end(kTransactionalEditorKinds);
@@ -350,14 +353,33 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
                 urgentCommandHook();
         }
         const bool paused = pauseCommandPollingForTesting.load(std::memory_order_acquire);
+        const size_t deferredCommands = testDeferredCommandCount.load(std::memory_order_acquire);
+        const size_t deferredBytes = testDeferredCommandBytes.load(std::memory_order_acquire);
         const std::string status = "{\"paused\":" + std::string(paused ? "true" : "false")
             + ",\"queuedCommands\":" + std::to_string(commandAdmission.usedCommands())
-            + ",\"queuedBytes\":" + std::to_string(commandAdmission.usedBytes()) + "}";
+            + ",\"queuedBytes\":" + std::to_string(commandAdmission.usedBytes())
+            + ",\"deferredCommands\":" + std::to_string(deferredCommands)
+            + ",\"deferredBytes\":" + std::to_string(deferredBytes) + "}";
         webserver_http::writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
                                           status.data(), status.size());
         return true;
     } else if (std::strcmp(path, "/api/v1/test/command-queue-noop") == 0) {
         cmd = {WebCommandKind::TestCommandQueueNoop, 0};
+    } else if (std::strcmp(path, "/api/v1/test/deferred-queue-hold") == 0) {
+        glz::generic payload;
+        bool hold = false;
+        if (body == nullptr || glz::read_json(payload, std::string_view(body, bodyLen))
+            || !builder_json::getBool(payload, "hold", hold)) {
+            writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "hold must be a boolean");
+            return true;
+        }
+        cmd = {WebCommandKind::TestSetDeferredQueueHold, hold ? 1 : 0};
+    } else if (std::strcmp(path, "/api/v1/test/deferred-queue-probe") == 0) {
+        cmd = {WebCommandKind::TestDeferredQueueProbe, 0, 0.0, "",
+               body == nullptr ? std::string{} : std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/test/deferred-queue-fill") == 0) {
+        cmd = {WebCommandKind::TestDeferredQueueFill, 0, 0.0, "",
+               body == nullptr ? std::string{} : std::string(body, bodyLen)};
     } else
 #endif
     if (std::strcmp(path, "/api/v1/transport/play") == 0) {

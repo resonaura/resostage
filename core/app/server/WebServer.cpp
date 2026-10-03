@@ -1036,6 +1036,13 @@ bool WebServer::pollCommand(WebCommand& out) {
     return true;
 }
 
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+void WebServer::setTestDeferredCommandStatus(size_t count, size_t bytes) noexcept {
+    testDeferredCommandBytes.store(bytes, std::memory_order_release);
+    testDeferredCommandCount.store(count, std::memory_order_release);
+}
+#endif
+
 bool WebServer::enqueueCommand(WebCommand cmd) {
     const auto size = cmd.path.size() + cmd.json.size() + cmd.expectedStateSessionId.size();
     if (!commandAdmission.reserve(size)) return false;

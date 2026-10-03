@@ -448,6 +448,16 @@ export async function verifyEditorState(coreExecutable, inspect) {
         }
         assert.fail(`command queue did not drain: ${description}`);
       };
+      const waitForDeferredCount = async (count) => {
+        for (let attempt = 0; attempt < 160; ++attempt) {
+          const status = await queueControl("status");
+          if (count === 0
+            ? status.deferredCommands === 0 && status.deferredBytes === 0
+            : status.deferredCommands >= count) return status;
+          await sleep(50);
+        }
+        assert.fail(`deferred queue did not reach ${count} commands`);
+      };
       const queueBefore = await queueControl("pause");
       assert.equal(queueBefore.queuedCommands, 0, "test queue must be empty before saturation");
       for (let first = 0; first < 1024; first += 32) {
@@ -476,6 +486,122 @@ export async function verifyEditorState(coreExecutable, inspect) {
       assert.equal(recoveredQueueCommand.status, 200,
         `commands must be admitted again after drain: ${recoveredQueueBody}`);
       await waitForQueueEmpty("post-recovery probe dequeue");
+
+      const deferredBefore = await queueControl("status");
+      assert.equal(deferredBefore.deferredCommands, 0,
+        "deferred queue must be empty before its independent saturation test");
+      await request("/api/v1/test/deferred-queue-hold", { hold: true });
+      await waitFor((current) => current.statusMessage
+        === "Test-only deferred command hold active", "deferred queue hold");
+      const projectRevisionBeforeDeferredSaturation = commandState.stateRevision;
+      for (let first = 0; first < 1024; first += 32) {
+        const responses = await Promise.all(Array.from({ length: 32 }, () =>
+          postRaw("/api/v1/test/deferred-queue-fill", {})));
+        for (const response of responses) {
+          const text = await response.text();
+          assert.equal(response.status, 200, `deferred fill should be admitted: ${text}`);
+        }
+        await waitForDeferredCount(first + 32);
+      }
+      const fullDeferredQueue = await queueControl("status");
+      assert.equal(fullDeferredQueue.deferredCommands, 1024,
+        "all deferred-message slots must be occupied before probing overflow");
+      assert.equal(fullDeferredQueue.deferredBytes, 2048,
+        "the count-cap fixture must account each retained empty JSON body");
+      const overflowProbeResponse = await postRaw("/api/v1/test/deferred-queue-probe", {});
+      const overflowProbeBody = await overflowProbeResponse.text();
+      assert.equal(overflowProbeResponse.status, 202,
+        `deferred overflow probe must be admitted to Core first: ${overflowProbeBody}`);
+      const overflowProbe = JSON.parse(overflowProbeBody);
+      assert.ok(Number.isSafeInteger(overflowProbe.requestId),
+        "deferred overflow probe must have an exact result ID");
+      const overflowResultState = await waitFor((current) => current.editorCommandResults?.some(
+        (result) => result.requestId === overflowProbe.requestId,
+      ), "exact deferred queue overflow result");
+      const overflowResult = overflowResultState.editorCommandResults.find(
+        (result) => result.requestId === overflowProbe.requestId,
+      );
+      assert.equal(overflowResult.applied, false,
+        "a request that cannot enter the deferred queue must not report application");
+      assert.match(overflowResult.error, /Pending project command queue is full/,
+        "the exact request result must carry the deferred-queue rejection reason");
+      assert.equal(overflowResultState.stateRevision, projectRevisionBeforeDeferredSaturation,
+        "queue overflow must not mutate project history");
+      await request("/api/v1/test/deferred-queue-hold", { hold: false });
+      await waitFor((current) => current.statusMessage
+        === "Test-only deferred command hold released", "deferred queue release");
+      await waitForDeferredCount(0);
+      const recoveredProbeResponse = await postRaw("/api/v1/test/deferred-queue-probe", {});
+      const recoveredProbeBody = await recoveredProbeResponse.text();
+      assert.equal(recoveredProbeResponse.status, 202,
+        `deferred queue must admit a request again after drain: ${recoveredProbeBody}`);
+      const recoveredProbe = JSON.parse(recoveredProbeBody);
+      const recoveredProbeState = await waitFor((current) => current.editorCommandResults?.some(
+        (result) => result.requestId === recoveredProbe.requestId,
+      ), "exact post-drain deferred probe result");
+      const recoveredResult = recoveredProbeState.editorCommandResults.find(
+        (result) => result.requestId === recoveredProbe.requestId,
+      );
+      assert.equal(recoveredResult.applied, false,
+        "the non-mutating recovery probe must not invent a project edit");
+      assert.doesNotMatch(recoveredResult.error, /queue is full/i,
+        "deferred admission must recover after the held commands drain");
+
+      await request("/api/v1/test/deferred-queue-hold", { hold: true });
+      await waitFor((current) => current.statusMessage
+        === "Test-only deferred command hold active", "deferred byte-limit hold");
+      const projectRevisionBeforeDeferredByteSaturation = commandState.stateRevision;
+      const fullSizePayload = { pad: "x".repeat(65_526) };
+      assert.equal(Buffer.byteLength(JSON.stringify(fullSizePayload)), 65_536,
+        "byte-limit probes must land exactly on the scalar HTTP body limit");
+      for (let first = 0; first < 64; first += 8) {
+        const responses = await Promise.all(Array.from({ length: 8 }, () =>
+          postRaw("/api/v1/test/deferred-queue-fill", fullSizePayload)));
+        for (const response of responses) {
+          const text = await response.text();
+          assert.equal(response.status, 200, `deferred byte fill should be admitted: ${text}`);
+        }
+        await waitForDeferredCount(first + 8);
+      }
+      const fullDeferredBytes = await queueControl("status");
+      assert.equal(fullDeferredBytes.deferredCommands, 64,
+        "the byte-cap fixture must retain exactly 64 maximum-size bodies");
+      assert.equal(fullDeferredBytes.deferredBytes, 4 * 1024 * 1024,
+        "the deferred byte budget must be filled exactly");
+      const byteOverflowResponse = await postRaw("/api/v1/test/deferred-queue-probe", {});
+      const byteOverflowBody = await byteOverflowResponse.text();
+      assert.equal(byteOverflowResponse.status, 202,
+        `deferred byte-overflow probe must be admitted to Core first: ${byteOverflowBody}`);
+      const byteOverflowProbe = JSON.parse(byteOverflowBody);
+      const byteOverflowState = await waitFor((current) => current.editorCommandResults?.some(
+        (result) => result.requestId === byteOverflowProbe.requestId,
+      ), "exact deferred byte-budget overflow result");
+      const byteOverflowResult = byteOverflowState.editorCommandResults.find(
+        (result) => result.requestId === byteOverflowProbe.requestId,
+      );
+      assert.equal(byteOverflowResult.applied, false);
+      assert.match(byteOverflowResult.error, /Pending project command queue is full/);
+      assert.equal(byteOverflowState.stateRevision, projectRevisionBeforeDeferredByteSaturation,
+        "byte-budget rejection must not mutate project history");
+      await request("/api/v1/test/deferred-queue-hold", { hold: false });
+      await waitFor((current) => current.statusMessage
+        === "Test-only deferred command hold released", "deferred byte-budget release");
+      const drainedDeferredBytes = await waitForDeferredCount(0);
+      assert.equal(drainedDeferredBytes.deferredBytes, 0,
+        "deferred retained-byte accounting must return to zero after drain");
+      const byteRecoveredProbeResponse = await postRaw("/api/v1/test/deferred-queue-probe", {});
+      const byteRecoveredProbeBody = await byteRecoveredProbeResponse.text();
+      assert.equal(byteRecoveredProbeResponse.status, 202,
+        `deferred byte capacity must recover after drain: ${byteRecoveredProbeBody}`);
+      const byteRecoveredProbe = JSON.parse(byteRecoveredProbeBody);
+      const byteRecoveredState = await waitFor((current) => current.editorCommandResults?.some(
+        (result) => result.requestId === byteRecoveredProbe.requestId,
+      ), "exact deferred byte-capacity recovery result");
+      const byteRecoveredResult = byteRecoveredState.editorCommandResults.find(
+        (result) => result.requestId === byteRecoveredProbe.requestId,
+      );
+      assert.equal(byteRecoveredResult.applied, false);
+      assert.doesNotMatch(byteRecoveredResult.error, /queue is full/i);
 
       await request("/api/v1/transport/play", {});
       const beforeInjectedFailure = await waitFor((current) => current.playing,
@@ -832,7 +958,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
     assert.equal(staleEdit.state.songs[0].midiRegions[0].name, fencedRegion.name,
       "stale project edits must not mutate entities with reused/indexed targets");
     const queueAcceptance = process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE === "1"
-      ? ", command queue 1024-slot saturation/503/drain/recovery"
+      ? ", command queue and deferred queue saturation/rejection/drain/recovery"
       : "";
     console.log(`PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction${queueAcceptance}, audio/MIDI region CRUD and embedded-automation rejection, detached plug-in automation rebind rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)`);
   } finally {

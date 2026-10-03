@@ -28,13 +28,20 @@ void MainComponent::drainWebCommands() {
     // hopscotch felt like ~1s of "thinking". Coalesce consecutive song-nav
     // into a single goToSong of the final target.
     std::vector<WebCommand> batch;
-    if (!engine.isBusy()) {
+    bool canDrainDeferredCommands = !engine.isBusy();
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    canDrainDeferredCommands = canDrainDeferredCommands && !holdDeferredCommandsForTesting;
+#endif
+    if (canDrainDeferredCommands) {
         batch.reserve(deferredWebCommands.size());
         while (!deferredWebCommands.empty()) {
             batch.push_back(std::move(deferredWebCommands.front()));
             deferredWebCommands.pop_front();
         }
         deferredWebCommandBytes = 0;
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+        webServer.setTestDeferredCommandStatus(0, 0);
+#endif
     }
     {
         WebCommand cmd;
@@ -73,9 +80,17 @@ void MainComponent::drainWebCommands() {
         // Async save/import completion may reopen the live ProjectLoader. Keep
         // transactional edits out until it has finished; Stop remains usable
         // throughout a slow disk operation.
-        if (engine.isBusy() && cmd.kind != WebCommandKind::Stop
+        bool mustDeferForProjectIO = engine.isBusy();
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+        mustDeferForProjectIO = mustDeferForProjectIO || holdDeferredCommandsForTesting;
+#endif
+        if (mustDeferForProjectIO && cmd.kind != WebCommandKind::Stop
             && cmd.kind != WebCommandKind::CancelAudioRender
-            && cmd.kind != WebCommandKind::PluginScanCancel) {
+            && cmd.kind != WebCommandKind::PluginScanCancel
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+            && cmd.kind != WebCommandKind::TestSetDeferredQueueHold
+#endif
+        ) {
             // Upload HTTP completion means queued, not converted. Preserve
             // later track-add/upload actions in their accepted order so an
             // import snapshot cannot erase or reject the rest of a batch.
@@ -85,6 +100,10 @@ void MainComponent::drainWebCommands() {
                 && bytes <= kMaximumDeferredCommandBytes - deferredWebCommandBytes) {
                 deferredWebCommands.push_back(cmd);
                 deferredWebCommandBytes += bytes;
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+                webServer.setTestDeferredCommandStatus(
+                    deferredWebCommands.size(), deferredWebCommandBytes);
+#endif
             } else {
                 const std::string error = "Pending project command queue is full; retry when the import finishes";
                 if (cmd.kind == WebCommandKind::BuilderTrackImportWAVUpload) {
@@ -588,6 +607,19 @@ void MainComponent::drainWebCommands() {
 #if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
             case WebCommandKind::TestCommandQueueNoop:
                 // Saturation acceptance must not mutate project or transport state.
+                break;
+            case WebCommandKind::TestSetDeferredQueueHold:
+                holdDeferredCommandsForTesting = cmd.arg != 0;
+                setStatus(holdDeferredCommandsForTesting
+                    ? "Test-only deferred command hold active"
+                    : "Test-only deferred command hold released");
+                publishWebState();
+                break;
+            case WebCommandKind::TestDeferredQueueFill:
+                // Saturate the pending-project queue without publishing test state per item.
+                break;
+            case WebCommandKind::TestDeferredQueueProbe:
+                // Transactional test probes deliberately produce no project edit.
                 break;
             case WebCommandKind::TestFailNextPlaybackSnapshot:
                 engine.failNextPlaybackSnapshotForTesting();

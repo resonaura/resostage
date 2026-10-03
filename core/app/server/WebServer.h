@@ -301,6 +301,9 @@ enum class WebCommandKind : uint8_t {
     // Routed only when RESOSTAGE_ENABLE_TEST_HOOKS is enabled.
     TestFailNextPlaybackSnapshot,
     TestCommandQueueNoop,
+    TestSetDeferredQueueHold,
+    TestDeferredQueueFill,
+    TestDeferredQueueProbe,
 #endif
 };
 
@@ -1209,6 +1212,10 @@ public:
 
     // Message-thread: drain one remote command (if any). Returns false if empty.
     bool pollCommand(WebCommand& out);
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    // Message-thread test telemetry for the deferred queue saturation fixture.
+    void setTestDeferredCommandStatus(size_t count, size_t bytes) noexcept;
+#endif
 
     // Optional: fired from the HTTP/WS thread after enqueueing a latency-
     // sensitive command (SelectSong / Play / Stop / Next / Prev / Seek).
@@ -1446,6 +1453,8 @@ private:
     // The loopback-only saturation fixture pauses dequeue without changing
     // queue admission, allowing the HTTP 503 boundary to be exercised.
     std::atomic<bool> pauseCommandPollingForTesting{false};
+    std::atomic<size_t> testDeferredCommandCount{0};
+    std::atomic<size_t> testDeferredCommandBytes{0};
 #endif
 
     mutable std::mutex exportMutex;

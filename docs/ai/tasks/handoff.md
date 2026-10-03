@@ -109,10 +109,13 @@ in scope after this transaction boundary is trustworthy.
   commits. Faders, knobs, track pan, and gain share cancel-vs-end semantics.
   Full UI suite: 781 tests / 117 files; TypeScript/build pass; lint has zero
   errors and the same 12 existing warnings.
-- Current block adds test-only loopback queue controls and a real Core HTTP
-  saturation scenario: 1024 commands admitted, the next request returns 503,
-  all slots drain, and admission recovers. Deferred-message-queue exhaustion is
-  still unverified.
+- `9d847b2`: Test-only loopback HTTP queue controls verify 1024 admitted
+  commands, explicit 503 on the next request, drain, and re-admission.
+- Current block extends the same real-Core harness to the deferred message
+  queue: exact 1024-command and 4 MiB body limits, exact `applied=false` overflow
+  outcomes with unchanged project revision, and count/byte recovery after drain.
+  The hold is deterministic and test-only; stress while a real long save/import
+  is in flight remains open.
 - `fdc32a2`: Unit test for dense sustain and panic traffic during deferred MIDI queue capture in `test_plugin_host_protocol.cpp` (582 assertions verifying pedal CC 64, notes, pitch bend across channels 1..4, overflow degradation to 48-event 16-channel panic, and clean recovery).
 - `75c3eb0`: Canonicalized ArtDMX (`buildArtDMXPacket`, `parseArtDMXPacket`), WebCommandKind values (`BuilderTrackImportWAV*`, `BuilderMIDIRegion*`, `SetMIDI*`, `MIDILearn*`), builder/settings methods (`builderMIDIRegion*`, `builderTrackImportWAV*`, `settingsSetMIDI*`, `settingsMIDI*`), and `importWAVForTrackAsync` across Core with backward-compatible aliases.
 - `e214318`: Exposed canonical acronym types and method aliases in UI (`MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow`, `trackImportWAV`, `setMIDI*`) and Electron (`UDPTelemetryStats`, `UDPTelemetryTracker`).
@@ -302,7 +305,7 @@ gestures, playback crossing and save/reopen; UI tests are not device proof.
    not allocation-failure injection, rollback, acoustic, vendor or deadline
    proof. Do not compensate with unscoped Undo; gesture coalescing makes that
    unsafe.
-2. Stress deferred queue exhaustion, same-Core project replacement, Core
+2. Stress deferred admission during a real save/import, same-Core project replacement, Core
    restart during an in-flight command, and late
    responses. The Core now has a fixed 1024-command/32 MiB admission ceiling;
    unit tests prove command and byte reservations reject and recover. Old-session

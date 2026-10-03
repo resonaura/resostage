@@ -276,15 +276,20 @@ Still open; do not call this full editor transactionality:
   real-Core harness. A 257-edit run proves the exact result ring retains only
   the latest 256 request IDs. A UI test proves an expired result remains
   unknown, triggers one state refetch, and never resends the accepted command.
-  The real-Core harness now also pauses dequeue through test-only loopback
-  hooks, fills all 1024 command slots, confirms the next HTTP request gets 503,
-  then drains and confirms admission recovers. This does not exercise the
-  separate message-thread deferred queue: exhaustion while project I/O keeps
-  the Core busy remains open. Same-Core reopen/reused IDs, Core restart during
-  a pending edit, and late responses remain additional stress cases. A process
-  restart already proves old-session requests get HTTP 409 while a new session
-  may safely reuse the same numeric request ID. Queue admission failure has no
-  editor-result ring entry because that command was never accepted.
+  The real-Core harness now pauses dequeue through test-only loopback hooks,
+  fills all 1024 HTTP command slots, confirms the next request gets 503, then
+  drains and confirms admission recovers. It separately holds the deferred
+  message-thread gate, fills all 1024 deferred slots and exactly 4 MiB of
+  deferred command bodies, verifies each overflow probe has an exact
+  `applied=false` result and unchanged project revision, then drains and
+  confirms both count and byte admission recover. This deterministic hold
+  exercises the real deferred admission path but does not replace a stress run
+  during an actual long project save/import. Same-Core reopen/reused IDs, Core
+  restart during a pending edit, and late responses remain additional stress
+  cases. A process restart already proves old-session requests get HTTP 409
+  while a new session may safely reuse the same numeric request ID. HTTP queue
+  admission failure has no editor-result ring entry because that command was
+  never accepted.
 - Admission result rings remain bounded and process-local. A client that misses
   an exact result does not infer success from field coincidence or a later
   revision; after its bounded wait it refreshes state and reports the outcome
@@ -296,10 +301,10 @@ Still open; do not call this full editor transactionality:
 
 Next implementation:
 
-1. Exercise deferred-message-queue exhaustion while real project I/O keeps the
-   message thread busy. Preserve the already-verified HTTP 503 slot-saturation
-   result. Keep accepted-result expiry unknown and never infer application from
-   another request's later state.
+1. Stress the now-verified deferred-message-queue count/byte limits during real
+   project save/import work, not just the deterministic test hold. Keep
+   accepted-result expiry unknown and never infer application from another
+   request's later state.
 2. Complete same-Core reopen/reused-ID, Core restart during pending edits, and
    late-response cases. Add exact completion only to remaining structural
    mutations that truly participate in history. Do not make high-rate fader or

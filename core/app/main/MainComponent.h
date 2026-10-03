@@ -415,6 +415,9 @@ private:
     static constexpr size_t kMaximumDeferredCommandBytes = 4 * 1024 * 1024;
     std::deque<WebCommand> deferredWebCommands;
     size_t deferredWebCommandBytes = 0;
+#if defined(RESOSTAGE_ENABLE_TEST_HOOKS)
+    bool holdDeferredCommandsForTesting = false;
+#endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
