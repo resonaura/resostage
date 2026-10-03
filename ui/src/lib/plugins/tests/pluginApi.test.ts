@@ -121,6 +121,18 @@ describe("pluginChains", () => {
     );
   });
 
+  it("parameterValues() fetches lightweight latest values by slot ID", async () => {
+    const values = { slotId: "slot 123", loadState: "loaded", loadError: "",
+      values: [{ index: 7, value: 0.72 }] };
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: true, json: async () => values,
+    } as Response);
+    expect(await pluginChains.parameterValues(values.slotId)).toEqual(values);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/plugins/slot/parameter-values?slotId=slot%20123",
+    );
+  });
+
   it("openEditor() posts stripId and slotId to /api/v1/plugins/slot/editor", async () => {
     const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
       ok: true,

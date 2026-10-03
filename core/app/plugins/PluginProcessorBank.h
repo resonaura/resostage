@@ -95,6 +95,11 @@ public:
         bool automatable = true;
     };
 
+    struct ParameterValue {
+        uint32_t index = 0;
+        float value = 0.0f;
+    };
+
     struct BuildResult {
         std::shared_ptr<PluginProcessorBank> bank;
         std::shared_ptr<PluginDelayBank> delayBank;
@@ -196,6 +201,8 @@ public:
     std::string getSlotLoadError(const std::string& slotId) const;
     /** Non-realtime discovery from a hosted chain's startup snapshot. */
     std::vector<ParameterInfo> parametersForSlot(const std::string& slotId) const;
+    /** Latest hosted parameter values without copying immutable descriptors. */
+    std::vector<ParameterValue> parameterValuesForSlot(const std::string& slotId) const;
     bool parameterMetadataTruncated(const std::string& slotId) const noexcept;
     /** Prepared ID lookup, bounded and allocation-free on live/offline DSP. */
     int resolvePluginParameterIndex(const std::string& slotId,

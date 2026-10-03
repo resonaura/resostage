@@ -329,6 +329,18 @@ struct WPluginParameterList {
     bool truncated = false;
 };
 
+struct WPluginParameterValue {
+    uint32_t index = 0;
+    float value = 0.0f;
+};
+
+struct WPluginParameterValues {
+    std::string slotId;
+    std::vector<WPluginParameterValue> values;
+    std::string loadState = "loading";
+    std::string loadError;
+};
+
 // Project-global metronome, mirrored field-for-field from ClickChannel in
 // ProjectSchema.h (type/target/sends carry the routing exactly like a track).
 struct WClickTelemetry {

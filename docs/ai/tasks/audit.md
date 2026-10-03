@@ -462,6 +462,35 @@ The full `editor-state.mjs` acceptance and native `ctest` passed after the
 change. This closes the MIDI-region builder route boundary, not project-file
 migration or every unrelated automation ingestion path.
 
+## Closed this audit — cached plug-in automation descriptors
+
+`useAutomationParameters` now retains a bounded 128-slot descriptor cache keyed
+by Core/project epoch and generation plus slot ID, plug-in ID and load state.
+The Timeline passes the Core plug-in epoch/generation into that identity, and
+each asynchronous response remains fenced by its captured project/slot key.
+Immutable names, stable IDs, ranges and parameter capabilities are fetched once
+for each loaded slot generation instead of retransmitting every descriptor
+table once per second. A compact
+`GET /api/v1/plugins/slot/parameter-values?slotId=...` endpoint reads the
+already-published hosted-helper atomics and returns only parameter indices,
+latest normalized values and slot load status; it does not call vendor code or
+run on the audio callback. The UI polls these small value rows only while the
+automation surface is visible and a loaded slot has parameters. Request
+concurrency is bounded to four, the descriptor cache to 128, and loading retries
+to 250 ms.
+
+Verification on 2026-10-02: Core and native test target built; real-Core
+`editor-state.mjs` passed including endpoint shape and existing edit/history/save/reopen
+acceptance; the actual hosted
+Apple AUDelay parameter test passed 66 assertions, including compact-value
+indices and a live parameter change. After adding a no-op snapshot identity
+regression, the full UI suite passed 757 tests across 109 files and
+`tsc -b --pretty false` passed. Full native CTest passed 584 cases / 428,677
+assertions; real-Core `editor-state.mjs` passed. This proves the specific
+cache/value handoff and hosted AU read path, not dense-project idle-cost
+targets, every AU/VST3 vendor, or acoustic/device performance. Orphaned
+automation recovery remains open.
+
 ## Closed this audit — offline Write-mode parity
 
 `AutomationWriteMode::Write` is a live manual-override/recording mode. Both
@@ -543,12 +572,11 @@ clock.
    wire each supported control surface and handle TempoMap, cycle wrap, Stop,
    seek, project epoch, rejection recovery and one coherent history action.
 5. Embedded MIDI-region automation input is now bounded and validated before
-   history/mutation. Continue with orphaned plug-in automation recovery and
-   immutable parameter-descriptor caching below; live/offline Write behavior
-   and punch-window preservation are tracked in the automation lifecycle items.
-6. Recover automation whose plug-in slot was removed; cache immutable parameter
-   descriptors by epoch/slot/generation rather than refetching all visible slot
-   tables on a timer.
+   history/mutation. Immutable parameter-descriptor caching is also implemented
+   above; live/offline Write behavior and punch-window preservation are tracked
+   in the automation lifecycle items.
+6. Recover automation whose plug-in slot was removed, and measure metadata/value
+   request rate and Core/UI idle cost on dense projects.
 7. Finish TempoMap-based Piano Roll ruler/cycle/project-axis positioning, then
    run heavy vendor/device, theme, platform and save/reopen acceptance in
    `media.md` and `performance.md`.
@@ -584,16 +612,10 @@ the user's recent projects/settings; use private copies and temporary settings.
 Automation additionally needs actual light/dark UI inspection at compact/large
 track heights, loading/missing/failed/unbound parameters and reduced motion.
 Existing slot-removed orphan lanes must remain discoverable rather than vanish
-when their former owner cannot be inferred.
-
-`useAutomationParameters` currently polls every visible track's complete
-parameter descriptor table once per second (faster while loading). Four
-parallel requests limit concurrency, not total work/traffic. Cache immutable
-metadata by project epoch/slot/vendor generation, fetch only changed tables,
-and update current values narrowly for displayed/selected targets. Define a
-bounded invalidation/stale-response strategy and measure bytes/sec, Core
-serialization/renderer CPU and idle cost on dense projects before claiming
-global plug-in/automation optimization.
+when their former owner cannot be inferred. The descriptor cache and compact
+value endpoint are implemented above; dense-project request-rate and idle-cost
+profiling is still required before claiming global plug-in/automation
+optimization.
 
 `naming.md` remains a separate low-priority mechanical inventory. Adding aliases
 does not finish canonical filename/caller migration. Keep vendor/JUCE/wire

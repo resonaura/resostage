@@ -198,6 +198,24 @@ PluginHostProcess::parameterDescriptorsForSlot(size_t slotIndex,
     return result;
 }
 
+std::vector<PluginHostProcess::ParameterValue>
+PluginHostProcess::parameterValuesForSlot(size_t slotIndex) const {
+    std::vector<ParameterValue> result;
+    const auto* area = sharedMemory.area();
+    if (area == nullptr || !isReady() || slotIndex >= area->pluginSlotCount)
+        return result;
+    const auto count = std::min<uint32_t>(
+        area->parameterDescriptorCount,
+        plugin_host::kMaximumParameterDescriptorsPerChain);
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto& descriptor = area->parameterDescriptors[i];
+        if (descriptor.slotIndex == slotIndex)
+            result.push_back({descriptor.parameterIndex,
+                area->parameterValues[i].load(std::memory_order_relaxed)});
+    }
+    return result;
+}
+
 bool PluginHostProcess::parameterMetadataTruncated() const noexcept {
     const auto* area = sharedMemory.area();
     return area != nullptr && isReady() && area->parameterMetadataTruncated != 0;

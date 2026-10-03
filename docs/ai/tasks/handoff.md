@@ -204,6 +204,19 @@ intermittent stalled-playhead report remains unproven/unresolved; do not
 reinterpret green retries as acoustic continuity evidence or remove the
 allocator-failure and loaded-device acceptance items.
 
+The latest committed block, `33a758b` (`Cache plugin automation descriptors`),
+replaces periodic full plug-in parameter-table downloads with a bounded
+128-slot cache keyed by Core/project epoch and generation, slot, plug-in and
+load state. A compact Core endpoint reads hosted-helper parameter atomics for
+current values; the automation hook refreshes those values only while visible,
+limits concurrency to four, retries loading at 250 ms and suppresses React
+renders when values are unchanged. Verification: full UI suite 757/757 across
+109 files, UI TypeScript and lint (zero errors, 12 existing warnings), Core and
+native builds, full native CTest 584 cases / 428,677 assertions, real-Core
+`editor-state.mjs`, and 66 assertions in the hosted Apple AUDelay parameter
+test. This is not dense-project idle-cost profiling, all-vendor proof or
+acoustic/device evidence. Orphaned automation-lane recovery remains open.
+
 ## Immediate next actions
 
 1. Core-level playback-snapshot failure is now exercised by the real HTTP

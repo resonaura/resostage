@@ -22,6 +22,7 @@ import type {
   LivePeakChunkResponse,
   PeaksResponse,
   PluginParameterList,
+  PluginParameterValues,
   WebUiState,
 } from "@/lib/state/types";
 
@@ -672,6 +673,13 @@ export const pluginChains = {
   parameters: async (slotId: string): Promise<PluginParameterList> => {
     const response = await apiFetch(
       `/api/v1/plugins/slot/parameters?slotId=${encodeURIComponent(slotId)}`,
+    );
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  },
+  parameterValues: async (slotId: string): Promise<PluginParameterValues> => {
+    const response = await apiFetch(
+      `/api/v1/plugins/slot/parameter-values?slotId=${encodeURIComponent(slotId)}`,
     );
     if (!response.ok) throw new Error(await response.text());
     return response.json();

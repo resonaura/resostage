@@ -278,7 +278,7 @@ export function Timeline({
     Record<string, string>
   >({});
   const automationParameters = useAutomationParameters(state.tracks, showAutomation,
-    `${state.projectName}:${state.pluginLoading?.epoch ?? 0}`);
+    `${state.projectName}:${state.pluginLoading?.epoch ?? 0}:${state.pluginLoading?.generation ?? 0}`);
   const handleSelectAutomationLane = useCallback((trackId: string, laneId: string) => {
     setActiveAutomationLaneIds((prev) => ({ ...prev, [trackId]: laneId }));
   }, []);
