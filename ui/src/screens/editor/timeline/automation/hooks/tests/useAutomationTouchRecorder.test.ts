@@ -8,6 +8,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearApiCaches, observeProjectCommandIdentity } from "@/lib/state/api";
+import { setRemoteBackend } from "@/lib/state/backend";
 import type { AutomationLaneRow } from "@/lib/state/types";
 import {
   useAutomationTouchRecorder,
@@ -60,6 +62,10 @@ describe("useAutomationTouchRecorder", () => {
   beforeEach(() => {
     // @ts-expect-error test env global
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    setRemoteBackend(null);
+    window.history.replaceState({}, "", "/?embedded=1");
+    clearApiCaches();
+    observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 1 });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -68,6 +74,8 @@ describe("useAutomationTouchRecorder", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    clearApiCaches();
+    vi.unstubAllGlobals();
   });
 
   function Harness(props: UseAutomationTouchRecorderProps) {
@@ -97,6 +105,47 @@ describe("useAutomationTouchRecorder", () => {
     });
 
     expect(recorder.isLaneActive("lane-touch")).toBe(false);
+  });
+
+  it("cancels uncommitted points and releases Core ownership without recording", async () => {
+    const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const onCommit = vi.fn();
+    render({
+      songIndex: 0,
+      lanes,
+      isPlaying: true,
+      getCurrentBeats: () => 4.0,
+      onCommitGesture: onCommit,
+    });
+
+    await act(async () => {
+      recorder.startGesture(
+        { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, 0,
+      );
+      recorder.recordValue(
+        { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, -6,
+      );
+      expect(recorder.cancelGesture(
+        { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" },
+      )).toEqual(["lane-touch"]);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(recorder.isLaneActive("lane-touch")).toBe(false);
+    const ownershipCalls = fetch.mock.calls.filter(([input]) =>
+      String(input).endsWith("/api/v1/builder/automation/manual-override"),
+    );
+    expect(ownershipCalls).toHaveLength(2);
+    expect(ownershipCalls.map(([, init]) => JSON.parse(String(init?.body)).active))
+      .toEqual([true, false]);
+    expect(fetch.mock.calls.some(([input]) =>
+      String(input).endsWith("/api/v1/builder/automation/record-gesture"),
+    )).toBe(false);
   });
 
   it("does not record until Core session and project epoch are confirmed", () => {

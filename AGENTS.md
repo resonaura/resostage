@@ -1047,6 +1047,12 @@ the message thread; callback lookup is read-only and must not acquire a lock.
 This currently covers the arrangement Timeline's track gain and pan controls
 only. Do not infer that mixer, inspector, plug-in parameters, MIDI/region
 automation, seek cancellation, or audible device behavior are covered.
+For these Timeline controls, ordinary pointerup commits the pass; Escape,
+pointercancel, and lost pointer capture restore the starting scalar, discard the
+uncommitted automation draft, and release Core ownership. If a control unmounts
+mid-gesture, discard its draft and release ownership but do not send an
+index-based value rollback against a potentially reordered track. Keep these
+paths distinct; cancellation must not call the normal record-gesture endpoint.
 
 Punching a recorded automation interval preserves the original envelope before
 the punch exactly at the boundary value and after the punch within `1e-4` target

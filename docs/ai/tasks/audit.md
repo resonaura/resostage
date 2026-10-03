@@ -344,11 +344,15 @@ owner, Core clears all transient owners and publishes that safe fallback.
 Remaining session risks: cycle detection still infers wraps from sampled UI
 playhead telemetry and can miss a sparse wrap or confuse a seek; ownership is
 not bound to mixer/inspector/plugin or other parameter surfaces; a rejected or
-unknown recording command has no retained retryable draft; and browser pointer
-cancellation/lost capture still needs an explicit per-control policy. The
-native regression proves only that the named gain lane is suppressed while an
-unrelated pan lane continues. It does not drive React pointer gestures, prove
-all Touch/Latch/Write transitions, or establish audible output.
+unknown recording command has no retained retryable draft. Timeline gain/pan
+now use an explicit cancellation policy: Escape, pointercancel and lost capture
+restore the starting control value and discard the unfinished recording pass;
+unmount discards the pass and releases ownership without sending a possibly
+stale index-based value rollback. Normal pointerup still commits. The native
+regression proves only that the named gain lane is suppressed while an
+unrelated pan lane continues. UI unit tests cover the cancel callback and
+capture discard separately, not a full pointer-to-Core acoustic gesture. They
+do not prove all Touch/Latch/Write transitions or audible output.
 
 Verification for the 2026-10-02 capture-session block: UI Vitest passed 752
 tests across 108 files; TypeScript and the production UI build passed; lint had
@@ -386,8 +390,9 @@ Remaining implementation and acceptance:
 - Keep exact reliable rejection visible, and retain a bounded recoverable draft
   when outcome is rejected/unknown. Never blindly resend an unknown request.
   Old completion must not write into a new Core session/project epoch.
-- Escape/pointercancel/lost capture/unmount must cancel or finish according to a
-  documented policy. Do not silently commit a cancelled gesture.
+- Keep the Timeline control policy explicit: Escape/pointercancel/lost capture
+  revert and discard; unmount discards without an index-based rollback; ordinary
+  pointerup commits. Add integration coverage before changing that contract.
 
 Acceptance: actual UI fader/knob gestures while playing, audible manual override,
 release ramps, sustained Latch, Stop/seek/cycle, multiple controls, rejection,
@@ -402,6 +407,14 @@ and command-identity suites passed 15 tests; full UI Vitest passed 774 tests in
 warnings). This validates the renderer skip rule and project-identity request
 fencing only. It does not satisfy the UI gesture, cancel/seek, acoustic or
 physical-device acceptance listed above.
+
+2026-10-02 cancellation follow-up: UI TypeScript passed; focused knob, generic
+revert, automation-controller and recorder tests passed 25/25. Full UI Vitest
+passed 781 tests in 117 files; production build passed; lint had zero errors
+and 12 existing warnings. Escape/pointercancel/lost-capture discard behavior is
+unit-tested at the gesture and recorder layers. The tests do not drive a real
+Timeline control through the Core or validate audio output. Seek-vs-wrap,
+rejection draft recovery and non-Timeline surfaces remain open.
 
 ## Closed this audit — preserve automation outside recorded punches
 

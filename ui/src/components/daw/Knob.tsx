@@ -26,6 +26,7 @@ export function Knob({
   onCommit,
   onDragStart,
   onDragEnd,
+  onDragCancel,
   size = 26,
   title,
 }: {
@@ -37,6 +38,7 @@ export function Knob({
   onCommit: (v: number) => void;
   onDragStart?: (initialValue: number) => void;
   onDragEnd?: (finalValue: number) => void;
+  onDragCancel?: (originalValue: number) => void;
   size?: number;
   title?: string;
 }) {
@@ -49,6 +51,7 @@ export function Knob({
     onCommit,
     onDragStart,
     onDragEnd,
+    onDragCancel,
     round: roundValue,
     // Centre on a pan knob, zero on a send: the one place on the sweep worth
     // feeling for.

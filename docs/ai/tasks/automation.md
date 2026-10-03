@@ -130,8 +130,10 @@ live-vendor rebind and visual/device acceptance are not established.
    telemetry-observed cycle splitting exist. Core arbitration currently covers
    Timeline gain/pan only; prove audible Touch return, held Latch, Stop/seek,
    sparse cycle telemetry, multiple controls and all supported surfaces.
-   Pointer-cancel/lost-capture policy and bounded recovery for rejected/unknown
-   commits remain open; never blindly retry.
+   Timeline Escape/pointercancel/lost-capture now revert and discard the
+   unfinished pass; unmount discards without a stale index-based value write.
+   Seek-vs-wrap authority, non-Timeline surface bindings and bounded recovery
+   for rejected/unknown commits remain open; never blindly retry.
 6. Compile binding tables off audio instead of repeated string/region lookups.
    Native sample-offset vendor automation, Trim/relative layers, VCA and advanced
    hardware/lighting integrations remain separate explicit tasks.
@@ -172,6 +174,18 @@ UI recorder/identity tests passed 15/15; full UI Vitest passed 774 tests across
 114 files; `tsc -b`, production UI build and lint passed (zero lint errors,
 12 existing warnings). This verifies compilation, project fencing and the
 renderer arbitration rule, not live pointer ownership or device output.
+
+Timeline cancellation verification (2026-10-02): shared knob and slider-revert
+gestures now report cancellation distinctly from normal release. Escape,
+pointercancel and lost capture restore the control's starting value, suppress
+pending animation-frame commits, discard captured automation points and release
+Core lane ownership. Unmount clears listeners/ownership and discards the draft
+without sending a stale index-based rollback; ordinary pointerup still commits.
+Focused cancellation/controller/recorder UI tests passed 25/25, TypeScript and
+full UI Vitest (781 tests / 117 files) passed, production build passed, and lint
+had zero errors with 12 existing warnings. No Core rebuild was needed for this
+UI-only change. Real Core pointer integration, acoustic output, seek/wrap and
+other control surfaces remain unverified.
 
 Parameter discovery optimization verification on 2026-10-02: UI suite passed
 757 tests across 109 files, TypeScript build passed, Core and native test

@@ -42,34 +42,49 @@ type PointerHandlers = {
 export function useEscRevert<T>(
   getValue: () => T,
   revert: (original: T) => void,
+  onCancel?: (original: T) => void,
 ): PointerHandlers {
   const handleRef = useRef<CancellableDrag | null>(null);
   const getValueRef = useRef(getValue);
   getValueRef.current = getValue;
   const revertRef = useRef(revert);
   revertRef.current = revert;
+  const onCancelRef = useRef(onCancel);
+  onCancelRef.current = onCancel;
+  const activeOriginalRef = useRef<T | null>(null);
 
   const disarm = () => {
     handleRef.current?.end();
     handleRef.current = null;
+    activeOriginalRef.current = null;
   };
 
-  // A control unmounted mid-drag must not leave a listener behind that reverts
-  // it on some later, unrelated Esc.
-  useEffect(() => disarm, []);
+  // A control unmounted mid-drag must not leave a listener behind or keep its
+  // owner recording. The current value remains committed, but the unfinished
+  // automation capture is discarded by the optional cancellation callback.
+  useEffect(() => () => {
+    const original = activeOriginalRef.current;
+    if (handleRef.current !== null) {
+      disarm();
+      if (original !== null) onCancelRef.current?.(original);
+    }
+  }, []);
 
   return {
     onPointerDown: (e: React.PointerEvent) => {
       if (e.button !== 0) return; // right/middle click is not a drag
       const original = getValueRef.current();
       disarm();
+      activeOriginalRef.current = original;
       handleRef.current = beginCancellableDrag(() => {
         handleRef.current = null;
+        activeOriginalRef.current = null;
         revertRef.current(original);
+        onCancelRef.current?.(original);
       });
     },
     onPointerUp: disarm,
-    onPointerCancel: disarm,
-    onLostPointerCapture: disarm,
+    onPointerCancel: () => handleRef.current?.cancel(),
+    onLostPointerCapture: () => handleRef.current?.cancel(),
   };
 }

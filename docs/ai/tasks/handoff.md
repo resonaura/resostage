@@ -200,6 +200,16 @@ asserts refetch, rejection, no resend, and visible footer error. The real-Core
 failure-injection harness remains separate, so do not report a single
 Core-to-renderer end-to-end fault injection.
 
+Timeline drag cancellation is also implemented: normal release commits, while
+Escape/pointercancel/lost capture restore the starting control value, discard
+the in-progress automation points and release Core lane ownership. Unmount
+clears listeners/ownership without writing a stale index-based rollback. The
+focused cancellation/controller/recorder UI tests passed 25/25; full UI Vitest
+passed 781/781 across 117 files, TypeScript/build passed, and lint had zero
+errors with 12 existing warnings. This is not real Core/audio gesture proof.
+Seek-vs-cycle identity, bounded rejected-draft recovery, Mixer/Inspector/plugin
+surfaces and hardware acceptance remain open.
+
 The committed `06c3819` Touch/Latch/Write capture-session block additionally
 requires confirmed Core-session/project-epoch identity, maps playhead time with
 the song TempoMap, detects cycle wraps from sampled playhead movement, resumes

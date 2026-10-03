@@ -69,6 +69,7 @@ export function useKnobDrag({
   detent,
   onDragStart,
   onDragEnd,
+  onDragCancel,
 }: {
   value: number;
   min: number;
@@ -80,6 +81,7 @@ export function useKnobDrag({
   detent?: number;
   onDragStart?: (initialValue: number) => void;
   onDragEnd?: (finalValue: number) => void;
+  onDragCancel?: (originalValue: number) => void;
 }): KnobDrag {
   const [localValue, setLocalValue] = useState(() => round(value));
   const [dragging, setDragging] = useState(false);
@@ -98,6 +100,8 @@ export function useKnobDrag({
   onDragStartRef.current = onDragStart;
   const onDragEndRef = useRef(onDragEnd);
   onDragEndRef.current = onDragEnd;
+  const onDragCancelRef = useRef(onDragCancel);
+  onDragCancelRef.current = onDragCancel;
   const roundRef = useRef(round);
   roundRef.current = round;
 
@@ -116,9 +120,15 @@ export function useKnobDrag({
   // not leave an Esc listener behind for a knob that no longer exists.
   useEffect(
     () => () => {
+      const wasActive = activePointerId.current !== null;
+      const original = startValue.current;
+      if (rafId.current != null) cancelAnimationFrame(rafId.current);
+      rafId.current = null;
+      pendingCommit.current = null;
+      activePointerId.current = null;
       cancelRef.current?.end();
       cancelRef.current = null;
-      if (rafId.current != null) cancelAnimationFrame(rafId.current);
+      if (wasActive) onDragCancelRef.current?.(original);
     },
     [],
   );
@@ -154,12 +164,11 @@ export function useKnobDrag({
   };
 
   /**
-   * Esc: back to where the drag started. The knob streams commits while you
-   * turn it, so the engine is already sitting on the dragged value -- putting
-   * `localValue` back alone would leave the two disagreeing. The original has
-   * to be committed.
+   * Explicit cancellation (Esc, pointercancel, or lost capture) restores the
+   * starting value in Core and reports cancellation separately from a normal
+   * pointerup so automation capture can discard, rather than commit, its draft.
    */
-  const revert = () => {
+  const cancelAndRevert = () => {
     if (activePointerId.current === null) return;
     const original = startValue.current;
     if (rafId.current != null) {
@@ -170,7 +179,17 @@ export function useKnobDrag({
     disarm();
     setLocalValue(original);
     onCommitRef.current(original);
-    onDragEndRef.current?.(original);
+    onDragCancelRef.current?.(original);
+  };
+
+  const cancelDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    cancelAndRevert();
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId))
+        e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* capture already gone */
+    }
   };
 
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -219,7 +238,7 @@ export function useKnobDrag({
         startValue.current = localValue;
         onDragStartRef.current?.(localValue);
         cancelRef.current?.end();
-        cancelRef.current = beginCancellableDrag(revert);
+        cancelRef.current = beginCancellableDrag(cancelAndRevert);
         try {
           e.currentTarget.setPointerCapture(e.pointerId);
         } catch {
@@ -260,8 +279,8 @@ export function useKnobDrag({
         scheduleCommit(next);
       },
       onPointerUp: endDrag,
-      onPointerCancel: endDrag,
-      onLostPointerCapture: endDrag,
+      onPointerCancel: cancelDrag,
+      onLostPointerCapture: cancelDrag,
     },
   };
 }

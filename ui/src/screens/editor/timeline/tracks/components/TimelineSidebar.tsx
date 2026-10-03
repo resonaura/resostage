@@ -450,6 +450,16 @@ export function TimelineSidebar({
                           );
                         }
                       }}
+                      onGainDragCancel={() => {
+                        const trk = state.tracks[trackIdx];
+                        if (trk) {
+                          touchRecorder.cancelGesture({
+                            domain: "strip",
+                            entityId: trk.stripId || trk.id,
+                            parameterId: "faderGainDb",
+                          });
+                        }
+                      }}
                       onPanDragStart={(initialPan) => {
                         const trk = state.tracks[trackIdx];
                         if (trk) {
@@ -487,6 +497,16 @@ export function TimelineSidebar({
                             },
                             finalPan,
                           );
+                        }
+                      }}
+                      onPanDragCancel={() => {
+                        const trk = state.tracks[trackIdx];
+                        if (trk) {
+                          touchRecorder.cancelGesture({
+                            domain: "strip",
+                            entityId: trk.stripId || trk.id,
+                            parameterId: "pan",
+                          });
                         }
                       }}
                     />

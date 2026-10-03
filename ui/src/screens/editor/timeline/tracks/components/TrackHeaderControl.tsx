@@ -38,9 +38,11 @@ export const TrackHeaderControl = memo(
     onGainDragStart,
     onGainDragMove,
     onGainDragEnd,
+    onGainDragCancel,
     onPanDragStart,
     onPanDragMove,
     onPanDragEnd,
+    onPanDragCancel,
   }: {
     track: TrackRow;
     index: number;
@@ -54,19 +56,23 @@ export const TrackHeaderControl = memo(
     onGainDragStart?: (initialGain: number) => void;
     onGainDragMove?: (gain: number) => void;
     onGainDragEnd?: (finalGain: number) => void;
+    onGainDragCancel?: (originalGain: number) => void;
     onPanDragStart?: (initialPan: number) => void;
     onPanDragMove?: (pan: number) => void;
     onPanDragEnd?: (finalPan: number) => void;
+    onPanDragCancel?: (originalPan: number) => void;
   }) {
     const gain = useTrackGainControl(track, index, {
       onDragStart: onGainDragStart,
       onDragMove: onGainDragMove,
       onDragEnd: onGainDragEnd,
+      onDragCancel: onGainDragCancel,
     });
     const pan = useTrackPanControl(track, index, {
       onDragStart: onPanDragStart,
       onDragMove: onPanDragMove,
       onDragEnd: onPanDragEnd,
+      onDragCancel: onPanDragCancel,
     });
 
     const isDimmed = anySolo && !track.solo && !track.soloSafe;
@@ -300,6 +306,7 @@ export const TrackHeaderControl = memo(
         onCommit={pan.setValue}
         onDragStart={pan.onDragStart}
         onDragEnd={pan.onDragEnd}
+        onDragCancel={pan.onDragCancel}
         onContextMenu={pan.onContextMenu}
         onCloseMenu={pan.onCloseMenu}
         onSelectPanLaw={pan.onSelectPanLaw}
@@ -364,6 +371,7 @@ export const TrackHeaderControl = memo(
                   onGainChange={gain.setGain}
                   onDragStart={gain.onDragStart}
                   onDragEnd={gain.onDragEnd}
+                  onDragCancel={gain.onDragCancel}
                   onReadoutPointerDown={gain.onReadoutPointerDown}
                   onReadoutDoubleClick={gain.onReadoutDoubleClick}
                 />

@@ -180,6 +180,23 @@ describe("automationTouchController", () => {
       expect(controller.isLaneActive("lane-touch")).toBe(false);
     });
 
+    it("discards an explicitly cancelled gesture without a commit payload", () => {
+      const controller = new AutomationTouchController();
+      const target: AutomationGestureTarget = {
+        domain: "strip",
+        entityId: "track-2",
+        parameterId: "faderGainDb",
+      };
+
+      controller.startGesture(target, 0, 2.0, baseLanes);
+      controller.recordValue(target, -6.0, 3.0);
+
+      expect(controller.cancelGesture(target)).toEqual(["lane-touch"]);
+      expect(controller.isLaneActive("lane-touch")).toBe(false);
+      expect(controller.finishGesture(target, 0, 4.0)).toBeNull();
+      expect(controller.cancelGesture(target)).toEqual([]);
+    });
+
     it("uses the last touched value when release data is missing", () => {
       const controller = new AutomationTouchController();
       const target: AutomationGestureTarget = {

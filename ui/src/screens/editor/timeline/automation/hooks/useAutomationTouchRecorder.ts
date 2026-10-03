@@ -173,6 +173,21 @@ export function useAutomationTouchRecorder({
     [commitPayload],
   );
 
+  const cancelGesture = useCallback(
+    (target: AutomationGestureTarget) => {
+      const cancelledLaneIds = controllerRef.current.cancelGesture(target);
+      for (const laneId of cancelledLaneIds) {
+        sessionIdentityRef.current.delete(laneId);
+        const owner = manualOverrideOwnersRef.current.get(laneId);
+        if (!owner) continue;
+        manualOverrideOwnersRef.current.delete(laneId);
+        setManualOverride(laneId, owner, false);
+      }
+      return cancelledLaneIds;
+    },
+    [setManualOverride],
+  );
+
   const punchOut = useCallback(
     (laneId: string, returnRampBeats = 0.5) => {
       const currentBeats = getCurrentBeatsRef.current();
@@ -249,6 +264,7 @@ export function useAutomationTouchRecorder({
     startGesture,
     recordValue,
     finishGesture,
+    cancelGesture,
     punchOut,
     isLaneActive: (laneId: string) => controllerRef.current.isLaneActive(laneId),
     hasHoldingLatch: () => controllerRef.current.hasHoldingLatch(),

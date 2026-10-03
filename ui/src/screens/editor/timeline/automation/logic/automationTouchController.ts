@@ -146,6 +146,20 @@ export class AutomationTouchController {
   }
 
   /**
+   * Discards every uncommitted capture for a target without writing points.
+   * The control owner is responsible for restoring its manual value first.
+   */
+  public cancelGesture(target: AutomationGestureTarget): string[] {
+    const cancelled: string[] = [];
+    for (const [laneId, { lane }] of this.activeSessions) {
+      if (!matchesGestureTarget(lane, target)) continue;
+      this.activeSessions.delete(laneId);
+      cancelled.push(laneId);
+    }
+    return cancelled;
+  }
+
+  /**
    * Finishes a touch or write gesture on pointer release.
    * In Touch mode, returns a commit payload with calculated return ramp.
    * In Latch mode, transitions to 'holding_latch' until punch-out or stop.

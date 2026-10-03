@@ -58,6 +58,7 @@ export interface MeterFaderProps {
   onChange: (v: number) => void;
   onDragStart?: (initialValue: number) => void;
   onDragEnd?: (finalValue: number) => void;
+  onDragCancel?: (originalValue: number) => void;
   /** Last known peaks from the state frame; the live getters win when given. */
   dbL: number;
   dbR: number;
@@ -82,6 +83,7 @@ export const MeterFader = memo(function MeterFader({
   onChange,
   onDragStart,
   onDragEnd,
+  onDragCancel,
   dbL,
   dbR,
   getLiveDbL,
@@ -94,7 +96,15 @@ export const MeterFader = memo(function MeterFader({
 }: MeterFaderProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
-  const escRevert = useEscRevert(() => value, onChange);
+  const rafId = useRef<number | null>(null);
+  const pendingClientX = useRef<number | null>(null);
+  const cancelPendingGesture = useCallback((originalValue: number) => {
+    if (rafId.current !== null) cancelAnimationFrame(rafId.current);
+    rafId.current = null;
+    pendingClientX.current = null;
+    onDragCancel?.(originalValue);
+  }, [onDragCancel]);
+  const escRevert = useEscRevert(() => value, onChange, cancelPendingGesture);
 
   // Everything the paint loop reads lives behind a ref: the loop is installed
   // once and must never be a reason for this component to re-render.
@@ -108,9 +118,6 @@ export const MeterFader = memo(function MeterFader({
   const percent = Math.max(0, Math.min(1, (value - min) / (max - min)));
   // The handle stands a little proud of the bar, so the row is as tall as the
   const handleSize = height + HANDLE_OVERSIZE_PX;
-  const rafId = useRef<number | null>(null);
-  const pendingClientX = useRef<number | null>(null);
-
   const calculateSteppedValue = useCallback(
     (clientX: number) => {
       const rect = trackRef.current?.getBoundingClientRect();
@@ -153,8 +160,12 @@ export const MeterFader = memo(function MeterFader({
       pendingClientX.current = null;
       if (targetX !== null && targetX !== undefined) {
         const v = calculateSteppedValue(targetX);
-        if (v !== null) onChange(v);
+        if (v !== null) {
+          onChange(v);
+          return v;
+        }
       }
+      return null;
     },
     [calculateSteppedValue, onChange],
   );
@@ -338,19 +349,20 @@ export const MeterFader = memo(function MeterFader({
           scheduleCommit(e.clientX);
       }}
       onPointerUp={(e) => {
+        // Disarm Escape/cancel handling before releasing capture; the browser
+        // emits lostpointercapture as part of release and that must not turn a
+        // normal pointerup into a cancelled fader gesture.
+        escRevert.onPointerUp();
+        // Flush pending frame commit so the final position is always sent.
+        const finalValue = flushCommit(e.clientX);
         if (e.currentTarget.hasPointerCapture(e.pointerId))
           e.currentTarget.releasePointerCapture(e.pointerId);
-        // Flush any pending frame commit so the final position is always sent.
-        flushCommit();
-        escRevert.onPointerUp();
-        onDragEnd?.(value);
+        onDragEnd?.(finalValue ?? value);
       }}
       onPointerCancel={(e) => {
+        escRevert.onPointerCancel();
         if (e.currentTarget.hasPointerCapture(e.pointerId))
           e.currentTarget.releasePointerCapture(e.pointerId);
-        flushCommit();
-        escRevert.onPointerUp();
-        onDragEnd?.(value);
       }}
       onDoubleClick={(e) => {
         e.preventDefault();

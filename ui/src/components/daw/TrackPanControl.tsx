@@ -27,6 +27,7 @@ export function TrackPanControl({
   onCommit,
   onDragStart,
   onDragEnd,
+  onDragCancel,
   onContextMenu,
   onCloseMenu,
   onSelectPanLaw,
@@ -43,6 +44,7 @@ export function TrackPanControl({
   onCommit: (value: number) => void;
   onDragStart?: (initialValue: number) => void;
   onDragEnd?: (finalValue: number) => void;
+  onDragCancel?: (originalValue: number) => void;
   onContextMenu: MouseEventHandler<HTMLDivElement>;
   onCloseMenu: () => void;
   onSelectPanLaw: (lawId: number) => void;
@@ -63,6 +65,7 @@ export function TrackPanControl({
         onCommit={onCommit}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
       />
       {showPanValue && (
         <span className="w-4 text-center font-mono font-medium text-foreground/50 text-[8px]">

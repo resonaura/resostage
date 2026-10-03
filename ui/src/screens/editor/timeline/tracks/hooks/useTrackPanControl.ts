@@ -18,6 +18,7 @@ export function useTrackPanControl(
     onDragStart?: (value: number) => void;
     onDragMove?: (value: number) => void;
     onDragEnd?: (value: number) => void;
+    onDragCancel?: (originalValue: number) => void;
   },
 ) {
   const [value, setValue] = useLiveValue(track.pan ?? 0, (next) => {
@@ -49,6 +50,7 @@ export function useTrackPanControl(
     menuPosition,
     onDragStart: options?.onDragStart,
     onDragEnd: options?.onDragEnd,
+    onDragCancel: options?.onDragCancel,
     onContextMenu,
     onCloseMenu: () => setMenuPosition(null),
     onSelectPanLaw,
