@@ -18,6 +18,15 @@ TypeScript and production build passed, lint has zero errors plus 12 existing
 unrelated warnings, and `git diff --check` passed. Keep this separate from
 audio DSP smoothing.
 
+The BPM/meter value in the global transport header now wraps its native button
+in HeroUI v3's explicit Popover.Trigger; before this, React Aria logged a
+missing-pressable-trigger warning and the editor fields never opened. The new
+interaction regression opens the popover, changes BPM and meter, and verifies
+the active-song update payload. It does not replace Core tempo-map or packaged
+UI/device acceptance. After the fix, UI Vitest passed 854 tests / 131 files,
+production build passed, and lint had zero errors plus the 12 pre-existing
+warnings in unrelated files.
+
 ## Current continuation focus
 
 Continue the state-integrity work. The latest block adds Core-session and

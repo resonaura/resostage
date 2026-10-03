@@ -91,20 +91,22 @@ export function SongTempoControl({
   return (
     <>
       <Popover isOpen={meterOpen} onOpenChange={openMeter}>
-        <button
-          type="button"
-          disabled={!song}
-          className="flex h-7 w-28 shrink-0 flex-col justify-center rounded-md px-2 text-center transition-colors hover:bg-default/10 disabled:opacity-40 sm:w-36"
-          title={`${songTitle || "Song"} · Edit tempo and meter`}
-          aria-label="Edit song tempo and time signature"
-        >
-          <span className="font-mono text-[11px] font-semibold leading-tight tabular-nums text-foreground/85">
-            {Number.isInteger(shownBpm) ? shownBpm : shownBpm.toFixed(1)} BPM
-          </span>
-          <span className="font-mono text-[10px] leading-tight tabular-nums text-foreground/50">
-            {tsNum}/{tsDen}
-          </span>
-        </button>
+        <Popover.Trigger>
+          <button
+            type="button"
+            disabled={!song}
+            className="flex h-7 w-28 shrink-0 flex-col justify-center rounded-md px-2 text-center transition-colors hover:bg-default/10 disabled:opacity-40 sm:w-36"
+            title={`${songTitle || "Song"} · Edit tempo and meter`}
+            aria-label="Edit song tempo and time signature"
+          >
+            <span className="font-mono text-[11px] font-semibold leading-tight tabular-nums text-foreground/85">
+              {Number.isInteger(shownBpm) ? shownBpm : shownBpm.toFixed(1)} BPM
+            </span>
+            <span className="font-mono text-[10px] leading-tight tabular-nums text-foreground/50">
+              {tsNum}/{tsDen}
+            </span>
+          </button>
+        </Popover.Trigger>
         <Popover.Content className="w-64 rounded-xl border border-default/30 bg-surface shadow-xl">
           <Popover.Dialog>
             <form

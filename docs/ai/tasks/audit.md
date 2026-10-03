@@ -12,6 +12,17 @@ UI entry paths abbreviated as `timeline/...` below are relative to
 
 ### Latest continuation addendum — 2026-10-03
 
+The global transport BPM/meter popover had not actually been operable: its
+native button was rendered directly as a Popover child, and HeroUI's
+PressResponder had no trigger. It now uses the explicit Popover.Trigger
+compound component. A UI interaction test opens it, edits BPM/numerator/
+denominator, submits, and verifies the reliable song patch targets the active
+song. This validates front-end interaction/payload only; the Core tempo-map
+application remains covered by the separate Core/editor-state acceptance.
+After this fix, the full UI suite passed 854 tests across 131 files, the
+production build passed, and lint had zero errors with the same 12 warnings in
+unrelated files.
+
 Timeline and Mixer fader/pan numeric labels now ease between current Core
 automation telemetry values through the shared UI frame driver. The readout
 keeps text updates outside React's per-frame reconciliation and receives a
@@ -1161,11 +1172,12 @@ acceptance is split into [automation.md](automation.md),
   regression coverage is documented in `audio-flow.md`. Current MixGraph
   edges do not encode plugin sidechain/aux-input edges; true sidechain audio is
   not present in the inspected project/schema path.
-- Active-song BPM and signature are already shown and edited in the global
-  transport header through SongTempoControl's popover; Tap Tempo also writes
-  the active song. `patchClickFields` reaches the reliable song-update route.
-  Do not duplicate this UI. Add interaction/regression coverage and verify
-  edits are active-song scoped and do not corrupt explicit tempo/signature
+- Active-song BPM and signature are shown in the global transport header
+  through SongTempoControl's popover; the popover trigger now uses explicit
+  HeroUI Popover.Trigger composition and opens in the interaction regression.
+  Tap Tempo also writes the active song. patchClickFields reaches the reliable
+  song-update route. Do not duplicate this UI. Verify on an actual packaged UI
+  that edits are active-song scoped and do not corrupt explicit tempo/signature
   point-map semantics.
 - MIDI pedal visualization is partially implemented already: MidiRegionBlock
   derives CC64–69 switch-pedal intervals from persisted region events, Piano
