@@ -380,13 +380,15 @@ void MainComponent::startAudioRender(const std::string& json) {
 
                 std::vector<std::string> unavailable;
                 const auto inspectSlots = [&](const std::vector<PluginSlot>& slots,
+                                               const std::string& stripId,
                                                const std::string& owner) {
                     for (const auto& slot : slots) {
                         // A deliberately bypassed instance contributes no DSP;
                         // the offline renderer may preserve that bypass without
                         // requiring the unavailable vendor binary to load.
                         if (slot.bypassed) continue;
-                        const auto loadState = built.bank->getSlotLoadState(slot.id);
+                        const auto loadState = built.bank->getStripSlotLoadState(
+                            stripId, slot.id);
                         if (loadState == "loaded") continue;
                         if (unavailable.size() < 12)
                             unavailable.push_back(owner + " / "
@@ -395,12 +397,14 @@ void MainComponent::startAudioRender(const std::string& json) {
                                 + " (" + loadState + ")");
                     }
                 };
-                inspectSlots(project.main.plugins, "Main");
-                inspectSlots(project.click.plugins, "Click");
+                inspectSlots(project.main.plugins, "audio::main", "Main");
+                inspectSlots(project.click.plugins, "audio::click", "Click");
                 for (const auto& track : project.tracks)
-                    inspectSlots(track.plugins, track.name.empty() ? track.id : track.name);
+                    inspectSlots(track.plugins, track.id,
+                        track.name.empty() ? track.id : track.name);
                 for (const auto& bus : project.sends)
-                    inspectSlots(bus.plugins, bus.name.empty() ? bus.id : bus.name);
+                    inspectSlots(bus.plugins, bus.id,
+                        bus.name.empty() ? bus.id : bus.name);
                 if (!unavailable.empty()) {
                     error = "Offline render stopped before its first audio block because "
                         "one or more enabled plug-ins did not initialize:";

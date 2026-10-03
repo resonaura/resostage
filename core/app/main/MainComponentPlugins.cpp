@@ -456,7 +456,7 @@ bool MainComponent::pluginSlotBypassForTarget(const std::string& stripId,
     found->bypassed = bypassed;
     engine.projectHistoryCommitEdit();
     engine.markDirty();
-    engine.setPluginSlotBypassed(slotId, bypassed);
+    engine.setPluginSlotBypassed(stripId, slotId, bypassed);
     for (const auto& window : pluginEditorWindows)
         if (auto* pluginWindow = dynamic_cast<PluginEditorWindow*>(window.get());
             pluginWindow != nullptr && pluginWindow->stripId() == stripId
@@ -518,7 +518,7 @@ void MainComponent::pluginSlotKeepAwake(const std::string& json) {
     engine.projectHistoryCommitEdit();
     engine.markDirty();
     if (auto bank = engine.activePluginProcessorBank()) {
-        bank->setSlotKeepAwake(slotId, keepAwake);
+        bank->setSlotKeepAwake(stripId, slotId, keepAwake);
     }
     publishWebState();
 }
@@ -530,7 +530,7 @@ void MainComponent::pluginSlotPark(const std::string& json) {
     if (!parseSlotTarget(json, doc, stripId, slotId))
         return;
     if (auto bank = engine.activePluginProcessorBank()) {
-        bank->parkSlot(slotId);
+        bank->parkSlot(stripId, slotId);
     }
     publishWebState();
 }
@@ -542,7 +542,7 @@ void MainComponent::pluginSlotUnpark(const std::string& json) {
     if (!parseSlotTarget(json, doc, stripId, slotId))
         return;
     if (auto bank = engine.activePluginProcessorBank()) {
-        bank->unparkSlot(slotId);
+        bank->unparkSlot(stripId, slotId);
     }
     publishWebState();
 }

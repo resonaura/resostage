@@ -121,6 +121,17 @@ open.
   five files; full UI passed 894/894 across 136 files. TypeScript, production
   build, targeted lint, Core/native build and CTest passed. Real vendor playback
   and remote Core behavior remain unverified.
+- Implemented follow-up: Core plug-in status/control lookups share an exact
+  `(stripId, slotId)` resolver. Load/error/power state, parameter descriptors
+  and values, bypass, Keep Awake, Park and Unpark cannot select the first
+  duplicate slot on another chain. ID-only legacy calls act only for a unique
+  match. Web-state rows carry their owning bank strip ID, and offline readiness
+  checks slots by their owner. Focused native identity test passed 9/9
+  assertions; Core and helper built; full CTest passed 1/1. Full UI passed 894
+  tests across 136 files; TypeScript, production build, changed-file lint and
+  `git diff --check` passed. No real duplicate-ID AU/VST fixture or audible
+  vendor test was run; the reported writetest reload/reopen behavior remains
+  open.
 - Remaining: define and implement per-plugin preset save/load. Decide whether
   each operation changes a slot's project state or writes a user preset
   library before choosing persistence. Validate identity, byte size, format

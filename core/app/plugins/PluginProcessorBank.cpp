@@ -1674,7 +1674,7 @@ PluginProcessorBank::takeEditorBypassRequests() {
 }
 
 void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex,
-                                             int paramIndex, float value) noexcept {
+                                              int paramIndex, float value) noexcept {
     if (stripIndex >= chains.size() || chains[stripIndex] == nullptr)
         return;
     auto& nodes = chains[stripIndex]->nodes;
@@ -1728,6 +1728,24 @@ void PluginProcessorBank::setPluginParameter(size_t stripIndex, size_t slotIndex
     node.activeCalls.fetch_sub(1, std::memory_order_acq_rel);
 }
 
+PluginSlotLookup PluginProcessorBank::findSlot(const std::string& stripId,
+                                               const std::string& slotId) const noexcept {
+    PluginSlotLookup result;
+    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
+        const auto& chain = chains[stripIndex];
+        if (chain == nullptr)
+            continue;
+        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
+            const auto& node = chain->nodes[slotIndex];
+            if (node == nullptr)
+                continue;
+            considerPluginSlot(result, stripId, slotId, chain->stripId,
+                               node->slotId, stripIndex, slotIndex);
+        }
+    }
+    return result;
+}
+
 bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
                                                     int paramIndex, float value) noexcept {
     return setPluginParameterBySlotId({}, slotId, paramIndex, value);
@@ -1736,58 +1754,28 @@ bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& slotId,
 bool PluginProcessorBank::setPluginParameterBySlotId(const std::string& stripId,
                                                     const std::string& slotId,
                                                     int paramIndex, float value) noexcept {
-    StripChain* targetChain = nullptr;
-    Node* targetNode = nullptr;
-    size_t targetSlotIndex = 0;
-    for (const auto& chain : chains) {
-        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
-            continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            auto* node = chain->nodes[slotIndex].get();
-            if (node == nullptr || node->slotId != slotId)
-                continue;
-            if (targetNode != nullptr)
-                return false; // A legacy/unscoped ID must never write an arbitrary duplicate.
-            targetChain = chain.get();
-            targetNode = node;
-            targetSlotIndex = slotIndex;
-        }
-    }
-    if (targetChain == nullptr || targetNode == nullptr)
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
         return false;
-
     return setPluginParameterOnNode(
-        *targetChain, *targetNode, targetSlotIndex, paramIndex, value);
+        *chains[location.stripIndex], *chains[location.stripIndex]->nodes[location.slotIndex],
+        location.slotIndex, paramIndex, value);
 }
 
 bool PluginProcessorBank::setPluginParameterByTarget(
     const std::string& stripId, const std::string& slotId,
     std::string_view parameterId, float value) noexcept {
-    StripChain* targetChain = nullptr;
-    Node* targetNode = nullptr;
-    size_t targetSlotIndex = 0;
-    for (const auto& chain : chains) {
-        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
-            continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            auto* node = chain->nodes[slotIndex].get();
-            if (node == nullptr || node->slotId != slotId)
-                continue;
-            if (targetNode != nullptr)
-                return false; // Never dispatch an ambiguous legacy target.
-            targetChain = chain.get();
-            targetNode = node;
-            targetSlotIndex = slotIndex;
-        }
-    }
-    if (targetChain == nullptr || targetNode == nullptr)
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
         return false;
+    auto& chain = *chains[location.stripIndex];
+    auto& node = *chain.nodes[location.slotIndex];
     const int parameterIndex = resolvePluginParameterBinding(
-        targetNode->parameterBindings, parameterId);
+        node.parameterBindings, parameterId);
     if (parameterIndex < 0)
         return false;
     return setPluginParameterOnNode(
-        *targetChain, *targetNode, targetSlotIndex, parameterIndex, value);
+        chain, node, location.slotIndex, parameterIndex, value);
 }
 
 bool PluginProcessorBank::setPluginParameterOnNode(
@@ -1867,41 +1855,39 @@ void PluginProcessorBank::setTrackPowerGuards(
 
 bool PluginProcessorBank::setSlotBypassed(const std::string& slotId,
                                           bool bypassed) noexcept {
-    for (const auto& chain : chains) {
-        if (chain == nullptr)
-            continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node != nullptr && node->slotId == slotId) {
-                if (chain->hostedProcess != nullptr
-                    && chain->hostedProcess->process != nullptr) {
-                    if (!chain->hostedProcess->process->requestPowerControl(
-                            static_cast<uint32_t>(slotIndex), bypassed
-                                ? PluginPowerControl::BypassEnable : PluginPowerControl::BypassDisable))
-                        return false;
-                }
-                node->bypassed.store(bypassed, std::memory_order_release);
-                if (!bypassed)
-                    node->powerTracker.forceAwake();
-                return true;
-            }
-        }
+    return setSlotBypassed({}, slotId, bypassed);
+}
+
+bool PluginProcessorBank::setSlotBypassed(const std::string& stripId,
+                                          const std::string& slotId,
+                                          bool bypassed) noexcept {
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return false;
+    auto& chain = *chains[location.stripIndex];
+    auto& node = *chain.nodes[location.slotIndex];
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr) {
+        if (!chain.hostedProcess->process->requestPowerControl(
+                static_cast<uint32_t>(location.slotIndex), bypassed
+                    ? PluginPowerControl::BypassEnable : PluginPowerControl::BypassDisable))
+            return false;
     }
-    return false;
+    node.bypassed.store(bypassed, std::memory_order_release);
+    if (!bypassed)
+        node.powerTracker.forceAwake();
+    return true;
 }
 
 PluginPowerState PluginProcessorBank::getSlotPowerState(const std::string& slotId) const noexcept {
-    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
-        const auto& chain = chains[stripIndex];
-        if (chain == nullptr) continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node != nullptr && node->slotId == slotId) {
-                return slotPowerState(stripIndex, slotIndex);
-            }
-        }
-    }
-    return PluginPowerState::Active;
+    return getStripSlotPowerState({}, slotId);
+}
+
+PluginPowerState PluginProcessorBank::getStripSlotPowerState(
+    const std::string& stripId, const std::string& slotId) const noexcept {
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return PluginPowerState::Unknown;
+    return slotPowerState(location.stripIndex, location.slotIndex);
 }
 
 PluginPowerState PluginProcessorBank::slotPowerState(
@@ -1950,40 +1936,23 @@ void PluginProcessorBank::applySlotPowerControl(
 }
 
 std::string PluginProcessorBank::getSlotLoadState(const std::string& slotId) const {
-    for (const auto& chain : chains) {
-        if (chain == nullptr) continue;
-        for (const auto& node : chain->nodes) {
-            if (node == nullptr || node->slotId != slotId) continue;
-            if (chain->hostedProcess != nullptr
-                && (chain->hostedProcess->process == nullptr
-                    || !chain->hostedProcess->process->isRunning()))
-                return "failed";
-            if (node->faulted.load(std::memory_order_relaxed)) return "failed";
-            return node->loadState;
-        }
-    }
-    return "missing";
+    return getStripSlotLoadState({}, slotId);
 }
 
 std::string PluginProcessorBank::getStripSlotLoadState(
     const std::string& stripId, const std::string& slotId) const {
-    for (const auto& chain : chains) {
-        if (chain == nullptr || chain->stripId != stripId)
-            continue;
-        for (const auto& node : chain->nodes) {
-            if (node == nullptr || node->slotId != slotId)
-                continue;
-            if (chain->hostedProcess != nullptr
-                && (chain->hostedProcess->process == nullptr
-                    || !chain->hostedProcess->process->isRunning()))
-                return "failed";
-            if (node->faulted.load(std::memory_order_relaxed))
-                return "failed";
-            return node->loadState;
-        }
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
         return "missing";
-    }
-    return "missing";
+    const auto& chain = *chains[location.stripIndex];
+    const auto& node = *chain.nodes[location.slotIndex];
+    if (chain.hostedProcess != nullptr
+        && (chain.hostedProcess->process == nullptr
+            || !chain.hostedProcess->process->isRunning()))
+        return "failed";
+    if (node.faulted.load(std::memory_order_relaxed))
+        return "failed";
+    return node.loadState;
 }
 
 std::vector<PluginProcessorBank::ParameterInfo>
@@ -1994,68 +1963,61 @@ PluginProcessorBank::parametersForSlot(const std::string& slotId) const {
 std::vector<PluginProcessorBank::ParameterInfo>
 PluginProcessorBank::parametersForSlot(const std::string& stripId,
                                        const std::string& slotId) const {
-    for (const auto& chain : chains) {
-        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
-            continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node == nullptr || node->slotId != slotId)
-                continue;
-            std::vector<ParameterInfo> result;
-            if (chain->hostedProcess != nullptr
-                && chain->hostedProcess->process != nullptr) {
-                std::vector<float> currentValues;
-                const auto descriptors = chain->hostedProcess->process
-                    ->parameterDescriptorsForSlot(slotIndex, &currentValues);
-                result.reserve(descriptors.size());
-                for (size_t i = 0; i < descriptors.size(); ++i) {
-                    const auto& descriptor = descriptors[i];
-                    const auto nameEnd = std::find(std::begin(descriptor.name),
-                                                   std::end(descriptor.name), '\0');
-                    const auto labelEnd = std::find(std::begin(descriptor.label),
-                                                    std::end(descriptor.label), '\0');
-                    const auto idEnd = std::find(std::begin(descriptor.parameterId),
-                                                 std::end(descriptor.parameterId), '\0');
-                    result.push_back({descriptor.parameterIndex,
-                                      std::string(std::begin(descriptor.name), nameEnd),
-                                      std::string(std::begin(descriptor.label), labelEnd),
-                                      descriptor.defaultValue, descriptor.steps,
-                                      std::string(std::begin(descriptor.parameterId), idEnd),
-                                      currentValues[i],
-                                      descriptor.automatable != 0});
-                }
-                return result;
-            }
-            // In-process banks only exist in the helper and offline worker;
-            // callers there are on their owner thread, never the Core callback.
-            if (node->instance == nullptr)
-                return result;
-            try {
-                const auto& parameters = node->instance->getParameters();
-                const int limit = std::min<int>(
-                    parameters.size(), plugin_host::kMaximumParameterDescriptorsPerChain);
-                result.reserve(static_cast<size_t>(limit));
-                for (int i = 0; i < limit; ++i) {
-                    const auto* parameter = parameters[i];
-                    if (parameter == nullptr)
-                        continue;
-                    result.push_back({static_cast<uint32_t>(i),
-                                      parameter->getName(63).toStdString(),
-                                      parameter->getLabel().toStdString(),
-                                      std::clamp(parameter->getDefaultValue(), 0.0f, 1.0f),
-                                      static_cast<uint32_t>(
-                                          std::max(0, parameter->getNumSteps())),
-                                      pluginParameterId(*parameter, static_cast<uint32_t>(i)),
-                                      std::clamp(parameter->getValue(), 0.0f, 1.0f),
-                                      parameter->isAutomatable()});
-                }
-            } catch (...) {
-                result.clear();
-            }
-            return result;
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return {};
+    const auto& chain = *chains[location.stripIndex];
+    const auto& node = chain.nodes[location.slotIndex];
+    std::vector<ParameterInfo> result;
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr) {
+        std::vector<float> currentValues;
+        const auto descriptors = chain.hostedProcess->process
+            ->parameterDescriptorsForSlot(location.slotIndex, &currentValues);
+        result.reserve(descriptors.size());
+        for (size_t i = 0; i < descriptors.size(); ++i) {
+            const auto& descriptor = descriptors[i];
+            const auto nameEnd = std::find(std::begin(descriptor.name),
+                                           std::end(descriptor.name), '\0');
+            const auto labelEnd = std::find(std::begin(descriptor.label),
+                                            std::end(descriptor.label), '\0');
+            const auto idEnd = std::find(std::begin(descriptor.parameterId),
+                                         std::end(descriptor.parameterId), '\0');
+            result.push_back({descriptor.parameterIndex,
+                              std::string(std::begin(descriptor.name), nameEnd),
+                              std::string(std::begin(descriptor.label), labelEnd),
+                              descriptor.defaultValue, descriptor.steps,
+                              std::string(std::begin(descriptor.parameterId), idEnd),
+                              currentValues[i], descriptor.automatable != 0});
         }
+        return result;
     }
-    return {};
+    // In-process banks only exist in the helper and offline worker; callers
+    // there are on their owner thread, never the Core callback.
+    if (node == nullptr || node->instance == nullptr)
+        return result;
+    try {
+        const auto& parameters = node->instance->getParameters();
+        const int limit = std::min<int>(
+            parameters.size(), plugin_host::kMaximumParameterDescriptorsPerChain);
+        result.reserve(static_cast<size_t>(limit));
+        for (int i = 0; i < limit; ++i) {
+            const auto* parameter = parameters[i];
+            if (parameter == nullptr)
+                continue;
+            result.push_back({static_cast<uint32_t>(i),
+                              parameter->getName(63).toStdString(),
+                              parameter->getLabel().toStdString(),
+                              std::clamp(parameter->getDefaultValue(), 0.0f, 1.0f),
+                              static_cast<uint32_t>(
+                                  std::max(0, parameter->getNumSteps())),
+                              pluginParameterId(*parameter, static_cast<uint32_t>(i)),
+                              std::clamp(parameter->getValue(), 0.0f, 1.0f),
+                              parameter->isAutomatable()});
+        }
+    } catch (...) {
+        result.clear();
+    }
+    return result;
 }
 
 std::vector<PluginProcessorBank::ParameterValue>
@@ -2066,25 +2028,19 @@ PluginProcessorBank::parameterValuesForSlot(const std::string& slotId) const {
 std::vector<PluginProcessorBank::ParameterValue>
 PluginProcessorBank::parameterValuesForSlot(const std::string& stripId,
                                             const std::string& slotId) const {
-    for (const auto& chain : chains) {
-        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId)
-            || chain->hostedProcess == nullptr
-            || chain->hostedProcess->process == nullptr)
-            continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node == nullptr || node->slotId != slotId)
-                continue;
-            const auto hosted = chain->hostedProcess->process
-                ->parameterValuesForSlot(slotIndex);
-            std::vector<ParameterValue> result;
-            result.reserve(hosted.size());
-            for (const auto& value : hosted)
-                result.push_back({value.index, value.value});
-            return result;
-        }
-    }
-    return {};
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return {};
+    const auto& chain = chains[location.stripIndex];
+    if (chain->hostedProcess == nullptr || chain->hostedProcess->process == nullptr)
+        return {};
+    const auto hosted = chain->hostedProcess->process
+        ->parameterValuesForSlot(location.slotIndex);
+    std::vector<ParameterValue> result;
+    result.reserve(hosted.size());
+    for (const auto& value : hosted)
+        result.push_back({value.index, value.value});
+    return result;
 }
 
 bool PluginProcessorBank::parameterMetadataTruncated(const std::string& slotId) const noexcept {
@@ -2093,17 +2049,16 @@ bool PluginProcessorBank::parameterMetadataTruncated(const std::string& slotId) 
 
 bool PluginProcessorBank::parameterMetadataTruncated(const std::string& stripId,
                                                      const std::string& slotId) const noexcept {
-    for (const auto& chain : chains) {
-        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId)) continue;
-        for (const auto& node : chain->nodes)
-            if (node != nullptr && node->slotId == slotId)
-                return chain->hostedProcess != nullptr
-                    && chain->hostedProcess->process != nullptr
-                    ? chain->hostedProcess->process->parameterMetadataTruncated()
-                    : node->instance != nullptr && node->instance->getParameters().size()
-                        > static_cast<int>(plugin_host::kMaximumParameterDescriptorsPerChain);
-    }
-    return false;
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return false;
+    const auto& chain = *chains[location.stripIndex];
+    const auto& node = chain.nodes[location.slotIndex];
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr)
+        return chain.hostedProcess->process->parameterMetadataTruncated();
+    return node != nullptr && node->instance != nullptr
+        && node->instance->getParameters().size()
+            > static_cast<int>(plugin_host::kMaximumParameterDescriptorsPerChain);
 }
 
 int PluginProcessorBank::resolvePluginParameterIndex(const std::string& slotId,
@@ -2114,40 +2069,38 @@ int PluginProcessorBank::resolvePluginParameterIndex(const std::string& slotId,
 int PluginProcessorBank::resolvePluginParameterIndex(const std::string& stripId,
                                                      const std::string& slotId,
                                                      std::string_view parameterId) const noexcept {
-    const Node* target = nullptr;
-    for (const auto& chain : chains) {
-        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
-            continue;
-        for (const auto& node : chain->nodes) {
-            if (node == nullptr || node->slotId != slotId)
-                continue;
-            if (target != nullptr)
-                return -1; // Never resolve an ambiguous legacy ID to the first chain.
-            target = node.get();
-        }
-    }
-    return target != nullptr
-        ? resolvePluginParameterBinding(target->parameterBindings, parameterId) : -1;
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return -1;
+    const auto& node = chains[location.stripIndex]->nodes[location.slotIndex];
+    return node != nullptr
+        ? resolvePluginParameterBinding(node->parameterBindings, parameterId) : -1;
 }
 
 void PluginProcessorBank::bindParameterValueTelemetry(const std::string& slotId,
     uint32_t parameterIndex, std::atomic<float>& destination) {
-    for (auto& chain : chains) {
-        if (chain == nullptr) continue;
-        for (auto& node : chain->nodes) {
-            if (node == nullptr || node->slotId != slotId || node->instance == nullptr) continue;
-            const auto& parameters = node->instance->getParameters();
-            if (parameterIndex >= static_cast<uint32_t>(parameters.size())
-                || parameterIndex >= plugin_host::kMaximumParameterDescriptorsPerChain
-                || parameters[static_cast<int>(parameterIndex)] == nullptr) return;
-            node->valueListeners.resize(std::min<uint32_t>(
-                static_cast<uint32_t>(parameters.size()),
-                plugin_host::kMaximumParameterDescriptorsPerChain));
-            node->valueListeners[parameterIndex] = std::make_unique<Node::ValueListener>(
-                *parameters[static_cast<int>(parameterIndex)], destination);
-            return;
-        }
-    }
+    bindParameterValueTelemetry({}, slotId, parameterIndex, destination);
+}
+
+void PluginProcessorBank::bindParameterValueTelemetry(
+    const std::string& stripId, const std::string& slotId,
+    uint32_t parameterIndex, std::atomic<float>& destination) {
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return;
+    auto& node = chains[location.stripIndex]->nodes[location.slotIndex];
+    if (node == nullptr || node->instance == nullptr)
+        return;
+    const auto& parameters = node->instance->getParameters();
+    if (parameterIndex >= static_cast<uint32_t>(parameters.size())
+        || parameterIndex >= plugin_host::kMaximumParameterDescriptorsPerChain
+        || parameters[static_cast<int>(parameterIndex)] == nullptr)
+        return;
+    node->valueListeners.resize(std::min<uint32_t>(
+        static_cast<uint32_t>(parameters.size()),
+        plugin_host::kMaximumParameterDescriptorsPerChain));
+    node->valueListeners[parameterIndex] = std::make_unique<Node::ValueListener>(
+        *parameters[static_cast<int>(parameterIndex)], destination);
 }
 
 std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) const {
@@ -2156,37 +2109,34 @@ std::string PluginProcessorBank::getSlotLoadError(const std::string& slotId) con
 
 std::string PluginProcessorBank::getStripSlotLoadError(
     const std::string& stripId, const std::string& slotId) const {
-    for (const auto& chain : chains) {
-        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId)) continue;
-        for (const auto& node : chain->nodes) {
-            if (node == nullptr || node->slotId != slotId) continue;
-            if (chain->hostedProcess != nullptr
-                && (chain->hostedProcess->process == nullptr
-                    || !chain->hostedProcess->process->isRunning()))
-                return "Isolated plug-in host exited; chain audio is temporarily unavailable";
-            if (node->loadState == "missing" || node->loadState == "failed")
-                return node->loadError;
-            if (node->faulted.load(std::memory_order_relaxed))
-                return "Plug-in raised an exception while processing audio";
-            return node->loadError;
-        }
-    }
-    return {};
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return {};
+    const auto& chain = *chains[location.stripIndex];
+    const auto& node = chain.nodes[location.slotIndex];
+    if (chain.hostedProcess != nullptr
+        && (chain.hostedProcess->process == nullptr
+            || !chain.hostedProcess->process->isRunning()))
+        return "Isolated plug-in host exited; chain audio is temporarily unavailable";
+    if (node->loadState == "missing" || node->loadState == "failed")
+        return node->loadError;
+    if (node->faulted.load(std::memory_order_relaxed))
+        return "Plug-in raised an exception while processing audio";
+    return node->loadError;
 }
 
 void PluginProcessorBank::setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept {
-    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
-        const auto& chain = chains[stripIndex];
-        if (chain == nullptr) continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node != nullptr && node->slotId == slotId) {
-                applySlotPowerControl(stripIndex, slotIndex, keepAwake
-                    ? PluginPowerControl::KeepAwakeEnable : PluginPowerControl::KeepAwakeDisable);
-                return;
-            }
-        }
-    }
+    setSlotKeepAwake({}, slotId, keepAwake);
+}
+
+void PluginProcessorBank::setSlotKeepAwake(const std::string& stripId,
+                                           const std::string& slotId,
+                                           bool keepAwake) noexcept {
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return;
+    applySlotPowerControl(location.stripIndex, location.slotIndex, keepAwake
+        ? PluginPowerControl::KeepAwakeEnable : PluginPowerControl::KeepAwakeDisable);
 }
 
 void PluginProcessorBank::prewarmStrip(size_t stripIndex) noexcept {
@@ -2210,45 +2160,39 @@ void PluginProcessorBank::prewarmAllStrips() noexcept {
 }
 
 void PluginProcessorBank::prewarmSlot(const std::string& slotId) noexcept {
-    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
-        const auto& chain = chains[stripIndex];
-        if (chain == nullptr) continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node != nullptr && node->slotId == slotId) {
-                applySlotPowerControl(stripIndex, slotIndex, PluginPowerControl::Wake);
-                return;
-            }
-        }
-    }
+    prewarmSlot({}, slotId);
+}
+
+void PluginProcessorBank::prewarmSlot(const std::string& stripId,
+                                      const std::string& slotId) noexcept {
+    const auto location = findSlot(stripId, slotId);
+    if (location.unique())
+        applySlotPowerControl(location.stripIndex, location.slotIndex,
+                              PluginPowerControl::Wake);
 }
 
 void PluginProcessorBank::parkSlot(const std::string& slotId) noexcept {
-    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
-        const auto& chain = chains[stripIndex];
-        if (chain == nullptr) continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node != nullptr && node->slotId == slotId) {
-                applySlotPowerControl(stripIndex, slotIndex, PluginPowerControl::Park);
-                return;
-            }
-        }
-    }
+    parkSlot({}, slotId);
+}
+
+void PluginProcessorBank::parkSlot(const std::string& stripId,
+                                   const std::string& slotId) noexcept {
+    const auto location = findSlot(stripId, slotId);
+    if (location.unique())
+        applySlotPowerControl(location.stripIndex, location.slotIndex,
+                              PluginPowerControl::Park);
 }
 
 void PluginProcessorBank::unparkSlot(const std::string& slotId) noexcept {
-    for (size_t stripIndex = 0; stripIndex < chains.size(); ++stripIndex) {
-        const auto& chain = chains[stripIndex];
-        if (chain == nullptr) continue;
-        for (size_t slotIndex = 0; slotIndex < chain->nodes.size(); ++slotIndex) {
-            const auto& node = chain->nodes[slotIndex];
-            if (node != nullptr && node->slotId == slotId) {
-                applySlotPowerControl(stripIndex, slotIndex, PluginPowerControl::Unpark);
-                return;
-            }
-        }
-    }
+    unparkSlot({}, slotId);
+}
+
+void PluginProcessorBank::unparkSlot(const std::string& stripId,
+                                     const std::string& slotId) noexcept {
+    const auto location = findSlot(stripId, slotId);
+    if (location.unique())
+        applySlotPowerControl(location.stripIndex, location.slotIndex,
+                              PluginPowerControl::Unpark);
 }
 
 PluginPowerStats PluginProcessorBank::powerStats() const noexcept {
@@ -2265,6 +2209,7 @@ PluginPowerStats PluginProcessorBank::powerStats() const noexcept {
                 case PluginPowerState::Quiescent: ++s.quiescentCount; break;
                 case PluginPowerState::Suspended: ++s.suspendedCount; break;
                 case PluginPowerState::Parked: ++s.parkedCount; break;
+                case PluginPowerState::Unknown: break;
             }
         }
     }

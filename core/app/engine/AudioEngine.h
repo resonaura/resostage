@@ -190,6 +190,8 @@ public:
     bool decidePluginLoading(uint64_t epoch, uint64_t generation, const std::string& decision);
     /** Applies slot bypass immediately and refreshes any in-flight bank request. */
     void setPluginSlotBypassed(const std::string& slotId, bool bypassed);
+    void setPluginSlotBypassed(const std::string& stripId,
+                               const std::string& slotId, bool bypassed);
 
     /** Hook called on message thread when recording has finished and project modified. */
     std::function<void()> onRecordingFinished;

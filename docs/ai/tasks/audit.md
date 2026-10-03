@@ -98,6 +98,25 @@ changed-file lint passed. Core and native tests built; CTest passed 1/1.
 Project JSON round-tripping confirms old targets without stripId still load
 unscoped. No vendor AU/VST3 playback or remote-Core acceptance was exercised.
 
+### Latest continuation addendum — exact live plug-in slot state (2026-10-03)
+
+The Core plug-in bank now resolves state and control operations through one
+bounded `(stripId, slotId)` lookup. Load/error/power telemetry, parameter
+catalogs/values, parameter-ID resolution, bypass, keep-awake, park and unpark
+no longer act on the first matching slot ID from another chain. Legacy
+slot-only callers resolve only a unique bank node and otherwise fail closed.
+Timeline state publication passes each bank's strip identity, and offline
+render readiness checks each slot against its owning strip rather than a
+project-wide slot ID. The identity matcher regression covers exact duplicate
+IDs, ambiguous legacy requests, and duplicate IDs within one chain.
+
+The Core and plug-in host built; the focused native case passed 9/9 assertions
+and full CTest passed 1/1. Full UI passed 894 tests across 136 files;
+TypeScript, production build, changed-file lint and `git diff --check` passed.
+No real AU/VST3 duplicate-slot fixture or audible vendor acceptance was run,
+so this closes identity leakage in code paths, not the full writetest
+reload/reopen report.
+
 ### Latest continuation addendum — foldable automation lanes (2026-10-03)
 
 The Timeline now shows simultaneous independent track-scope automation lanes

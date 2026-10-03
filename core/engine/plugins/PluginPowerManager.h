@@ -331,6 +331,7 @@ public:
                 case PluginPowerState::Quiescent: ++s.quiescentCount; break;
                 case PluginPowerState::Suspended: ++s.suspendedCount; break;
                 case PluginPowerState::Parked: ++s.parkedCount; break;
+                case PluginPowerState::Unknown: break;
             }
         }
         if (s.totalSlots > 0) {

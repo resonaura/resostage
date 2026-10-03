@@ -17,6 +17,7 @@ enum class PluginPowerState : uint8_t {
     Quiescent = 1,
     Suspended = 2,
     Parked = 3,
+    Unknown = 255,
 };
 
 inline const char* pluginPowerStateToString(PluginPowerState state) noexcept {
@@ -25,6 +26,7 @@ inline const char* pluginPowerStateToString(PluginPowerState state) noexcept {
         case PluginPowerState::Quiescent: return "quiescent";
         case PluginPowerState::Suspended: return "suspended";
         case PluginPowerState::Parked: return "parked";
+        case PluginPowerState::Unknown: return "unknown";
     }
     return "active";
 }
@@ -33,6 +35,7 @@ inline PluginPowerState pluginPowerStateFromString(std::string_view str) noexcep
     if (str == "quiescent") return PluginPowerState::Quiescent;
     if (str == "suspended") return PluginPowerState::Suspended;
     if (str == "parked") return PluginPowerState::Parked;
+    if (str == "unknown") return PluginPowerState::Unknown;
     return PluginPowerState::Active;
 }
 

@@ -77,7 +77,8 @@ void MainComponent::publishWebState() {
         loading.blocksPlayback, loading.showDialog, loading.playRequested,
         loading.total, loading.completed, loading.failed,
         loading.currentName, loading.error};
-    const auto copyPluginSlots = [&activeBank, &loading](const std::vector<PluginSlot>& slots) {
+    const auto copyPluginSlots = [&activeBank, &loading](
+        const std::vector<PluginSlot>& slots, const std::string& stripId) {
         std::vector<WebUiState::PluginSlotRow> rows;
         rows.reserve(slots.size());
         for (const auto& slot : slots) {
@@ -92,9 +93,10 @@ void MainComponent::publishWebState() {
             row.hasState = slot.stateResource.has_value();
             row.keepAwake = slot.keepAwake;
             if (activeBank != nullptr) {
-                row.powerState = pluginPowerStateToString(activeBank->getSlotPowerState(slot.id));
-                row.loadState = activeBank->getSlotLoadState(slot.id);
-                row.loadError = activeBank->getSlotLoadError(slot.id);
+                row.powerState = pluginPowerStateToString(
+                    activeBank->getStripSlotPowerState(stripId, slot.id));
+                row.loadState = activeBank->getStripSlotLoadState(stripId, slot.id);
+                row.loadError = activeBank->getStripSlotLoadError(stripId, slot.id);
                 if (row.loadState == "loading" && loading.phase != "loading") {
                     row.loadState = "failed";
                     row.loadError = "Plug-in slot was not initialized (host capacity or load failure)";
@@ -161,7 +163,7 @@ void MainComponent::publishWebState() {
         csr.enabled = cs.enabled;
         state.clickSends.push_back(std::move(csr));
     }
-    state.clickPlugins = copyPluginSlots(proj.click.plugins);
+    state.clickPlugins = copyPluginSlots(proj.click.plugins, "audio::click");
     // Interval max of rendered click peaks since last poll — captures every
     // audible tick even when the impulse is shorter than the UI sample period.
     {
@@ -458,7 +460,7 @@ void MainComponent::publishWebState() {
         tr.inputTrimDb = def.inputTrimDb;
         tr.phaseInvert = def.phaseInvert;
         tr.polarity = polarityToString(def.polarity);
-        tr.plugins = copyPluginSlots(def.plugins);
+        tr.plugins = copyPluginSlots(def.plugins, def.id);
         // The project serializer's mapping, not a second copy of it. The copy
         // that used to live here had drifted: it had no case for
         // OutputType::Bus and folded it into a `default:` of "main", so a
@@ -510,11 +512,11 @@ void MainComponent::publishWebState() {
         if (br.id == "audio::main") {
             br.pan = proj.main.pan;
             br.isAux = false;
-            br.plugins = copyPluginSlots(proj.main.plugins);
+            br.plugins = copyPluginSlots(proj.main.plugins, "audio::main");
         } else if (sendIt != proj.sends.end()) {
             br.pan = sendIt->pan;
             br.isAux = true;
-            br.plugins = copyPluginSlots(sendIt->plugins);
+            br.plugins = copyPluginSlots(sendIt->plugins, sendIt->id);
         } else {
             br.pan = 0.0;
             br.isAux = false;

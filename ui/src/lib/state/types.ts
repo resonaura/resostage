@@ -91,7 +91,7 @@ export interface PluginSlotRow {
   bypassed: boolean;
   hasState: boolean;
   keepAwake?: boolean;
-  powerState?: "active" | "quiescent" | "suspended" | "parked" | "loading" | "missing" | "failed";
+  powerState?: "active" | "quiescent" | "suspended" | "parked" | "unknown" | "loading" | "missing" | "failed";
   /** Runtime processor state; never persisted in the project. */
   loadState?: "loading" | "loaded" | "missing" | "failed";
   loadError?: string;

@@ -6,7 +6,9 @@
 
 #include "doctest.h"
 #include "plugins/PluginLoadingSession.h"
+#include "plugins/PluginPowerControl.h"
 #include "plugins/PluginRetryScope.h"
+#include "plugins/PluginSlotIdentity.h"
 #include "project/ProjectJson.h"
 #include <thread>
 
@@ -18,6 +20,33 @@ TEST_CASE("targeted plug-in retry scope uses exact stable strip identity") {
     CHECK(pluginRetryIncludesStrip("audio::track:1", "audio::track:1"));
     CHECK_FALSE(pluginRetryIncludesStrip("audio::track:1", "audio::track:10"));
     CHECK_FALSE(pluginRetryIncludesStrip("audio::track:1", "audio::track:2"));
+}
+
+TEST_CASE("plug-in slot lookup scopes duplicates and rejects ambiguous legacy IDs") {
+    CHECK(std::string_view(pluginPowerStateToString(PluginPowerState::Unknown)) == "unknown");
+    PluginSlotLookup legacy;
+    considerPluginSlot(legacy, {}, "slot:shared", "strip:first", "slot:shared", 2, 0);
+    considerPluginSlot(legacy, {}, "slot:shared", "strip:second", "slot:shared", 5, 1);
+    CHECK(legacy.found());
+    CHECK(legacy.ambiguous);
+    CHECK_FALSE(legacy.unique());
+
+    PluginSlotLookup exact;
+    considerPluginSlot(exact, "strip:second", "slot:shared",
+                       "strip:first", "slot:shared", 2, 0);
+    considerPluginSlot(exact, "strip:second", "slot:shared",
+                       "strip:second", "slot:shared", 5, 1);
+    CHECK(exact.unique());
+    CHECK(exact.stripIndex == 5);
+    CHECK(exact.slotIndex == 1);
+
+    PluginSlotLookup repeatedWithinOneChain;
+    considerPluginSlot(repeatedWithinOneChain, "strip:first", "slot:shared",
+                       "strip:first", "slot:shared", 2, 0);
+    considerPluginSlot(repeatedWithinOneChain, "strip:first", "slot:shared",
+                       "strip:first", "slot:shared", 2, 1);
+    CHECK(repeatedWithinOneChain.ambiguous);
+    CHECK_FALSE(repeatedWithinOneChain.unique());
 }
 
 TEST_CASE("PluginLoadingSession holds a new document until its bank is published") {

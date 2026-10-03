@@ -11,6 +11,7 @@
 #include "audio/graph/MixRenderer.h"
 #include "plugins/PluginPowerManager.h"
 #include "plugins/PluginDelayBank.h"
+#include "plugins/PluginSlotIdentity.h"
 #include "project/ProjectLoader.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -206,12 +207,16 @@ public:
                                     float value) noexcept;
     /** Message-thread bypass update; preserves the live vendor instance. */
     bool setSlotBypassed(const std::string& slotId, bool bypassed) noexcept;
+    bool setSlotBypassed(const std::string& stripId, const std::string& slotId,
+                         bool bypassed) noexcept;
     /** Message-thread update of the track's recording/monitoring power guards. */
     void setTrackPowerGuards(const std::string& trackId, bool recordArmed,
                              bool inputMonitoring) noexcept;
 
     /** Atomic power inspection and coalesced controls; callable across threads. */
     PluginPowerState getSlotPowerState(const std::string& slotId) const noexcept;
+    PluginPowerState getStripSlotPowerState(const std::string& stripId,
+                                            const std::string& slotId) const noexcept;
     /** Prepared index query for helper DSP; no string search per block. */
     PluginPowerState slotPowerState(size_t stripIndex, size_t slotIndex) const noexcept;
     /** Apply typed power intent to a prepared node; never touches its DSP counters. */
@@ -245,14 +250,22 @@ public:
     /** Helper startup only: mapping stays valid until the bank is destroyed. */
     void bindParameterValueTelemetry(const std::string& slotId, uint32_t parameterIndex,
                                      std::atomic<float>& destination);
+    void bindParameterValueTelemetry(const std::string& stripId, const std::string& slotId,
+                                     uint32_t parameterIndex,
+                                     std::atomic<float>& destination);
     void setSlotKeepAwake(const std::string& slotId, bool keepAwake) noexcept;
+    void setSlotKeepAwake(const std::string& stripId, const std::string& slotId,
+                          bool keepAwake) noexcept;
     void prewarmStrip(size_t stripIndex) noexcept;
     /** Prepared hosted indices only (at most 128 slots/32 live chains). */
     std::span<const uint32_t> activeStripIndices() const noexcept { return hostedStripIndices; }
     void prewarmAllStrips() noexcept;
     void prewarmSlot(const std::string& slotId) noexcept;
+    void prewarmSlot(const std::string& stripId, const std::string& slotId) noexcept;
     void parkSlot(const std::string& slotId) noexcept;
+    void parkSlot(const std::string& stripId, const std::string& slotId) noexcept;
     void unparkSlot(const std::string& slotId) noexcept;
+    void unparkSlot(const std::string& stripId, const std::string& slotId) noexcept;
     PluginPowerStats powerStats() const noexcept;
 
 private:
@@ -261,6 +274,8 @@ private:
     struct StripChain;
 
     PluginProcessorBank() = default;
+    PluginSlotLookup findSlot(const std::string& stripId,
+                              const std::string& slotId) const noexcept;
     bool setPluginParameterOnNode(StripChain& chain, Node& node, size_t slotIndex,
                                   int paramIndex, float value) noexcept;
     static void processChain(void* context, float* left, float* right,

@@ -259,8 +259,14 @@ bool AudioEngine::retryPluginSlot(const std::string& slotId,
 
 void AudioEngine::setPluginSlotBypassed(const std::string& slotId,
                                         bool bypassed) {
+    setPluginSlotBypassed({}, slotId, bypassed);
+}
+
+void AudioEngine::setPluginSlotBypassed(const std::string& stripId,
+                                        const std::string& slotId,
+                                        bool bypassed) {
     if (auto bank = activePluginProcessorBank())
-        bank->setSlotBypassed(slotId, bypassed);
+        bank->setSlotBypassed(stripId, slotId, bypassed);
     // Supersede any chain build that may have captured the previous value.
     // The stable slot IDs are reconciled by the worker, so this publication
     // reuses existing processor instances rather than reloading them.

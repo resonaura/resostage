@@ -61,6 +61,16 @@ passed. No vendor or remote audio acceptance was run. This closes only the
 identity-migration block; continue from the remaining items above and do not
 push unless explicitly requested.
 
+Next verified block — live plug-in status/control identity: Core now uses an
+exact strip/slot resolver for load/error/power state, parameter metadata and
+values, bypass, Keep Awake, Park and Unpark. Legacy slot-only paths refuse
+ambiguous duplicates. Web state and offline render readiness pass explicit
+owner IDs. Focused native test passed 9/9 assertions; Core/helper build and
+full CTest passed. Full UI passed 894 tests across 136 files; TypeScript,
+production build, changed-file lint and `git diff --check` passed. Real vendor
+duplicate-slot behavior and the reported project reload/reopen symptom still
+need a private fixture and AU/VST acceptance.
+
 Latest verified UI display block (see recent git history):
 Timeline and Mixer numeric fader-gain/pan labels use the shared
 `components/daw/EasedReadout.tsx`, which eases authoritative automation display

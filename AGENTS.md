@@ -732,6 +732,10 @@ Preserve these rules:
   ambiguous, must not be applied to either chain, and must remain visible for
   explicit recovery. New lane creation and rebind must persist an exact strip
   and validate the loaded, automatable parameter on that pair.
+  Plug-in load/error/power telemetry, bypass, keep-awake, park and unpark
+  controls also use exact `(stripId, slotId)` identity. A legacy slot-only
+  accessor may act only when the slot ID resolves to one bank node; ambiguity
+  must fail closed, never use the first chain returned by iteration.
   Live block dispatch performs one bounded lookup over the prepared bank and
   queues parameter changes to the matching isolated host; it must never fall
   back to a different strip or allocate on the callback. Offline rendering
