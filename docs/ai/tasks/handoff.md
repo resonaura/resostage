@@ -132,6 +132,12 @@ in scope after this transaction boundary is trustworthy.
   the isolated AU test passed following one failure during a concurrent UI
   run. This is not a physical DMX delivery test; the transient AU timing issue
   remains unexplained.
+- The actual-Core harness now also overlaps a reliable MIDI-region update with
+  the real asynchronous Save path using a private 64 MiB package resource. It
+  observes Core busy, then verifies exact application after the same-project
+  package rewrite/reopen and preservation of the resource. This closes Save
+  overlap only; equivalent import overlap and large real plug-in-state work
+  remain open.
 - `fdc32a2`: Unit test for dense sustain and panic traffic during deferred MIDI queue capture in `test_plugin_host_protocol.cpp` (582 assertions verifying pedal CC 64, notes, pitch bend across channels 1..4, overflow degradation to 48-event 16-channel panic, and clean recovery).
 - `75c3eb0`: Canonicalized ArtDMX (`buildArtDMXPacket`, `parseArtDMXPacket`), WebCommandKind values (`BuilderTrackImportWAV*`, `BuilderMIDIRegion*`, `SetMIDI*`, `MIDILearn*`), builder/settings methods (`builderMIDIRegion*`, `builderTrackImportWAV*`, `settingsSetMIDI*`, `settingsMIDI*`), and `importWAVForTrackAsync` across Core with backward-compatible aliases.
 - `e214318`: Exposed canonical acronym types and method aliases in UI (`MIDINoteRow`, `MIDIClipEventRow`, `MIDIUmpEventRow`, `MIDIRegionRow`, `MIDIBindingRow`, `trackImportWAV`, `setMIDI*`) and Electron (`UDPTelemetryStats`, `UDPTelemetryTracker`).

@@ -305,8 +305,8 @@ Still open; do not call this full editor transactionality:
   deferred command bodies, verifies each overflow probe has an exact
   `applied=false` result and unchanged project revision, then drains and
   confirms both count and byte admission recover. This deterministic hold
-  exercises the real deferred admission path but does not replace a stress run
-  during an actual long project save/import. Same-Core reopen/reused IDs, Core
+  exercises the real deferred admission path but does not replace the separate
+  real-I/O overlap acceptance below. Same-Core reopen/reused IDs, Core
   restart during a pending edit, and late responses remain additional stress
   cases. A process restart already proves old-session requests get HTTP 409
   while a new session may safely reuse the same numeric request ID. HTTP queue
@@ -323,10 +323,13 @@ Still open; do not call this full editor transactionality:
 
 Next implementation:
 
-1. Stress the now-verified deferred-message-queue count/byte limits during real
-   project save/import work, not just the deterministic test hold. Keep
-   accepted-result expiry unknown and never infer application from another
-   request's later state.
+1. Stress deferred admission during real import work; a real asynchronous Save
+   overlap is now covered separately by the Core harness. It writes a private
+   64 MiB package resource, observes `busy=true`, submits an exact MIDI-region
+   edit, and verifies the edit applies after the same-epoch package rewrite
+   finishes. This is not an import-overlap test and does not prove large vendor
+   state serialization or acoustic continuity. Keep accepted-result expiry
+   unknown and never infer application from another request's later state.
 2. Complete same-Core reopen/reused-ID, Core restart during pending edits, and
    late-response cases. Add exact completion only to remaining structural
    mutations that truly participate in history. Do not make high-rate fader or

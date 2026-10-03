@@ -5,9 +5,19 @@
  */
 
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  mkdtempSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -25,6 +35,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
   const metadataPath = join(project, "project.rsnrasetmeta");
   const settingsPath = join(temp, "settings.json");
   const audioFixture = join(temp, "fixture.wav");
+  const saveStressAsset = join(project, "Audio", "save-stress.bin");
   const probe = createServer();
   await new Promise((done) => probe.listen(0, "127.0.0.1", done));
   const port = probe.address().port;
@@ -44,6 +55,21 @@ export async function verifyEditorState(coreExecutable, inspect) {
   wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write("data", 36);
   wav.writeUInt32LE(2, 40); wav.writeInt16LE(0, 44);
   writeFileSync(audioFixture, wav);
+  // Make the real asynchronous package-save copy window observable without
+  // changing project schema or touching any user data. ProjectLoader preserves
+  // package resources even when the fixture does not reference this blob.
+  mkdirSync(join(project, "Audio"));
+  const stressAssetFd = openSync(saveStressAsset, "w");
+  try {
+    for (let chunk = 0; chunk < 64; ++chunk) {
+      const bytes = randomBytes(1024 * 1024);
+      let offset = 0;
+      while (offset < bytes.length)
+        offset += writeSync(stressAssetFd, bytes, offset, bytes.length - offset);
+    }
+  } finally {
+    closeSync(stressAssetFd);
+  }
   writeFileSync(metadataPath, JSON.stringify({ format: { version: 10 }, name: "Editor State Acceptance", sampleRate: 48000,
     tracks: [
       { id: "audio::track:1", name: "Fixture MIDI", kind: "externalMidi", channels: 2,
@@ -470,6 +496,35 @@ export async function verifyEditorState(coreExecutable, inspect) {
     await confirmEditorMutation("/api/v1/lighting/cue/remove", {
       songIndex: 0, cueId: lightCue.id,
     }, true, {}, "lighting");
+
+    const preSaveState = await request("/api/v1/state");
+    commandState = preSaveState;
+    const preSaveMidiRegion = preSaveState.songs[0].midiRegions.find((region) => region.id === regionId);
+    assert.ok(preSaveMidiRegion, "real-save overlap fixture MIDI region must exist");
+    await request("/api/v1/project/save", {});
+    let saveBusyState = null;
+    for (let attempt = 0; attempt < 1000; ++attempt) {
+      const snapshot = await request("/api/v1/state");
+      commandState = snapshot;
+      if (snapshot.busy) {
+        saveBusyState = snapshot;
+        break;
+      }
+      await sleep(5);
+    }
+    assert.ok(saveBusyState, `real project save must expose its background busy window\n${diagnostic}`);
+    const saveDeferredEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", {
+      songIndex: 0,
+      regionId,
+      name: "Deferred Across Real Save",
+    });
+    assert.equal(saveDeferredEdit.state.projectEpoch, saveBusyState.projectEpoch,
+      "saving and reopening the same active document must preserve its project identity epoch");
+    assert.equal(saveDeferredEdit.state.busy, false, "deferred edit must settle after the real save completes");
+    assert.equal(saveDeferredEdit.state.songs[0].midiRegions.find((region) => region.id === regionId)?.name,
+      "Deferred Across Real Save", "an edit admitted while save is busy must survive the package rewrite and apply to the same project");
+    assert.equal(statSync(saveStressAsset).size, 64 * 1024 * 1024,
+      "real save must preserve the fixture resource while reopening its project package");
 
     const quantized = notes.map((note) => ({ ...note,
       startBeats: Math.round(note.startBeats * 2) / 2, durationBeats: 0.5 }));
@@ -1041,7 +1096,18 @@ export async function verifyEditorState(coreExecutable, inspect) {
     const queueAcceptance = process.env.RESOSTAGE_TEST_EXPECT_SNAPSHOT_FAILURE === "1"
       ? ", command queue and deferred queue saturation/rejection/drain/recovery"
       : "";
-    console.log(`PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction${queueAcceptance}, audio/MIDI region CRUD and embedded-automation rejection, lighting config/fixture/track/cue exact outcomes, detached plug-in automation rebind rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)`);
+    console.log([
+      "PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs",
+      `257-edit result-ring eviction${queueAcceptance}`,
+      "audio/MIDI region CRUD and embedded-automation rejection",
+      "lighting config/fixture/track/cue exact outcomes",
+      "edit deferred through real busy Save and applied after same-epoch package reopen",
+      "detached plug-in automation rebind rejection",
+      "structural song/bus/event/section/cycle results",
+      "project-epoch and Core-session fences, request-ID reuse after restart",
+      "active-playback Undo/Redo, automation recording/rejection, 413, save/reopen",
+      "(not acoustic or UI manual-override proof)",
+    ].join(", "));
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.
