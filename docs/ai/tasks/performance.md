@@ -26,15 +26,23 @@ unverified platform or acoustic scope.
 - Offline rendering must not enter a track before its private vendor processor
   has been constructed, prepared at the render sample rate/block size, marked
   non-realtime before prepare, and restored from its exact saved state.
-  Establish explicit ready/failed/cancelled outcomes with a bounded deadline;
-  do not silently render startup silence while an instrument is still loading.
-  If readiness fails, stop publication and surface the slot-specific warning
-  or require an explicit continue-with-available decision. Live instances may
-  never be borrowed by the renderer.
+  Implemented 2026-10-03 (fail-closed subset): `MainComponentRender.cpp`
+  synchronously builds a private bank before `OfflineRenderer` enters its first
+  block, then requires every non-bypassed main/click/track/bus slot to report
+  `loaded`. Any missing/loading/failed slot aborts the render before output is
+  written and names up to twelve owner/plug-in/load-state failures. Deliberate
+  bypass does not block rendering. The private offline bank remains separate
+  from live instances. This does not yet provide a bounded deadline for vendor
+  construction/state restore, process isolation, cancellation during that
+  synchronous setup, or proof that a successfully prepared vendor has emitted
+  audible output on its first block; those remain open. Do not silently render
+  startup silence while readiness is known to have failed.
 - Test multi-chain restore order, delayed instruments, effect tails, one broken
   state blob, timeout, cancellation, project switch during load, and offline
-  processBlock notification semantics. Track render startup latency and ensure
-  a slow plugin cannot hold the UI or live callback.
+  processBlock notification semantics. A focused `OfflineRenderer` regression
+  proves a factory readiness failure does not create an output file. It does
+  not exercise real AU/VST3 loading. Track render startup latency and ensure a
+  slow plugin cannot hold the UI or live callback.
 
 ### Plugin UI and graph integration
 

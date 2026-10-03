@@ -1113,16 +1113,21 @@ acceptance is split into [automation.md](automation.md),
   distinguish CC64 state, Piano Roll controller data and Score Editor notation;
   see automation.md.
 - Plug-in live helpers are per strip chain and offline processors are private.
-  The user-reported writetest multi-load/reopen coupling and render-before-ready
-  behavior are not yet reproduced against a private fixture. Existing
-  architectural prose is not evidence that these exact transitions are sound.
+  The user-reported writetest multi-load/reopen coupling is not yet reproduced
+  against a private fixture. Offline render now checks every enabled private
+  slot's prepared load state and aborts before output creation on failure; a
+  renderer-level factory-failure test passes. This does not cover vendor hangs,
+  first-block acoustic readiness, or real AU/VST3 fixtures. Existing
+  architectural prose is not evidence that live chain transitions are sound.
 
 ### Required implementation sequence
 
 1. Add/fix regression fixtures for independent plugin-slot retry/editor open,
-   offline ready-before-first-block, shared strip clip-hold identity/reset, and
-   stale active-song/target state. Use a private copy or synthetic project;
-   never save into Recent project originals or operator settings.
+   bounded offline initialization/cancellation and real-vendor first-block
+   readiness, shared strip clip-hold identity/reset, and stale active-song/
+   target state. The renderer-level fail-closed test is present, but it only
+   injects a failing processor factory. Use a private copy or synthetic
+   project; never save into Recent project originals or operator settings.
 2. Make Core automation evaluation observable by stable target in compact
    structural/telemetry data, then make all controls read the same live value
    without treating UI easing as audio authority. Avoid a full-state JSON

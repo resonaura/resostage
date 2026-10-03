@@ -523,6 +523,33 @@ TEST_CASE("OfflineRenderer creates private processor sessions and runs their str
     std::filesystem::remove(path, ignored);
 }
 
+TEST_CASE("OfflineRenderer stops before writing when its private plug-in session fails readiness") {
+    Project project;
+    project.songs.push_back(
+        SongDef{.id = "meta::song:1", .name = "Unavailable plug-in", .endSeconds = 0.02});
+
+    const auto path = temporaryWAVPath("-plugin-not-ready");
+    OfflineRenderRequest request;
+    request.songIndex = 0;
+    request.targetKind = RenderTargetKind::Master;
+    request.outputPath = path.string();
+    request.sampleRate = 48000;
+
+    const OfflineRenderer::ProcessorFactory factory =
+        [](const Project&, const MixGraph&, double, int, std::string& error)
+            -> std::unique_ptr<OfflineProcessorSession> {
+            error = "Enabled plug-in did not initialize";
+            return nullptr;
+        };
+
+    const auto result = OfflineRenderer{}.render(
+        project, {}, request, {}, nullptr, factory);
+
+    CHECK_FALSE(result.ok);
+    CHECK(result.error == "Enabled plug-in did not initialize");
+    CHECK_FALSE(std::filesystem::exists(path));
+}
+
 TEST_CASE("OfflineRenderer suppresses Write-mode lanes like live playback") {
     Project project;
     SongDef song;

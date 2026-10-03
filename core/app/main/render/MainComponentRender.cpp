@@ -369,6 +369,37 @@ void MainComponent::startAudioRender(const std::string& json) {
                     error = "Could not create offline plug-in bank";
                     return nullptr;
                 }
+
+                std::vector<std::string> unavailable;
+                const auto inspectSlots = [&](const std::vector<PluginSlot>& slots,
+                                               const std::string& owner) {
+                    for (const auto& slot : slots) {
+                        // A deliberately bypassed instance contributes no DSP;
+                        // the offline renderer may preserve that bypass without
+                        // requiring the unavailable vendor binary to load.
+                        if (slot.bypassed) continue;
+                        const auto loadState = built.bank->getSlotLoadState(slot.id);
+                        if (loadState == "loaded") continue;
+                        if (unavailable.size() < 12)
+                            unavailable.push_back(owner + " / "
+                                + (slot.plugin.name.empty()
+                                    ? slot.plugin.identifier : slot.plugin.name)
+                                + " (" + loadState + ")");
+                    }
+                };
+                inspectSlots(project.main.plugins, "Main");
+                inspectSlots(project.click.plugins, "Click");
+                for (const auto& track : project.tracks)
+                    inspectSlots(track.plugins, track.name.empty() ? track.id : track.name);
+                for (const auto& bus : project.sends)
+                    inspectSlots(bus.plugins, bus.name.empty() ? bus.id : bus.name);
+                if (!unavailable.empty()) {
+                    error = "Offline render stopped before its first audio block because "
+                        "one or more enabled plug-ins did not initialize:";
+                    for (const auto& plugin : unavailable)
+                        error += "\n• " + plugin;
+                    return nullptr;
+                }
                 return std::make_unique<OfflinePluginSession>(
                     std::move(built.bank), std::move(built.delayBank),
                     std::move(built.warnings));

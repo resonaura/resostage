@@ -539,9 +539,12 @@ are in [audit.md](audit.md).
 - Song BPM, base time signature, tempo/signature markers, and song update
   routes already exist; the timeline header is the missing editing surface.
 - Real plugin report is unconfirmed: the code architecture specifies isolated
-  helpers and offline-private processors, but user-observed chain coupling and
-  offline startup silence still require reproduction/tests. Do not treat the
-  architecture document as a pass result.
+  helpers and offline-private processors, but user-observed live chain coupling
+  still requires reproduction/tests. Offline rendering now fails closed before
+  its first block when a non-bypassed private plug-in slot is not fully
+  `loaded`; see the completed block below. This does not bound a vendor
+  constructor/state-restore hang or prove first-block audible output. Do not
+  treat the architecture document as a pass result.
 - Apple references for controller semantics and overlays are linked in
   automation.md. CC64 is sustain; distinguish continuous/controller values
   from switch-state thresholds. Apple Piano Roll region MIDI-data display is a
@@ -583,12 +586,29 @@ UI suite passed 808/808, and the TypeScript project build passed. Lint exited
 successfully with no new warnings in changed files; remote/multi-surface visual
 acceptance remains open.
 
+### Completed block — fail closed on unavailable offline plug-ins (2026-10-03)
+
+`MainComponentRender.cpp` builds its private `PluginProcessorBank` before the
+offline renderer processes audio. After construction/state restore it checks
+every non-bypassed plugin slot on main, click, tracks and send buses. Missing,
+loading or failed slots now stop the render before output creation and report
+the owning strip, plug-in name and load state (capped at twelve entries).
+Intentionally bypassed slots are allowed. The renderer-level regression
+`OfflineRenderer stops before writing when its private plug-in session fails
+readiness` passed (1 case / 3 assertions); `ResoStage` and
+`resostage_engine_tests` built successfully. No actual AU/VST3 fixture was
+loaded for this block. The synchronous factory can still hang indefinitely if
+vendor code hangs during construction or state restoration, and a `loaded`
+state alone is not evidence that first-block audio is audible. Process-level
+timeout/cancellation and real-vendor timing/acoustic tests remain open.
+
 The BPM/signature editor was already implemented in
 `ui/src/transport/components/SongTempoControl.tsx` (including Tap Tempo); do
 not implement a duplicate. Regression coverage and confirmation of active-song
 and time-map behavior are still open.
 
 Latest verified commit at the start of this continuation was
-`e13d512b Record integrated state audit verification`. The worktree was clean;
-no push was performed. This new documentation is the only current in-progress
-change until code/test work is recorded in the following dated subsections.
+`e13d512b Record integrated state audit verification`. Subsequent commits
+`3eed5f88` and `940ec4d7` recorded the task documentation and shared clip-hold
+block. The offline fail-closed source/test block is being verified separately;
+no push was performed.
