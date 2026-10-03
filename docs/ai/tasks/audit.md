@@ -62,8 +62,10 @@ final report. Test totals are dated evidence, not permanent acceptance promises.
   payload bytes unbounded.
 - Validation was added to selected automation endpoints but not every ingestion
   path. Legacy scalar point-add and initial-point fields could overflow when
-  narrowed to `float`; repeated points could grow a lane without a cap. The
-  MIDI-region embedded automation parser remains a separate boundary.
+  narrowed to `float`; repeated points could grow a lane without a cap. MIDI
+  region embedded lanes now use the shared bounded parser at HTTP admission and
+  again on the message thread before history/mutation; see the closed audit
+  block below.
 - One invalid or over-budget strip lane originally rejected the entire prepared
   automation plan and disabled valid sibling envelopes. Commit `18db49b`
   isolates invalid/excess lanes, retains valid siblings, and logs the skipped
@@ -435,10 +437,30 @@ Commit `0a13280` applies finite/range checks before float narrowing to legacy
 values reject before history begins. A lane is capped at 65,536 distinct points,
 while replacing a point remains allowed at the cap. The complete native suite
 passed 574 cases / 424,340 assertions after this block. This closes only those
-scalar paths. MIDI-region embedded `automationLanes` still use
-`MainComponentBuilderTracks.cpp::parseAutomationLanes`, another ingestion path.
-Inventory every mutation path and validate before history/mutation; do not call
-one fixed endpoint a complete admission contract.
+scalar paths; do not call one fixed endpoint a complete admission contract.
+
+## Closed this audit — embedded MIDI-region automation validation
+
+`BuilderMIDIRegionAdd` and `BuilderMIDIRegionUpdate` now share
+`builder_json::parseAutomationLanes` from `AutomationJson.h`. HTTP admission
+rejects malformed lane arrays with 400 before enqueue; the message-thread
+handlers parse the same complete payload again before opening a history edit.
+This prevents a malformed nested lane from being silently dropped or narrowed
+to `float` after other region fields have already mutated. The shared parser
+validates lane/object and field types, supported scope/write modes/target
+domains/value types, finite float-representable target ranges, ordered target
+bounds, finite nonnegative point times, finite values, curves in `[-1, 1]`,
+unique lane IDs, at most 256 lanes and 65,536 total points. Valid points are
+normalized with the same sorting and duplicate-position rejection as ordinary
+automation edits. Region-scoped targets bind to the destination region ID on
+both add and update.
+
+Real-Core HTTP acceptance submits an out-of-range curve and asserts 400 plus
+unchanged project revision and region data, then submits a valid MIDI CC lane
+and verifies the exact mutation result and playback snapshot contain its point.
+The full `editor-state.mjs` acceptance and native `ctest` passed after the
+change. This closes the MIDI-region builder route boundary, not project-file
+migration or every unrelated automation ingestion path.
 
 ## Closed this audit — offline Write-mode parity
 
@@ -520,9 +542,10 @@ clock.
 4. Complete Core-owned live manual-value arbitration for Touch/Latch/Write, then
    wire each supported control surface and handle TempoMap, cycle wrap, Stop,
    seek, project epoch, rejection recovery and one coherent history action.
-5. Validate MIDI-region embedded automation lanes before history/mutation;
-   define live/offline Write rendering and preserve the old envelope outside a
-   recorded punch window.
+5. Embedded MIDI-region automation input is now bounded and validated before
+   history/mutation. Continue with orphaned plug-in automation recovery and
+   immutable parameter-descriptor caching below; live/offline Write behavior
+   and punch-window preservation are tracked in the automation lifecycle items.
 6. Recover automation whose plug-in slot was removed; cache immutable parameter
    descriptors by epoch/slot/generation rather than refetching all visible slot
    tables on a timer.

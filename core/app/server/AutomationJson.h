@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 
 namespace resostage::builder_json {
 
@@ -112,6 +113,150 @@ inline bool parseAutomationPoints(const glz::generic& doc,
         }
     }
     parsed.resize(admitted);
+    output = std::move(parsed);
+    return true;
+}
+
+/** Parse complete automation-lane arrays embedded in region mutations.
+ * This boundary is intentionally stricter than project-file migration: a
+ * malformed client edit is rejected as a whole before history or mutation.
+ */
+inline bool parseAutomationLanes(const glz::generic& doc,
+                                 std::vector<AutomationLane>& output,
+                                 std::string& error) {
+    error.clear();
+    const auto* input = getArray(doc, "automationLanes");
+    if (input == nullptr) {
+        if (doc.contains("automationLanes")) {
+            error = "Embedded automation lanes must be an array";
+            return false;
+        }
+        output.clear();
+        return true;
+    }
+    constexpr size_t kMaximumAutomationLanes = 256;
+    if (input->size() > kMaximumAutomationLanes) {
+        error = "Embedded automation lanes must contain at most 256 lanes";
+        return false;
+    }
+
+    std::vector<AutomationLane> parsed;
+    parsed.reserve(input->size());
+    std::unordered_set<std::string> laneIds;
+    size_t totalPoints = 0;
+    for (const auto& value : *input) {
+        if (!value.is_object()) {
+            error = "Each embedded automation lane must be an object";
+            return false;
+        }
+
+        AutomationLane lane;
+        if (value.contains("id") && !getString(value, "id", lane.id)) {
+            error = "Embedded automation lane IDs must be strings";
+            return false;
+        }
+        if (lane.id.size() > 256 || (!lane.id.empty() && !laneIds.insert(lane.id).second)) {
+            error = "Embedded automation lane IDs must be unique and at most 256 characters";
+            return false;
+        }
+
+        std::string text;
+        if (value.contains("scope")) {
+            if (!getString(value, "scope", text)
+                || (text != "track" && text != "region" && text != "modulation")) {
+                error = "Embedded automation lane scope is invalid";
+                return false;
+            }
+            lane.scope = automationScopeFromString(text);
+        }
+        if (value.contains("writeMode")) {
+            if (!getString(value, "writeMode", text)
+                || (text != "read" && text != "touch" && text != "latch" && text != "write")) {
+                error = "Embedded automation lane write mode is invalid";
+                return false;
+            }
+            lane.writeMode = automationWriteModeFromString(text);
+        }
+        if ((value.contains("enabled") && !getBool(value, "enabled", lane.enabled))
+            || (value.contains("muted") && !getBool(value, "muted", lane.muted))) {
+            error = "Embedded automation lane enabled/muted flags must be booleans";
+            return false;
+        }
+
+        if (value.contains("target")) {
+            if (!value["target"].is_object()) {
+                error = "Embedded automation lane target must be an object";
+                return false;
+            }
+            const auto& target = value["target"];
+            if (target.contains("domain")) {
+                if (!getString(target, "domain", text)
+                    || (text != "strip" && text != "plugin" && text != "midiCC"
+                        && text != "midicc" && text != "midi" && text != "lighting"
+                        && text != "light")) {
+                    error = "Embedded automation target domain is invalid";
+                    return false;
+                }
+                lane.target.domain = automationDomainFromString(text);
+            }
+            if ((target.contains("entityId")
+                 && !getString(target, "entityId", lane.target.entityId))
+                || (target.contains("parameterId")
+                    && !getString(target, "parameterId", lane.target.parameterId))) {
+                error = "Embedded automation target identifiers must be strings";
+                return false;
+            }
+            if (lane.target.entityId.size() > 1024 || lane.target.parameterId.size() > 1024) {
+                error = "Embedded automation target identifiers exceed 1,024 characters";
+                return false;
+            }
+            if (target.contains("valueType")) {
+                if (!getString(target, "valueType", text)
+                    || (text != "floatNormalized" && text != "decibels" && text != "db"
+                        && text != "frequencyHz" && text != "hz" && text != "milliseconds"
+                        && text != "ms" && text != "boolean" && text != "bool"
+                        && text != "integer" && text != "int" && text != "colorRgb"
+                        && text != "rgb")) {
+                    error = "Embedded automation target value type is invalid";
+                    return false;
+                }
+                lane.target.valueType = parameterValueTypeFromString(text);
+            }
+
+            double defaultValue = lane.target.defaultValue;
+            double minValue = lane.target.minValue;
+            double maxValue = lane.target.maxValue;
+            if ((target.contains("defaultValue")
+                 && !getDouble(target, "defaultValue", defaultValue))
+                || (target.contains("minValue") && !getDouble(target, "minValue", minValue))
+                || (target.contains("maxValue") && !getDouble(target, "maxValue", maxValue))) {
+                error = "Embedded automation target ranges must be numeric";
+                return false;
+            }
+            const double maxFloat = std::numeric_limits<float>::max();
+            if (!std::isfinite(defaultValue) || !std::isfinite(minValue)
+                || !std::isfinite(maxValue) || std::abs(defaultValue) > maxFloat
+                || std::abs(minValue) > maxFloat || std::abs(maxValue) > maxFloat
+                || minValue > maxValue) {
+                error = "Embedded automation target ranges must be finite and ordered";
+                return false;
+            }
+            lane.target.defaultValue = static_cast<float>(defaultValue);
+            lane.target.minValue = static_cast<float>(minValue);
+            lane.target.maxValue = static_cast<float>(maxValue);
+        }
+
+        if (value.contains("points")) {
+            if (!parseAutomationPoints(value, lane.points, error))
+                return false;
+            if (lane.points.size() > kMaximumAutomationEditPoints - totalPoints) {
+                error = "Embedded automation lanes may contain at most 65,536 total points";
+                return false;
+            }
+            totalPoints += lane.points.size();
+        }
+        parsed.push_back(std::move(lane));
+    }
     output = std::move(parsed);
     return true;
 }

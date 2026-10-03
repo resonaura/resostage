@@ -203,6 +203,75 @@ export async function verifyEditorState(coreExecutable, inspect) {
     const initialMidiEdit = await confirmEditorMutation("/api/v1/builder/midi-region/update", patch);
     assert.equal(getRegion(initialMidiEdit.state)?.notes.length, notes.length, "large note update");
 
+    const beforeInvalidEmbeddedAutomation = await request("/api/v1/state");
+    commandState = beforeInvalidEmbeddedAutomation;
+    const invalidEmbeddedAutomation = await fetch(`${origin}/api/v1/builder/midi-region/update`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-ResoStage-Session": commandState.stateSessionId,
+        "X-ResoStage-Project-Epoch": String(commandState.projectEpoch),
+      },
+      body: JSON.stringify({
+        songIndex: 0,
+        regionId,
+        automationLanes: [{
+          id: "lane::invalid",
+          scope: "track",
+          target: { domain: "midiCC", entityId: "audio::track:1", parameterId: "cc:1",
+            valueType: "integer", defaultValue: 0, minValue: 0, maxValue: 127 },
+          points: [{ timeBeats: 0, value: 64, curve: 1.25 }],
+        }],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const invalidAutomationBody = await invalidEmbeddedAutomation.text();
+    assert.equal(invalidEmbeddedAutomation.status, 400,
+      `invalid embedded automation must be rejected before enqueue: ${invalidAutomationBody}`);
+    const invalidEmbeddedTarget = await fetch(`${origin}/api/v1/builder/midi-region/update`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-ResoStage-Session": commandState.stateSessionId,
+        "X-ResoStage-Project-Epoch": String(commandState.projectEpoch),
+      },
+      body: JSON.stringify({
+        songIndex: 0,
+        regionId,
+        automationLanes: [{
+          id: "lane::overflow-target",
+          target: { domain: "midiCC", entityId: "audio::track:1", parameterId: "cc:1",
+            defaultValue: 1e100, minValue: 0, maxValue: 127 },
+          points: [],
+        }],
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const invalidTargetBody = await invalidEmbeddedTarget.text();
+    assert.equal(invalidEmbeddedTarget.status, 400,
+      `float-overflow target metadata must be rejected before enqueue: ${invalidTargetBody}`);
+    const afterInvalidEmbeddedAutomation = await request("/api/v1/state");
+    commandState = afterInvalidEmbeddedAutomation;
+    assert.equal(afterInvalidEmbeddedAutomation.stateRevision,
+      beforeInvalidEmbeddedAutomation.stateRevision,
+      "invalid embedded automation must not create a project-history revision");
+    assert.deepEqual(getRegion(afterInvalidEmbeddedAutomation)?.automationLanes, [],
+      "invalid embedded automation must leave the region unchanged");
+
+    const validEmbeddedLane = {
+      id: "lane::valid-midi-cc",
+      scope: "track",
+      target: { domain: "midiCC", entityId: "audio::track:1", parameterId: "cc:1",
+        valueType: "integer", defaultValue: 0, minValue: 0, maxValue: 127 },
+      points: [{ timeBeats: 0, value: 64, curve: 0.25 }],
+    };
+    const validEmbeddedAutomation = await confirmEditorMutation(
+      "/api/v1/builder/midi-region/update", { songIndex: 0, regionId,
+        automationLanes: [validEmbeddedLane] });
+    assert.deepEqual(getRegion(validEmbeddedAutomation.state)?.automationLanes?.[0]?.points,
+      validEmbeddedLane.points,
+      "valid embedded region automation must survive parsing and reach the playback snapshot");
+
     const reorderedA = await request("/api/v1/builder/midi-region/update", {
       songIndex: 0, regionId, name: "Concurrent A",
     });
@@ -668,7 +737,7 @@ export async function verifyEditorState(coreExecutable, inspect) {
       "stale project edits must not create a history revision");
     assert.equal(staleEdit.state.songs[0].midiRegions[0].name, fencedRegion.name,
       "stale project edits must not mutate entities with reused/indexed targets");
-    console.log("PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction, audio/MIDI region CRUD, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
+    console.log("PASS: actual Core HTTP/state persistence, exact project/playback revisions, concurrent editor ACKs, 257-edit result-ring eviction, audio/MIDI region CRUD and embedded-automation rejection, structural song/bus/event/section/cycle results, project-epoch and Core-session fences, request-ID reuse after restart, active-playback Undo/Redo, automation recording/rejection, 413, save/reopen (not acoustic or UI manual-override proof)");
   } finally {
     await stopCore();
     // Only the exact mkdtemp-created private fixture is ever removed.

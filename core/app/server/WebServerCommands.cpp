@@ -503,6 +503,23 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
                 }
             }
         }
+        if (builderKind == WebCommandKind::BuilderMIDIRegionAdd
+            || builderKind == WebCommandKind::BuilderMIDIRegionUpdate) {
+            glz::generic document;
+            if (body == nullptr || !builder_json::parseJson(std::string(body, bodyLen), document)
+                || !document.is_object()) {
+                writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid MIDI region edit");
+                return true;
+            }
+            if (document.contains("automationLanes")) {
+                std::vector<AutomationLane> validated;
+                std::string error;
+                if (!builder_json::parseAutomationLanes(document, validated, error)) {
+                    writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, error.c_str());
+                    return true;
+                }
+            }
+        }
         if (builderKind == WebCommandKind::BuilderTrackImportWAVBegin) {
             std::string sessionId;
             uint64_t projectEpoch = 0;

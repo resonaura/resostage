@@ -12,6 +12,7 @@
 #include "engine/AudioEngineInternal.h"
 #include "project/ProjectJson.h"
 #include "project/RouteId.h"
+#include "server/AutomationJson.h"
 #include "server/BuilderJson.h"
 
 #if JUCE_WINDOWS
@@ -151,48 +152,6 @@ std::vector<MidiUmpEvent> parseMidiUmpEvents(const glz::generic& doc) {
     return events;
 }
 
-std::vector<AutomationLane> parseAutomationLanes(const glz::generic& doc) {
-    std::vector<AutomationLane> lanes;
-    if (!doc.contains("automationLanes") || !doc["automationLanes"].is_array())
-        return lanes;
-    const auto& arr = doc["automationLanes"].get_array();
-    lanes.reserve(arr.size());
-    for (const auto& laneVal : arr) {
-        if (!laneVal.is_object()) continue;
-        AutomationLane lane;
-        getString(laneVal, "id", lane.id);
-        std::string text;
-        if (getString(laneVal, "scope", text)) lane.scope = automationScopeFromString(text);
-        if (getString(laneVal, "writeMode", text)) lane.writeMode = automationWriteModeFromString(text);
-        getBool(laneVal, "enabled", lane.enabled);
-        getBool(laneVal, "muted", lane.muted);
-
-        if (laneVal.contains("target") && laneVal["target"].is_object()) {
-            const auto& target = laneVal["target"];
-            if (getString(target, "domain", text)) lane.target.domain = automationDomainFromString(text);
-            getString(target, "entityId", lane.target.entityId);
-            getString(target, "parameterId", lane.target.parameterId);
-            if (getString(target, "valueType", text)) lane.target.valueType = parameterValueTypeFromString(text);
-            double number = 0.0;
-            if (getDouble(target, "defaultValue", number)) lane.target.defaultValue = static_cast<float>(number);
-            if (getDouble(target, "minValue", number)) lane.target.minValue = static_cast<float>(number);
-            if (getDouble(target, "maxValue", number)) lane.target.maxValue = static_cast<float>(number);
-        }
-        if (laneVal.contains("points") && laneVal["points"].is_array()) {
-            for (const auto& pointVal : laneVal["points"].get_array()) {
-                if (!pointVal.is_object()) continue;
-                AutomationPoint point;
-                double number = 0.0;
-                getDouble(pointVal, "timeBeats", point.timeBeats);
-                if (getDouble(pointVal, "value", number)) point.value = static_cast<float>(number);
-                if (getDouble(pointVal, "curve", number)) point.curve = static_cast<float>(std::clamp(number, -1.0, 1.0));
-                lane.points.push_back(point);
-            }
-        }
-        lanes.push_back(std::move(lane));
-    }
-    return lanes;
-}
 } // namespace
 
 
@@ -628,6 +587,13 @@ void MainComponent::builderMIDIRegionAdd(const std::string& json) {
         return;
     SongDef& s = proj.songs[static_cast<size_t>(songIndex)];
 
+    std::vector<AutomationLane> embeddedAutomationLanes;
+    std::string automationError;
+    if (!builder_json::parseAutomationLanes(doc, embeddedAutomationLanes, automationError)) {
+        setStatus("MIDI region automation rejected: " + juce::String(automationError));
+        return;
+    }
+
     std::vector<std::string> used;
     for (const auto& r : s.midiRegions)
         used.push_back(r.id);
@@ -655,12 +621,10 @@ void MainComponent::builderMIDIRegionAdd(const std::string& json) {
         reg.events = parseMidiClipEvents(doc);
     if (doc.contains("umpEvents") && doc["umpEvents"].is_array())
         reg.umpEvents = parseMidiUmpEvents(doc);
-    if (doc.contains("automationLanes") && doc["automationLanes"].is_array()) {
-        reg.automationLanes = parseAutomationLanes(doc);
-        for (auto& lane : reg.automationLanes) {
-            if (lane.scope == AutomationScope::Region)
-                lane.target.entityId = reg.id;
-        }
+    reg.automationLanes = std::move(embeddedAutomationLanes);
+    for (auto& lane : reg.automationLanes) {
+        if (lane.scope == AutomationScope::Region)
+            lane.target.entityId = reg.id;
     }
 
     std::string gestureId;
@@ -717,6 +681,14 @@ void MainComponent::builderMIDIRegionUpdate(const std::string& json) {
     }
     if (!regPtr) return;
 
+    std::vector<AutomationLane> embeddedAutomationLanes;
+    std::string automationError;
+    if (doc.contains("automationLanes")
+        && !builder_json::parseAutomationLanes(doc, embeddedAutomationLanes, automationError)) {
+        setStatus("MIDI region automation rejected: " + juce::String(automationError));
+        return;
+    }
+
     std::string gestureId;
     getString(doc, "gestureId", gestureId);
     engine.projectHistoryBeginEdit(gestureId, "Edit MIDI region");
@@ -742,8 +714,13 @@ void MainComponent::builderMIDIRegionUpdate(const std::string& json) {
         regPtr->events = parseMidiClipEvents(doc);
     if (doc.contains("umpEvents") && doc["umpEvents"].is_array())
         regPtr->umpEvents = parseMidiUmpEvents(doc);
-    if (doc.contains("automationLanes") && doc["automationLanes"].is_array())
-        regPtr->automationLanes = parseAutomationLanes(doc);
+    if (doc.contains("automationLanes")) {
+        regPtr->automationLanes = std::move(embeddedAutomationLanes);
+        for (auto& lane : regPtr->automationLanes) {
+            if (lane.scope == AutomationScope::Region)
+                lane.target.entityId = regPtr->id;
+        }
+    }
 
     engine.projectHistoryCommitEdit();
     engine.markDirty();

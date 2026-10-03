@@ -24,14 +24,14 @@ explicit:
   the UI project epoch is a distinct identity namespace.
 - A last-good audio graph must remain safe if snapshot preparation fails, while
   the exact originating edit receives a rejection/recovery result. Native tests
-  now reject an oversized snapshot and prove `RoutingEngine` will not replace
-  a valid publication with an incomplete candidate; AudioEngine/callback
-  continuity under injected failure still needs end-to-end evidence.
+  reject oversized/incomplete snapshots, and the real-Core injected acceptance
+  now proves exact result, last-good graph retention, transport advancement and
+  recovery. This still is not acoustic, loaded-plug-in or deadline evidence.
 - Live edits must not stop transport, reset the clock, or restart a healthy
   plug-in chain.
 
-Next, fault-inject graph preparation failure and finish queue/restart/reopen
-acceptance. Keep uncompleted automation, Piano Roll, plug-in loading,
+Next, finish queue/restart/reopen acceptance. Keep uncompleted automation,
+Piano Roll, plug-in loading,
 callback-deadline, AU/VST3, and hardware acceptance from [audit.md](audit.md)
 in scope after this transaction boundary is trustworthy.
 
