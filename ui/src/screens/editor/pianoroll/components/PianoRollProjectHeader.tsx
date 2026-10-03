@@ -4,9 +4,10 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import type { ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
 import type { MidiRegionRow, SongRow } from "@/lib/state/types";
 import type { PianoRollViewport } from "@/screens/editor/pianoroll/logic/types";
+import { createPianoRollProjectAxis } from "@/screens/editor/pianoroll/logic/projectAxis";
 import { Ruler } from "@/screens/editor/timeline/ruler/components/Ruler";
 import { CycleStrip } from "@/screens/editor/timeline/cycle/components/CycleStrip";
 import type { CycleLocators } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
@@ -47,13 +48,18 @@ export function PianoRollProjectHeader({
   onCycleToggleSkip,
   onCycleDragEnd,
 }: PianoRollProjectHeaderProps) {
+  const projectAxis = useMemo(() => song ? createPianoRollProjectAxis(song) : null, [song]);
   if (!song || !cycle || songLength <= 0) return null;
 
   const bpm = song.bpm || 120;
-  const projectPixelsPerSecond = viewport.pixelsPerBeat * bpm / 60;
+  if (!projectAxis) return null;
+  const projectLengthBeats = projectAxis.durationBeats(songLength);
+  const pixelsPerBeat = viewport.pixelsPerBeat;
+  const projectPixelsPerSecond = pixelsPerBeat * bpm / 60;
   const projectScrollPx = (regionStartBeats + viewport.scrollBeats) * viewport.pixelsPerBeat;
-  const projectContentWidth = songLength * projectPixelsPerSecond;
+  const projectContentWidth = projectLengthBeats * pixelsPerBeat;
   const tsNum = song.tsNum || timeSignatureNumerator;
+  const tsDen = song.tsDen || 4;
   const visibleWidth = Math.max(1, canvasWidth - viewport.keyWidth);
 
   return (
@@ -66,11 +72,14 @@ export function PianoRollProjectHeader({
           layer="backdrop"
           pxPerSec={projectPixelsPerSecond}
           contentWidth={projectContentWidth}
-          songLength={songLength}
+          songLength={projectLengthBeats}
           bpm={bpm}
           tsNum={tsNum}
           scrollLeft={projectScrollPx}
           viewportWidth={visibleWidth}
+          pixelsPerBeat={pixelsPerBeat}
+          signaturePoints={song.signaturePoints}
+          defaultDenominator={tsDen}
         />
         {onCycleToggleActive && onCycleSetRange && onCycleToggleSkip && (
           <CycleStrip
@@ -78,6 +87,12 @@ export function PianoRollProjectHeader({
             songIndex={songIndex}
             songLength={songLength}
             pxPerSec={projectPixelsPerSecond}
+            coordinatePixelsPerUnit={pixelsPerBeat}
+            timeToCoordinate={projectAxis.secondsToBeats}
+            coordinateToTime={projectAxis.beatsToSeconds}
+            snapTime={(seconds) => snap > 0
+              ? projectAxis.snapSeconds(seconds, snap)
+              : seconds}
             cycle={cycle}
             ownsCycle={cycleOwner}
             bpm={bpm}
@@ -93,11 +108,14 @@ export function PianoRollProjectHeader({
           layer="labels"
           pxPerSec={projectPixelsPerSecond}
           contentWidth={projectContentWidth}
-          songLength={songLength}
+          songLength={projectLengthBeats}
           bpm={bpm}
           tsNum={tsNum}
           scrollLeft={projectScrollPx}
           viewportWidth={visibleWidth}
+          pixelsPerBeat={pixelsPerBeat}
+          signaturePoints={song.signaturePoints}
+          defaultDenominator={tsDen}
         />
       </div>
     </div>

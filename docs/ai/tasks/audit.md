@@ -567,7 +567,7 @@ eligibility/routing tests passed 29 tests, plus the 38 overlay/control/target
 tests; TypeScript and scoped lint passed. These do not establish vendor/device
 acoustics or a completed global command-epoch protocol.
 
-## Piano Roll TempoMap — partially closed, ruler/cycle still pending
+## Piano Roll TempoMap — project axis implementation complete, manual acceptance pending
 
 Entry point: `ui/src/screens/editor/pianoroll/components/PianoRollEditorTab.tsx`
 (`PianoRoll` position props and `onSeek`), and shared musical-time helpers.
@@ -575,21 +575,28 @@ Entry point: `ui/src/screens/editor/pianoroll/components/PianoRollEditorTab.tsx`
 The UI audit found project/sample positioning calculated as seconds multiplied
 by one song BPM even when the song has `tempoPoints`. Commit `8cef0b2` adds a
 shared UI song TempoMap helper and converts the Piano Roll live/stored playhead
-and inverse seek mapping. The helper is also reused by Standard MIDI import and
-export. The 729-test UI suite and UI TypeScript build pass after this change.
+and inverse seek mapping; the helper is also reused by Standard MIDI import and
+export. This block completes the project-beat header: `PianoRollProjectHeader`
+maps song duration and seconds-backed cycle locators through
+`createPianoRollProjectAxis`, while `Ruler` draws bar labels and meter changes
+from normalized `signaturePoints`. `CycleStrip` accepts optional coordinate
+maps; its ordinary Timeline path remains uniform seconds, while Piano Roll
+movement preserves a beat span and snapping uses the selected beat division.
+Core's one project cycle remains authoritative and seconds-backed. Drawing and
+stored note positions remain musical beats; no UI clock or duplicate cycle was
+introduced.
 
-This is not complete project-axis support: `PianoRollProjectHeader`, `Ruler`
-and `CycleStrip` still calculate project width, ruler ticks, locator positions
-and cycle snapping from one BPM. Drawing/recording and every locator boundary
-must be traced before claiming full TempoMap support. Respect song offsets and
-actual project bars/time signatures without changing Core's clock.
+Verification on 2026-10-02: focused beat geometry/project-axis/cycle tests passed
+10/10; full UI Vitest passed 773 tests across 114 files; TypeScript, production UI
+build and lint passed (zero errors, the same 12 existing warnings). This closes
+the implementation gap, not visual/device acceptance.
 
-Remaining acceptance: multiple tempo changes across header width, ruler ticks,
-cycle locator movement/snapping and displayed project bars; selected regions
-before/after a change; crossing a change during playback; nonzero song offsets
-and save/reopen. Assert roundtrip beat/sample positions and emitted note time,
-not only the label. Reuse existing timing ownership rather than introduce a UI
-clock.
+Still required: manual geometry inspection with several tempo and signature
+changes, horizontal scroll/zoom and nonzero song offsets; cycle drag/create/
+resize/snap across tempo boundaries; selected regions before/after a change;
+playback crossing a change; and save/reopen. Confirm note draw/record event
+times and seek positions against beat/sample roundtrips rather than the label
+alone. Do not alter Core's clock or claim acoustic proof from UI tests.
 
 ## Execution order for remaining work
 
@@ -614,8 +621,8 @@ clock.
 6. Visually verify detached/unbound automation recovery and exercise a successful
    rebind against a loaded vendor plug-in; measure metadata/value request rate and
    Core/UI idle cost on dense projects.
-7. Finish TempoMap-based Piano Roll ruler/cycle/project-axis positioning, then
-   run heavy vendor/device, theme, platform and save/reopen acceptance in
+7. Manually accept the TempoMap-based Piano Roll ruler/cycle/project axis above,
+   then run heavy vendor/device, theme, platform and save/reopen acceptance in
    `media.md` and `performance.md`.
 
 ## Quality contract for every remaining change

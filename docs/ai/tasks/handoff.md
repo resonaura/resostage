@@ -233,6 +233,20 @@ The current block passed 763 UI tests / 111 files, UI TypeScript/build, lint
 assertions), and real-Core absent-slot rejection. Successful live-vendor rebind
 and visual/device acceptance are still required.
 
+## Piano Roll TempoMap project axis
+
+`PianoRollProjectHeader` now uses `createPianoRollProjectAxis` for song width
+and seconds-backed cycle coordinates; its ruler mode consumes normalized
+signature points and keeps actual bar numbers across meter changes. `CycleStrip`
+keeps the existing seconds-based arrangement behavior by default, while the
+Piano Roll supplies seconds↔beats mapping and beat-grid snapping. Cycle range
+span is preserved in displayed beat coordinates when moved. The project still
+has one authoritative seconds-backed cycle, not separate Piano Roll state.
+Verification: full UI suite 773 tests / 114 files, TypeScript, production
+build, lint (zero errors, same 12 warnings), and ten focused axis/ruler/cycle
+tests passed. Manually inspect tempo/meter changes, scroll/zoom, boundary
+gestures, playback crossing and save/reopen; UI tests are not device proof.
+
 ## Immediate next actions
 
 1. Core-level playback-snapshot failure is now exercised by the real HTTP

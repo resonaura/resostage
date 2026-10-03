@@ -15,6 +15,7 @@ import type { SongRow } from "@/lib/state/types";
 import { RULER_CYCLE_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
 import { crossedDetent, songDetents } from "@/screens/editor/timeline/snapping/logic/detents";
 import { snapToGridSec } from "@/screens/editor/timeline/ruler/logic/geometry";
+import { moveCycleRangeOnAxis } from "@/screens/editor/timeline/cycle/logic/coordinates";
 import type { CycleLocators } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 
 type DragMode = "create" | "move" | "resizeL" | "resizeR" | "click";
@@ -92,6 +93,10 @@ export function CycleStrip({
   songIndex,
   songLength,
   pxPerSec,
+  coordinatePixelsPerUnit,
+  timeToCoordinate,
+  coordinateToTime,
+  snapTime,
   cycle,
   /** True when the project cycle belongs to this song segment. */
   ownsCycle,
@@ -108,6 +113,11 @@ export function CycleStrip({
   songIndex: number;
   songLength: number;
   pxPerSec: number;
+  /** Optional nonlinear display coordinate (e.g. project beats in Piano Roll). */
+  coordinatePixelsPerUnit?: number;
+  timeToCoordinate?: (seconds: number) => number;
+  coordinateToTime?: (coordinate: number) => number;
+  snapTime?: (seconds: number) => number;
   cycle: CycleLocators;
   ownsCycle: boolean;
   bpm?: number;
@@ -163,8 +173,13 @@ export function CycleStrip({
 
   const lo = Math.min(cycle.leftSec, cycle.rightSec);
   const hi = Math.max(cycle.leftSec, cycle.rightSec);
-  const leftPx = lo * pxPerSec;
-  const widthPx = Math.max(2, (hi - lo) * pxPerSec);
+  const coordinateScale = coordinatePixelsPerUnit ?? pxPerSec;
+  const toCoordinate = timeToCoordinate ?? ((seconds: number) => seconds);
+  const fromCoordinate = coordinateToTime ?? ((coordinate: number) => coordinate);
+  const leftCoordinate = toCoordinate(lo);
+  const rightCoordinate = toCoordinate(hi);
+  const leftPx = leftCoordinate * coordinateScale;
+  const widthPx = Math.max(2, (rightCoordinate - leftCoordinate) * coordinateScale);
   const hasRange = hi - lo > 0.05;
   // Bar only on the song that owns the zone (never drawn across songs).
   const showBar = ownsCycle && hasRange;
@@ -172,17 +187,21 @@ export function CycleStrip({
   const clientXToLocalSec = (clientX: number) => {
     const rect = rootRef.current?.getBoundingClientRect();
     if (!rect) return 0;
-    return Math.max(0, Math.min(songLength, (clientX - rect.left) / pxPerSec));
+    const coordinate = (clientX - rect.left) / coordinateScale;
+    return Math.max(0, Math.min(songLength, fromCoordinate(coordinate)));
   };
 
-  const snapSec = (sec: number) =>
-    snapToGridSec(sec, pxPerSec, bpm, tsNum, snapToGrid);
+  const snapSec = (sec: number) => {
+    if (!snapToGrid) return sec;
+    return snapTime?.(sec) ?? snapToGridSec(sec, pxPerSec, bpm, tsNum, true);
+  };
 
   const barCursorAt = (clientX: number) => {
-    const local = clientXToLocalSec(clientX);
-    const xInSong = local * pxPerSec;
-    const leftEdge = lo * pxPerSec;
-    const rightEdge = hi * pxPerSec;
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect) return "pointer";
+    const xInSong = clientX - rect.left;
+    const leftEdge = leftPx;
+    const rightEdge = leftPx + widthPx;
     if (Math.abs(xInSong - leftEdge) <= EDGE_PX) return "ew-resize";
     if (Math.abs(xInSong - rightEdge) <= EDGE_PX) return "ew-resize";
     return cycle.active ? "grab" : "pointer";
@@ -246,9 +265,11 @@ export function CycleStrip({
   const onBarPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 || !ownsCycle) return;
     const local = clientXToLocalSec(e.clientX);
-    const xInSong = local * pxPerSec;
-    const leftEdge = lo * pxPerSec;
-    const rightEdge = hi * pxPerSec;
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const xInSong = e.clientX - rect.left;
+    const leftEdge = leftPx;
+    const rightEdge = leftPx + widthPx;
 
     if (e.shiftKey && hasRange) {
       e.stopPropagation();
@@ -331,18 +352,16 @@ export function CycleStrip({
         dragging: true,
       });
     } else if (d.mode === "move") {
-      const span = d.originRight - d.originLeft;
-      const rawLeft = d.originLeft + (e.clientX - d.startX) / pxPerSec;
-      let left = snapToGrid ? snapSec(rawLeft) : rawLeft;
-      let right = left + span;
-      if (left < 0) {
-        left = 0;
-        right = span;
-      }
-      if (right > songLength) {
-        right = songLength;
-        left = Math.max(0, songLength - span);
-      }
+      const range = moveCycleRangeOnAxis({
+        leftSeconds: d.originLeft,
+        rightSeconds: d.originRight,
+        deltaCoordinate: (e.clientX - d.startX) / coordinateScale,
+        songLengthSeconds: songLength,
+        timeToCoordinate: toCoordinate,
+        coordinateToTime: fromCoordinate,
+        snapTime: snapToGrid ? snapSec : undefined,
+      });
+      const { left, right } = range;
       tickLocators(d, left, right);
       onSetRange(left, right, { activate: true, dragging: true });
     } else if (d.mode === "resizeL") {

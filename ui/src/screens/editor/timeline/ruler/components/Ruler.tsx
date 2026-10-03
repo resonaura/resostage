@@ -5,12 +5,14 @@
  */
 
 import { useLayoutEffect, useMemo, useRef } from "react";
+import type { SignaturePointRow } from "@/lib/state/types";
 import {
   RULER_BEAT_HEIGHT,
   RULER_CYCLE_HEIGHT,
   RULER_HEIGHT,
 } from "@/screens/editor/timeline/ruler/logic/constants";
 import { formatTimeShort, getTickConfig } from "@/screens/editor/timeline/ruler/logic/geometry";
+import { getMusicalRulerMarks } from "@/screens/editor/timeline/ruler/logic/beatGeometry";
 
 export type RulerLayer = "backdrop" | "labels" | "full";
 
@@ -32,6 +34,9 @@ export function Ruler({
   scrollLeft = 0,
   viewportWidth,
   layer = "full",
+  pixelsPerBeat,
+  signaturePoints,
+  defaultDenominator,
 }: {
   pxPerSec: number;
   contentWidth: number;
@@ -41,6 +46,10 @@ export function Ruler({
   scrollLeft?: number;
   viewportWidth?: number;
   layer?: RulerLayer;
+  /** Enables a musical project-beat axis instead of uniform seconds. */
+  pixelsPerBeat?: number;
+  signaturePoints?: SignaturePointRow[];
+  defaultDenominator?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -103,6 +112,49 @@ export function Ruler({
     ctx.textBaseline = "middle";
     ctx.font =
       "600 9px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+
+    if (pixelsPerBeat !== undefined && Number.isFinite(pixelsPerBeat) && pixelsPerBeat > 0) {
+      const startBeat = Math.max(0, quantizedLeft / pixelsPerBeat);
+      const endBeat = Math.min(
+        songLength + 1,
+        (quantizedLeft + bufferedWidth) / pixelsPerBeat + 1,
+      );
+      const marks = getMusicalRulerMarks({
+        startBeat,
+        endBeat,
+        pixelsPerBeat,
+        defaultNumerator: tsNum,
+        defaultDenominator,
+        signaturePoints,
+      });
+      for (const mark of marks) {
+        const x = Math.round(mark.beat * pixelsPerBeat);
+        if (x > contentWidth + 8) break;
+        const canvasX = x - quantizedLeft;
+        if (canvasX < -8 || canvasX > bufferedWidth + 8) continue;
+        if (mark.major) {
+          if (paintBackdrop) {
+            ctx.fillStyle = "rgba(255,255,255,0.14)";
+            ctx.fillRect(canvasX, 0, 1, RULER_CYCLE_HEIGHT);
+            ctx.fillStyle = "rgba(255,255,255,0.22)";
+            ctx.fillRect(canvasX, RULER_CYCLE_HEIGHT, 1, RULER_BEAT_HEIGHT);
+          }
+          if (paintLabels && mark.bar !== undefined) {
+            ctx.fillStyle = "rgba(255,255,255,0.38)";
+            ctx.fillText(`${mark.bar}`, canvasX + 3, RULER_CYCLE_HEIGHT * 0.5);
+          }
+        } else if (mark.mid && paintBackdrop) {
+          const h = Math.min(RULER_BEAT_HEIGHT - 2, 10);
+          ctx.fillStyle = "rgba(255,255,255,0.14)";
+          ctx.fillRect(canvasX, RULER_HEIGHT - h, 1, h);
+        } else if (paintBackdrop) {
+          const h = Math.min(RULER_BEAT_HEIGHT - 4, 5);
+          ctx.fillStyle = "rgba(255,255,255,0.07)";
+          ctx.fillRect(canvasX, RULER_HEIGHT - h, 1, h);
+        }
+      }
+      return;
+    }
 
     // Half-bar (or half-major) for medium ticks in the lower band.
     const midStepSec =
@@ -172,6 +224,10 @@ export function Ruler({
     bufferedWidth,
     paintBackdrop,
     paintLabels,
+    pixelsPerBeat,
+    signaturePoints,
+    defaultDenominator,
+    tsNum,
   ]);
 
   if (layer === "labels") {

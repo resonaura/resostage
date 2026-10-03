@@ -518,6 +518,11 @@ Preserve these rules:
   - Note bodies render using the track's color token (`getTrackColor(trackIndex)`), modulated
     by note velocity (dimmer at low velocity, vibrant at high velocity).
   - Selected notes are highlighted in bright Logic Pro amber `#ffd60a`.
+  - The Piano Roll project header is a song-local musical-beat axis. Width and
+    cycle-locator display/snap use the song `TempoMap`; measure labels use the
+    normalized `signaturePoints`. The authoritative project cycle remains the
+    single seconds-backed `ProjectCycle` with its `songIndex`—do not create a
+    second Piano Roll cycle or persist beat-derived approximations.
 - Coefficient changes are smoothed (approximately 10 ms) to avoid zipper
   noise. Do not bypass smoothing for a “faster” fader.
 - `core/engine/plugins/PluginDelayBank` prepares PDC without vendor code.
