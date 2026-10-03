@@ -121,13 +121,14 @@ device, remote Core or vendor plug-in playback was exercised.
 
 ### MIDI controller-event overlays
 
-- Existing partial support to preserve: MidiRegionBlock already derives
-  bounded CC64 on/off intervals (including channel state and trimmed loop
-  source mapping), and Piano Roll's CC64 bottom-lane renderer draws a step
-  trace. The live MIDI-recording preview only publishes note rows; the
-  WLiveRecordingRegion wire DTO has no controller events, so pedal state is
-  absent while recording. Other switch-pedal controllers and a consistent
-  minimal overlay policy are not yet established.
+- Existing partial support to preserve: `MidiRegionBlock` now derives bounded
+  CC event markers and held spans for CC64–69, including channel state,
+  trimmed-loop source mapping, and initial-held/missing-release cases. Arbitrary
+  CC remains labeled by its number, not as Sustain. The Piano Roll still has
+  its existing CC64 bottom-lane renderer. The live MIDI-recording preview only
+  publishes note rows; `WLiveRecordingRegion` has no controller events, so
+  pedal state is still absent while recording. Persistent preview and Piano
+  Roll lane generalization remain open.
 - Render MIDI controller events (including sustain CC64 and other pedals) as a
   compact, non-obscuring overlay in both MIDI region previews and the Piano
   Roll/controller lane. Use explicit on/off state transitions, preserve event
@@ -140,6 +141,15 @@ device, remote Core or vendor plug-in playback was exercised.
   capture data. It must not invent notes or events, mutate playback, block note
   selection/drawing, or add an unbounded per-frame scan. Pre-index or bound the
   visible events and keep the preview consistent with MIDI export.
+- Static region preview is implemented in
+  `regions/logic/midiControllerPreview.ts`: scans at most 65,536 source events,
+  expands at most 10,000 visible loop events, and collapses controller markers
+  into at most 1,200 pixel bins. CC64–69 held spans are separate one-pixel
+  track-color overlays; other CC events show compact value markers/tooltips.
+  Switch state uses MIDI's off=0/on=nonzero rule. This only covers persisted
+  regions; incomplete scans expose a display-limited hint and suppress held
+  spans so a truncated release cannot imply a false pedal-down state. Do not
+  imply the live recording DTO or Piano Roll supports all CCs.
 - Apple documents CC64 as sustain, its switch off/on values, and that the Piano
   Roll Automation/MIDI area can display region MIDI controller data; the Score
   Editor can render sustain pedal markings from CC64. Treat the overlay here as
@@ -162,6 +172,22 @@ device, remote Core or vendor plug-in playback was exercised.
 - MIDI overlay tests cover CC64 down/up, arbitrary CC, sustain state spanning
   view/loop boundaries, split/trim, live recording preview and stable selection
   gestures. No persistence or playback mutation is caused by merely showing it.
+
+### Implemented subset — persisted MIDI-region CC preview (2026-10-03)
+
+`MidiRegionBlock` now uses a memoized bounded controller-preview model. It
+renders a compact track-colored event tick per occupied pixel bin, tooltip
+metadata for controller/channel/value ranges, and distinct held spans for
+standard pedal controls CC64–69. Region trims and loop phases use the shared
+`midiRegionTiming` source mapping. Controller data is read-only and does not
+change playback or selection handling. The Piano Roll's controller area and
+live recording telemetry are still separate unfinished work.
+
+Focused checks passed 11/11 across controller preview, region component, and
+shared region-timing tests. Full UI passed 836 tests across 127 files;
+`tsc -b` passed; lint exited 0 with 12 existing warnings, none in changed
+files. No device or manual visual inspection was performed. Live recording
+telemetry and Piano Roll CC lanes remain open.
 
 
 Previous arrangement UI existed, but had significant functional gaps:

@@ -20,6 +20,11 @@ import {
   midiRegionLoopOccurrence,
   midiRegionNotePlaybackDuration,
 } from "@/lib/midi/midiRegionTiming";
+import {
+  buildMidiControllerMarkerBins,
+  buildMidiControllerPreview,
+  midiControllerLabel,
+} from "@/screens/editor/timeline/regions/logic/midiControllerPreview";
 
 export interface MidiRegionBlockProps {
   midiRegion: MidiRegionRow;
@@ -203,6 +208,31 @@ export function MidiRegionBlock({
   });
   const previewWidthPx = Math.max(1, widthPx - 7);
   const previewBinCount = Math.max(1, Math.min(1200, Math.ceil(previewWidthPx)));
+  const controllerPreview = React.useMemo(
+    () => buildMidiControllerPreview({
+      ...midiRegion,
+      clipOffsetBeats: effectiveClipOffsetBeats,
+      loopLengthBeats: effectiveLoopLengthBeats,
+      loopStartBeats: effectiveLoopStartBeats,
+      loop: effectiveLoop,
+    }, effectiveDurationBeats),
+    [
+      midiRegion,
+      effectiveClipOffsetBeats,
+      effectiveDurationBeats,
+      effectiveLoop,
+      effectiveLoopLengthBeats,
+      effectiveLoopStartBeats,
+    ],
+  );
+  const controllerMarkerBins = React.useMemo(
+    () => buildMidiControllerMarkerBins(
+      controllerPreview.events,
+      effectiveDurationBeats,
+      previewBinCount,
+    ),
+    [controllerPreview.events, effectiveDurationBeats, previewBinCount],
+  );
   const previewBins = useAggregatedPreview
     ? (() => {
         const bins = new Map<number, { minPitch: number; maxPitch: number; density: number }>();
@@ -250,54 +280,6 @@ export function MidiRegionBlock({
         return [...bins.entries()];
     })()
     : [];
-  const sustainIntervals = (() => {
-    const sustainEvents = (midiRegion.events ?? []).filter((event) =>
-      (event.status & 0xf0) === 0xb0 && event.data[0] === 64 && event.data.length > 1,
-    );
-    if (sustainEvents.length === 0) return [] as Array<{ start: number; end: number }>;
-
-    const repeatLength = effectiveLoop ? loopLength : 0;
-    const firstIteration = 0;
-    const lastIteration = repeatLength > 0
-      ? Math.ceil(effectiveDurationBeats / repeatLength)
-      : 0;
-    const expanded: Array<{ beat: number; channel: number; down: boolean }> = [];
-    for (let iteration = firstIteration; iteration <= lastIteration && expanded.length < 10_000; iteration += 1) {
-      for (const event of sustainEvents) {
-        if (repeatLength > 0 && !midiRegionContainsLoopSourceBeat(sourceRegion, event.beat))
-          continue;
-        const firstStart = repeatLength > 0
-          ? midiRegionLoopOccurrence(sourceRegion, event.beat)
-          : event.beat - effectiveClipOffsetBeats;
-        const beat = firstStart + iteration * repeatLength;
-        if (beat >= effectiveDurationBeats) continue;
-        expanded.push({
-          beat,
-          channel: event.status & 0x0f,
-          down: event.data[1] >= 64,
-        });
-        if (expanded.length >= 10_000) break;
-      }
-    }
-    expanded.sort((left, right) => left.beat - right.beat);
-
-    const channels = new Set(expanded.map((event) => event.channel));
-    const intervals: Array<{ start: number; end: number }> = [];
-    for (const channel of channels) {
-      const events = expanded.filter((event) => event.channel === channel);
-      const beforeStart = events.filter((event) => event.beat <= 0);
-      let down = beforeStart.at(-1)?.down ?? false;
-      let start = 0;
-      for (const event of events) {
-        if (event.beat <= 0 || event.down === down) continue;
-        if (down) intervals.push({ start, end: event.beat });
-        else start = event.beat;
-        down = event.down;
-      }
-      if (down) intervals.push({ start, end: effectiveDurationBeats });
-    }
-    return intervals.filter((interval) => interval.end > interval.start);
-  })();
 
   const onRegionPointerDown = (e: React.PointerEvent) => {
     if (readOnly) return;
@@ -320,6 +302,7 @@ export function MidiRegionBlock({
       muted={midiRegion.muted}
       dimmed={dimmed || Boolean(midiRegion.muted)}
       data-region-block=""
+      data-controller-preview-truncated={controllerPreview.truncated ? "true" : undefined}
       className={`absolute select-none overflow-hidden border ${
         compactLane
           ? "top-0.5 bottom-0.5 flex items-center rounded-sm"
@@ -341,7 +324,7 @@ export function MidiRegionBlock({
               : "grab",
         zIndex: isSelected ? 2 : 1,
       }}
-      title={`${midiRegion.name || "MIDI Region"} · Drag to move · Edges to trim · Double-click to edit in Piano Roll`}
+      title={`${midiRegion.name || "MIDI Region"} · Drag to move · Edges to trim · Double-click to edit in Piano Roll${controllerPreview.truncated ? " · CC preview is display-limited" : ""}`}
       onPointerDown={onRegionPointerDown}
       onPointerMove={(e) => {
         if (isDragging || readOnly) return;
@@ -457,20 +440,47 @@ export function MidiRegionBlock({
                 />
               );
             })}
-        {sustainIntervals.map((interval, index) => {
+        {controllerMarkerBins.map((marker, index) => {
+          const controllerNames = marker.controllers
+            .map(midiControllerLabel)
+            .join(", ");
+          const channels = marker.channels.map((channel) => channel + 1).join(", ");
+          const values = marker.minValue === marker.maxValue
+            ? `${marker.minValue}`
+            : `${marker.minValue}–${marker.maxValue}`;
+          const extraCount = marker.eventCount > 1
+            ? ` · ${marker.eventCount} events in this pixel`
+            : "";
+          return (
+            <span
+              key={`controller-marker-${index}`}
+              className="absolute bottom-px pointer-events-auto"
+              style={{
+                left: `${(marker.beat / effectiveDurationBeats) * 100}%`,
+                width: `${Math.max(1, previewWidthPx / previewBinCount)}px`,
+                height: `${2 + (marker.maxValue / 127) * 4}px`,
+                backgroundColor: rowColor,
+              }}
+              title={`${controllerNames} · MIDI channel ${channels} · value ${values}${extraCount}`}
+            />
+          );
+        })}
+        {controllerPreview.pedals.map((interval, index) => {
           const start = Math.max(0, interval.start);
           const end = Math.min(effectiveDurationBeats, interval.end);
           if (end <= start) return null;
           return (
             <span
-              key={`sustain-${index}`}
-              className="absolute bottom-px h-0.5 rounded-none"
+              key={`pedal-${interval.channel}-${interval.controller}-${index}`}
+              className="absolute pointer-events-auto rounded-none"
               style={{
                 left: `${(start / effectiveDurationBeats) * 100}%`,
                 width: `${Math.max((1 / previewWidthPx) * 100, ((end - start) / effectiveDurationBeats) * 100)}%`,
+                bottom: `${1 + (interval.controller - 64) * 2}px`,
+                height: "1px",
                 backgroundColor: rowColor,
               }}
-              title="Sustain pedal held"
+              title={`${midiControllerLabel(interval.controller)} held · MIDI channel ${interval.channel + 1}`}
             />
           );
         })}

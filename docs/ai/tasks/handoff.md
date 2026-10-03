@@ -674,3 +674,22 @@ The verified local history now also includes `1bb1226b` and `1f1d3e5f` for
 Core-published live gain/pan/send automation, and `66b7fe3f` for mixer bus
 signal-flow focus. The latest completed hash is updated below as each following
 block is committed. No push was performed.
+
+### Completed subset — persisted MIDI controller region preview (2026-10-03)
+
+The working tree currently contains a static MIDI-region CC overlay in
+`regions/logic/midiControllerPreview.ts` and `MidiRegionBlock.tsx`. It scans at
+most 65,536 persisted source events, expands at most 10,000 loop events, and
+emits at most 1,200 horizontal marker bins. CC64–69 have separate held spans;
+arbitrary CC markers remain named by number. The state threshold follows the
+MIDI switch rule (zero off, nonzero on), with per-channel state and trimmed
+source-loop timing.
+
+Focused controller/component/timing tests passed 11/11; the full UI suite passed
+836 tests across 127 files; UI TypeScript passed; lint exited 0 with 12 existing
+warnings and none in changed files; `git diff --check` passed. No manual visual
+or device acceptance was performed. Do not claim this is live recording
+support: Core `WLiveRecordingRegion` currently publishes notes but no CC events.
+The Piano Roll controller lane still needs its own all-CC model, and live
+capture must use fixed-capacity callback-owned data with a bounded telemetry
+frame—never allocate or lock in audio.

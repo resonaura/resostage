@@ -1226,3 +1226,20 @@ direct full native suite passed 590/590 cases and 428,745 assertions. Focused
 UI automation control tests passed 8/8; full UI passed 823 tests/124 files;
 UI TypeScript passed; lint exited 0 with 12 existing warnings, none in changed
 files; `git diff --check` passed. No device or remote playback was exercised.
+
+### Implementation progress — bounded persisted MIDI CC region preview (2026-10-03)
+
+`MidiRegionBlock` now shares a typed projection for persisted MIDI CC events.
+It caps source scanning at 65,536 events, expanded loop events at 10,000, and
+horizontal marker bins at 1,200. Switch-pedal spans cover CC64–69; their state
+uses off=0/on=nonzero, keeps channel identity, and accounts for a pedal already
+down before the visible clip start. Arbitrary CC events remain numbered and
+are not mislabeled as sustain. Markers are track-colored, read-only, and do not
+intercept region pointer selection. The source-beat mapping uses the existing
+shared trim/loop helpers.
+
+Focused controller/component/timing tests passed 11/11; the full UI suite passed
+836 tests across 127 files; TypeScript passed; lint exited 0 with 12 existing
+warnings and none in changed files. No manual visual or device acceptance was
+performed. This does not cover live recording DTO/telemetry, broader Piano
+Roll CC lanes, or MIDI capture of controllers beyond the existing behavior.
