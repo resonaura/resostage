@@ -8,9 +8,11 @@
 
 #include "plugins/PluginPaths.h"
 #include "plugins/PluginHostProtocol.h"
+#include "plugins/PluginRetryScope.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 
 namespace resostage {
@@ -74,7 +76,8 @@ void AudioEngine::endProjectReplacement() {
 }
 
 void AudioEngine::schedulePluginBankRebuild(bool forceRecreate,
-                                            bool recoverFailedHosts) {
+                                            bool recoverFailedHosts,
+                                            std::string retryOnlyStripId) {
     if (!projectLoaded)
         return;
 
@@ -103,13 +106,22 @@ void AudioEngine::schedulePluginBankRebuild(bool forceRecreate,
             * plugin_host::kAudioPipelineCallbacks));
     request.forceRecreate = forceRecreate;
     request.recoverFailedHosts = recoverFailedHosts;
+    request.retryOnlyStripId = std::move(retryOnlyStripId);
 
-    uint32_t slotTotal = static_cast<uint32_t>(request.project.main.plugins.size()
-        + request.project.click.plugins.size());
+    uint32_t slotTotal = 0;
+    const auto includeSlots = [&](const std::string& stripId,
+                                  const std::vector<PluginSlot>& slots) {
+        if (pluginRetryIncludesStrip(request.retryOnlyStripId, stripId))
+            slotTotal += static_cast<uint32_t>(slots.size());
+    };
+    includeSlots("audio::main", request.project.main.plugins);
+    includeSlots("audio::click", request.project.click.plugins);
     for (const auto& track : request.project.tracks)
-        slotTotal += static_cast<uint32_t>(track.plugins.size());
+        includeSlots(track.id, track.plugins);
     for (const auto& send : request.project.sends)
-        slotTotal += static_cast<uint32_t>(send.plugins.size());
+        includeSlots(send.id, send.plugins);
+    if (!request.retryOnlyStripId.empty() && slotTotal == 0)
+        return;
     pluginLoadingSession.begin(request.projectEpoch, request.generation, slotTotal);
 
     {
@@ -137,11 +149,20 @@ void AudioEngine::servicePluginHostChanges() {
             markDirty();
         if (publication->bank->consumeLatencyChange())
             schedulePluginBankRebuild();
-        for (const auto& stripId : publication->bank->failedHostStripIds()) {
-            const std::string key = std::to_string(publication->projectEpoch)
-                + ":" + stripId;
-            if (recoveredPluginHostKeys.insert(key).second)
-                schedulePluginBankRebuild(false, true);
+        const auto loading = pluginLoadingSession.snapshot();
+        const bool bankBuildInFlight = loading.epoch == publication->projectEpoch
+            && loading.phase == "loading";
+        if (!bankBuildInFlight) {
+            for (const auto& stripId : publication->bank->failedHostStripIds()) {
+                const std::string key = std::to_string(publication->projectEpoch)
+                    + ":" + stripId;
+                if (recoveredPluginHostKeys.insert(key).second) {
+                    schedulePluginBankRebuild(false, true, stripId);
+                    // The builder mailbox is latest-wins. Let one automatic
+                    // recovery publish before scheduling another failed chain.
+                    break;
+                }
+            }
         }
     }
     if (pluginLoadingSession.takePlayIntent()) play();
@@ -181,13 +202,49 @@ bool AudioEngine::hasCurrentPluginProcessorBank() const noexcept {
             == currentProcessorLayoutKey.load(std::memory_order_acquire);
 }
 
-bool AudioEngine::retryPluginSlot(const std::string& slotId) {
-    const auto bank = activePluginProcessorBank();
-    if (bank != nullptr && bank->getSlotLoadState(slotId) == "loaded")
+bool AudioEngine::retryPluginSlot(const std::string& slotId,
+                                  const std::string& stripId) {
+    if (!projectLoaded)
         return false;
-    // Restart only the containing isolated chain. The builder reuses every
-    // healthy sibling chain and retries slots that reported load failure.
-    schedulePluginBankRebuild(false, true);
+    const Project& project = loader.project();
+    const std::vector<PluginSlot>* slots = nullptr;
+    if (stripId == "audio::main") slots = &project.main.plugins;
+    else if (stripId == "audio::click") slots = &project.click.plugins;
+    else if (const auto track = std::find_if(project.tracks.begin(), project.tracks.end(),
+                 [&](const TrackDef& candidate) { return candidate.id == stripId; });
+             track != project.tracks.end()) slots = &track->plugins;
+    else if (const auto send = std::find_if(project.sends.begin(), project.sends.end(),
+                 [&](const SendBus& candidate) { return candidate.id == stripId; });
+             send != project.sends.end()) slots = &send->plugins;
+    if (slots == nullptr || std::none_of(slots->begin(), slots->end(),
+            [&](const PluginSlot& slot) { return slot.id == slotId; }))
+        return false;
+
+    const auto bank = activePluginProcessorBank();
+    if (bank != nullptr
+        && bank->getStripSlotLoadState(stripId, slotId) == "loaded")
+        return false;
+    // When the published bank matches the project layout, rebuild only the
+    // containing isolated strip chain. A stale/missing bank requires a full
+    // reconcile so the new chain cannot publish against a different layout.
+    const auto publication = std::atomic_load_explicit(
+        &activePluginBank, std::memory_order_acquire);
+    const int compatibleBlockSize = std::max(
+        {currentBlockSize, 512, mixRenderer.maxBlockSize()});
+    const int compatiblePipelineLatency = static_cast<int>(std::min<int64_t>(
+        std::numeric_limits<int>::max(),
+        static_cast<int64_t>(std::max(1, currentBlockSize))
+            * plugin_host::kAudioPipelineCallbacks));
+    const bool canScopeRetry = publication != nullptr
+        && publication->projectEpoch == projectEpoch.load(std::memory_order_acquire)
+        && publication->bank != nullptr
+        && publication->processorLayoutKey
+            == currentProcessorLayoutKey.load(std::memory_order_acquire)
+        && std::abs(publication->sampleRate - currentSampleRate) < 1.0e-6
+        && publication->maximumBlockSize == compatibleBlockSize
+        && publication->pipelineLatencySamples == compatiblePipelineLatency;
+    const std::string retryScope = canScopeRetry ? stripId : std::string{};
+    schedulePluginBankRebuild(false, true, retryScope);
     return true;
 }
 
@@ -243,7 +300,8 @@ void AudioEngine::runPluginBankBuilder() {
         const auto current = std::atomic_load_explicit(
             &activePluginBank, std::memory_order_acquire);
         const bool canReuseProcessors = !request.forceRecreate
-            && !request.recoverFailedHosts && current != nullptr
+            && !request.recoverFailedHosts
+            && request.retryOnlyStripId.empty() && current != nullptr
             && current->projectEpoch == request.projectEpoch
             && current->bank != nullptr
             && current->processorLayoutKey
@@ -264,10 +322,17 @@ void AudioEngine::runPluginBankBuilder() {
                 previousDelay);
         } else {
             std::vector<PluginProcessorBank::StateBlob> transientStates;
-            if (request.forceRecreate && current != nullptr
+            std::vector<std::string> stateSnapshotWarnings;
+            const bool preserveLiveState = request.forceRecreate
+                || request.recoverFailedHosts;
+            if (preserveLiveState && current != nullptr
                 && current->projectEpoch == request.projectEpoch
-                && current->bank != nullptr)
-                transientStates = current->bank->snapshotStates().blobs;
+                && current->bank != nullptr) {
+                auto snapshot = current->bank->snapshotStates(
+                    request.retryOnlyStripId);
+                transientStates = std::move(snapshot.blobs);
+                stateSnapshotWarnings = std::move(snapshot.warnings);
+            }
             const PluginDelayBank* previousDelay =
                 (current != nullptr && current->projectEpoch == request.projectEpoch
                  && current->routingLayoutKey == request.graph->routingLayoutKey)
@@ -279,7 +344,7 @@ void AudioEngine::runPluginBankBuilder() {
                 request.forceRecreate || current == nullptr
                     || current->projectEpoch != request.projectEpoch
                     ? nullptr : current->bank.get(),
-                request.forceRecreate ? &transientStates : nullptr,
+                preserveLiveState ? &transientStates : nullptr,
                 PluginProcessorBank::ExecutionMode::IsolatedProcess,
                 request.pipelineLatencySamples,
                 [this, epoch = request.projectEpoch, generation = request.generation]
@@ -290,7 +355,10 @@ void AudioEngine::runPluginBankBuilder() {
                     return epoch != projectEpoch.load(std::memory_order_acquire)
                         || generation != pluginBankGeneration.load(std::memory_order_acquire);
                 },
-                previousDelay);
+                previousDelay, request.retryOnlyStripId);
+            for (const auto& warning : stateSnapshotWarnings)
+                std::fprintf(stderr, "[PluginBank] Live state snapshot: %s\n",
+                    warning.c_str());
         }
 
         for (const auto& warning : result.warnings) {
@@ -313,15 +381,23 @@ void AudioEngine::runPluginBankBuilder() {
                    ? publication->bank->latencySamples() : 0);
 
         uint32_t failedSlots = 0;
-        const auto inspectSlots = [&](const std::vector<PluginSlot>& slots) {
-            for (const auto& slot : slots)
+        const auto inspectSlots = [&](const std::string& stripId,
+                                      const std::vector<PluginSlot>& slots) {
+            if (!pluginRetryIncludesStrip(request.retryOnlyStripId, stripId))
+                return;
+            for (const auto& slot : slots) {
                 if (publication->bank == nullptr
-                    || publication->bank->getSlotLoadState(slot.id) != "loaded") ++failedSlots;
+                    || publication->bank->getStripSlotLoadState(stripId, slot.id)
+                        != "loaded")
+                    ++failedSlots;
+            }
         };
-        inspectSlots(request.project.main.plugins);
-        inspectSlots(request.project.click.plugins);
-        for (const auto& track : request.project.tracks) inspectSlots(track.plugins);
-        for (const auto& send : request.project.sends) inspectSlots(send.plugins);
+        inspectSlots("audio::main", request.project.main.plugins);
+        inspectSlots("audio::click", request.project.click.plugins);
+        for (const auto& track : request.project.tracks)
+            inspectSlots(track.id, track.plugins);
+        for (const auto& send : request.project.sends)
+            inspectSlots(send.id, send.plugins);
 
         {
             std::lock_guard lock(pluginBankMutex);

@@ -8,6 +8,7 @@
 #include "PluginHostProcess.h"
 #include "PluginMIDIBuffer.h"
 #include "PluginPaths.h"
+#include "PluginRetryScope.h"
 #include "project/ProjectSchema.h"
 #include "plugins/PluginHostProtocol.h"
 #include "plugins/PluginMidiActivity.h"
@@ -355,7 +356,8 @@ struct PluginProcessorBank::StripChain {
     uint64_t lastRemoteLatencyChangeCounter = 0;
     juce::AudioBuffer<float> audio;
     PluginMIDIBuffer midi;
-    PluginMidiActivity midiActivity;
+    std::shared_ptr<PluginMidiActivity> midiActivity =
+        std::make_shared<PluginMidiActivity>();
     // Prepared once, then written only for actual events. Empty instrument
     // blocks must not clear a 12-KiB packet array on every device callback.
     std::array<plugin_host::MidiEvent,
@@ -446,12 +448,13 @@ void PluginProcessorBank::audioProcessorParameterChanged(
         stateChangePending.store(true, std::memory_order_release);
 }
 
-PluginProcessorBank::StateSnapshot PluginProcessorBank::snapshotStates() {
+PluginProcessorBank::StateSnapshot PluginProcessorBank::snapshotStates(
+    const std::string& stripId) {
     StateSnapshot snapshot;
     size_t totalBytes = 0;
 
     for (auto& chain : chains) {
-        if (chain == nullptr)
+        if (chain == nullptr || (!stripId.empty() && chain->stripId != stripId))
             continue;
         if (chain->hostedProcess != nullptr) {
             const bool captured = chain->hostedProcess->process != nullptr
@@ -781,7 +784,7 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
     // Consume once before vendor processing: instruments/FX may modify MIDI.
     // The helper owns this fixed state, including blocks without new packets.
     for (const juce::MidiMessageMetadata event : chain.midi.buffer())
-        chain.midiActivity.consume(event.data, event.numBytes);
+        chain.midiActivity->consume(event.data, event.numBytes);
 
     uint32_t nodeIndex = 0;
     for (auto& node : chain.nodes) {
@@ -820,7 +823,7 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
         const bool hasDeferredMidi = node->deferredMidi != nullptr
             && node->deferredMidi->hasPending();
         const bool hasInput = node->instrument
-            ? (hasMidi || hasDeferredMidi || chain.midiActivity.hasActiveNotes())
+            ? (hasMidi || hasDeferredMidi || chain.midiActivity->hasActiveNotes())
             : (hasAudioInput || hasMidi);
         if (hasInput) {
             // Immediate instantaneous wake-up (< 0.05 ms) if incoming signal enters
@@ -948,7 +951,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
     int hostedPipelineLatencySamples,
     const std::function<void(uint32_t, const std::string&)>& progress,
     const std::function<bool()>& cancelled,
-    const PluginDelayBank* previousDelayBank) {
+    const PluginDelayBank* previousDelayBank,
+    std::string_view retryOnlyStripId) {
     BuildResult result;
     auto bank = std::shared_ptr<PluginProcessorBank>(new PluginProcessorBank());
     if (previousBank != nullptr)
@@ -975,6 +979,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         if (cancelled && cancelled()) return {};
         const auto* slots = slotsForStrip(project, graph.strips[stripIndex]);
         if (slots == nullptr || slots->empty()) continue;
+        const bool reportProgress = pluginRetryIncludesStrip(
+            retryOnlyStripId, graph.strips[stripIndex].id);
         const auto* sourceTrack = trackForStrip(project, graph.strips[stripIndex]);
         const bool trackRecordArmed = sourceTrack != nullptr && sourceTrack->recordArmed;
         const bool trackInputMonitoring = sourceTrack != nullptr
@@ -984,30 +990,101 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         if (slots->size() > kMaximumSlotsPerBank - slotCount) {
             result.warnings.push_back("Plug-in bank exceeds 128 slots; chain skipped: "
                 + graph.strips[stripIndex].name);
-            completedSlots += static_cast<uint32_t>(slots->size());
-            if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+            if (reportProgress) {
+                completedSlots += static_cast<uint32_t>(slots->size());
+                if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+            }
             continue;
         }
         if (executionMode == ExecutionMode::IsolatedProcess
             && isolatedChainCount >= kMaximumIsolatedChains) {
             result.warnings.push_back("Plug-in bank exceeds 32 isolated chains; chain skipped: "
                 + graph.strips[stripIndex].name);
-            completedSlots += static_cast<uint32_t>(slots->size());
-            if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+            if (reportProgress) {
+                completedSlots += static_cast<uint32_t>(slots->size());
+                if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+            }
             continue;
         }
         slotCount += slots->size();
         if (executionMode == ExecutionMode::IsolatedProcess) ++isolatedChainCount;
-        if (progress) progress(completedSlots, graph.strips[stripIndex].name
-            + " · Preparing plug-in chain");
+        if (reportProgress && progress)
+            progress(completedSlots, graph.strips[stripIndex].name
+                + " · Preparing plug-in chain");
         auto chain = std::make_unique<StripChain>(maximumBlockSize, nonRealtime);
         chain->stripId = graph.strips[stripIndex].id;
         chain->sampleRate = sampleRate;
         chain->sharedBlockCapacity = maximumBlockSize;
 
         if (executionMode == ExecutionMode::IsolatedProcess) {
+            if (!reportProgress && previousBank != nullptr) {
+                const StripChain* retainedChain = nullptr;
+                for (const auto& candidate : previousBank->chains) {
+                    if (candidate == nullptr
+                        || candidate->stripId != chain->stripId
+                        || std::abs(candidate->sampleRate - sampleRate) >= 1.0e-6
+                        || candidate->sharedBlockCapacity != maximumBlockSize
+                        || candidate->nodes.size() != slots->size())
+                        continue;
+                    bool identical = true;
+                    for (size_t index = 0; index < slots->size(); ++index) {
+                        const auto& slot = (*slots)[index];
+                        const auto& node = candidate->nodes[index];
+                        identical = identical && node != nullptr
+                            && node->slotId == slot.id
+                            && node->pluginIdentifier == slot.plugin.identifier
+                            && node->instrument == slot.plugin.instrument;
+                    }
+                    if (identical) {
+                        retainedChain = candidate.get();
+                        break;
+                    }
+                }
+
+                if (retainedChain != nullptr) {
+                    // A targeted retry must not recreate or re-open unrelated
+                    // chains, even if those chains are already degraded. Keep
+                    // their current nodes and helper alive exactly as-is.
+                    chain->nodes = retainedChain->nodes;
+                    chain->hostedProcess = retainedChain->hostedProcess;
+                    chain->hostFailed = retainedChain->hostFailed;
+                    // Transport is refreshed on the next callback before DSP.
+                    // MIDI voice state is callback-owned; share its small
+                    // object rather than racing a worker-thread copy.
+                    chain->midiActivity = retainedChain->midiActivity;
+                    chain->activePluginIndexTelemetry =
+                        retainedChain->activePluginIndexTelemetry;
+                    if (chain->hostedProcess != nullptr
+                        && chain->hostedProcess->process != nullptr) {
+                        chain->lastRemoteStateChangeCounter =
+                            chain->hostedProcess->process->stateChangeCounter();
+                        chain->lastRemoteLatencyChangeCounter =
+                            chain->hostedProcess->process->latencyChangeCounter();
+                    }
+                    chain->hasInstrument = retainedChain->hasInstrument;
+                    chain->processorLatencySamples =
+                        retainedChain->processorLatencySamples;
+                    chain->pipelineLatencySamples = std::max(
+                        0, hostedPipelineLatencySamples);
+                    chain->latencySamples = static_cast<int>(std::min<int64_t>(
+                        static_cast<int64_t>(chain->processorLatencySamples)
+                            + chain->pipelineLatencySamples,
+                        INT_MAX));
+                    chain->tailSeconds = retainedChain->tailSeconds;
+                    bank->hasAnyPlugins = true;
+                    bank->maximumLatencySamples = std::max(
+                        bank->maximumLatencySamples, chain->latencySamples);
+                    bank->processorEntries[stripIndex] = {chain.get(), processChain};
+                    stripProcessorLatencies[stripIndex] =
+                        static_cast<uint32_t>(chain->latencySamples);
+                    stripProcessorTails[stripIndex] = chain->tailSeconds;
+                    bank->chains[stripIndex] = std::move(chain);
+                    continue;
+                }
+            }
+
             const StripChain* reusableChain = nullptr;
-            if (previousBank != nullptr) {
+            if (retryOnlyStripId.empty() && previousBank != nullptr) {
                 for (const auto& candidate : previousBank->chains) {
                     if (candidate == nullptr || candidate->hostedProcess == nullptr
                         || candidate->hostedProcess->process == nullptr
@@ -1156,7 +1233,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                                 static_cast<uint32_t>(maximumBlockSize), hostError,
                                 sampleRate, hosted->projectDirectory,
                                 pluginRegistryFile(), [&](uint32_t index) {
-                                    if (progress && index < slots->size())
+                                    if (reportProgress && progress && index < slots->size())
                                         progress(completedSlots + index,
                                             graph.strips[stripIndex].name + " · "
                                             + (*slots)[index].plugin.name);
@@ -1247,14 +1324,16 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             stripProcessorLatencies[stripIndex] =
                 static_cast<uint32_t>(chain->latencySamples);
             stripProcessorTails[stripIndex] = chain->tailSeconds;
-            completedSlots += static_cast<uint32_t>(chain->nodes.size());
-            if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+            if (reportProgress) {
+                completedSlots += static_cast<uint32_t>(chain->nodes.size());
+                if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+            }
             bank->chains[stripIndex] = std::move(chain);
             continue;
         }
 
         for (const auto& slot : *slots) {
-            if (progress) progress(completedSlots + static_cast<uint32_t>(chain->nodes.size()),
+            if (reportProgress && progress) progress(completedSlots + static_cast<uint32_t>(chain->nodes.size()),
                 graph.strips[stripIndex].name + " · " + slot.plugin.name);
             std::shared_ptr<Node> reusableNode;
             if (previousBank != nullptr) {
@@ -1431,8 +1510,10 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         stripProcessorLatencies[stripIndex] =
             static_cast<uint32_t>(chain->latencySamples);
         stripProcessorTails[stripIndex] = chain->tailSeconds;
-        completedSlots += static_cast<uint32_t>(chain->nodes.size());
-        if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+        if (reportProgress) {
+            completedSlots += static_cast<uint32_t>(chain->nodes.size());
+            if (progress) progress(completedSlots, graph.strips[stripIndex].name);
+        }
         bank->chains[stripIndex] = std::move(chain);
     }
 
@@ -1800,6 +1881,27 @@ std::string PluginProcessorBank::getSlotLoadState(const std::string& slotId) con
             if (node->faulted.load(std::memory_order_relaxed)) return "failed";
             return node->loadState;
         }
+    }
+    return "missing";
+}
+
+std::string PluginProcessorBank::getStripSlotLoadState(
+    const std::string& stripId, const std::string& slotId) const {
+    for (const auto& chain : chains) {
+        if (chain == nullptr || chain->stripId != stripId)
+            continue;
+        for (const auto& node : chain->nodes) {
+            if (node == nullptr || node->slotId != slotId)
+                continue;
+            if (chain->hostedProcess != nullptr
+                && (chain->hostedProcess->process == nullptr
+                    || !chain->hostedProcess->process->isRunning()))
+                return "failed";
+            if (node->faulted.load(std::memory_order_relaxed))
+                return "failed";
+            return node->loadState;
+        }
+        return "missing";
     }
     return "missing";
 }

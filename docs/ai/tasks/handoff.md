@@ -764,3 +764,29 @@ Focused motion test passed 9/9; focused active-song test passed 1/1; full UI
 passed 847 tests across 129 files; UI TypeScript, production build,
 changed-file lint and `git diff --check` passed. No hardware/remote session or
 manual visual acceptance was performed.
+
+### Completed block — scope plug-in slot retries to the affected chain (2026-10-03)
+
+`AudioEngine::retryPluginSlot` now validates the stable strip and slot, then
+rebuilds only that strip's isolated serial helper chain when the published
+processor layout, project epoch and audio format are still compatible. The
+affected chain is atomic, so its sibling inserts are recreated together;
+Core first snapshots that helper's live state and restores it into the new
+chain. If capture or the host is unavailable, the saved project state remains
+the fallback. Unrelated helper processes and nodes are retained as-is, even
+when degraded. Callback-owned MIDI activity is shared rather than copied by
+the builder. Scoped retries report only the selected chain's loading/failure
+counts. Automatic failed-host restarts wait for each outstanding load session
+to settle before queueing the next chain, so latest-wins cancellation cannot
+silently replace an earlier recovery attempt. Retry readiness is checked by
+exact strip+slot identity, including for legacy projects with duplicate slot
+IDs.
+
+`cmake --build core/build --target resostage_engine_tests ResoStage -j4` and
+`ctest --test-dir core/build --output-on-failure` passed. The actual-Core
+`scripts/verification/editor-state.mjs` harness passed its full HTTP,
+transport, history, persistence and restart-fence acceptance. Focused pure
+tests cover exact strip matching and per-chain progress. This fixture contains
+no real plug-in: helper launch/reuse counts, state continuity and audibility
+still need AU/VST3 acceptance using a private copy of writetest, plus failed
+multi-chain, same-chain, rapid retry and superseding project-switch cases.

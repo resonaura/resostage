@@ -117,7 +117,8 @@ public:
                              int hostedPipelineLatencySamples = 0,
                              const std::function<void(uint32_t, const std::string&)>& progress = {},
                              const std::function<bool()>& cancelled = {},
-                             const PluginDelayBank* previousDelayBank = nullptr);
+                             const PluginDelayBank* previousDelayBank = nullptr,
+                             std::string_view retryOnlyStripId = {});
 
     ~PluginProcessorBank() override;
     PluginProcessorBank(const PluginProcessorBank&) = delete;
@@ -148,7 +149,8 @@ public:
      * is bypassed independently while its blob is read; the callback never
      * waits for the snapshot worker.
      */
-    StateSnapshot snapshotStates();
+    /** Captures one stable strip chain when stripId is set, or the complete bank otherwise. */
+    StateSnapshot snapshotStates(const std::string& stripId = {});
     /** Creates a vendor editor on the JUCE message thread for one live slot. */
     std::unique_ptr<juce::AudioProcessorEditor> createEditor(
         const std::string& slotId);
@@ -198,6 +200,9 @@ public:
     void applySlotPowerControl(size_t stripIndex, size_t slotIndex,
                                PluginPowerControl control) noexcept;
     std::string getSlotLoadState(const std::string& slotId) const;
+    /** Exact stable strip-and-slot lookup for retry and readiness decisions. */
+    std::string getStripSlotLoadState(const std::string& stripId,
+                                      const std::string& slotId) const;
     std::string getSlotLoadError(const std::string& slotId) const;
     /** Non-realtime discovery from a hosted chain's startup snapshot. */
     std::vector<ParameterInfo> parametersForSlot(const std::string& slotId) const;

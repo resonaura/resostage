@@ -49,6 +49,7 @@
         int pipelineLatencySamples = 512;
         bool forceRecreate = false;
         bool recoverFailedHosts = false;
+        std::string retryOnlyStripId;
     };
 
     struct PublishedPluginBank {
@@ -543,7 +544,8 @@
     void startPluginBankBuilder();
     void stopPluginBankBuilder();
     void schedulePluginBankRebuild(bool forceRecreate = false,
-                                   bool recoverFailedHosts = false);
+                                   bool recoverFailedHosts = false,
+                                   std::string retryOnlyStripId = {});
     void runPluginBankBuilder();
     void beginProjectReplacement();
     void beginProjectMutation();

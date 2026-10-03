@@ -406,7 +406,7 @@ void MainComponent::pluginSlotRetry(const std::string& json) {
     const auto found = std::find_if(chain->begin(), chain->end(),
         [&slotId](const PluginSlot& slot) { return slot.id == slotId; });
     if (found == chain->end()) return;
-    if (!engine.retryPluginSlot(slotId)) {
+    if (!engine.retryPluginSlot(slotId, stripId)) {
         setStatus("Plug-in is already loaded");
         return;
     }

@@ -33,14 +33,18 @@ changed in this block. These results do not verify history Undo/Redo of dormant
 curves via the UI or its visible save/reopen workflow; preserve those as
 explicit acceptance gaps.
 
-Plug-in retry source audit confirms that a retry starts a project-wide loading
-generation and full bank walk, but the bank builder reuses healthy strip chains
-whose stable strip/ordered slot identities and runtime compatibility match. A
-failed helper is one strip-chain boundary, so sibling slots in that same helper
-rebuild; other failed chains are also retried. This is source evidence, not a
-reproduction of the user's writetest report. The next audit should add explicit
-scoped retry semantics and tests for unrelated failed chains, same-chain peers,
-stale generations and rapid retries; see performance.md.
+Plug-in retry now carries an exact stable strip scope inside its captured
+project epoch. The builder recreates only that strip's isolated helper chain,
+snapshots its live state first, and retains every compatible non-target chain
+and helper—including unrelated degraded chains. Chain atomicity remains: all
+inserts in the selected helper are reconstructed together. Per-chain progress
+and failure totals no longer count the whole project. Automatic failed-host
+recovery waits for the active bank build to settle before it queues the next
+failed strip, so a latest-wins request cannot silently cancel its predecessor.
+Slot readiness during retry is resolved by strip+slot identity, so duplicate
+legacy slot IDs cannot report the wrong strip as loaded. This is source-level
+behavior plus pure scope tests, not yet a real AU/VST3 restart-count acceptance;
+see performance.md for the outstanding fixture matrix.
 
 The audited starting revision was `35166f50`. The current audit's initial UI
 run passed 706 tests; an expanded run passed 724 tests across 105 files. After

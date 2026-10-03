@@ -181,7 +181,8 @@ public:
     std::shared_ptr<PluginProcessorBank> activePluginProcessorBank() const;
     /** True only when that bank matches the latest project's plug-in layout. */
     bool hasCurrentPluginProcessorBank() const noexcept;
-    bool retryPluginSlot(const std::string& slotId);
+    bool retryPluginSlot(const std::string& slotId,
+                         const std::string& stripId);
     // Message-thread structural state / decisions; never used by audio.
     PluginLoadingSnapshot pluginLoadingSnapshot() const;
     bool decidePluginLoading(uint64_t epoch, uint64_t generation, const std::string& decision);

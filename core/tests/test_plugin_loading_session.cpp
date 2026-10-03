@@ -6,10 +6,19 @@
 
 #include "doctest.h"
 #include "plugins/PluginLoadingSession.h"
+#include "plugins/PluginRetryScope.h"
 #include "project/ProjectJson.h"
 #include <thread>
 
 using namespace resostage;
+
+TEST_CASE("targeted plug-in retry scope uses exact stable strip identity") {
+    CHECK(pluginRetryIncludesStrip({}, "audio::track:1"));
+    CHECK(pluginRetryIncludesStrip({}, "audio::send:4"));
+    CHECK(pluginRetryIncludesStrip("audio::track:1", "audio::track:1"));
+    CHECK_FALSE(pluginRetryIncludesStrip("audio::track:1", "audio::track:10"));
+    CHECK_FALSE(pluginRetryIncludesStrip("audio::track:1", "audio::track:2"));
+}
 
 TEST_CASE("PluginLoadingSession holds a new document until its bank is published") {
     PluginLoadingSession session;
@@ -37,6 +46,13 @@ TEST_CASE("PluginLoadingSession handles empty projects and non-disruptive insert
     CHECK_FALSE(session.snapshot().showDialog);
     session.finish(2, 6, 1, "Missing insert");
     CHECK_FALSE(session.snapshot().blocksPlayback);
+    session.begin(2, 7, 2); // A two-slot chain retry uses only that chain's progress count.
+    const auto retry = session.snapshot();
+    CHECK(retry.total == 2);
+    CHECK_FALSE(retry.blocksPlayback);
+    CHECK_FALSE(retry.showDialog);
+    session.progress(2, 7, 1, "Track · Plug-in B");
+    CHECK(session.snapshot().completed == 1);
 }
 
 TEST_CASE("PluginLoadingSession ignores stale progress, completion and dialog decisions") {
