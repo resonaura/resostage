@@ -76,7 +76,7 @@ describe("useAutomationTouchRecorder", () => {
   }
 
   function render(props: UseAutomationTouchRecorderProps) {
-    act(() => root.render(createElement(Harness, props)));
+    act(() => root.render(createElement(Harness, { projectIdentity: "test-core:1", ...props })));
   }
 
   it("does not start gestures when transport is not playing", () => {
@@ -95,6 +95,22 @@ describe("useAutomationTouchRecorder", () => {
         0,
       );
     });
+
+    expect(recorder.isLaneActive("lane-touch")).toBe(false);
+  });
+
+  it("does not record until Core session and project epoch are confirmed", () => {
+    render({
+      songIndex: 0,
+      projectIdentity: null,
+      lanes,
+      isPlaying: true,
+      getCurrentBeats: () => 4.0,
+    });
+
+    act(() => recorder.startGesture(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, 0,
+    ));
 
     expect(recorder.isLaneActive("lane-touch")).toBe(false);
   });
@@ -247,5 +263,67 @@ describe("useAutomationTouchRecorder", () => {
     expect(onCommit.mock.calls[0][0].releaseBeats).toBe(5.0);
     expect(onCommit.mock.calls[0][0].releaseValue).toBe(0.8);
     expect(recorder.hasHoldingLatch()).toBe(false);
+  });
+
+  it("cancels capture across Core/project identity changes before stopped transport can commit it", () => {
+    let currentBeats = 3.0;
+    const onCommit = vi.fn();
+    render({
+      songIndex: 0,
+      projectIdentity: "core-a:4",
+      lanes,
+      isPlaying: true,
+      getCurrentBeats: () => currentBeats,
+      onCommitGesture: onCommit,
+    });
+    act(() => recorder.startGesture(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, 0,
+    ));
+    expect(recorder.isLaneActive("lane-touch")).toBe(true);
+
+    currentBeats = 0.0;
+    render({
+      songIndex: 0,
+      projectIdentity: "core-b:1",
+      lanes,
+      isPlaying: false,
+      getCurrentBeats: () => currentBeats,
+      onCommitGesture: onCommit,
+    });
+
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(recorder.isLaneActive("lane-touch")).toBe(false);
+  });
+
+  it("observes playhead updates and splits a Touch pass at a cycle wrap", () => {
+    let currentBeats = 4.0;
+    const cycleRange = { leftBeats: 4.0, rightBeats: 8.0 };
+    const onCommit = vi.fn();
+    const props = {
+      songIndex: 0,
+      projectIdentity: "core-a:4",
+      lanes,
+      isPlaying: true,
+      getCurrentBeats: () => currentBeats,
+      cycleRange,
+      onCommitGesture: onCommit,
+    } satisfies UseAutomationTouchRecorderProps;
+    render(props);
+    act(() => recorder.startGesture(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, 0,
+    ));
+
+    currentBeats = 7.9;
+    render(props);
+    act(() => recorder.recordValue(
+      { domain: "strip", entityId: "track-1", parameterId: "faderGainDb" }, -3.0,
+    ));
+    currentBeats = 4.05;
+    render(props);
+
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0][0].releaseBeats).toBe(8.0);
+    expect(onCommit.mock.calls[0][0].punchInBeats).toBe(4.0);
+    expect(recorder.isLaneActive("lane-touch")).toBe(true);
   });
 });

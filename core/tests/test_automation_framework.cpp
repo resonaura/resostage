@@ -156,6 +156,7 @@ TEST_CASE("Automation recording admission validates the entire pass before mutat
         R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":[{"timeBeats":0.5,"value":0}]})",
         R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":[{"timeBeats":0.9999995,"value":0},{"timeBeats":1,"value":0}]})",
         R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":[{"timeBeats":3,"value":0}]})",
+        R"({"punchInBeats":0,"releaseBeats":2,"releaseValue":0,"pointsCompacted":"yes","points":[]})",
         R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":{}})"}) {
         document = glz::generic::object_t{};
         REQUIRE(builder_json::parseJson(invalid, document));
@@ -164,18 +165,24 @@ TEST_CASE("Automation recording admission validates the entire pass before mutat
         CHECK(gesture.punchInBeats == 99.0);
     }
     document = glz::generic::object_t{};
-    REQUIRE(builder_json::parseJson(R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":30,"underlyingValue":-70,"points":[{"timeBeats":1,"value":-10},{"timeBeats":1,"value":-20},{"timeBeats":2,"value":99}]})", document));
+    REQUIRE(builder_json::parseJson(R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":30,"underlyingValue":-70,"pointsCompacted":true,"points":[{"timeBeats":1,"value":-10},{"timeBeats":1,"value":-20},{"timeBeats":2,"value":99}]})", document));
     INFO(error);
     REQUIRE(builder_json::parseAutomationRecordGesture(document, target, gesture, error));
     CHECK(gesture.punchInBeats == 1.0);
     CHECK(gesture.releaseValue == 12.0f);
     CHECK(gesture.underlyingValue == -60.0f);
+    CHECK(gesture.pointsCompacted);
     REQUIRE(gesture.points.size() == 2);
     CHECK(gesture.points[0].value == -20.0f);
     CHECK(gesture.points[1].value == 12.0f);
     document["points"] = glz::generic::array_t(builder_json::kMaximumAutomationEditPoints + 1);
     CHECK_FALSE(builder_json::parseAutomationRecordGesture(document, target, gesture, error));
     CHECK(gesture.points.size() == 2);
+    document = glz::generic::object_t{};
+    REQUIRE(builder_json::parseJson(R"({"punchInBeats":1,"releaseBeats":2,"releaseValue":0,"points":[]})", document));
+    REQUIRE(builder_json::parseAutomationRecordGesture(document, target, gesture, error));
+    CHECK_FALSE(gesture.pointsCompacted);
+    CHECK(gesture.points.empty());
 }
 
 TEST_CASE("Automation recording admission bounds the complete lane across repeated passes") {

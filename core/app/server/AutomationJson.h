@@ -123,6 +123,7 @@ struct AutomationRecordGesture {
     double returnRampBeats = 0.0;
     float underlyingValue = 0.0f;
     double rdpTolerance = 0.002;
+    bool pointsCompacted = false;
     std::vector<AutomationPoint> points;
 };
 
@@ -171,6 +172,11 @@ inline bool parseAutomationRecordGesture(const glz::generic& doc,
         || !std::isfinite(target.minValue) || !std::isfinite(target.maxValue)
         || target.minValue > target.maxValue) {
         error = "Automation recording requires finite ordered pass times, target values and a positive tolerance";
+        return false;
+    }
+    if (doc.contains("pointsCompacted")
+        && !getBool(doc, "pointsCompacted", parsed.pointsCompacted)) {
+        error = "Automation recording compaction marker must be a boolean";
         return false;
     }
     if (!parseAutomationPoints(doc, parsed.points, error, AutomationPointDuplicates::KeepLatest))

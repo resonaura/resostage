@@ -459,7 +459,9 @@ void MainComponent::builderAutomationRecordGesture(const std::string& json) {
     engine.projectHistoryCommitEdit();
     engine.markDirty();
     notifyProjectStructureChanged();
-    setStatus("Automation gesture recorded");
+    setStatus(gesture.pointsCompacted
+        ? "Automation gesture recorded with bounded sample compaction"
+        : "Automation gesture recorded");
 }
 
 } // namespace resostage

@@ -281,19 +281,44 @@ Entry points: `timeline/automation/hooks/useAutomationTouchRecorder.ts`,
 `timeline/tracks/components/TimelineSidebar.tsx`, shared fader/knob wrappers,
 and `MainComponentBuilderAutomation`/native automation playback.
 
-The audited hook is instantiated only in TimelineSidebar. It buffers points
-until release/Stop; adding callbacks to shared controls does not wire every
-mixer/inspector/plugin surface. `cycleRange` is not supplied at that call site.
-The current beat calculation uses one BPM rather than the song TempoMap.
-Tests of the final record-gesture HTTP endpoint do not prove manual-control
-ownership while Touch/Latch is active.
+The hook is instantiated only in TimelineSidebar and buffers points until
+release/Stop; adding callbacks to shared controls does not wire every
+mixer/inspector/plugin surface. It still has no Core-owned manual-value override,
+so collection/persistence is not proof that Touch/Latch takes precedence over
+automation playback or that the operator hears the moved control.
 
-Additional confirmed session hazards: points grow without a cap; retouch can
-replace a held Latch session rather than continue its pass; default release
-can substitute zero; cycle detection is not subscribed to advancing playhead;
-reset is keyed only by song index. A same-song project replacement followed by
-Stop can therefore submit an old lane to the new document. The default commit
-uses best-effort API behavior rather than surfacing a recording rejection.
+The 2026-10-02 continuation closes several UI session hazards: capture now
+requires the confirmed `(stateSessionId, projectEpoch)` pair, cancels on song or
+project identity transition, maps playhead seconds through the song TempoMap,
+observes playhead changes for loop-wrap splitting, resumes a held Latch pass on
+retouch, retains the last valid value when release data is absent, and caps a
+gesture at 65,536 points with endpoint-preserving compaction. The Core parser
+validates the optional compaction marker; reliable record-mutation rejection
+already reaches the shared editor failure notification and is not retried.
+Compaction is explicitly reported by Core status.
+
+Remaining session risks: cycle detection still infers wraps from sampled UI
+playhead telemetry and can miss a sparse wrap or confuse a seek; the capture is
+not bound to every supported surface; a rejected/unknown command has no retained
+retryable draft; and browser pointer cancellation/lost capture needs an explicit
+per-control policy. Endpoint tests do not prove manual-control ownership while
+Touch/Latch is active or audible output.
+
+Verification for the 2026-10-02 capture-session block: UI Vitest passed 752
+tests across 108 files; TypeScript and the production UI build passed; lint had
+zero errors and 12 existing warnings. Core and `resostage_engine_tests` built,
+the complete native CTest target passed, and the real Core
+`scripts/verification/editor-state.mjs` harness passed its automation,
+active-playback history, epoch, rejection, and save/reopen checks. One CTest
+attempt concurrent with the UI production build missed a real VST3 64-sample
+output deadline at block 2; the isolated MSED integration case and a later
+serialized full CTest both passed. Record this as scheduler-sensitive evidence,
+not as a code-path fix or proof of stable physical-device deadlines. The HTTP
+harness once also observed `playing=false` at the exact ACK for a live MIDI note
+edit; three later serial runs passed. The assertion now includes playhead,
+song-end, result and Core status diagnostics if that intermittent failure
+recurs; it remains an unresolved transport-continuity signal rather than a
+verified fix.
 
 Required implementation:
 
@@ -304,13 +329,15 @@ Required implementation:
 - Bind all supported surfaces intentionally, or disable/label unsupported
   write modes rather than claiming full integration. Do not install a second
   application hotkey dispatcher or infer touch from telemetry echoes.
-- Use authoritative song-local beats/TempoMap and cycle boundaries. Split
-  cross-cycle gestures without extending a pass across the loop discontinuity;
-  handle seek, song change, same-ID reopen and transport loss explicitly.
-- Bound point/session storage and request rate; thin outside audio. One user
-  pass must produce one coherent history transaction, not one undo per sample.
-- Reliable rejection must be visible. Preserve a recoverable draft or explicitly
-  roll it back. Old async completion must not write into a new project epoch.
+- Replace sampled-playhead cycle inference with a transport-owned cycle/pass
+  sequence or another source that distinguishes wrap from seek and cannot miss
+  short loops under telemetry loss. Keep TempoMap conversion and identity fences.
+- Preserve the existing 65,536-point client cap and Core lane budget; specify a
+  bounded request cadence and retain one coherent history transaction per pass,
+  not one undo per sample.
+- Keep exact reliable rejection visible, and retain a bounded recoverable draft
+  when outcome is rejected/unknown. Never blindly resend an unknown request.
+  Old completion must not write into a new Core session/project epoch.
 - Escape/pointercancel/lost capture/unmount must cancel or finish according to a
   documented policy. Do not silently commit a cancelled gesture.
 

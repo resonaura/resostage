@@ -6,6 +6,8 @@
 
 import type { AutomationWriteMode } from "@/lib/state/types";
 
+export const MAX_AUTOMATION_GESTURE_POINTS = 65_536;
+
 export type TouchSessionState = "idle" | "recording" | "holding_latch";
 
 export interface TouchRecordSession {
@@ -15,7 +17,35 @@ export interface TouchRecordSession {
   lastBeats: number;
   lastValue: number;
   recordedPoints: Array<{ timeBeats: number; value: number }>;
+  pointsCompacted: boolean;
   state: TouchSessionState;
+}
+
+function appendBoundedPoint(
+  session: TouchRecordSession,
+  timeBeats: number,
+  value: number,
+): void {
+  const lastIndex = session.recordedPoints.length - 1;
+  const last = session.recordedPoints[lastIndex];
+  if (last && Math.abs(last.timeBeats - timeBeats) <= 1e-9) {
+    session.recordedPoints[lastIndex] = { timeBeats, value };
+    return;
+  }
+
+  if (session.recordedPoints.length >= MAX_AUTOMATION_GESTURE_POINTS) {
+    const points = session.recordedPoints;
+    const compacted = [points[0]];
+    for (let index = 2; index < points.length - 1; index += 2) {
+      compacted.push(points[index]);
+    }
+    const finalPoint = points[points.length - 1];
+    if (compacted[compacted.length - 1] !== finalPoint) compacted.push(finalPoint);
+    session.recordedPoints = compacted;
+    session.pointsCompacted = true;
+  }
+
+  session.recordedPoints.push({ timeBeats, value });
 }
 
 /**
@@ -39,6 +69,7 @@ export function startTouchSession(
       lastBeats: safeTime,
       lastValue: safeVal,
       recordedPoints: [],
+      pointsCompacted: false,
       state: "idle",
     };
   }
@@ -50,6 +81,7 @@ export function startTouchSession(
     lastBeats: safeTime,
     lastValue: safeVal,
     recordedPoints: [{ timeBeats: safeTime, value: safeVal }],
+    pointsCompacted: false,
     state: "recording",
   };
 }
@@ -66,7 +98,7 @@ export function recordTouchValue(
   if (!Number.isFinite(timeBeats) || !Number.isFinite(value)) return;
 
   if (timeBeats >= session.lastBeats) {
-    session.recordedPoints.push({ timeBeats, value });
+    appendBoundedPoint(session, timeBeats, value);
     session.lastBeats = timeBeats;
     session.lastValue = value;
   }
@@ -89,6 +121,7 @@ export function finishTouchSession(
   returnRampBeats: number;
   underlyingValue: number;
   points: Array<{ timeBeats: number; value: number }>;
+  pointsCompacted: boolean;
 } | null {
   if (session.state !== "recording" || session.writeMode === "read") {
     return null;
@@ -107,10 +140,9 @@ export function finishTouchSession(
       ? Math.max(0, Number.isFinite(returnRampBeats) ? returnRampBeats : 1.0)
       : 0;
 
-  session.recordedPoints.push({
-    timeBeats: safeReleaseBeats,
-    value: safeReleaseVal,
-  });
+  appendBoundedPoint(session, safeReleaseBeats, safeReleaseVal);
+  session.lastBeats = safeReleaseBeats;
+  session.lastValue = safeReleaseVal;
 
   if (session.writeMode === "latch") {
     session.state = "holding_latch";
@@ -125,6 +157,7 @@ export function finishTouchSession(
     returnRampBeats: safeRamp,
     underlyingValue: safeUnderlying,
     points: session.recordedPoints,
+    pointsCompacted: session.pointsCompacted,
   };
 }
 
@@ -144,6 +177,7 @@ export function punchOutLatchSession(
   returnRampBeats: number;
   underlyingValue: number;
   points: Array<{ timeBeats: number; value: number }>;
+  pointsCompacted: boolean;
 } | null {
   if (session.state !== "holding_latch" && session.state !== "recording") {
     return null;
@@ -157,10 +191,7 @@ export function punchOutLatchSession(
   const safeRamp = Math.max(0, Number.isFinite(returnRampBeats) ? returnRampBeats : 0);
 
   if (safeStopBeats > session.lastBeats) {
-    session.recordedPoints.push({
-      timeBeats: safeStopBeats,
-      value: session.lastValue,
-    });
+    appendBoundedPoint(session, safeStopBeats, session.lastValue);
     session.lastBeats = safeStopBeats;
   }
 
@@ -173,6 +204,7 @@ export function punchOutLatchSession(
     returnRampBeats: safeRamp,
     underlyingValue: safeUnderlying,
     points: session.recordedPoints,
+    pointsCompacted: session.pointsCompacted,
   };
 }
 
@@ -184,4 +216,3 @@ export function punchOutLatchSession(
 export function revertWriteModeToSafety(mode: AutomationWriteMode): AutomationWriteMode {
   return mode === "write" ? "touch" : mode;
 }
-

@@ -180,6 +180,21 @@ describe("automationTouchController", () => {
       expect(controller.isLaneActive("lane-touch")).toBe(false);
     });
 
+    it("uses the last touched value when release data is missing", () => {
+      const controller = new AutomationTouchController();
+      const target: AutomationGestureTarget = {
+        domain: "strip",
+        entityId: "track-2",
+        parameterId: "faderGainDb",
+      };
+      controller.startGesture(target, 0, 2.0, baseLanes);
+      controller.recordValue(target, -4.5, 3.0);
+
+      const payload = controller.finishGesture(target, undefined, 3.0);
+      expect(payload?.releaseValue).toBe(-4.5);
+      expect(payload?.points.at(-1)).toEqual({ timeBeats: 3, value: -4.5 });
+    });
+
     it("executes Latch mode gesture, holds state, and commits on punch-out", () => {
       const controller = new AutomationTouchController();
       const target: AutomationGestureTarget = {
@@ -206,6 +221,46 @@ describe("automationTouchController", () => {
       expect(punchPayload?.releaseValue).toBe(0.8);
       expect(punchPayload?.returnRampBeats).toBe(0.5);
       expect(controller.isLaneActive("lane-latch")).toBe(false);
+      expect(controller.hasHoldingLatch()).toBe(false);
+    });
+
+    it("continues a held Latch pass when the same control is touched again", () => {
+      const controller = new AutomationTouchController();
+      const target: AutomationGestureTarget = {
+        domain: "strip",
+        entityId: "track-3",
+        parameterId: "pan",
+      };
+      controller.startGesture(target, 0.1, 1.0, baseLanes);
+      controller.recordValue(target, 0.4, 2.0);
+      controller.finishGesture(target, 0.4, 2.0);
+
+      const resumed = controller.startGesture(target, 0.7, 4.0, baseLanes);
+      expect(resumed?.punchInBeats).toBe(1.0);
+      expect(resumed?.state).toBe("recording");
+      expect(resumed?.recordedPoints.at(-1)).toEqual({ timeBeats: 4, value: 0.7 });
+      expect(controller.finishGesture(target, undefined, 4.0)).toBeNull();
+
+      const payload = controller.punchOut("lane-latch", 6.0, 0.5);
+      expect(payload?.releaseValue).toBe(0.7);
+      expect(payload?.punchInBeats).toBe(1.0);
+      expect(payload?.points.some((point) => point.timeBeats === 2 && point.value === 0.4)).toBe(true);
+      expect(payload?.points.some((point) => point.timeBeats === 4 && point.value === 0.7)).toBe(true);
+    });
+
+    it("punches out a held Latch safely when transport time is invalid", () => {
+      const controller = new AutomationTouchController();
+      const target: AutomationGestureTarget = {
+        domain: "strip",
+        entityId: "track-3",
+        parameterId: "pan",
+      };
+      controller.startGesture(target, 0.1, 1.0, baseLanes);
+      controller.finishGesture(target, 0.1, 1.0);
+
+      const payload = controller.punchOut("lane-latch", Number.NaN, Number.NaN);
+      expect(payload?.releaseBeats).toBe(1.0);
+      expect(Number.isFinite(payload?.underlyingValue)).toBe(true);
       expect(controller.hasHoldingLatch()).toBe(false);
     });
 

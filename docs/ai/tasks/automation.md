@@ -38,8 +38,19 @@ Previous arrangement UI existed, but had significant functional gaps:
   `TrackGainControl`, `TrackPanControl`, `MeterFader`, `Knob`, and `useKnobDrag`.
   Includes local point collection, return-ramp calculation (`evaluateAutomationAt`),
   transport-stop punch-out and Write->Touch safety revert. The audited call site
-  is TimelineSidebar; live manual ownership, all supported surfaces and actual
-  cycle/TempoMap/epoch wiring remain incomplete. See the audit before extending it.
+  is still TimelineSidebar only. The hook now requires Core-session/project-epoch
+  identity before starting a pass, cancels on song/project identity transition, uses
+  the song TempoMap, observes playhead updates for best-effort cycle splitting,
+  continues held Latch passes on retouch, retains the last actual release value,
+  coalesces same-beat samples, and caps each gesture at 65,536 samples with
+  endpoint-preserving compaction. The compacted marker is validated by Core and
+  reported in its success status. A rejected/unknown reliable mutation raises
+  the shared editor-command failure notification and is never blindly retried.
+  These are session/data-safety improvements only: the capture still has no
+  Core-owned manual-value override, remains wired only at the arrangement
+  Sidebar, does not retain a retryable draft after rejection, and its telemetry-
+  inferred cycle split cannot distinguish every seek or missed wrap. See the
+  audit before extending it.
 - Compact lane height density scaling (<= 32px), omitting curve handles, scaling breakpoint nodes,
   compact header/controls layout, and reduced-motion transitions
 - Exclusive/cancellable gestures, full-point atomic replacement/empty creation,
@@ -80,10 +91,11 @@ Previous arrangement UI existed, but had significant functional gaps:
    Numerical point editing and copy/cut/paste/duplicate workflows with hotkeys (`Mod+C`,
    `Mod+X`, `Mod+V`, `Mod+D`) and context menu are fully implemented and covered by unit tests.
 5. Complete Touch/Latch/Write ownership and recording according to `audit.md`.
-   Session helpers calculate returns and collect points, but actual manual
-   override while Touch/Latch is active must beat playback and remain correct
-   across cycle, seek, song/epoch replacement and rejection. Wire supported
-   mixer/inspector/plugin surfaces explicitly or keep unsupported modes disabled.
+   Session identity, TempoMap lookup, bounded point storage, transport-stop and
+   telemetry-observed cycle splitting now exist, but actual manual override
+   while Touch/Latch is active must beat playback and remain correct across
+   sparse cycle telemetry, seek, all supported surfaces and rejected/unknown
+   commits. Preserve an explicit recovery path rather than blindly retrying.
 6. Compile binding tables off audio instead of repeated string/region lookups.
    Native sample-offset vendor automation, Trim/relative layers, VCA and advanced
    hardware/lighting integrations remain separate explicit tasks.
@@ -92,6 +104,16 @@ Offline Write-mode policy is now explicit and tested: saved Write lanes are
 suppressed in both live and offline playback; the offline renderer has no
 manual gesture to replace them, so it uses the stored/static parameter state.
 Do not reopen this as a mismatch unless live policy itself changes.
+
+Capture-session verification on 2026-10-02: full UI suite 752/752 across 108
+files, UI typecheck, production build, and lint (zero errors, 12 existing
+warnings) passed. Core/helpers and native tests built; serialized full CTest
+passed; real-Core `editor-state.mjs` passed automation recording/rejection and
+project/history checks. A concurrent UI-build/native-test attempt exposed one
+scheduler-sensitive miss in the real VST3 64-sample helper deadline; the
+isolated VST3 test and serialized full suite passed. This is not device or
+acoustic proof. Manual parameter ownership, missed-wrap/seek distinction,
+rejection draft recovery, and wider surface coverage remain open.
 
 ## Acceptance evidence and limits
 

@@ -29,6 +29,7 @@ export interface AutomationGestureCommitPayload {
   returnRampBeats: number;
   underlyingValue: number;
   points: Array<{ timeBeats: number; value: number }>;
+  pointsCompacted: boolean;
   gestureId: string;
   shouldRevertWriteMode: boolean;
 }
@@ -113,6 +114,15 @@ export class AutomationTouchController {
     if (!lane) return null;
 
     const safeBeats = Math.max(0, Number.isFinite(currentBeats) ? currentBeats : 0);
+    const existing = this.activeSessions.get(lane.id);
+    if (existing) {
+      if (existing.session.state === "holding_latch") {
+        existing.session.state = "recording";
+        recordTouchValue(existing.session, safeBeats, initialValue);
+      }
+      return existing.session;
+    }
+
     const session = startTouchSession(lane.id, lane.writeMode, safeBeats, initialValue);
     if (session.state === "idle") return null;
 
@@ -143,7 +153,7 @@ export class AutomationTouchController {
    */
   public finishGesture(
     target: AutomationGestureTarget,
-    releaseValue: number,
+    releaseValue: number | undefined,
     currentBeats: number,
     returnRampBeats = 1.0,
   ): AutomationGestureCommitPayload | null {
@@ -155,8 +165,12 @@ export class AutomationTouchController {
 
       if (session.state !== "recording") continue;
 
-      const safeRelease = Number.isFinite(releaseValue) ? releaseValue : session.lastValue;
-      const safeBeats = Math.max(session.lastBeats, currentBeats);
+      const safeRelease = releaseValue !== undefined && Number.isFinite(releaseValue)
+        ? releaseValue : session.lastValue;
+      const safeBeats = Math.max(
+        session.lastBeats,
+        Number.isFinite(currentBeats) ? currentBeats : session.lastBeats,
+      );
       const rampEndBeats = safeBeats + (session.writeMode === "touch" ? returnRampBeats : 0);
       const underlyingVal = evaluateAutomationAt(
         lane.points,
@@ -192,6 +206,7 @@ export class AutomationTouchController {
         returnRampBeats: result.returnRampBeats,
         underlyingValue: result.underlyingValue,
         points: result.points,
+        pointsCompacted: result.pointsCompacted,
         gestureId: crypto.randomUUID(),
         shouldRevertWriteMode: session.writeMode === "write",
       };
@@ -213,8 +228,12 @@ export class AutomationTouchController {
     if (!entry) return null;
 
     const { session, lane } = entry;
-    const safeBeats = Math.max(session.lastBeats, currentBeats);
-    const rampEndBeats = safeBeats + returnRampBeats;
+    const safeBeats = Math.max(
+      session.lastBeats,
+      Number.isFinite(currentBeats) ? currentBeats : session.lastBeats,
+    );
+    const safeRamp = Math.max(0, Number.isFinite(returnRampBeats) ? returnRampBeats : 0.5);
+    const rampEndBeats = safeBeats + safeRamp;
     const underlyingVal = evaluateAutomationAt(
       lane.points,
       rampEndBeats,
@@ -225,7 +244,7 @@ export class AutomationTouchController {
       session,
       safeBeats,
       underlyingVal,
-      returnRampBeats,
+      safeRamp,
     );
 
     this.activeSessions.delete(laneId);
@@ -240,6 +259,7 @@ export class AutomationTouchController {
       returnRampBeats: result.returnRampBeats,
       underlyingValue: result.underlyingValue,
       points: result.points,
+      pointsCompacted: result.pointsCompacted,
       gestureId: crypto.randomUUID(),
       shouldRevertWriteMode: session.writeMode === "write",
     };
@@ -298,6 +318,7 @@ export class AutomationTouchController {
           returnRampBeats: 0,
           underlyingValue: result.underlyingValue,
           points: result.points,
+          pointsCompacted: result.pointsCompacted,
           gestureId: crypto.randomUUID(),
           shouldRevertWriteMode: false, // Don't revert write mode mid-cycle
         });

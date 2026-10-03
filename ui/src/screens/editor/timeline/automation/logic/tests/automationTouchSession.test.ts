@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   finishTouchSession,
+  MAX_AUTOMATION_GESTURE_POINTS,
   punchOutLatchSession,
   recordTouchValue,
   revertWriteModeToSafety,
@@ -38,6 +39,30 @@ describe("automationTouchSession", () => {
     expect(result?.underlyingValue).toBe(0.0);
     expect(result?.points.length).toBeGreaterThanOrEqual(3);
     expect(session.state).toBe("idle");
+  });
+
+  it("coalesces samples at the same beat and bounds long capture buffers", () => {
+    const sameBeat = startTouchSession("lane-1", "touch", 0, 0);
+    recordTouchValue(sameBeat, 1, 0.2);
+    recordTouchValue(sameBeat, 1, 0.8);
+    expect(sameBeat.recordedPoints).toHaveLength(2);
+    expect(sameBeat.recordedPoints[1]).toEqual({ timeBeats: 1, value: 0.8 });
+
+    const longGesture = startTouchSession("lane-2", "touch", 0, 0);
+    for (let beat = 1; beat <= MAX_AUTOMATION_GESTURE_POINTS + 20; beat += 1) {
+      recordTouchValue(longGesture, beat, beat / MAX_AUTOMATION_GESTURE_POINTS);
+    }
+    expect(longGesture.recordedPoints.length).toBeLessThanOrEqual(MAX_AUTOMATION_GESTURE_POINTS);
+    expect(longGesture.pointsCompacted).toBe(true);
+    expect(longGesture.recordedPoints[0]).toEqual({ timeBeats: 0, value: 0 });
+    expect(longGesture.recordedPoints.at(-1)).toEqual({
+      timeBeats: MAX_AUTOMATION_GESTURE_POINTS + 20,
+      value: (MAX_AUTOMATION_GESTURE_POINTS + 20) / MAX_AUTOMATION_GESTURE_POINTS,
+    });
+
+    const result = finishTouchSession(longGesture, NaN, NaN, 0);
+    expect(result?.pointsCompacted).toBe(true);
+    expect(result?.points.length).toBeLessThanOrEqual(MAX_AUTOMATION_GESTURE_POINTS);
   });
 
   it("enters holding_latch state without return ramp in 'latch' mode", () => {

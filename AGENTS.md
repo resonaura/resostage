@@ -654,6 +654,16 @@ Preserve these rules:
   signal tracking utilizes `EnvelopeFollower` with peak/RMS detection and anti-denormal
   flush. Automation recording utilizes `AutomationRecorder` with touch/latch modes
   and non-destructive Ramer-Douglas-Peucker reduction (`RamerDouglasPeucker.cpp`).
+  The arrangement's current Touch/Latch/Write gesture collector is UI-side only:
+  it requires a confirmed Core-session/project-epoch identity, uses the song
+  `TempoMap`, follows playhead updates for best-effort cycle splits, and caps a
+  pass at 65,536 points with endpoint-preserving compaction. Each completed pass
+  is submitted as one reliable editor mutation; failures surface through the
+  shared editor-command notification. This collector does not yet own the live
+  manual parameter value, so automation playback can still compete with a
+  touched control until Core-side arbitration is implemented and acoustically
+  verified. Telemetry-based cycle detection can miss sparse wraps or confuse a
+  seek; do not treat it as authoritative transport-cycle identity.
 - Strip send automation binds only aux edges tagged with their source
   `MixEdge::sendIndex`; direct bus/output routes cannot be mistaken for a send.
   That source slot participates in the routing-layout compatibility key.

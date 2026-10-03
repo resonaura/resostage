@@ -284,7 +284,14 @@ export async function verifyEditorState(coreExecutable, inspect) {
     const liveEditedResult = await confirmEditorMutation("/api/v1/builder/midi-region/update", { ...patch, notes: quantized });
     const liveEdited = liveEditedResult.state;
     assert.ok(getRegion(liveEdited)?.notes.every((note) => note.durationBeats === 0.5), "quantize while playing");
-    assert.equal(liveEdited.playing, true, "Note edit must not stop transport");
+    assert.equal(liveEdited.playing, true,
+      `Note edit must not stop transport: ${JSON.stringify({
+        startedAtSeconds: playing.playheadSeconds,
+        observedAtSeconds: liveEdited.playheadSeconds,
+        songEndSeconds: liveEdited.songs?.[0]?.endSeconds,
+        commandResult: liveEditedResult.result,
+        statusMessage: liveEdited.statusMessage,
+      })}`);
     await waitFor((state) => state.playing && state.playheadSeconds > playing.playheadSeconds, "continuous transport after edit");
 
     // Exercise actual history dispatch while playing too. This checks

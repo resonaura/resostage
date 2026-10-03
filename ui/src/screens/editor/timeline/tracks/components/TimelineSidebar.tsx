@@ -5,7 +5,7 @@
  */
 
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui";
 import type {
   LightFixtureRow,
@@ -31,6 +31,7 @@ import type { TimelineViewMode } from "@/screens/editor/timeline/toolbar/logic/t
 import { TrackHeaderControl } from "@/screens/editor/timeline/tracks/components/TrackHeaderControl";
 import { AutomationTrackHeader } from "@/screens/editor/timeline/automation/components/AutomationTrackHeader";
 import { useAutomationTouchRecorder } from "@/screens/editor/timeline/automation/hooks/useAutomationTouchRecorder";
+import { createSongTempoMap } from "@/lib/midi/tempoMap";
 import { getAutomationLanesForTrack } from "@/screens/editor/timeline/automation/logic/automationTargets";
 import {
   trackSelectionGesture,
@@ -115,14 +116,38 @@ export function TimelineSidebar({
   const songIndex = state.songIndex ?? 0;
   const currentSong = state.songs[songIndex];
   const songBpm = currentSong?.bpm ?? 120;
+  const songTempoMap = useMemo(
+    () => currentSong ? createSongTempoMap(currentSong) : null,
+    [currentSong],
+  );
   const getCurrentBeats = () =>
-    Math.max(0, ((state.playheadSeconds ?? 0) * songBpm) / 60);
+    Math.max(0, songTempoMap?.secondsToBeats(state.playheadSeconds ?? 0)
+      ?? ((state.playheadSeconds ?? 0) * songBpm) / 60);
+  const projectIdentity = state.stateSessionId
+    && Number.isSafeInteger(state.projectEpoch)
+    && state.projectEpoch! >= 0
+    ? `${state.stateSessionId}:${state.projectEpoch}`
+    : null;
+  const automationCycleRange = useMemo(() => {
+    const cycle = state.cycle;
+    if (!cycle?.active || cycle.skip || cycle.songIndex !== songIndex || !songTempoMap)
+      return null;
+    const leftSeconds = Math.min(cycle.startSeconds, cycle.endSeconds);
+    const rightSeconds = Math.max(cycle.startSeconds, cycle.endSeconds);
+    if (rightSeconds <= leftSeconds) return null;
+    return {
+      leftBeats: Math.max(0, songTempoMap.secondsToBeats(leftSeconds)),
+      rightBeats: Math.max(0, songTempoMap.secondsToBeats(rightSeconds)),
+    };
+  }, [state.cycle, songIndex, songTempoMap]);
 
   const touchRecorder = useAutomationTouchRecorder({
     songIndex,
+    projectIdentity,
     lanes: currentSong?.automationLanes ?? [],
     isPlaying: Boolean(state.playing),
     getCurrentBeats,
+    cycleRange: automationCycleRange,
   });
 
   const {

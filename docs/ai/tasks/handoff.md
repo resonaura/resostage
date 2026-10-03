@@ -177,6 +177,23 @@ Every source keeps the standard license header. English comments/commits,
 `@/` frontend imports, separate components/hooks/logic/tests, lowercase one-word
 folders. Commit each finished block; do not push.
 
+The current uncommitted Touch/Latch/Write capture-session block additionally
+requires confirmed Core-session/project-epoch identity, maps playhead time with
+the song TempoMap, detects cycle wraps from sampled playhead movement, resumes
+held Latch passes on retouch, retains the prior finite value when release data
+is missing, bounds capture to 65,536 points with endpoint-preserving compaction,
+and reports compaction through Core status. UI tests, typecheck, production
+build, Core build, real-Core HTTP acceptance and serialized CTest passed. A
+native VST3 64-sample timing case failed once only when competing with a UI
+build; its isolated case and subsequent serial suite passed, so keep this as a
+scheduler-sensitive risk. The real-Core HTTP harness also once observed
+`playing=false` at the exact ACK for a live note edit; three later serial runs
+passed, and the assertion now includes transport position, song end, exact ACK
+and Core status if it recurs. Do not treat those retries as resolution of the
+intermittent signal. This block does not implement Core-side manual-value
+ownership, authoritative loop iteration IDs, pointer-loss policy or retained
+recovery drafts after unknown/rejected commits.
+
 ## Immediate next actions
 
 1. Add actual Core-level fault injection for playback-snapshot preparation
@@ -196,8 +213,12 @@ folders. Commit each finished block; do not push.
    allocation/deadline measurement, and loaded AU/VST3 continuity proof. Do not
    conceal failures by stopping transport or restarting healthy helpers.
 4. Finish actual Touch/Latch/Write manual ownership, supported surface bindings,
-   tempo/cycle/epoch handling and bounded recording/rejection recovery. Recorded
-   point collections and endpoint tests alone do not establish this lifecycle.
+   Core-session/project-epoch fences, song TempoMap mapping and bounded
+   recording are now present in the current UI block. Finish Core-side live
+   manual-value ownership, explicit lost-pointer/seek handling, authoritative
+   cycle-pass identity, more surface bindings, and bounded draft recovery after
+   rejected/unknown results. Recorded point collections and endpoint tests alone
+   do not establish this lifecycle.
 5. Changed-latency PDC refill continuity under heavy AU/VST3 device tests (64..512 buffer sizes).
 6. Validate light/dark visual geometry, compact heights, reduced motion and
    exclusive/cancellable gestures. Run complete UI suite/typecheck/lint and relevant native suites/build after

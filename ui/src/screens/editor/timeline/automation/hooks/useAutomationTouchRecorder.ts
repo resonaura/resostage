@@ -15,6 +15,7 @@ import {
 
 export interface UseAutomationTouchRecorderProps {
   songIndex: number;
+  projectIdentity?: string | null;
   lanes: AutomationLaneRow[];
   isPlaying: boolean;
   getCurrentBeats: () => number;
@@ -25,6 +26,7 @@ export interface UseAutomationTouchRecorderProps {
 
 export function useAutomationTouchRecorder({
   songIndex,
+  projectIdentity = null,
   lanes,
   isPlaying,
   getCurrentBeats,
@@ -40,9 +42,19 @@ export function useAutomationTouchRecorder({
   const getCurrentBeatsRef = useRef(getCurrentBeats);
   getCurrentBeatsRef.current = getCurrentBeats;
   const lastBeatsRef = useRef(0);
+  const projectIdentityRef = useRef<string | null>(projectIdentity);
+  projectIdentityRef.current = projectIdentity;
+  const sessionIdentityRef = useRef(new Map<string, string>());
 
   const commitPayload = useCallback(
     (payload: AutomationGestureCommitPayload) => {
+      const capturedIdentity = sessionIdentityRef.current.get(payload.laneId);
+      if (!capturedIdentity || capturedIdentity !== projectIdentityRef.current) {
+        controllerRef.current.cancelAll();
+        sessionIdentityRef.current.clear();
+        return;
+      }
+
       if (onCommitGesture) {
         onCommitGesture(payload);
       } else {
@@ -56,6 +68,7 @@ export function useAutomationTouchRecorder({
           underlyingValue: payload.underlyingValue,
           rdpTolerance: 0.002,
           points: payload.points,
+          pointsCompacted: payload.pointsCompacted,
           gestureId: payload.gestureId,
         });
       }
@@ -63,20 +76,31 @@ export function useAutomationTouchRecorder({
       if (payload.shouldRevertWriteMode && onWriteModeRevert) {
         onWriteModeRevert(payload.laneId);
       }
+
+      if (!controllerRef.current.isLaneActive(payload.laneId)) {
+        sessionIdentityRef.current.delete(payload.laneId);
+      }
     },
     [songIndex, onCommitGesture, onWriteModeRevert],
   );
 
   const startGesture = useCallback(
     (target: AutomationGestureTarget, initialValue: number) => {
-      if (!isPlayingRef.current) return;
+      if (!isPlayingRef.current || !projectIdentityRef.current) return;
+      if ([...sessionIdentityRef.current.values()].some(
+        (identity) => identity !== projectIdentityRef.current,
+      )) {
+        controllerRef.current.cancelAll();
+        sessionIdentityRef.current.clear();
+      }
       const currentBeats = getCurrentBeatsRef.current();
-      controllerRef.current.startGesture(
+      const session = controllerRef.current.startGesture(
         target,
         initialValue,
         currentBeats,
         lanesRef.current,
       );
+      if (session) sessionIdentityRef.current.set(session.laneId, projectIdentityRef.current);
     },
     [],
   );
@@ -95,7 +119,7 @@ export function useAutomationTouchRecorder({
       const currentBeats = getCurrentBeatsRef.current();
       const payload = controllerRef.current.finishGesture(
         target,
-        releaseValue ?? 0,
+        releaseValue,
         currentBeats,
         returnRampBeats,
       );
@@ -117,26 +141,42 @@ export function useAutomationTouchRecorder({
     [commitPayload],
   );
 
+  // A document/session transition cancels old capture before a stopped-transport
+  // effect can accidentally commit those points against the replacement project.
+  useEffect(() => {
+    controllerRef.current.cancelAll();
+    sessionIdentityRef.current.clear();
+    lastBeatsRef.current = getCurrentBeatsRef.current();
+  }, [projectIdentity, songIndex]);
+
+  const currentBeats = getCurrentBeatsRef.current();
+
   // Transport stop: punch out and commit all active/held sessions
   useEffect(() => {
     if (!isPlaying) {
-      const currentBeats = getCurrentBeatsRef.current();
       const payloads = controllerRef.current.stopAll(currentBeats);
       for (const p of payloads) {
         commitPayload(p);
       }
     }
-  }, [isPlaying, commitPayload]);
+  }, [isPlaying, currentBeats, commitPayload]);
 
   // Loop cycle wrap: split and continue held/active sessions across boundaries
   useEffect(() => {
-    if (!isPlaying || !cycleRange) return;
-    const current = getCurrentBeatsRef.current();
-    if (
-      lastBeatsRef.current > cycleRange.leftBeats &&
-      current < lastBeatsRef.current &&
-      lastBeatsRef.current >= cycleRange.rightBeats - 0.5
-    ) {
+    const previous = lastBeatsRef.current;
+    if (!isPlaying || !cycleRange) {
+      lastBeatsRef.current = currentBeats;
+      return;
+    }
+    const current = currentBeats;
+    const cycleLength = cycleRange.rightBeats - cycleRange.leftBeats;
+    const edgeWindow = Math.min(0.5, Math.max(0.002, cycleLength * 0.25));
+    const crossedRight = previous >= cycleRange.rightBeats - edgeWindow
+      && previous <= cycleRange.rightBeats + edgeWindow;
+    const wrappedToLeft = current >= cycleRange.leftBeats - edgeWindow
+      && current <= cycleRange.leftBeats + edgeWindow;
+    if (previous > cycleRange.leftBeats && current < previous
+      && crossedRight && wrappedToLeft) {
       const payloads = controllerRef.current.handleCycleWrap(
         cycleRange.leftBeats,
         cycleRange.rightBeats,
@@ -146,15 +186,13 @@ export function useAutomationTouchRecorder({
       }
     }
     lastBeatsRef.current = current;
-  }, [isPlaying, cycleRange, commitPayload]);
+  }, [isPlaying, cycleRange, currentBeats, commitPayload]);
 
-  // Project/song change: cancel all gestures without sending stale commits
-  useEffect(() => {
-    const controller = controllerRef.current;
-    return () => {
-      controller.cancelAll();
-    };
-  }, [songIndex]);
+  // Component unmount: discard any incomplete gesture without stale commits.
+  useEffect(() => () => {
+    controllerRef.current.cancelAll();
+    sessionIdentityRef.current.clear();
+  }, []);
 
   return {
     startGesture,

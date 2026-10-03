@@ -1204,6 +1204,7 @@ export const builder = {
     returnRampBeats?: number;
     underlyingValue?: number;
     rdpTolerance?: number;
+    pointsCompacted?: boolean;
     points: { timeBeats: number; value: number }[];
     gestureId?: string;
   }) => postEditorMutation("/api/v1/builder/automation/record-gesture", patch),
