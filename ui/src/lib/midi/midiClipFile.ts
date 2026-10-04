@@ -380,10 +380,15 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     }
     rawEvents.push({ beat, words, wordCount: words.length, presentationOrder });
   }
+  const sequenceEndTicks = Math.max(0, clipEndTicks - startTicks);
   for (const queue of held.values()) for (const start of queue) {
     notes.push({
       id: nextId++, pitch: start.pitch, channel: start.channel,
-      startBeats: start.tick / tpq, durationBeats: 1 / 64,
+      startBeats: start.tick / tpq,
+      // A note without an explicit release remains active through End of Clip.
+      // Do not invent a short gate: SMF import already uses the track end for
+      // the same malformed-but-common input case.
+      durationBeats: Math.max(0, sequenceEndTicks - start.tick) / tpq,
       velocity: start.velocity / 65535, releaseVelocity: 0, probability: 1,
       midi2: { group: start.group, velocity: start.velocity, releaseVelocity: 0,
         attributeType: start.attributeType, attributeData: start.attributeData,
@@ -391,7 +396,6 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         attackOrder: start.attackOrder, releaseOrder: -1 },
     });
   }
-  const sequenceEndTicks = Math.max(0, clipEndTicks - startTicks);
   const durationBeats = Math.max(1, durationTicks / tpq, sequenceEndTicks / tpq,
     ...notes.map((note) => note.startBeats + note.durationBeats));
   const track: ImportedMidiTrack = { name: "MIDI 2.0 Clip", notes, umpEvents: rawEvents, durationBeats };

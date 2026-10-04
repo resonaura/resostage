@@ -480,3 +480,16 @@ Core target compiled; TypeScript/production build, changed-file lint and
 `git diff --check` passed. The semantics follow timestamp/delta-clock
 resolution in the [Standard MIDI Files specification](https://www.midi.org/specifications/file-format-specifications/standard-midi-files)
 and [MIDI Clip File Specification v1.0](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
+
+### Latest continuation — preserve open-note duration to Clip end (2026-10-04)
+
+An unmatched MIDI 2.0 Note On was previously normalized to an arbitrary 1/64
+beat gate. The MIDI Clip importer now treats it like an unmatched Standard MIDI
+File note and holds it through the End of Clip timestamp. If the attack occurs
+at the clip boundary, its normalized duration remains zero. Regression tests
+cover a note held across the clip and an attack at the boundary. Focused
+MIDI Clip tests passed 33/33; full UI passed 1,056/1,056 across 151 files;
+TypeScript/production build, changed-file lint and `git diff --check` passed.
+This preserves the file's timing in the editable note model, but export still
+serializes a matching Note Off because the project note schema represents
+notes as attack/release pairs. Independent DAW fixtures remain necessary.

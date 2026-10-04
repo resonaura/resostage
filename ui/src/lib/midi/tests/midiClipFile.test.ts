@@ -442,6 +442,26 @@ describe("MIDI Clip File framing and resource bounds", () => {
     expect(statuses).toEqual([9, 8]);
   });
 
+  it("holds unmatched MIDI 2.0 Note On events through End of Clip", () => {
+    const parsed = parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960), dcs(0), start,
+      dcs(240), [0x4090_3c00, 0x8000_0000],
+      dcs(1_680), end,
+    ]));
+    expect(parsed.tracks[0].notes[0]).toMatchObject({
+      startBeats: 0.25,
+      durationBeats: 1.75,
+    });
+    expect(parsed.tracks[0].durationBeats).toBe(2);
+
+    const noteAtClipEnd = parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960), dcs(0), start,
+      dcs(0), [0x4090_3c00, 0x8000_0000],
+      dcs(0), end,
+    ]));
+    expect(noteAtClipEnd.tracks[0].notes[0].durationBeats).toBe(0);
+  });
+
   it("pairs overlapping same-key MIDI 2.0 notes in FIFO order, not by attribute payload", () => {
     const parsed = parseMidiClipFile(framedClip([
       dcs(0), [0x4090_3c01, 0x8000_1111],

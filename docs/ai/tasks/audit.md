@@ -2270,3 +2270,16 @@ across 151 files; Core CTest passed 1/1; the main `ResoStage` target compiled;
 TypeScript/production build, changed-file lint, and `git diff --check` passed.
 A receiver may not make an audible sound from a zero-length gate. Independent
 external DAW fixtures are still needed.
+
+### Latest continuation — preserve open-note duration to Clip end (2026-10-04)
+
+MIDI Clip import now gives a Note On without a matching Note Off the duration
+from its start timestamp to End of Clip, not a fabricated 1/64 beat. This is
+consistent with the existing Standard MIDI File import behavior. An attack at
+the clip boundary stays zero-duration. Focused MIDI Clip tests passed 33/33;
+full UI passed 1,056/1,056 across 151 files; TypeScript/production build,
+changed-file lint and `git diff --check` passed. The editable note schema
+represents attack/release pairs, so exporting this normalized note adds a
+matching Note Off; it is not byte-identical preservation of the unmatched
+source event. Keep testing file-codec and native scheduling edge cases, and do
+not claim complete cross-DAW MIDI 2.0 interoperability.

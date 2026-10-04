@@ -1621,3 +1621,14 @@ passed 1/1; the `ResoStage` target compiled; TypeScript/production build,
 changed-file lint and `git diff --check` passed. Audible output from
 zero-duration notes is receiver-dependent; do not claim otherwise. The details
 and sources are in `docs/MIDI2_REMAINING_WORK.md`.
+
+Latest continuation — unmatched MIDI Clip Note On (2026-10-04): MIDI Clip
+import no longer assigns an arbitrary 1/64-beat length when a note has no
+matching Note Off. It now remains held until End of Clip; a Note On at the
+boundary stays zero-duration. Focused MIDI Clip 33/33; full UI 1,056/1,056
+across 151 files; TypeScript/production build, changed-file lint, and
+`git diff --check` passed. Because the normalized project model is note-pair
+based, export supplies a corresponding release and is not byte-identical for
+an unmatched source attack. Continue the MIDI 2.0 conformance audit with exact
+round-trip boundaries and independent fixtures; commit verified work in
+English and do not push.
