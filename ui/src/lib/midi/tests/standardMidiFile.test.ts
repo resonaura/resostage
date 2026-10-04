@@ -498,6 +498,30 @@ describe("Standard MIDI File", () => {
     expect(analyzeMidi1ExportLoss([{ name: "Controls", regions: [source] }]).unsupportedUmpEvents).toBe(1);
   });
 
+  it("reports only meaningful high-resolution MIDI 2.0 controller downscaling", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 6,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: [0x40b20700, 0x80000001], wordCount: 2 },
+        { beat: 1, words: [0x40a23c00, 0x80000001], wordCount: 2 },
+        { beat: 2, words: [0x40d20000, 0x80000001], wordCount: 2 },
+        { beat: 3, words: [0x40e20000, 0x80000001], wordCount: 2 },
+        { beat: 4, words: [0x40200001, 0x836c1b61], wordCount: 2 },
+        { beat: 4.5, words: [0x40b20700, 0xffff_ffff], wordCount: 2 },
+        { beat: 4.75, words: [0x40200001, 0x836c1b60], wordCount: 2 },
+        { beat: 5, words: [0x40b25400, 0x82012345], wordCount: 2 },
+        { beat: 5.5, words: [0x40200000, 0xfffc1234], wordCount: 2 },
+        { beat: 5.75, words: [0x40200002, 0x82012345], wordCount: 2 },
+      ],
+    };
+
+    expect(analyzeMidi1ExportLoss([{ name: "Controller resolution", regions: [source] }]))
+      .toMatchObject({ quantizedControllerValues: 5, unsupportedUmpEvents: 0 });
+  });
+
   it("converts MIDI Clip SysEx7 complete and start/continue/end UMPs into SMF SysEx events", () => {
     const source: MidiRegionRow = {
       ...region,
@@ -944,6 +968,7 @@ describe("Standard MIDI File", () => {
       groups: 1,
       zeroVelocityNoteOns: 0,
       quantizedVelocities: 1,
+      quantizedControllerValues: 0,
       nonzeroGroupUmpEvents: 0,
       invalidUmpSysExMessages: 0,
       unsupportedUmpEvents: 1,

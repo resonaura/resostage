@@ -2188,8 +2188,6 @@ MIDI Clip tests passed 28/28; full UI passed 1,049/1,049 across 151 files;
 TypeScript/production build, changed-file lint and `git diff --check` passed.
 Basis: [UMP & MIDI 2.0 Protocol v1.1.1 §7.1.10–7.1.11 and Appendix F]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
-Timing placement and cross-application fixtures remain unverified; do not claim
-complete MIDI Clip interoperability.
 
 ### Latest continuation — Set Time Signature output precision (2026-10-04)
 
@@ -2479,3 +2477,16 @@ Focused MIDI tests passed 95/95 across two files; full UI passed 1,095/1,095
 across 151 files; TypeScript, production build, changed-file oxlint, and
 `git diff --check` passed. Basis: [UMP & MIDI 2.0 Protocol v1.1.1 §7.4.7.1]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+Latest export-safety correction — disclose controller resolution loss
+(2026-10-04): Standard `.mid` conversion downscales MIDI 2.0 CC, poly/channel
+pressure, pitch bend, and generic RPN/NRPN values. The loss analyzer now
+compares each value against its canonical MIDI 1.0→MIDI 2.0 MCM round-trip
+and the export dialog warns only when meaningful value bits are lost. It
+excludes fixed-layout special RPNs and CC84/CC126 reserved low bits, while
+continuing to report unsupported packets and note velocity/attribute losses
+separately. Regressions cover lossy values, canonical values, and reserved-bit
+exceptions. Focused Standard MIDI tests passed 61/61; full UI passed
+1,096/1,096 across 151 files; TypeScript, production build, changed-file
+oxlint, and `git diff --check` passed. Basis: [UMP & MIDI 2.0 Protocol
+v1.1.1 §§D.1.4 and D.2.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

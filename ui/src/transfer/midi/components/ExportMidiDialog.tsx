@@ -60,7 +60,7 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
   }), [exportSongIndices, songs, projectTracks, intent.kind, intent.regionId, intent.trackId]);
   const lossReport = useMemo(() => analyzeMidi1ExportLoss(exportTracks), [exportTracks]);
   const hasMidi1Loss = lossReport.noteAttributes + lossReport.groups + lossReport.zeroVelocityNoteOns
-    + lossReport.quantizedVelocities + lossReport.nonzeroGroupUmpEvents
+    + lossReport.quantizedVelocities + lossReport.quantizedControllerValues + lossReport.nonzeroGroupUmpEvents
     + lossReport.invalidUmpSysExMessages + lossReport.unsupportedUmpEvents > 0;
   const midi2LossReport = useMemo(() => analyzeMidi2ExportLoss(exportTracks, {
     fromProjectStart, expandLoops,
@@ -154,6 +154,7 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
                   {lossReport.invalidUmpSysExMessages > 0 && <li>{lossReport.invalidUmpSysExMessages} SysEx7 UMP message(s) are incomplete, interrupted, or have invalid continuation ordering</li>}
                   {lossReport.zeroVelocityNoteOns > 0 && <li>{lossReport.zeroVelocityNoteOns} MIDI 2.0 zero-velocity Note On attack(s) will be raised to velocity 1 so MIDI 1.0 does not interpret them as Note Off</li>}
                   {lossReport.quantizedVelocities > 0 && <li>{lossReport.quantizedVelocities} note(s) have velocity values that exceed MIDI 1.0's 14-bit high-resolution range</li>}
+                  {lossReport.quantizedControllerValues > 0 && <li>{lossReport.quantizedControllerValues} MIDI 2.0 controller, pressure, pitch-bend, or parameter value(s) will be quantized to MIDI 1.0 resolution</li>}
                   {lossReport.unsupportedUmpEvents > 0 && <li>{lossReport.unsupportedUmpEvents} UMP-only event(s) have no implemented MIDI 1.0 conversion</li>}
                 </ul>
                 <label className="flex items-start gap-2 text-foreground/80">

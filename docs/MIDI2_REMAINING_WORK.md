@@ -201,7 +201,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   a MIDI 2.0 zero-velocity Note On is a valid attack but cannot be written as a
   MIDI 1.0 zero-velocity Note On (which means Note Off); the exporter raises it
   to velocity 1 and reports this conversion separately from ordinary 7-bit
-  velocity quantization. SysEx8, Mixed Data Set, MIDI-CI negotiation/profile
+  velocity quantization. It also reports high-resolution MIDI 2.0 CC, pressure,
+  pitch-bend and ordinary RPN/NRPN values when conversion to MIDI 1.0 loses
+  meaningful bits; fixed-width reserved fields in special RPNs and CC84/CC126
+  are not misreported as quantization. SysEx8, Mixed Data Set, MIDI-CI negotiation/profile
   semantics, vendor-specific translations, and arbitrary system/meta events
   are not synthesized automatically. An SMF F7 event without an open F0 is
   ambiguous between a continuation and an escape event; ResoStage does not

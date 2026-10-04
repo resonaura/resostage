@@ -408,6 +408,7 @@ export interface Midi1LossReport {
   groups: number;
   zeroVelocityNoteOns: number;
   quantizedVelocities: number;
+  quantizedControllerValues: number;
   nonzeroGroupUmpEvents: number;
   invalidUmpSysExMessages: number;
   unsupportedUmpEvents: number;
@@ -448,6 +449,52 @@ function midi1NoteMidi2Data(
     attributeType: 0,
     attributeData: 0,
   };
+}
+
+/** Default MIDI 1.0→MIDI 2.0 Min-Center-Max scaling for 7- or 14-bit values. */
+function upscaleMidi1ValueTo32(value: number, sourceBits: 7 | 14): number {
+  const scaleBits = 32 - sourceBits;
+  const shifted = (value << scaleBits) >>> 0;
+  if (value <= 1 << (sourceBits - 1)) return shifted;
+
+  const repeatBits = sourceBits - 1;
+  const repeatMask = (1 << repeatBits) - 1;
+  let repeated = ((value & repeatMask) << (scaleBits - repeatBits)) >>> 0;
+  let expanded = shifted;
+  while (repeated !== 0) {
+    expanded = (expanded | repeated) >>> 0;
+    repeated >>>= repeatBits;
+  }
+  return expanded;
+}
+
+/** True when MIDI 1.0 downscaling discards meaningful MIDI 2.0 resolution. */
+function midi2ControllerValueIsQuantized(words: number[], wordCount: number): boolean {
+  if (wordCount !== 2 || words.length < 2 || (words[0] >>> 28) !== 4) return false;
+  const first = words[0] >>> 0;
+  const status = (first >>> 20) & 0xf;
+  const index = (first >>> 8) & 0x7f;
+  let sourceBits: 7 | 14;
+  if (status === 0x2 || status === 0x3) {
+    const bank = (first >>> 8) & 0x7f;
+    const parameter = first & 0x7f;
+    if (status === 0x2 && bank === 0
+        && (parameter === 0 || [2, 3, 4, 6].includes(parameter))) return false;
+    sourceBits = 14;
+  } else if (status === 0xe) {
+    sourceBits = 14;
+  } else if (status === 0xa || status === 0xd || status === 0xb) {
+    // These defined CC values use only the high seven bits; the low 25 are
+    // reserved and ignored, rather than additional controller resolution.
+    if (status === 0xb && (index === 84 || index === 126)) return false;
+    sourceBits = 7;
+  } else {
+    return false;
+  }
+
+  const value32 = words[1] >>> 0;
+  const midi1Value = value32 >>> (32 - sourceBits);
+  return upscaleMidi1ValueTo32(midi1Value, sourceBits) !== value32;
 }
 
 function regionContainsExportSourceBeat(region: MidiRegionRow, beat: number): boolean {
@@ -496,7 +543,7 @@ function countIncompleteSysEx7Messages(events: MidiRegionRow["umpEvents"]): numb
 export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossReport {
   const report: Midi1LossReport = {
     midi2Notes: 0, noteAttributes: 0, groups: 0, zeroVelocityNoteOns: 0,
-    quantizedVelocities: 0, nonzeroGroupUmpEvents: 0,
+    quantizedVelocities: 0, quantizedControllerValues: 0, nonzeroGroupUmpEvents: 0,
     invalidUmpSysExMessages: 0, unsupportedUmpEvents: 0,
   };
   for (const track of tracks) for (const region of track.regions) {
@@ -539,6 +586,8 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
       }
       if (converted.group !== 0) report.nonzeroGroupUmpEvents++;
       if (converted.sysexStatus !== undefined) continue;
+      if (midi2ControllerValueIsQuantized(event.words, event.wordCount))
+        report.quantizedControllerValues++;
       const first = event.words[0] >>> 0;
       const type = first >>> 28;
       const status = (first >>> 20) & 0xf;

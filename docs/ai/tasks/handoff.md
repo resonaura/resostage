@@ -1516,6 +1516,7 @@ timeline and is not applied during playback. Focused MIDI Clip tests passed
 build, changed-file lint, and `git diff --check` passed. Official basis:
 [UMP & MIDI 2.0 Protocol v1.1.1 §§2.1.3 and 7.2–7.2.3]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
 Review and commit in English, do not push, then continue specific MIDI Clip
 conformance gaps. Keep JR support described as opaque file preservation, not
 complete live MIDI 2.0 support.
@@ -1797,4 +1798,17 @@ Focused MIDI tests: 95/95 across two files; full UI: 1,095/1,095 across 151
 files; TypeScript, production build, changed-file oxlint and `git diff --check`
 passed. Review this block, commit in English, and do not push. Primary basis:
 [UMP & MIDI 2.0 Protocol v1.1.1 §7.4.7.1]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+Latest verified continuation — report MIDI 2.0 controller quantization on
+`.mid` export (2026-10-04): the export loss analyzer compares downscaled MIDI
+2.0 CC, poly/channel pressure, pitch-bend, and generic RPN/NRPN values with
+their canonical MIDI 1.0→MIDI 2.0 MCM values. The dialog now warns when these
+values would lose meaningful resolution. Reserved low bits in the fixed-width
+special RPNs and CC84/CC126 remain ignored without a false warning. Tests also
+verify lossy values, canonical 7-bit maxima and generic parameter round-trips.
+Focused Standard MIDI tests: 61/61; full UI: 1,096/1,096 across 151 files;
+TypeScript, production build, changed-file oxlint and `git diff --check`
+passed. Review and commit in English; do not push. Primary basis: [UMP & MIDI
+2.0 Protocol v1.1.1 §§D.1.4 and D.2.1]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
