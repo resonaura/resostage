@@ -5,7 +5,12 @@
  */
 
 import type { MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
-import { isMidiClipFile, parseMidiClipFile, writeMidiClipFile } from "@/lib/midi/midiClipFile";
+import {
+  isMidiClipFile,
+  midi1EventsToUmps,
+  parseMidiClipFile,
+  writeMidiClipFile,
+} from "@/lib/midi/midiClipFile";
 import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";
 import { songBeatsAtSeconds, songSecondsAtBeat } from "@/lib/midi/tempoMap";
 
@@ -329,7 +334,13 @@ export interface Midi1LossReport {
   groups: number;
   zeroVelocityNoteOns: number;
   quantizedVelocities: number;
+  nonzeroGroupUmpEvents: number;
+  invalidUmpSysExMessages: number;
   unsupportedUmpEvents: number;
+}
+
+export interface Midi2LossReport {
+  unsupportedMidi1Events: number;
 }
 
 function scaleMidi1VelocityToMidi2(value: number): number {
@@ -338,16 +349,59 @@ function scaleMidi1VelocityToMidi2(value: number): number {
   return ((value << 9) | (repeated << 3) | (repeated >>> 3)) & 0xffff;
 }
 
+function regionContainsExportSourceBeat(region: MidiRegionRow, beat: number): boolean {
+  if (!Number.isFinite(beat)
+      || (region.loop && !midiRegionContainsLoopSourceBeat(region, beat))) return false;
+  const relative = beat - region.clipOffsetBeats;
+  return relative >= 0 && relative < region.durationBeats;
+}
+
+function countIncompleteSysEx7Messages(events: MidiRegionRow["umpEvents"]): number {
+  const openGroups = new Set<number>();
+  let invalidMessages = 0;
+  for (const event of events ?? []) {
+    const first = event.words[0] >>> 0;
+    const type = first >>> 28;
+    const group = (first >>> 24) & 0xf;
+    if (type === 0 || type === 0xf) continue;
+    if (type === 3 && event.wordCount === 2) {
+      const status = (first >>> 20) & 0xf;
+      if (status <= 3) {
+        if (!umpEventToMidi1(event.words, event.wordCount)) {
+          if (openGroups.delete(group)) invalidMessages++;
+          continue;
+        }
+        if (status === 0) {
+          if (openGroups.delete(group)) invalidMessages++;
+        } else if (status === 1) {
+          if (openGroups.has(group)) invalidMessages++;
+          openGroups.add(group);
+        } else if (status === 2) {
+          if (!openGroups.has(group)) invalidMessages++;
+        } else if (!openGroups.delete(group)) {
+          invalidMessages++;
+        }
+        continue;
+      }
+    }
+    const systemStatus = type === 1 ? (first >>> 16) & 0xff : 0;
+    const isRealtime = [0xf8, 0xfa, 0xfb, 0xfc, 0xfe, 0xff].includes(systemStatus);
+    if (!isRealtime && openGroups.delete(group)) invalidMessages++;
+  }
+  return invalidMessages + openGroups.size;
+}
+
 /** Inspect selected content before lossy export to Standard MIDI File 1.0. */
 export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossReport {
   const report: Midi1LossReport = {
     midi2Notes: 0, noteAttributes: 0, groups: 0, zeroVelocityNoteOns: 0,
-    quantizedVelocities: 0, unsupportedUmpEvents: 0,
+    quantizedVelocities: 0, nonzeroGroupUmpEvents: 0,
+    invalidUmpSysExMessages: 0, unsupportedUmpEvents: 0,
   };
   for (const track of tracks) for (const region of track.regions) {
     if (region.muted) continue;
     for (const note of region.notes) {
-      if (note.muted || !note.midi2) continue;
+      if (note.muted || !note.midi2 || !regionContainsExportSourceBeat(region, note.startBeats)) continue;
       report.midi2Notes++;
       if (note.midi2.attributeType !== 0 || note.midi2.attributeData !== 0
         || (note.midi2.releaseAttributeType ?? note.midi2.attributeType) !== 0
@@ -362,11 +416,56 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
         || scaleMidi1VelocityToMidi2(off >>> 9) !== off)
         report.quantizedVelocities++;
     }
-    for (const event of region.umpEvents ?? []) {
-      if (!umpEventToMidi1(event.words, event.wordCount)) report.unsupportedUmpEvents++;
+    const selectedUmpEvents = (region.umpEvents ?? []).filter((event) =>
+      event.configurationHeader === true || event.profileConfigurationHeader === true
+        || regionContainsExportSourceBeat(region, event.beat));
+    const orderedUmpEvents = selectedUmpEvents.map((event, index) => ({ event, index }))
+      .sort((a, b) => {
+        const aConfiguration = a.event.configurationHeader === true
+          || a.event.profileConfigurationHeader === true;
+        const bConfiguration = b.event.configurationHeader === true
+          || b.event.profileConfigurationHeader === true;
+        return Number(bConfiguration) - Number(aConfiguration)
+          || a.event.beat - b.event.beat
+          || (a.event.presentationOrder ?? a.index) - (b.event.presentationOrder ?? b.index);
+      })
+      .map(({ event }) => event);
+    for (const event of orderedUmpEvents) {
+      const converted = umpEventToMidi1(event.words, event.wordCount);
+      if (!converted) {
+        report.unsupportedUmpEvents++;
+        continue;
+      }
+      if (converted.group !== 0) report.nonzeroGroupUmpEvents++;
+      if (converted.sysexStatus !== undefined) continue;
+      const first = event.words[0] >>> 0;
+      const type = first >>> 28;
+      const status = (first >>> 20) & 0xf;
+      if (type === 4 && (status === 8 || status === 9)) {
+        const value = event.words[1] >>> 0;
+        const velocity = value >>> 16;
+        if (status === 9 && velocity === 0) report.zeroVelocityNoteOns++;
+        else if (scaleMidi1VelocityToMidi2(velocity >>> 9) !== velocity)
+          report.quantizedVelocities++;
+        if ((first & 0xff) !== 0 || (value & 0xffff) !== 0)
+          report.noteAttributes++;
+      }
     }
+    report.invalidUmpSysExMessages += countIncompleteSysEx7Messages(orderedUmpEvents);
   }
   return report;
+}
+
+/** Inspect raw MIDI 1.0 events that the MIDI Clip UMP stream cannot encode. */
+export function analyzeMidi2ExportLoss(tracks: MidiExportTrack[]): Midi2LossReport {
+  let unsupportedMidi1Events = 0;
+  for (const track of tracks) for (const region of track.regions) {
+    if (region.muted) continue;
+    const selectedEvents = (region.events ?? []).filter((event) =>
+      regionContainsExportSourceBeat(region, event.beat));
+    unsupportedMidi1Events += midi1EventsToUmps(selectedEvents).unsupportedEventCount;
+  }
+  return { unsupportedMidi1Events };
 }
 
 /** Count selected song meter changes whose SMF-only click interval MIDI Clip cannot encode. */
@@ -402,10 +501,54 @@ export interface MidiExportOptions {
   meterEvents?: MidiMeterEvent[];
 }
 
-function umpEventToMidi1(words: number[], wordCount: number): { status: number; data: number[] } | null {
+interface Midi1EventFromUmp {
+  status: number;
+  data: number[];
+  group: number;
+  /** MIDI 1.0 messages that must precede this event at the same tick. */
+  precedingMessages?: Array<{ status: number; data: number[] }>;
+  /** SysEx7 UMP fragment status; kept separate from the SMF F0/F7 status. */
+  sysexStatus?: number;
+}
+
+function umpEventToMidi1(words: number[], wordCount: number): Midi1EventFromUmp | null {
   if (wordCount < 1 || wordCount > words.length) return null;
   const first = words[0] >>> 0;
   const type = first >>> 28;
+  const group = (first >>> 24) & 0xf;
+  if (type === 1) {
+    if (wordCount !== 1) return null;
+    const status = (first >>> 16) & 0xff;
+    const data1 = (first >>> 8) & 0xff;
+    const data2 = first & 0xff;
+    const expectedLength = status === 0xf1 || status === 0xf3 ? 1
+      : status === 0xf2 ? 2
+        : [0xf6, 0xf8, 0xfa, 0xfb, 0xfc, 0xfe, 0xff].includes(status) ? 0 : -1;
+    if (expectedLength < 0) return null;
+    const data = expectedLength === 0 ? [] : expectedLength === 1 ? [data1] : [data1, data2];
+    if (data.some((byte) => byte > 0x7f)
+        || (expectedLength === 0 && (data1 !== 0 || data2 !== 0))
+        || (expectedLength === 1 && data2 !== 0)) return null;
+    return { status, data, group };
+  }
+  if (type === 3) {
+    if (wordCount !== 2) return null;
+    const status = (first >>> 20) & 0xf;
+    const count = (first >>> 16) & 0xf;
+    if (status > 3 || count > 6) return null;
+    const second = words[1] >>> 0;
+    const payload = [
+      (first >>> 8) & 0xff, first & 0xff,
+      (second >>> 24) & 0xff, (second >>> 16) & 0xff,
+      (second >>> 8) & 0xff, second & 0xff,
+    ];
+    if (payload.some((byte, index) => index < count ? byte > 0x7f : byte !== 0)) return null;
+    return {
+      status: status <= 1 ? 0xf0 : 0xf7,
+      data: payload.slice(0, count), group,
+      sysexStatus: status,
+    };
+  }
   if (type !== 2 && type !== 4) return null;
   const status = (first >>> 20) & 0xf;
   const channel = (first >>> 16) & 0xf;
@@ -413,12 +556,12 @@ function umpEventToMidi1(words: number[], wordCount: number): { status: number; 
   const data1 = (first >>> 8) & 0x7f;
   const data2 = first & 0x7f;
   if (type === 2) {
-    if (status === 0xa) return { status: statusByte, data: [data1, data2] };
-    if (status === 0xb) return { status: statusByte, data: [data1, data2] };
-    if (status === 0xc) return { status: statusByte, data: [data1] };
-    if (status === 0xd) return { status: statusByte, data: [data1] };
-    if (status === 0xe) return { status: statusByte, data: [data1, data2] };
-    return null;
+    if (wordCount !== 1 || status < 8 || status > 0xe || (first & 0x8080) !== 0) return null;
+    if (status === 0xc || status === 0xd) {
+      if ((first & 0xff) !== 0) return null;
+      return { status: statusByte, data: [data1], group };
+    }
+    return { status: statusByte, data: [data1, data2], group };
   }
   if (wordCount !== 2) return null;
   // MIDI 2.0 reserves these CC indices for unified Bank/Program, RPN/NRPN,
@@ -428,14 +571,49 @@ function umpEventToMidi1(words: number[], wordCount: number): { status: number; 
   const value32 = words[1] >>> 0;
   const scale32To7 = (value: number) => value >>> 25;
   const scale32To14 = (value: number) => value >>> 18;
-  if (status === 0xa) return { status: statusByte, data: [data1, scale32To7(value32)] };
-  if (status === 0xb) return { status: statusByte, data: [data1, scale32To7(value32)] };
-  if (status === 0xd) return { status: statusByte, data: [scale32To7(value32)] };
+  if (status === 0xc) {
+    const bankValid = (first & 1) !== 0;
+    const program = (value32 >>> 24) & 0x7f;
+    const bankMsb = (value32 >>> 8) & 0x7f;
+    const bankLsb = value32 & 0x7f;
+    // Program Change uses byte 3 as reserved, byte 4 as option flags, and
+    // reserved high bits in each 7-bit program/bank field. Reject malformed
+    // packets rather than silently masking bits into unrelated MIDI data.
+    if ((first & 0x0000fffe) !== 0 || (value32 & 0x80ff8080) !== 0
+        || (!bankValid && (bankMsb !== 0 || bankLsb !== 0))) return null;
+    return {
+      status: statusByte,
+      data: [program],
+      group,
+      precedingMessages: bankValid ? [
+        { status: 0xb0 | channel, data: [0, bankMsb] },
+        { status: 0xb0 | channel, data: [32, bankLsb] },
+      ] : undefined,
+    };
+  }
+  if (status === 0x8) return { status: statusByte, data: [data1, scale32To7(value32)], group };
+  if (status === 0x9) return {
+    status: statusByte, data: [data1, Math.max(1, scale32To7(value32))], group,
+  };
+  if (status === 0xa) return { status: statusByte, data: [data1, scale32To7(value32)], group };
+  if (status === 0xb) return { status: statusByte, data: [data1, scale32To7(value32)], group };
+  if (status === 0xd) return { status: statusByte, data: [scale32To7(value32)], group };
   if (status === 0xe) {
     const value14 = scale32To14(value32);
-    return { status: statusByte, data: [value14 & 0x7f, (value14 >>> 7) & 0x7f] };
+    return { status: statusByte, data: [value14 & 0x7f, (value14 >>> 7) & 0x7f], group };
   }
   return null;
+}
+
+function umpEventToSmfBytes(event: Midi1EventFromUmp): number[][] {
+  if (event.sysexStatus === undefined) {
+    return [...(event.precedingMessages ?? []), { status: event.status, data: event.data }]
+      .map((message) => [message.status, ...message.data]);
+  }
+  const status = event.sysexStatus <= 1 ? 0xf0 : 0xf7;
+  const closesMessage = event.sysexStatus === 0 || event.sysexStatus === 3;
+  const data = closesMessage ? [...event.data, 0xf7] : event.data;
+  return [[status, ...vlq(data.length), ...data]];
 }
 
 /** Write a type-1 SMF, one note track per DAW track plus a tempo map. */
@@ -562,10 +740,12 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
         if (isConfiguration) {
           const converted = umpEventToMidi1(event.words, event.wordCount);
           if (converted) {
-            events.push({ tick: 0, order: -2, bytes: [converted.status, ...converted.data] });
-            totalEvents++;
-            if (events.length > MAX_EVENTS || totalEvents > 400_000)
-              throw new Error("MIDI export exceeds event limit");
+            for (const bytes of umpEventToSmfBytes(converted)) {
+              events.push({ tick: 0, order: -2, bytes });
+              totalEvents++;
+              if (events.length > MAX_EVENTS || totalEvents > 400_000)
+                throw new Error("MIDI export exceeds event limit");
+            }
           }
           // SMF has no distinct receiver-configuration section. Representable
           // setup messages become track-start events and are not region-looped.
@@ -583,10 +763,12 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           const tick = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
           const converted = umpEventToMidi1(event.words, event.wordCount);
           if (!converted) continue;
-          events.push({ tick, order: 1, bytes: [converted.status, ...converted.data] });
-          totalEvents++;
-          if (events.length > MAX_EVENTS || totalEvents > 400_000)
-            throw new Error("MIDI export exceeds event limit");
+          for (const bytes of umpEventToSmfBytes(converted)) {
+            events.push({ tick, order: 1, bytes });
+            totalEvents++;
+            if (events.length > MAX_EVENTS || totalEvents > 400_000)
+              throw new Error("MIDI export exceeds event limit");
+          }
         }
       }
     }

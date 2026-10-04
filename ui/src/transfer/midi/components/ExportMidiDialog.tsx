@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   analyzeMidi1ExportLoss,
+  analyzeMidi2ExportLoss,
   countMidi2TimeSignatureClickIntervalLoss,
   writeSongsMidiFile,
   type MidiExportTrack,
@@ -70,23 +71,28 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
   }, [exportSongIndices, songs, projectTracks, intent.kind, intent.regionId, intent.trackId]);
   const lossReport = useMemo(() => analyzeMidi1ExportLoss(exportTracks), [exportTracks]);
   const hasMidi1Loss = lossReport.noteAttributes + lossReport.groups + lossReport.zeroVelocityNoteOns
-    + lossReport.quantizedVelocities + lossReport.unsupportedUmpEvents > 0;
+    + lossReport.quantizedVelocities + lossReport.nonzeroGroupUmpEvents
+    + lossReport.invalidUmpSysExMessages + lossReport.unsupportedUmpEvents > 0;
+  const midi2LossReport = useMemo(() => analyzeMidi2ExportLoss(exportTracks), [exportTracks]);
   const midi2ClickIntervalLossCount = useMemo(
     () => countMidi2TimeSignatureClickIntervalLoss(songs, exportSongIndices),
     [songs, exportSongIndices],
   );
-  const hasMidi2Loss = midi2ClickIntervalLossCount > 0;
+  const hasMidi2Loss = midi2ClickIntervalLossCount + midi2LossReport.unsupportedMidi1Events > 0;
   const lossFingerprint = JSON.stringify({
     midi1: lossReport,
-    midi2: exportSongIndices.map((index) => ({
-      index,
-      signatures: (songs[index]?.signaturePoints ?? []).map((point) => [
-        point.beat,
-        point.numerator,
-        point.denominator,
-        point.midiClocksPerMetronomeClick ?? 24,
-      ]),
-    })),
+    midi2: {
+      lossReport: midi2LossReport,
+      songs: exportSongIndices.map((index) => ({
+        index,
+        signatures: (songs[index]?.signaturePoints ?? []).map((point) => [
+          point.beat,
+          point.numerator,
+          point.denominator,
+          point.midiClocksPerMetronomeClick ?? 24,
+        ]),
+      })),
+    },
   });
   useEffect(() => {
     setLossAccepted(false);
@@ -153,6 +159,8 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
                 <ul className="list-inside list-disc text-foreground/70">
                   {lossReport.noteAttributes > 0 && <li>{lossReport.noteAttributes} note attribute(s) will be omitted</li>}
                   {lossReport.groups > 0 && <li>{lossReport.groups} note(s) use a UMP group other than 0</li>}
+                  {lossReport.nonzeroGroupUmpEvents > 0 && <li>{lossReport.nonzeroGroupUmpEvents} UMP event(s) use a group other than 0; Standard MIDI has no group field</li>}
+                  {lossReport.invalidUmpSysExMessages > 0 && <li>{lossReport.invalidUmpSysExMessages} SysEx7 UMP message(s) are incomplete, interrupted, or have invalid continuation ordering</li>}
                   {lossReport.zeroVelocityNoteOns > 0 && <li>{lossReport.zeroVelocityNoteOns} MIDI 2.0 zero-velocity Note On attack(s) will be raised to velocity 1 so MIDI 1.0 does not interpret them as Note Off</li>}
                   {lossReport.quantizedVelocities > 0 && <li>{lossReport.quantizedVelocities} note(s) have velocity values that will be quantized to 7 bits</li>}
                   {lossReport.unsupportedUmpEvents > 0 && <li>{lossReport.unsupportedUmpEvents} UMP-only event(s) have no implemented MIDI 1.0 conversion</li>}
@@ -163,9 +171,10 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
                 </label>
               </div>}
               {format === "midi2" && hasMidi2Loss && <div className="space-y-2 rounded-lg border border-warning/35 bg-warning/5 p-3 text-xs">
-                <p className="font-medium text-warning">This MIDI Clip cannot preserve all selected MIDI 1.0 notation metadata:</p>
+                <p className="font-medium text-warning">This MIDI Clip cannot preserve all selected MIDI 1.0 data:</p>
                 <ul className="list-inside list-disc text-foreground/70">
-                  <li>{midi2ClickIntervalLossCount} time-signature change(s) use a non-default MIDI-clock metronome-click interval, which has no MIDI 2.0 Set Time Signature field</li>
+                  {midi2ClickIntervalLossCount > 0 && <li>{midi2ClickIntervalLossCount} time-signature change(s) use a non-default MIDI-clock metronome-click interval, which has no MIDI 2.0 Set Time Signature field</li>}
+                  {midi2LossReport.unsupportedMidi1Events > 0 && <li>{midi2LossReport.unsupportedMidi1Events} MIDI 1.0 event(s) cannot be represented in the MIDI Clip UMP stream and will be omitted</li>}
                 </ul>
                 <label className="flex items-start gap-2 text-foreground/80">
                   <input type="checkbox" checked={midi2LossAccepted} onChange={(event) => setMidi2LossAccepted(event.target.checked)} />

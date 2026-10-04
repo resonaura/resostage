@@ -80,6 +80,17 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   Voice packets are emitted at the beginning of the Standard MIDI File track,
   independent of region trim/loop; unsupported profile-prefix SysEx7 remains
   listed as a lossy event.
+- MIDI 1.0 event conversion between SMF and MIDI Clip now handles valid
+  channel-voice messages, supported System Common/Real-Time messages, and
+  complete/fragmented SysEx7. SMF F0/F7 framing is converted to UMP MT3
+  Complete/Start/Continue/End packets and back; real-time messages may remain
+  interleaved while a SysEx message is open. MIDI 2.0 Program Change with
+  Bank Valid set expands to ordered MIDI 1.0 CC 0, CC 32, then Program Change;
+  with Bank Valid clear it emits only Program Change and validates the required
+  zero bank fields. Invalid reserved bits are rejected. Export warns before
+  dropping ambiguous F7 escape events, unsupported SMF meta events, malformed
+  or interrupted SysEx, and other unrepresentable raw events. Nonzero UMP
+  Groups are not representable in SMF and are reported before export.
 - Exporting a subset from a nonzero timeline origin carries the effective
   tempo and meter at that origin into beat zero of the exported clip.
 - MIDI Clip export follows region mute, trim and loop placement. At an exact
@@ -158,8 +169,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   a MIDI 2.0 zero-velocity Note On is a valid attack but cannot be written as a
   MIDI 1.0 zero-velocity Note On (which means Note Off); the exporter raises it
   to velocity 1 and reports this conversion separately from ordinary 7-bit
-  velocity quantization. MPE/vendor encodings are not synthesized
-  automatically.
+  velocity quantization. SysEx8, Mixed Data Set, MIDI-CI negotiation/profile
+  semantics, vendor-specific translations, and arbitrary system/meta events
+  are not synthesized automatically. An SMF F7 event without an open F0 is
+  ambiguous between a continuation and an escape event; ResoStage does not
+  guess. MPE/vendor encodings are not synthesized automatically.
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay

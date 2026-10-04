@@ -1672,3 +1672,17 @@ exact selected meter metadata, invalidating consent when those loss details
 change. Focused SMF 29/29; full UI 1,064/1,064 across 151 files; TypeScript,
 production build and lint passed. Basis: UMP Protocol v1.1.1 §7.4.2. Pending
 final diff review and English commit; do not push.
+
+Latest verified continuation — MIDI 1.0 event and MIDI 2.0 Program Change
+translation (2026-10-04): Standard MIDI export now expands valid MIDI 2.0
+Program Change UMPs with Bank Valid to CC 0, CC 32, then Program Change;
+without Bank Valid it emits Program Change only. Reserved fields are checked.
+MIDI 1.0 events imported into MIDI Clip convert valid channel voice, supported
+System Common/Real-Time, and complete/fragmented SysEx7 messages. Loss reports
+now cover ambiguous orphan F7 escape events, unsupported raw data, malformed
+or incomplete SysEx, and nonzero UMP Groups. Focused MIDI codec tests 72/72;
+full UI 1,072/1,072 across 151 files; TypeScript/production build, changed-file
+lint and `git diff --check` passed. Reference: UMP & MIDI 2.0 Protocol v1.1.1
+§§7.4.9, 7.6–7.7, D.2.4 and D.3.4. Commit this verified block in English and
+do not push. Continue file interoperability; MIDI-CI negotiation, SysEx8/MDS,
+arbitrary UMP translation, and cross-DAW certification remain incomplete.

@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import {
   analyzeMidi1ExportLoss,
+  analyzeMidi2ExportLoss,
   adaptMidiTracksToSongTempo,
   countMidi2TimeSignatureClickIntervalLoss,
   midiSecondsAtBeat,
@@ -17,6 +18,16 @@ import {
 } from "@/lib/midi/standardMidiFile";
 import type { MidiRegionRow, SongRow } from "@/lib/state/types";
 import { writeMidiClipFile } from "@/lib/midi/midiClipFile";
+
+function sysex7Ump(status: number, payload: number[], group = 0): number[] {
+  const bytes = [...payload, ...Array<number>(6 - payload.length).fill(0)];
+  return [
+    ((3 << 28) | (group << 24) | (status << 20) | (payload.length << 16)
+      | ((bytes[0] ?? 0) << 8) | (bytes[1] ?? 0)) >>> 0,
+    (((bytes[2] ?? 0) << 24) | ((bytes[3] ?? 0) << 16)
+      | ((bytes[4] ?? 0) << 8) | (bytes[5] ?? 0)) >>> 0,
+  ];
+}
 
 const region: MidiRegionRow = {
   id: "r1", trackId: "t1", name: "Pattern", startBeats: 8,
@@ -333,6 +344,159 @@ describe("Standard MIDI File", () => {
     expect(analyzeMidi1ExportLoss([{ name: "Controls", regions: [source] }]).unsupportedUmpEvents).toBe(1);
   });
 
+  it("converts MIDI Clip SysEx7 complete and start/continue/end UMPs into SMF SysEx events", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: sysex7Ump(0, [0x7e, 0x7f, 0x09, 0x01]), wordCount: 2 },
+        { beat: 1, words: sysex7Ump(1, [1, 2, 3, 4, 5, 6]), wordCount: 2 },
+        { beat: 1.5, words: sysex7Ump(2, [7, 8, 9]), wordCount: 2 },
+        { beat: 2, words: sysex7Ump(3, [10, 11]), wordCount: 2 },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile([{ name: "SysEx", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+    expect(parsed.tracks[1].events?.filter((event) => event.status === 0xf0 || event.status === 0xf7)).toEqual([
+      { beat: 0, status: 0xf0, data: [0x7e, 0x7f, 0x09, 0x01, 0xf7] },
+      { beat: 1, status: 0xf0, data: [1, 2, 3, 4, 5, 6] },
+      { beat: 1.5, status: 0xf7, data: [7, 8, 9] },
+      { beat: 2, status: 0xf7, data: [10, 11, 0xf7] },
+    ]);
+  });
+
+  it("reports incomplete or interrupted SysEx7 UMP sequences as a distinct MIDI 1.0 loss", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: sysex7Ump(1, [1, 2, 3]), wordCount: 2 },
+        { beat: 1, words: [0x20c00100], wordCount: 1 },
+      ],
+    };
+    expect(analyzeMidi1ExportLoss([{ name: "Interrupted SysEx", regions: [source] }]))
+      .toMatchObject({ invalidUmpSysExMessages: 1, unsupportedUmpEvents: 0 });
+  });
+
+  it("converts complete and fragmented SMF SysEx into MIDI Clip SysEx7 UMPs", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      events: [
+        { beat: 0, status: 0xf0, data: [0x7e, 0x7f, 0x09, 0x01, 0xf7] },
+        { beat: 1, status: 0xf0, data: [1, 2, 3, 4, 5, 6] },
+        { beat: 1.5, status: 0xf7, data: [7, 8, 9] },
+        { beat: 2, status: 0xf7, data: [10, 11, 0xf7] },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeMidiClipFile([{ name: "SysEx", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+    const events = parsed.tracks[0].umpEvents ?? [];
+    expect(events.map((event) => event.words)).toEqual([
+      sysex7Ump(0, [0x7e, 0x7f, 0x09, 0x01]),
+      sysex7Ump(1, [1, 2, 3, 4, 5, 6]),
+      sysex7Ump(2, [7, 8, 9]),
+      sysex7Ump(3, [10, 11]),
+    ]);
+    expect(analyzeMidi2ExportLoss([{ name: "SysEx", regions: [source] }]))
+      .toEqual({ unsupportedMidi1Events: 0 });
+  });
+
+  it("converts MIDI 1.0 system common/realtime UMPs and reports group loss", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: [0x10f22345], wordCount: 1 },
+        { beat: 1, words: [0x10f10700], wordCount: 1 },
+        { beat: 2, words: [0x11f80000], wordCount: 1 },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile([{ name: "System", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+    expect(parsed.tracks[1].events?.filter((event) => [0xf1, 0xf2, 0xf8].includes(event.status))).toEqual([
+      { beat: 0, status: 0xf2, data: [0x23, 0x45] },
+      { beat: 1, status: 0xf1, data: [0x07] },
+      { beat: 2, status: 0xf8, data: [] },
+    ]);
+    expect(analyzeMidi1ExportLoss([{ name: "System", regions: [source] }]).nonzeroGroupUmpEvents).toBe(1);
+  });
+
+  it("converts MIDI 2.0 Program Change with optional bank select to ordered MIDI 1.0 events", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: [0x40c20000, 0x23000000], wordCount: 2 },
+        { beat: 1, words: [0x40c20001, 0x45000709], wordCount: 2 },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile([{ name: "Programs", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+    expect(parsed.tracks[1].events?.filter((event) => [0xb2, 0xc2].includes(event.status))).toEqual([
+      { beat: 0, status: 0xc2, data: [0x23] },
+      { beat: 1, status: 0xb2, data: [0, 0x07] },
+      { beat: 1, status: 0xb2, data: [32, 0x09] },
+      { beat: 1, status: 0xc2, data: [0x45] },
+    ]);
+    expect(analyzeMidi1ExportLoss([{ name: "Programs", regions: [source] }]).unsupportedUmpEvents).toBe(0);
+  });
+
+  it("rejects malformed MIDI 2.0 Program Change reserved bits and invalid absent-bank fields", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: [0x40c20002, 0x23000000], wordCount: 2 },
+        { beat: 1, words: [0x40c20000, 0x23000100], wordCount: 2 },
+      ],
+    };
+    expect(analyzeMidi1ExportLoss([{ name: "Invalid programs", regions: [source] }]).unsupportedUmpEvents).toBe(2);
+  });
+
+  it("rejects malformed MIDI 1.0 Channel Voice UMP data and padding bits", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: [0x20908080], wordCount: 1 },
+        { beat: 1, words: [0x20c10001], wordCount: 1 },
+      ],
+    };
+    expect(analyzeMidi1ExportLoss([{ name: "Invalid MIDI 1 UMP", regions: [source] }]).unsupportedUmpEvents).toBe(2);
+  });
+
+  it("reports MIDI 1.0 escapes and unrepresentable metadata before MIDI Clip export", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      events: [
+        { beat: 0, status: 0xf7, data: [0x7e, 0x7f] },
+        { beat: 1, status: 0xff, data: [0x06, 0x41] },
+      ],
+    };
+    expect(analyzeMidi2ExportLoss([{ name: "Legacy", regions: [source] }]))
+      .toEqual({ unsupportedMidi1Events: 2 });
+  });
+
   it("exports representable MIDI Clip setup at SMF track start outside trim and loop expansion", () => {
     const source: MidiRegionRow = {
       ...region,
@@ -381,6 +545,8 @@ describe("Standard MIDI File", () => {
       groups: 1,
       zeroVelocityNoteOns: 0,
       quantizedVelocities: 1,
+      nonzeroGroupUmpEvents: 0,
+      invalidUmpSysExMessages: 0,
       unsupportedUmpEvents: 1,
     });
 

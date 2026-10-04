@@ -2337,3 +2337,21 @@ Regression test verifies both warning and output note attack. Focused SMF
 29/29; full UI 1,064/1,064 across 151 files; TypeScript/production build and
 changed-file lint passed. Basis: [UMP & MIDI 2.0 Protocol v1.1.1 §7.4.2]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — MIDI 1.0 event and Program Change translation (2026-10-04)
+
+Standard MIDI export now converts valid MIDI 2.0 Program Change UMPs to one
+MIDI 1.0 Program Change when Bank Valid is clear, or the required ordered
+CC 0 / CC 32 / Program Change sequence when it is set. Reserved option and
+bank/program bits are validated; invalid packets are reported as unsupported
+instead of being silently masked. MIDI 1.0 event import into MIDI Clip also
+converts channel voice, supported System Common/Real-Time messages, and
+complete/fragmented SysEx7 in both directions. Ambiguous orphan F7 escapes,
+incomplete SysEx, unsupported raw events, and nonzero Group data are reported
+before lossy export. MIDI Clip has no MIDI 1.0 group field. Focused MIDI codec
+tests passed 72/72; full UI passed 1,072/1,072 across 151 files; TypeScript,
+production build, changed-file lint, and `git diff --check` passed. References:
+[UMP & MIDI 2.0 Protocol v1.1.1 §§7.4.9, 7.6–7.7, D.2.4, D.3.4]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+No MIDI-CI negotiation, SysEx8/Mixed Data Set conversion, arbitrary UMP
+translation, or cross-DAW certification is implied.

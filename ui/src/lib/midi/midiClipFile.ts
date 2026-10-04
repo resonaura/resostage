@@ -420,12 +420,186 @@ function clipTicksForBeat(beat: number): number {
   return ticks;
 }
 
-function midi1EventToUmp(status: number, data: number[]): number[] | null {
+function sysex7Packet(status: number, payload: number[]): number[] {
+  const count = payload.length;
+  const padded = [...payload, ...Array<number>(6 - count).fill(0)];
+  return [
+    ((3 << 28) | (status << 20) | (count << 16) | ((padded[0] ?? 0) << 8) | (padded[1] ?? 0)) >>> 0,
+    (((padded[2] ?? 0) << 24) | ((padded[3] ?? 0) << 16)
+      | ((padded[4] ?? 0) << 8) | (padded[5] ?? 0)) >>> 0,
+  ];
+}
+
+function midi1SystemMessageToUmp(status: number, data: number[]): number[] | null {
+  const expectedLength = status === 0xf1 || status === 0xf3 ? 1
+    : status === 0xf2 ? 2
+      : [0xf6, 0xf8, 0xfa, 0xfb, 0xfc, 0xfe, 0xff].includes(status) ? 0 : -1;
+  if (data.length !== expectedLength || data.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 0x7f))
+    return null;
+  return [((1 << 28) | (status << 16) | ((data[0] ?? 0) << 8) | (data[1] ?? 0)) >>> 0];
+}
+
+/** Convert one complete, representable MIDI 1.0 message to group-zero UMPs. */
+export function midi1EventToUmps(status: number, data: number[]): number[][] | null {
+  if (!Number.isInteger(status) || status < 0x80 || status > 0xff) return null;
+  if (status === 0xf0) {
+    if (data.at(-1) !== 0xf7) return null;
+    const payload = data.slice(0, -1);
+    if (payload.length > MAX_EVENTS * 6
+        || payload.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 0x7f)) return null;
+    if (payload.length <= 6) return [sysex7Packet(0, payload)];
+    const packets: number[][] = [];
+    for (let offset = 0; offset < payload.length; offset += 6) {
+      const part = payload.slice(offset, offset + 6);
+      const isFirst = offset === 0;
+      const isLast = offset + part.length === payload.length;
+      packets.push(sysex7Packet(isFirst ? 1 : isLast ? 3 : 2, part));
+    }
+    return packets;
+  }
+  if (status >= 0xf0) {
+    if (status === 0xf7) return null; // SMF F7 may be either SysEx continuation or an escape event.
+    const words = midi1SystemMessageToUmp(status, data);
+    return words ? [words] : null;
+  }
   const kind = status & 0xf0;
-  if (status < 0x80 || status > 0xef || data.length < 1) return null;
-  const a = data[0] & 0x7f;
-  const b = (data[1] ?? 0) & 0x7f;
-  return [((0x2 << 28) | (kind << 20) | ((status & 0x0f) << 16) | (a << 8) | b) >>> 0];
+  if (kind < 0x80 || kind > 0xe0) return null;
+  const expectedLength = kind === 0xc0 || kind === 0xd0 ? 1 : 2;
+  if (data.length !== expectedLength
+      || data.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 0x7f)) return null;
+  const a = data[0];
+  const b = data[1] ?? 0;
+  return [[((0x2 << 28) | (kind << 20) | ((status & 0x0f) << 16) | (a << 8) | b) >>> 0]];
+}
+
+export interface Midi1EventForClip {
+  beat: number;
+  status: number;
+  data: number[];
+}
+
+export interface Midi1ClipEventConversion {
+  events: Array<{ beat: number; words: number[]; sourceOrder: number; packetOrder: number }>;
+  unsupportedEventCount: number;
+  exceededEventLimit: boolean;
+}
+
+/**
+ * Convert a track's ordered MIDI 1.0 events to UMP while keeping SysEx
+ * continuation state local to that track. An F7 without an open F0 is an SMF
+ * escape event, not a continuation, and has no implicit UMP interpretation.
+ */
+export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Midi1ClipEventConversion {
+  const converted: Midi1ClipEventConversion = {
+    events: [], unsupportedEventCount: 0, exceededEventLimit: false,
+  };
+  let pendingSysex: Array<{ beat: number; payload: number[]; sourceOrder: number }> | null = null;
+  let pendingByteCount = 0;
+  const maxPendingBytes = MAX_EVENTS * 6;
+  const append = (beat: number, words: number[], sourceOrder: number, packetOrder: number) => {
+    if (converted.events.length >= MAX_EVENTS) {
+      converted.exceededEventLimit = true;
+      return;
+    }
+    converted.events.push({ beat, words, sourceOrder, packetOrder });
+  };
+  const discardPendingSysex = () => {
+    if (pendingSysex) converted.unsupportedEventCount += pendingSysex.length;
+    pendingSysex = null;
+    pendingByteCount = 0;
+  };
+  const appendSysexPackets = (
+    segments: Array<{ beat: number; payload: number[]; sourceOrder: number }>, completeAtEnd: boolean,
+  ) => {
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+      const segment = segments[segmentIndex];
+      const isFirstSegment = segmentIndex === 0;
+      const isLastSegment = completeAtEnd && segmentIndex === segments.length - 1;
+      let packetOrder = 0;
+      if (segment.payload.length === 0) {
+        if (segments.length === 1 && completeAtEnd) {
+          append(segment.beat, sysex7Packet(0, []), segment.sourceOrder, packetOrder);
+        } else if (isFirstSegment) {
+          append(segment.beat, sysex7Packet(1, []), segment.sourceOrder, packetOrder);
+        } else if (isLastSegment) {
+          append(segment.beat, sysex7Packet(3, []), segment.sourceOrder, packetOrder);
+        }
+        if (converted.exceededEventLimit) return;
+        continue;
+      }
+      for (let offset = 0; offset < segment.payload.length; offset += 6) {
+        const payload = segment.payload.slice(offset, offset + 6);
+        const isSegmentFirstPacket = offset === 0;
+        const isSegmentLastPacket = offset + payload.length === segment.payload.length;
+        const isFirstPacket = isFirstSegment && isSegmentFirstPacket;
+        const isLastPacket = isLastSegment && isSegmentLastPacket;
+        const status = segments.length === 1 && completeAtEnd && isFirstPacket && isLastPacket
+          ? 0 : isFirstPacket ? 1 : isLastPacket ? 3 : 2;
+        append(segment.beat, sysex7Packet(status, payload), segment.sourceOrder, packetOrder++);
+        if (converted.exceededEventLimit) return;
+      }
+    }
+  };
+
+  for (const [sourceOrder, event] of events.entries()) {
+    if (converted.exceededEventLimit) break;
+    if (event.status === 0xf0) {
+      if (pendingSysex) discardPendingSysex();
+      const endsMessage = event.data.at(-1) === 0xf7;
+      const payload = endsMessage ? event.data.slice(0, -1) : event.data;
+      const valid = payload.length <= maxPendingBytes
+        && payload.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0x7f);
+      if (!valid) {
+        converted.unsupportedEventCount++;
+        continue;
+      }
+      const segment = { beat: event.beat, payload, sourceOrder };
+      if (endsMessage) {
+        appendSysexPackets([segment], true);
+      } else {
+        pendingSysex = [segment];
+        pendingByteCount = payload.length;
+      }
+      continue;
+    }
+
+    if (event.status === 0xf7) {
+      if (!pendingSysex) {
+        converted.unsupportedEventCount++;
+        continue;
+      }
+      const endsMessage = event.data.at(-1) === 0xf7;
+      const payload = endsMessage ? event.data.slice(0, -1) : event.data;
+      const valid = pendingByteCount + payload.length <= maxPendingBytes
+        && payload.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0x7f);
+      if (!valid) {
+        discardPendingSysex();
+        converted.unsupportedEventCount++;
+        continue;
+      }
+      pendingSysex.push({ beat: event.beat, payload, sourceOrder });
+      pendingByteCount += payload.length;
+      if (endsMessage) {
+        appendSysexPackets(pendingSysex, true);
+        pendingSysex = null;
+        pendingByteCount = 0;
+      }
+      continue;
+    }
+
+    const isRealtime = event.status >= 0xf8 && event.status <= 0xff;
+    if (pendingSysex && !isRealtime) discardPendingSysex();
+    const packets = midi1EventToUmps(event.status, event.data);
+    if (!packets) {
+      converted.unsupportedEventCount++;
+      continue;
+    }
+    for (const [packetOrder, words] of packets.entries()) append(event.beat, words, sourceOrder, packetOrder);
+  }
+  if (pendingSysex) discardPendingSysex();
+  converted.events.sort((a, b) => a.beat - b.beat
+    || a.sourceOrder - b.sourceOrder || a.packetOrder - b.packetOrder);
+  return converted;
 }
 
 /** M2-115 min/center/max scaling from 7-bit MIDI 1.0 velocity to 16 bits. */
@@ -573,11 +747,14 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
       (event): event is ClipSequenceUmpEvent => !event.configuration,
     );
     const configurationEvents = umpEvents.filter((event) => event.configuration);
-    const midiEvents = (region.events ?? []).flatMap((event) => {
+    const sourceMidiEvents = (region.events ?? []).filter((event) =>
+      firstRelativeBeat(event.beat) !== null);
+    const midiEventConversion = midi1EventsToUmps(sourceMidiEvents);
+    if (midiEventConversion.exceededEventLimit)
+      throw new Error("MIDI Clip exceeds the 200,000 event export limit");
+    const midiEvents = midiEventConversion.events.flatMap((event) => {
       const relative = firstRelativeBeat(event.beat);
-      if (relative === null) return [];
-      const words = midi1EventToUmp(event.status, event.data);
-      return words ? [{ relative, words }] : [];
+      return relative === null ? [] : [{ relative, words: event.words }];
     });
     if (!notes.length && !sequenceUmpEvents.length && !midiEvents.length
         && !configurationEvents.length) continue;
