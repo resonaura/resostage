@@ -1686,3 +1686,15 @@ lint and `git diff --check` passed. Reference: UMP & MIDI 2.0 Protocol v1.1.1
 §§7.4.9, 7.6–7.7, D.2.4 and D.3.4. Commit this verified block in English and
 do not push. Continue file interoperability; MIDI-CI negotiation, SysEx8/MDS,
 arbitrary UMP translation, and cross-DAW certification remain incomplete.
+
+Latest continuation — MIDI 1.0 Bank Select state for MIDI Clip export
+(2026-10-04): within each source region, CC 0/32 are accumulated independently
+per channel and folded into the next valid Program Change as MIDI 2.0 Program
+Change with Bank Valid set. Subsequent Program Change without a new Bank Select
+uses Bank Valid clear. Unmatched bank selectors and special compound CCs are
+reported as unsupported, not encoded as generic MIDI 2.0 CC. RPN/NRPN
+translation and state shared across DAW regions remain open. Focused MIDI codec
+tests 74/74; full UI 1,074/1,074 across 151 files; TypeScript/production
+build, changed-file lint, and `git diff --check` passed. Standard: UMP & MIDI
+2.0 Protocol v1.1.1 §§D.3.3–D.3.4. Commit in English, do not push, and
+continue the file-codec audit.

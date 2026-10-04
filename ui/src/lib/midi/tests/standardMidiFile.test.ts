@@ -17,7 +17,7 @@ import {
   writeStandardMidiFile,
 } from "@/lib/midi/standardMidiFile";
 import type { MidiRegionRow, SongRow } from "@/lib/state/types";
-import { writeMidiClipFile } from "@/lib/midi/midiClipFile";
+import { midi1EventsToUmps, writeMidiClipFile } from "@/lib/midi/midiClipFile";
 
 function sysex7Ump(status: number, payload: number[], group = 0): number[] {
   const bytes = [...payload, ...Array<number>(6 - payload.length).fill(0)];
@@ -408,6 +408,31 @@ describe("Standard MIDI File", () => {
     ]);
     expect(analyzeMidi2ExportLoss([{ name: "SysEx", regions: [source] }]))
       .toEqual({ unsupportedMidi1Events: 0 });
+  });
+
+  it("folds MIDI 1.0 Bank Select into the next same-channel MIDI 2.0 Program Change", () => {
+    const converted = midi1EventsToUmps([
+      { beat: 0, status: 0xb2, data: [0, 7] },
+      { beat: 0.25, status: 0xb2, data: [32, 9] },
+      { beat: 0.5, status: 0xc2, data: [0x45] },
+      { beat: 1, status: 0xc2, data: [0x46] },
+    ]);
+    expect(converted.events.map((event) => event.words)).toEqual([
+      [0x40c20001, 0x45000709],
+      [0x40c20000, 0x46000000],
+    ]);
+    expect(converted.unsupportedEventCount).toBe(0);
+  });
+
+  it("reports standalone Bank Select and unsupported compound CCs instead of encoding ordinary MIDI 2.0 CCs", () => {
+    const converted = midi1EventsToUmps([
+      { beat: 0, status: 0xb0, data: [0, 3] },
+      { beat: 0.25, status: 0xb0, data: [32, 4] },
+      { beat: 0.5, status: 0xb0, data: [101, 0] },
+      { beat: 0.75, status: 0xb0, data: [6, 12] },
+    ]);
+    expect(converted.events).toEqual([]);
+    expect(converted.unsupportedEventCount).toBe(4);
   });
 
   it("converts MIDI 1.0 system common/realtime UMPs and reports group loss", () => {

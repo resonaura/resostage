@@ -2355,3 +2355,16 @@ production build, changed-file lint, and `git diff --check` passed. References:
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 No MIDI-CI negotiation, SysEx8/Mixed Data Set conversion, arbitrary UMP
 translation, or cross-DAW certification is implied.
+
+### Latest continuation — fold MIDI 1.0 Bank Select into MIDI 2.0 Program Change (2026-10-04)
+
+MIDI 1.0 CC 0/32 are now tracked per channel within each source region and
+folded into the next valid Program Change as one MIDI 2.0 Program Change with
+Bank Valid set. A later Program Change without a new bank select emits
+Bank Valid clear. Standalone/unmatched bank selects and special compound CCs
+(RPN/NRPN and High Resolution Velocity Prefix) are counted as unrepresentable
+instead of being mislabeled as ordinary MIDI 2.0 CCs. Bank state is not shared
+between separate DAW regions yet. Focused MIDI codec tests passed 74/74; full
+UI passed 1,074/1,074 across 151 files; TypeScript, production build,
+changed-file lint, and `git diff --check` passed. Basis: [UMP & MIDI 2.0
+Protocol v1.1.1 §§D.3.3–D.3.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

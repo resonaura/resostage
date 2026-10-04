@@ -439,6 +439,17 @@ function midi1SystemMessageToUmp(status: number, data: number[]): number[] | nul
   return [((1 << 28) | (status << 16) | ((data[0] ?? 0) << 8) | (data[1] ?? 0)) >>> 0];
 }
 
+function midi1ProgramChangeToUmp(
+  channel: number,
+  program: number,
+  bank?: { msb: number; lsb: number },
+): number[] {
+  const bankValid = bank !== undefined;
+  const first = ((4 << 28) | (0xc << 20) | (channel << 16) | (bankValid ? 1 : 0)) >>> 0;
+  const second = ((program << 24) | ((bank?.msb ?? 0) << 8) | (bank?.lsb ?? 0)) >>> 0;
+  return [first, second];
+}
+
 /** Convert one complete, representable MIDI 1.0 message to group-zero UMPs. */
 export function midi1EventToUmps(status: number, data: number[]): number[][] | null {
   if (!Number.isInteger(status) || status < 0x80 || status > 0xff) return null;
@@ -469,6 +480,11 @@ export function midi1EventToUmps(status: number, data: number[]): number[][] | n
       || data.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 0x7f)) return null;
   const a = data[0];
   const b = data[1] ?? 0;
+  // MIDI 2.0 has dedicated messages or stateful compound translation for
+  // Bank Select, RPN/NRPN, and the MIDI 1.0 high-resolution velocity prefix.
+  // Never mislabel those reserved CC indices as ordinary MIDI 2.0 CCs.
+  if (kind === 0xb0 && [0, 6, 32, 38, 88, 98, 99, 100, 101].includes(a)) return null;
+  if (kind === 0xc0) return [midi1ProgramChangeToUmp(status & 0x0f, a)];
   return [[((0x2 << 28) | (kind << 20) | ((status & 0x0f) << 16) | (a << 8) | b) >>> 0]];
 }
 
@@ -495,6 +511,7 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
   };
   let pendingSysex: Array<{ beat: number; payload: number[]; sourceOrder: number }> | null = null;
   let pendingByteCount = 0;
+  const bankByChannel = new Map<number, { msb: number; lsb: number; pendingMessageCount: number }>();
   const maxPendingBytes = MAX_EVENTS * 6;
   const append = (beat: number, words: number[], sourceOrder: number, packetOrder: number) => {
     if (converted.events.length >= MAX_EVENTS) {
@@ -589,7 +606,31 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
 
     const isRealtime = event.status >= 0xf8 && event.status <= 0xff;
     if (pendingSysex && !isRealtime) discardPendingSysex();
-    const packets = midi1EventToUmps(event.status, event.data);
+    const kind = event.status & 0xf0;
+    const channel = event.status & 0x0f;
+    if (kind === 0xb0 && (event.data[0] === 0 || event.data[0] === 32)) {
+      const valid = event.data.length === 2
+        && event.data.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0x7f);
+      if (!valid) {
+        converted.unsupportedEventCount++;
+        continue;
+      }
+      const bank = bankByChannel.get(channel) ?? { msb: 0, lsb: 0, pendingMessageCount: 0 };
+      if (event.data[0] === 0) bank.msb = event.data[1];
+      else bank.lsb = event.data[1];
+      bank.pendingMessageCount++;
+      bankByChannel.set(channel, bank);
+      continue;
+    }
+
+    let packets = midi1EventToUmps(event.status, event.data);
+    if (kind === 0xc0 && packets) {
+      const bank = bankByChannel.get(channel);
+      if (bank && bank.pendingMessageCount > 0) {
+        packets = [midi1ProgramChangeToUmp(channel, event.data[0], bank)];
+        bank.pendingMessageCount = 0;
+      }
+    }
     if (!packets) {
       converted.unsupportedEventCount++;
       continue;
@@ -597,6 +638,8 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
     for (const [packetOrder, words] of packets.entries()) append(event.beat, words, sourceOrder, packetOrder);
   }
   if (pendingSysex) discardPendingSysex();
+  for (const bank of bankByChannel.values())
+    converted.unsupportedEventCount += bank.pendingMessageCount;
   converted.events.sort((a, b) => a.beat - b.beat
     || a.sourceOrder - b.sourceOrder || a.packetOrder - b.packetOrder);
   return converted;
