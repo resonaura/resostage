@@ -1617,3 +1617,33 @@ UI typecheck and changed-file lint passed. Full UI and production-build
 results are recorded in the handoff entry. This does not cap React Flow's
 linear edge rendering or establish visual legibility in a mounted dense graph;
 sidechain endpoints/routing remain open.
+
+### Latest continuation — bounded plug-in sidechain path and Signal Flow view (2026-10-03)
+
+Commits `4e124bb7` and `491335ca` add project-format-v12 sidechain slot
+bindings, DAG validation/topological order, and a bounded live/offline audio
+feed to JUCE auxiliary input buses. The live-host ABI is v10 and transports at
+most eight block-sized stereo feeds without callback allocation. Source mute,
+solo and automation mute are respected. Per-plugin preset storage/state was
+also added in `48817310`; do not repeat that work.
+
+The follow-up Signal Flow change projects separate sidechain edges through
+`/api/v1/audio/mixgraph` with exact strip/slot IDs, plug-in label, bus index,
+mapping mode and resolved audibility. The diagram renders a dashed,
+track-coloured path with a distinct curve when ordinary audio and sidechain
+edges share endpoints; focused bus paths include sidechain but exclude MIDI.
+This is read-only graph visibility, not route authoring or aux-bus validation.
+
+Verification for the current follow-up: Signal Flow layout/model tests 32/32;
+full UI 917 tests / 138 files; TypeScript, production UI build, changed-file
+lint, optimized Core/helper build, native CTest 1/1, and diff check passed.
+The plugin-presets, sidechain-model/audio and UI-visualization blocks have
+separate commits (`48817310`, `4e124bb7`, `491335ca`, and `3ed580f2`).
+
+Still open before claiming sidechain complete: slot-aware PDC (ordinary send
+PDC does not align a plugin sidechain), actual auxiliary-bus capability
+discovery, undoable UI route authoring with exact graph publication results,
+real AU/VST3 sidechain fixtures, active-playback edits, bypass/fault behavior,
+and acoustic live/offline parity. No hardware or real sidechain-capable plugin
+was exercised. Preserve the last-good graph and unchanged healthy helpers on
+route edits; never restart transport as a workaround.
