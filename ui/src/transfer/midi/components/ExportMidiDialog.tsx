@@ -9,8 +9,8 @@ import {
   analyzeMidi1ExportLoss,
   analyzeMidi2ExportLoss,
   countMidi2TimeSignatureClickIntervalLoss,
+  midiExportTracksForSongs,
   writeSongsMidiFile,
-  type MidiExportTrack,
 } from "@/lib/midi/standardMidiFile";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal, Switch } from "@/components/ui";
@@ -51,29 +51,20 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
     [intent.kind, intent.songIndex, selectedSongs],
   );
   const exportSelectionKey = exportSongIndices.join(",");
-  const exportTracks = useMemo(() => {
-    const tracks = new Map<string, MidiExportTrack>();
-    const trackNames = new Map(projectTracks.map((track) => [track.id, track.name]));
-    for (const songIndex of exportSongIndices) {
-      const song = songs[songIndex];
-      if (!song) continue;
-      for (const region of song.midiRegions ?? []) {
-        if (intent.kind === "region" && region.id !== intent.regionId) continue;
-        if (intent.kind === "region" && intent.trackId && region.trackId !== intent.trackId) continue;
-        if (intent.kind === "track" && region.trackId !== intent.trackId) continue;
-        const name = trackNames.get(region.trackId) ?? region.trackId;
-        const entry = tracks.get(region.trackId) ?? { name, regions: [] };
-        entry.regions.push(region);
-        tracks.set(region.trackId, entry);
-      }
-    }
-    return [...tracks.values()];
-  }, [exportSongIndices, songs, projectTracks, intent.kind, intent.regionId, intent.trackId]);
+  const exportTracks = useMemo(() => midiExportTracksForSongs(songs, {
+    songIndices: exportSongIndices,
+    tracks: projectTracks,
+    trackIds: (intent.kind === "track" || intent.kind === "region") && intent.trackId
+      ? new Set([intent.trackId]) : undefined,
+    regionId: intent.kind === "region" ? intent.regionId ?? "" : undefined,
+  }), [exportSongIndices, songs, projectTracks, intent.kind, intent.regionId, intent.trackId]);
   const lossReport = useMemo(() => analyzeMidi1ExportLoss(exportTracks), [exportTracks]);
   const hasMidi1Loss = lossReport.noteAttributes + lossReport.groups + lossReport.zeroVelocityNoteOns
     + lossReport.quantizedVelocities + lossReport.nonzeroGroupUmpEvents
     + lossReport.invalidUmpSysExMessages + lossReport.unsupportedUmpEvents > 0;
-  const midi2LossReport = useMemo(() => analyzeMidi2ExportLoss(exportTracks), [exportTracks]);
+  const midi2LossReport = useMemo(() => analyzeMidi2ExportLoss(exportTracks, {
+    fromProjectStart, expandLoops,
+  }), [exportTracks, fromProjectStart, expandLoops]);
   const midi2ClickIntervalLossCount = useMemo(
     () => countMidi2TimeSignatureClickIntervalLoss(songs, exportSongIndices),
     [songs, exportSongIndices],

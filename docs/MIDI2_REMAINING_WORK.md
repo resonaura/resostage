@@ -100,8 +100,13 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   selection is ignored, while unmatched Bank Select, orphan/incomplete Data
   Entry, and incomplete parameter selection are reported rather than encoded
   as ordinary MIDI 2.0 CCs. Both directions use Appendix D.1 min/center/max
-  scaling. Bank and parameter state is scoped to each source region during
-  MIDI Clip export and is not yet shared across DAW regions.
+  scaling. During MIDI Clip export, selected raw MIDI 1.0 events are projected
+  through region trim/loop placement, ordered on the merged output timeline,
+  then translated as one channel-state stream. Bank, RPN/NRPN, and SysEx
+  continuation state can therefore span selected regions, tracks, and
+  concatenated songs. Simultaneous events have deterministic order by output
+  tick, selected track/region order, loop occurrence, and source event order.
+  Loss analysis uses the same beat-offset track selection and loop setting.
 - Standard MIDI File import folds MIDI Association CA-031 CC 88 High Resolution
   Velocity Prefix into the next Note On/Off velocity on the same channel;
   other MIDI messages may intervene, each note edge consumes the prefix
@@ -197,8 +202,7 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   ambiguous between a continuation and an escape event; ResoStage does not
   guess. An unpaired MIDI 1.0 CC 88 prefix remains unrepresentable in the MIDI
   Clip event stream and is disclosed; successfully matched prefixes are attached
-  to notes. Bank and RPN/NRPN state is scoped to each region during MIDI Clip
-  export. MPE/vendor encodings are not synthesized automatically.
+  to notes. MPE/vendor encodings are not synthesized automatically.
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay

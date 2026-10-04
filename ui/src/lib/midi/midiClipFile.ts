@@ -521,6 +521,12 @@ export interface Midi1ClipEventConversion {
   exceededEventLimit: boolean;
 }
 
+interface ScheduledMidi1Event extends Midi1EventForClip {
+  regionOrder: number;
+  loopOrder: number;
+  sourceEventOrder: number;
+}
+
 interface Midi1ParameterState {
   selectedType?: "rpn" | "nrpn";
   rpnMsb?: number;
@@ -782,6 +788,62 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
   return converted;
 }
 
+/**
+ * Convert the MIDI 1.0 event stream formed by selected regions into one UMP
+ * stream. Compound channel state is therefore shared across regions/tracks,
+ * matching the merged MIDI Clip sequence rather than resetting at each clip.
+ */
+export function midi1RegionsToUmps(
+  tracks: ReadonlyArray<MidiExportTrack>,
+  options: Pick<MidiExportOptions, "fromProjectStart" | "expandLoops">,
+): Midi1ClipEventConversion {
+  const earliest = tracks.reduce((minimum, track) => track.regions.reduce(
+    (value, region) => Math.min(value, region.startBeats), minimum,
+  ), Infinity);
+  const origin = options.fromProjectStart || !Number.isFinite(earliest) ? 0 : earliest;
+  const scheduled: ScheduledMidi1Event[] = [];
+  let regionOrder = 0;
+  let exceededEventLimit = false;
+
+  for (const track of tracks) for (const region of track.regions) {
+    const currentRegionOrder = regionOrder++;
+    if (region.muted) continue;
+    const loopLength = region.loopLengthBeats > 0 ? region.loopLengthBeats : region.durationBeats;
+    const expandRegionLoop = options.expandLoops && region.loop && loopLength > 0;
+    const loopCount = expandRegionLoop
+      ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength)) : 1;
+    for (const [sourceEventOrder, event] of (region.events ?? []).entries()) {
+      if (!Number.isFinite(event.beat)
+          || (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat))) continue;
+      const sourceRelative = expandRegionLoop
+        ? midiRegionLoopOccurrence(region, event.beat)
+        : event.beat - region.clipOffsetBeats;
+      if (sourceRelative < 0 || sourceRelative >= region.durationBeats) continue;
+
+      for (let loopOrder = 0; loopOrder < loopCount; loopOrder++) {
+        const relative = sourceRelative + (expandRegionLoop ? loopOrder * loopLength : 0);
+        if (relative >= region.durationBeats) continue;
+        const beat = region.startBeats + relative - origin;
+        if (beat < -1e-9) continue;
+        if (scheduled.length >= MAX_EVENTS) {
+          exceededEventLimit = true;
+          break;
+        }
+        scheduled.push({ beat: Math.max(0, beat), status: event.status, data: event.data,
+          regionOrder: currentRegionOrder, loopOrder, sourceEventOrder });
+      }
+      if (exceededEventLimit) break;
+    }
+    if (exceededEventLimit) break;
+  }
+
+  scheduled.sort((a, b) => clipTicksForBeat(a.beat) - clipTicksForBeat(b.beat)
+    || a.beat - b.beat || a.regionOrder - b.regionOrder
+    || a.loopOrder - b.loopOrder || a.sourceEventOrder - b.sourceEventOrder);
+  const converted = midi1EventsToUmps(scheduled);
+  return exceededEventLimit ? { ...converted, exceededEventLimit: true } : converted;
+}
+
 /** M2-115 min/center/max scaling from 7-bit MIDI 1.0 velocity to 16 bits. */
 function midi1VelocityToMidi2(value: number): number {
   const sevenBit = Math.max(0, Math.min(127, Math.round(value * 127)));
@@ -863,6 +925,9 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
       throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
     events.push(event);
   };
+  const midi1EventConversion = midi1RegionsToUmps(tracks, options);
+  if (midi1EventConversion.exceededEventLimit)
+    throw new Error("MIDI Clip exceeds the 200,000 event export limit");
   const addNote = (note: MidiNoteRow, beat: number, durationBeats: number,
                    sourceRegionOrder: number, preserveSourceOrder: boolean) => {
     for (const [index, item] of notePackets({ ...note, startBeats: beat, durationBeats }, 0).entries()) {
@@ -927,16 +992,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
       (event): event is ClipSequenceUmpEvent => !event.configuration,
     );
     const configurationEvents = umpEvents.filter((event) => event.configuration);
-    const sourceMidiEvents = (region.events ?? []).filter((event) =>
-      firstRelativeBeat(event.beat) !== null);
-    const midiEventConversion = midi1EventsToUmps(sourceMidiEvents);
-    if (midiEventConversion.exceededEventLimit)
-      throw new Error("MIDI Clip exceeds the 200,000 event export limit");
-    const midiEvents = midiEventConversion.events.flatMap((event) => {
-      const relative = firstRelativeBeat(event.beat);
-      return relative === null ? [] : [{ relative, words: event.words }];
-    });
-    if (!notes.length && !sequenceUmpEvents.length && !midiEvents.length
+    if (!notes.length && !sequenceUmpEvents.length
         && !configurationEvents.length) continue;
 
     for (const event of configurationEvents) {
@@ -974,15 +1030,10 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
               sourcePresentationOrder: event.presentationOrder } : {}) });
         }
       }
-      for (const { relative: sourceRelative, words } of midiEvents) {
-        const relative = sourceRelative + loopOffset;
-        if (relative < 0 || relative >= region.durationBeats) continue;
-        const beat = region.startBeats + relative - origin;
-        if (beat >= -1e-9)
-          appendEvent({ beat: Math.max(0, beat), words, priority: 1, order: order++ });
-      }
     }
   }
+  for (const event of midi1EventConversion.events)
+    appendEvent({ beat: event.beat, words: event.words, priority: 1, order: order++ });
   const rawTempoEvents = [...(options.tempoEvents ?? [{ beat: 0, bpm: options.bpm }])];
   if (rawTempoEvents.some((item) => !Number.isFinite(item.beat)
       || !Number.isFinite(item.bpm) || item.bpm <= 0))

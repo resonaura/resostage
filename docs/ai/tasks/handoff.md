@@ -1729,3 +1729,19 @@ Association CA-031 and UMP & MIDI 2.0 Protocol v1.1.1 §§D.1/D.2.1. This closes
 the file-codec CC 88 task only; live input, MIDI Clip note-edge encoding and
 cross-DAW certification remain out of scope. Continue with another bounded
 interoperability gap; commit verified work in English and do not push.
+
+Latest verified continuation — MIDI 1.0 state across the merged MIDI Clip
+stream (2026-10-04): Bank Select/Program Change, RPN/NRPN and SysEx continuation
+state no longer resets for each source region. Selected raw MIDI 1.0 events are
+first projected through trim and loop expansion, then ordered on the merged
+output timeline and translated as one stream. The export dialog's loss report
+uses the same multi-song beat offsets and loop setting as the writer. This is
+important because `.midi2` carries one merged sequence, not independent DAW
+track streams. Deterministic same-tick ordering across tracks is selected
+track/region order, then source order. Tests cover Bank Select and RPN/NRPN
+split across tracks, RPN state across two concatenated songs, and SysEx7
+continuation across regions. Focused tests: 88/88; full UI: 1,088/1,088 across
+151 files; TypeScript, production build, changed-file oxlint and diff check
+passed. This closes only compound-state continuity for file export. Do not
+claim MIDI 2.0 live UMP I/O, MIDI-CI, SysEx8/MDS, or cross-DAW certification.
+Commit this verified block in English and do not push; continue after it.

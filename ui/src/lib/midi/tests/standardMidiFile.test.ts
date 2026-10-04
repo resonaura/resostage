@@ -10,6 +10,7 @@ import {
   analyzeMidi2ExportLoss,
   adaptMidiTracksToSongTempo,
   countMidi2TimeSignatureClickIntervalLoss,
+  midiExportTracksForSongs,
   midiSecondsAtBeat,
   parseStandardMidiFile,
   songBeatAtElapsedSeconds,
@@ -622,6 +623,73 @@ describe("Standard MIDI File", () => {
     expect(converted.unsupportedEventCount).toBe(0);
   });
 
+  it("keeps MIDI Clip channel state across tracks and regions in the merged UMP stream", () => {
+    const selectorTrack: MidiRegionRow = {
+      ...region,
+      id: "selectors",
+      trackId: "t1",
+      startBeats: 0,
+      durationBeats: 2,
+      notes: [],
+      events: [
+        { beat: 0, status: 0xb0, data: [0, 7] },
+        { beat: 0, status: 0xb0, data: [32, 9] },
+        { beat: 0, status: 0xb0, data: [101, 0] },
+        { beat: 0, status: 0xb0, data: [100, 1] },
+        { beat: 0.5, status: 0xb0, data: [6, 2] },
+      ],
+    };
+    const completionTrack: MidiRegionRow = {
+      ...region,
+      id: "completion",
+      trackId: "t2",
+      startBeats: 1,
+      durationBeats: 2,
+      notes: [],
+      events: [
+        { beat: 0, status: 0xb0, data: [38, 50] },
+        { beat: 0.25, status: 0xc0, data: [0x45] },
+      ],
+    };
+    const sysexStartTrack: MidiRegionRow = {
+      ...region,
+      id: "sysex-start",
+      trackId: "t3",
+      startBeats: 2,
+      durationBeats: 2,
+      notes: [],
+      events: [{ beat: 0, status: 0xf0, data: [0x41, 0x01] }],
+    };
+    const sysexEndTrack: MidiRegionRow = {
+      ...region,
+      id: "sysex-end",
+      trackId: "t4",
+      startBeats: 3,
+      durationBeats: 2,
+      notes: [],
+      events: [{ beat: 0, status: 0xf7, data: [0x02, 0xf7] }],
+    };
+    const tracks = [
+      { name: "Controls", regions: [selectorTrack] },
+      { name: "Program", regions: [completionTrack] },
+      { name: "SysEx start", regions: [sysexStartTrack] },
+      { name: "SysEx end", regions: [sysexEndTrack] },
+    ];
+    const parsed = parseStandardMidiFile(writeMidiClipFile(tracks, {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false,
+    }));
+
+    expect(parsed.tracks[0].umpEvents?.map((event) => ({ beat: event.beat, words: event.words })))
+      .toEqual([
+        { beat: 1, words: [0x40200001, 0x04c80000] },
+        { beat: 1.25, words: [0x40c00001, 0x45000709] },
+        { beat: 2, words: sysex7Ump(1, [0x41, 0x01]) },
+        { beat: 3, words: sysex7Ump(3, [0x02]) },
+      ]);
+    expect(analyzeMidi2ExportLoss(tracks)).toEqual({ unsupportedMidi1Events: 0 });
+  });
+
   it("does not translate RPN null selection or incomplete/orphan Data Entry", () => {
     const converted = midi1EventsToUmps([
       { beat: 0, status: 0xb0, data: [101, 127] },
@@ -1002,6 +1070,40 @@ describe("Standard MIDI File", () => {
     expect(parsed.tempoEvents[1].bpm).toBeCloseTo(90, 2);
     expect(parsed.meterEvents.map((event) => event.numerator)).toEqual([4, 3]);
     expect(parsed.tracks[1].notes.map((note) => note.startBeats)).toEqual([0.5, 4.5]);
+  });
+
+  it("shares MIDI Clip RPN state across concatenated song boundaries", () => {
+    const makeSong = (name: string, midi: MidiRegionRow): SongRow => ({
+      name, bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: 2,
+      click: false, clickBusId: "", clickSends: [], regions: [], events: [],
+      midiRegions: [midi],
+    });
+    const songA = makeSong("A", {
+      ...region, startBeats: 0, durationBeats: 4, notes: [],
+      events: [
+        { beat: 0, status: 0xb0, data: [101, 0] },
+        { beat: 0, status: 0xb0, data: [100, 1] },
+        { beat: 1, status: 0xb0, data: [6, 2] },
+      ],
+    });
+    const songB = makeSong("B", {
+      ...region, startBeats: 0, durationBeats: 4, notes: [],
+      events: [{ beat: 0, status: 0xb0, data: [38, 50] }],
+    });
+    const tracks = [{ id: "t1", name: "Piano" }];
+    const exportedTracks = midiExportTracksForSongs([songA, songB], {
+      songIndices: [0, 1], tracks,
+    });
+    expect(exportedTracks[0].regions.map((item) => item.startBeats)).toEqual([0, 4]);
+    expect(analyzeMidi2ExportLoss(exportedTracks, {
+      fromProjectStart: true, expandLoops: false,
+    })).toEqual({ unsupportedMidi1Events: 0 });
+
+    const parsed = parseStandardMidiFile(writeSongsMidiFile([songA, songB], {
+      songIndices: [0, 1], tracks, fromProjectStart: true, expandLoops: false, format: "midi2",
+    }));
+    expect(parsed.tracks[0].umpEvents?.map((event) => ({ beat: event.beat, words: event.words })))
+      .toEqual([{ beat: 4, words: [0x40200001, 0x04c80000] }]);
   });
 
   it("uses project-global track IDs to keep equally named MIDI tracks separate", () => {

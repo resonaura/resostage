@@ -2407,3 +2407,22 @@ across 151 files; TypeScript, production build, changed-file oxlint and
 and [UMP & MIDI 2.0 Protocol v1.1.1 §§D.1 and D.2.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 This is file-codec support, not a claim that live MIDI or MIDI Clip can carry
 CC 88's note-edge modifier as an independent event.
+
+Latest verified continuation — share MIDI 1.0 compound state across MIDI Clip
+regions (2026-10-04): MIDI Clip is one merged UMP event stream, but the writer
+previously converted MIDI 1.0 raw events independently per source region. This
+incorrectly dropped legal Bank Select / Program Change, RPN/NRPN, and
+fragmented SysEx sequences crossing region boundaries. The writer now projects
+selected raw events through trim and optional loop expansion, sorts them by
+serialized output tick with deterministic track/region/loop/source ordering,
+and translates one combined stream. Per-channel compound state therefore
+continues across tracks, regions, and concatenated songs. MIDI 2.0 export loss
+analysis consumes the same beat-offset song selection and loop setting as the
+export dialog/writer. Regression coverage includes Bank Select and RPN/NRPN
+split across tracks, an RPN value split across two concatenated songs, and
+SysEx7 fragments across regions. Focused MIDI tests passed 88/88; full UI passed
+1,088/1,088 across 151 files; TypeScript, production build, changed-file oxlint
+and `git diff --check` passed. This does not claim user-authored source order
+across independent same-tick DAW tracks; ties are deterministic by selected
+track/region order. Continue with the next bounded interoperability gap; do not
+push.

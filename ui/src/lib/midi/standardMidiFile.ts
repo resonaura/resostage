@@ -7,7 +7,7 @@
 import type { MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
 import {
   isMidiClipFile,
-  midi1EventsToUmps,
+  midi1RegionsToUmps,
   parseMidiClipFile,
   writeMidiClipFile,
 } from "@/lib/midi/midiClipFile";
@@ -512,15 +512,13 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
 }
 
 /** Inspect raw MIDI 1.0 events that the MIDI Clip UMP stream cannot encode. */
-export function analyzeMidi2ExportLoss(tracks: MidiExportTrack[]): Midi2LossReport {
-  let unsupportedMidi1Events = 0;
-  for (const track of tracks) for (const region of track.regions) {
-    if (region.muted) continue;
-    const selectedEvents = (region.events ?? []).filter((event) =>
-      regionContainsExportSourceBeat(region, event.beat));
-    unsupportedMidi1Events += midi1EventsToUmps(selectedEvents).unsupportedEventCount;
-  }
-  return { unsupportedMidi1Events };
+export function analyzeMidi2ExportLoss(
+  tracks: MidiExportTrack[],
+  options: Pick<MidiExportOptions, "fromProjectStart" | "expandLoops"> = {
+    fromProjectStart: true, expandLoops: false,
+  },
+): Midi2LossReport {
+  return { unsupportedMidi1Events: midi1RegionsToUmps(tracks, options).unsupportedEventCount };
 }
 
 /** Count selected song meter changes whose SMF-only click interval MIDI Clip cannot encode. */
@@ -986,22 +984,56 @@ export interface MidiSongExportOptions {
   format?: "midi1" | "midi2";
 }
 
+export interface MidiSongTrackSelection {
+  songIndices: readonly number[];
+  tracks: readonly { id: string; name: string }[];
+  trackIds?: ReadonlySet<string>;
+  regionId?: string;
+}
+
+function midiSongDurationBeats(song: SongRow): number {
+  const durationSeconds = song.endSeconds && song.endSeconds > 0
+    ? song.endSeconds
+    : Math.max(1, ...song.midiRegions?.map((region) =>
+      songSecondsAtBeat(song, region.startBeats + region.durationBeats)) ?? [0],
+    ...(song.regions ?? []).map((region) => region.startSeconds + region.durationSeconds),
+    ...song.events.map((event) => event.timeSeconds));
+  return songBeatsAtSeconds(song, durationSeconds);
+}
+
+/** Build the same beat-offset MIDI track selection used by multi-song export. */
+export function midiExportTracksForSongs(
+  songs: SongRow[], selection: MidiSongTrackSelection,
+): MidiExportTrack[] {
+  const tracks = new Map<string, MidiExportTrack>();
+  const trackNames = new Map(selection.tracks.map((track) => [track.id, track.name]));
+  let beatOffset = 0;
+  for (const songIndex of selection.songIndices) {
+    const song = songs[songIndex];
+    if (!song) continue;
+    for (const region of song.midiRegions ?? []) {
+      if (selection.trackIds && !selection.trackIds.has(region.trackId)) continue;
+      if (selection.regionId !== undefined && selection.regionId !== region.id) continue;
+      const name = trackNames.get(region.trackId) ?? region.trackId;
+      const track = tracks.get(region.trackId) ?? { name, regions: [] };
+      track.regions.push({ ...region, startBeats: beatOffset + region.startBeats });
+      tracks.set(region.trackId, track);
+    }
+    beatOffset += midiSongDurationBeats(song);
+  }
+  return [...tracks.values()];
+}
+
 /** Concatenate chosen songs and encode their complete tempo/meter map. */
 export function writeSongsMidiFile(songs: SongRow[], options: MidiSongExportOptions): Uint8Array {
-  const tracks = new Map<string, MidiExportTrack>();
-  const trackNames = new Map(options.tracks.map((track) => [track.id, track.name]));
+  const exportTracks = midiExportTracksForSongs(songs, options);
   const tempoEvents: NonNullable<MidiExportOptions["tempoEvents"]> = [];
   const meterEvents: NonNullable<MidiExportOptions["meterEvents"]> = [];
   let beatOffset = 0;
   for (const songIndex of options.songIndices) {
     const song = songs[songIndex];
     if (!song) throw new Error("Selected song no longer exists");
-    const durationSeconds = song.endSeconds && song.endSeconds > 0
-      ? song.endSeconds
-      : Math.max(1, ...song.midiRegions?.map((region) => songSecondsAtBeat(song, region.startBeats + region.durationBeats)) ?? [0],
-        ...(song.regions ?? []).map((region) => region.startSeconds + region.durationSeconds),
-        ...song.events.map((event) => event.timeSeconds));
-    const durationBeats = songBeatsAtSeconds(song, durationSeconds);
+    const durationBeats = midiSongDurationBeats(song);
     const points = [...(song.tempoPoints ?? [])].sort((a, b) => a.beat - b.beat);
     if (!points.length || points[0].beat > 0)
       tempoEvents.push({ beat: beatOffset, bpm: song.bpm || 120 });
@@ -1027,18 +1059,10 @@ export function writeSongsMidiFile(songs: SongRow[], options: MidiSongExportOpti
         meterEvents.push({ beat: beatOffset + point.beat, numerator: point.numerator,
           denominator: point.denominator, thirtySecondsPerQuarter: point.thirtySecondsPerQuarter,
           midiClocksPerMetronomeClick: point.midiClocksPerMetronomeClick });
-    for (const region of song.midiRegions ?? []) {
-      if (options.trackIds && !options.trackIds.has(region.trackId)) continue;
-      const name = trackNames.get(region.trackId) ?? region.trackId;
-      const track = tracks.get(region.trackId) ?? { name, regions: [] };
-      track.regions.push({ ...region, startBeats: beatOffset + region.startBeats });
-      tracks.set(region.trackId, track);
-    }
     beatOffset += durationBeats;
   }
-  if (!tracks.size) throw new Error("No MIDI regions in the selected songs/tracks");
+  if (!exportTracks.length) throw new Error("No MIDI regions in the selected songs/tracks");
   const first = songs[options.songIndices[0]];
-  const exportTracks = [...tracks.values()];
   const exportOptions: MidiExportOptions = {
     bpm: first.bpm, numerator: first.tsNum, denominator: first.tsDen,
     fromProjectStart: options.fromProjectStart, expandLoops: options.expandLoops,
