@@ -369,6 +369,13 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     midi2Note.midi2 = MidiNote::Midi2Data{3, 49152, 1234, 1, 0xBEEF};
     midiRegion.notes.push_back(midi2Note);
     midiRegion.umpEvents.push_back(MidiUmpEvent{2.25, {0x40903C00u, 0xFFFF0000u, 0u, 0u}, 2});
+    MidiUmpEvent profileSetup;
+    profileSetup.beat = 0.0;
+    profileSetup.words = {0x3000F07Eu, 0x0D220100u, 0u, 0u};
+    profileSetup.wordCount = 2;
+    profileSetup.configurationHeader = true;
+    profileSetup.profileConfigurationHeader = true;
+    midiRegion.umpEvents.push_back(profileSetup);
     loader.project().songs[0].midiRegions.push_back(midiRegion);
     PluginSlot slot;
     slot.id = "019fd93b-3662-7f5b-8162-45f5ecad9811";
@@ -426,11 +433,15 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(restoredMidiRegion.notes[0].midi2->releaseVelocity == 1234);
     CHECK(restoredMidiRegion.notes[0].midi2->attributeType == 1);
     CHECK(restoredMidiRegion.notes[0].midi2->attributeData == 0xBEEF);
-    REQUIRE(restoredMidiRegion.umpEvents.size() == 1);
+    REQUIRE(restoredMidiRegion.umpEvents.size() == 2);
     CHECK(restoredMidiRegion.umpEvents[0].beat == doctest::Approx(2.25));
     CHECK(restoredMidiRegion.umpEvents[0].wordCount == 2);
     CHECK(restoredMidiRegion.umpEvents[0].words[0] == 0x40903C00u);
     CHECK(restoredMidiRegion.umpEvents[0].words[1] == 0xFFFF0000u);
+    CHECK(restoredMidiRegion.umpEvents[0].configurationHeader == false);
+    CHECK(restoredMidiRegion.umpEvents[0].profileConfigurationHeader == false);
+    CHECK(restoredMidiRegion.umpEvents[1].configurationHeader);
+    CHECK(restoredMidiRegion.umpEvents[1].profileConfigurationHeader);
 
     std::remove(outPath.c_str());
 }

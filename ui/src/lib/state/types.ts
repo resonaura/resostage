@@ -371,6 +371,10 @@ export interface MidiUmpEventRow {
   beat: number;
   words: number[];
   wordCount: number;
+  /** UMP packet belongs to a MIDI Clip receiver-configuration header, not its musical sequence. */
+  configurationHeader?: boolean;
+  /** Profile setup UMP; must precede DCTPQ and has no prepended DCS in MIDI Clip files. */
+  profileConfigurationHeader?: boolean;
 }
 
 export type AutomationDomain = "strip" | "plugin" | "midiCC" | "lighting";

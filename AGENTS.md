@@ -1036,7 +1036,7 @@ parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `12`. A `.rsnraset` is normally a directory package containing
+format version is `13`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -1093,6 +1093,9 @@ v10 click solo-safe false and v11 cached automation must survive subsequent
 reopen. v12 adds optional per-plugin sidechain routes; older projects default
 all slots to disconnected, and a sidechain source/bus binding must survive
 serialization, migration and reopen without being treated as an ordinary send.
+v13 distinguishes MIDI Clip receiver-configuration UMP packets from musical
+sequence packets, including the profile prefix that precedes DCTPQ. Existing
+v12 UMP events migrate as ordinary sequence events unless explicitly tagged.
 MIDI regions keep source note
 coordinates; `clipOffsetBeats` identifies the current source phase, while
 `loopStartBeats` and `loopLengthBeats` bound the loop source window. Trimming

@@ -33,7 +33,10 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 12;
+inline constexpr int kCurrentFormatVersion = 13;
+// Format 13 preserves whether a stored UMP packet belongs to the MIDI Clip
+// configuration header or its profile prefix. Older events default to the
+// musical sequence.
 // Format 12 adds an optional external sidechain source and auxiliary input bus
 // binding to each plug-in slot. Missing bindings remain disconnected.
 // Format 11 stores bounded, project-persisted automation curves detached while
@@ -635,6 +638,8 @@ struct MidiUmpEvent {
     double beat = 0.0;
     std::array<uint32_t, 4> words{};
     uint8_t wordCount = 0; // 1, 2, 3, or 4 words according to UMP Message Type.
+    bool configurationHeader = false;
+    bool profileConfigurationHeader = false;
 };
 
 // A MIDI region containing notes placed on a track. Ids are UUIDv7.

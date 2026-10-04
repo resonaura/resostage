@@ -576,6 +576,8 @@ struct WMidiUmpEventTelemetry {
     double beat = 0.0;
     std::array<uint32_t, 4> words{};
     int wordCount = 0;
+    bool configurationHeader = false;
+    bool profileConfigurationHeader = false;
 };
 
 struct WMidiRegionTelemetry {

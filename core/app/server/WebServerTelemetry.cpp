@@ -487,6 +487,8 @@ std::string WebServer::buildStateJson(const char* view) const {
                     wEvent.beat = finiteOrZero(event.beat);
                     wEvent.words = event.words;
                     wEvent.wordCount = event.wordCount;
+                    wEvent.configurationHeader = event.configurationHeader;
+                    wEvent.profileConfigurationHeader = event.profileConfigurationHeader;
                     wMr.umpEvents.push_back(std::move(wEvent));
                 }
                 wSong.midiRegions.push_back(std::move(wMr));

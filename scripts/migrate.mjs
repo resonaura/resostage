@@ -46,7 +46,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 12;
+export const TARGET_FORMAT_VERSION = 13;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -702,6 +702,22 @@ export function upgradeFormat11PluginSidechains(old) {
   return upgraded;
 }
 
+/** Preserve optional MIDI Clip configuration-header classification on UMP rows. */
+export function upgradeFormat12MidiClipHeaders(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  for (const song of upgraded.songs ?? []) {
+    for (const region of song.midiRegions ?? []) {
+      for (const event of region.umpEvents ?? []) {
+        if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+        event.configurationHeader ??= false;
+        event.profileConfigurationHeader ??= false;
+      }
+    }
+  }
+  return upgraded;
+}
+
 function resolveProjectJsonPath(target) {
   const abs = path.resolve(target);
   if (!fs.existsSync(abs)) {
@@ -761,12 +777,15 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
       migrated = upgradeFormat10AutomationCurveCache(oldObj);
     } else if (!isLegacy && fromVersion === 11) {
       migrated = upgradeFormat11PluginSidechains(oldObj);
+    } else if (!isLegacy && fromVersion === 12) {
+      migrated = upgradeFormat12MidiClipHeaders(oldObj);
     } else {
       migrated = upgradeFormat6PanLawData(migrateProjectObject(oldObj));
     }
     if (fromVersion < 10) migrated = upgradeFormat9ClickSoloSafe(migrated);
     if (fromVersion < 11) migrated = upgradeFormat10AutomationCurveCache(migrated);
     if (fromVersion < 12) migrated = upgradeFormat11PluginSidechains(migrated);
+    if (fromVersion < 13) migrated = upgradeFormat12MidiClipHeaders(migrated);
     fs.writeFileSync(outPath, `${JSON.stringify(migrated, null, 2)}\n`, "utf-8");
     if (isLegacy) fs.rmSync(jsonPath, { force: true });
     console.log(

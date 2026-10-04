@@ -138,14 +138,14 @@ TEST_CASE("PluginLoadingSession retries remain blocked and concurrent status pol
     CHECK_FALSE(session.snapshot().blocksPlayback);
 }
 
-TEST_CASE("Project format 10 preserves explicit click solo-safe disengagement") {
+TEST_CASE("Project format preserves explicit click solo-safe disengagement") {
     Project original;
     original.click.soloSafe = false;
     std::string json, error;
     json = serializeProjectJson(original);
     Project restored;
     REQUIRE(parseProjectJson(json, restored, error));
-    CHECK(restored.format.version == 12);
+    CHECK(restored.format.version == kCurrentFormatVersion);
     CHECK_FALSE(restored.click.soloSafe);
     original.format.version = 9;
     json = serializeProjectJson(original);

@@ -503,6 +503,8 @@ struct WMidiUmpEvent {
     double beat = 0.0;
     std::array<uint32_t, 4> words{};
     int wordCount = 0;
+    bool configurationHeader = false;
+    bool profileConfigurationHeader = false;
 };
 
 struct WMidiRegion {
@@ -1052,6 +1054,8 @@ WProject toWire(const Project& p) {
                 we.beat = finiteOrZero(event.beat);
                 we.words = event.words;
                 we.wordCount = event.wordCount;
+                we.configurationHeader = event.configurationHeader;
+                we.profileConfigurationHeader = event.profileConfigurationHeader;
                 wmr.umpEvents.push_back(std::move(we));
             }
             for (const auto& al : mr.automationLanes)
@@ -1454,6 +1458,8 @@ Project fromWire(const WProject& w) {
                 event.beat = std::max(0.0, we.beat);
                 event.words = we.words;
                 event.wordCount = static_cast<uint8_t>(we.wordCount);
+                event.configurationHeader = we.configurationHeader || we.profileConfigurationHeader;
+                event.profileConfigurationHeader = we.profileConfigurationHeader;
                 reg.umpEvents.push_back(event);
             }
             for (const auto& wal : mr.automationLanes)

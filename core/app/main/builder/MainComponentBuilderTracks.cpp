@@ -145,6 +145,9 @@ std::vector<MidiUmpEvent> parseMidiUmpEvents(const glz::generic& doc) {
         if (!valid) continue;
         event.beat = std::max(0.0, event.beat);
         event.wordCount = static_cast<uint8_t>(wordCount);
+        getBool(value, "configurationHeader", event.configurationHeader);
+        getBool(value, "profileConfigurationHeader", event.profileConfigurationHeader);
+        event.configurationHeader = event.configurationHeader || event.profileConfigurationHeader;
         events.push_back(event);
         totalWords += static_cast<size_t>(wordCount);
     }
