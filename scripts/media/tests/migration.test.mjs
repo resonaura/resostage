@@ -76,7 +76,7 @@ test("format 12 upgrade defaults UMP rows to musical sequence and preserves head
     format: { version: 12 },
     songs: [{ midiRegions: [{ umpEvents: [
       { beat: 0.5, words: [0x20c00000], wordCount: 1 },
-      { beat: 0, words: [0x3000f07e], wordCount: 2,
+      { beat: 0, words: [0x30167e7f, 0x0d220100], wordCount: 2,
         configurationHeader: true, profileConfigurationHeader: true },
       { beat: 0, words: [0x20b00000], wordCount: 1, configurationHeader: true },
     ] }] }],

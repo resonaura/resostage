@@ -26,6 +26,25 @@ function makeClip(packets: number[][]): Uint8Array {
   return Uint8Array.from(bytes);
 }
 
+function sysex7Packet(group: number, status: number, payload: number[]): number[] {
+  const data = [...payload, 0, 0, 0, 0, 0, 0].slice(0, 6);
+  return [
+    ((3 << 28) | (group << 24) | (status << 20) | (payload.length << 16)
+      | (data[0] << 8) | data[1]) >>> 0,
+    ((data[2] << 24) | (data[3] << 16) | (data[4] << 8) | data[5]) >>> 0,
+  ];
+}
+
+function setProfileOnPackets(group = 0): number[][] {
+  const bytes = [0x7e, 0x7f, 0x0d, 0x22, 0x01,
+    1, 2, 3, 4, 5, 6, 7, 8, 0x7e, 0x7f, 0x7e, 0x7f, 1];
+  return [
+    sysex7Packet(group, 1, bytes.slice(0, 6)),
+    sysex7Packet(group, 2, bytes.slice(6, 12)),
+    sysex7Packet(group, 3, bytes.slice(12)),
+  ];
+}
+
 function framedClip(sequence: number[][]): Uint8Array {
   return makeClip([dcs(0), dctpq(960), dcs(0), start, ...sequence, dcs(0), end]);
 }
@@ -256,10 +275,10 @@ describe("MIDI Clip File framing and resource bounds", () => {
   });
 
   it("preserves profile and receiver configuration sections across MIDI Clip export", () => {
-    const profile = [0x3016_f07e, 0x7f0d_2201];
+    const profile = setProfileOnPackets();
     const receiverSetup = [0x40c0_0000, 0x0001_0000];
     const imported = parseMidiClipFile(makeClip([
-      profile,
+      ...profile,
       dcs(0), dctpq(960),
       dcs(0), receiverSetup,
       dcs(0), start,
@@ -268,10 +287,10 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]));
 
     expect(imported.tracks[0].umpEvents).toEqual([
-      { beat: 0, words: profile, wordCount: 2,
-        configurationHeader: true, profileConfigurationHeader: true },
+      ...profile.map((words) => ({ beat: 0, words, wordCount: 2,
+        configurationHeader: true, profileConfigurationHeader: true })),
       { beat: 0, words: receiverSetup, wordCount: 2, configurationHeader: true },
-      { beat: 1, words: [0x20c0_0000], wordCount: 1, presentationOrder: 2 },
+      { beat: 1, words: [0x20c0_0000], wordCount: 1, presentationOrder: 4 },
     ]);
 
     const regionWithSections: MidiRegionRow = {
@@ -284,17 +303,63 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ));
     expect(roundTrip.tracks[0].umpEvents?.map(({ presentationOrder: _order, ...event }) => event))
       .toEqual(imported.tracks[0].umpEvents?.map(({ presentationOrder: _order, ...event }) => event));
-    expect(roundTrip.tracks[0].umpEvents?.[2].presentationOrder)
-      .toBeGreaterThan(roundTrip.tracks[0].umpEvents?.[1].presentationOrder ?? -1);
+    expect(roundTrip.tracks[0].umpEvents?.[4].presentationOrder)
+      .toBeGreaterThan(roundTrip.tracks[0].umpEvents?.[3].presentationOrder ?? -1);
+  });
+
+  it("rejects profile prefixes that are not complete MIDI-CI Set Profile On messages", () => {
+    const profile = setProfileOnPackets();
+    const profileOff = sysex7Packet(0, 0,
+      [0x7e, 0x7f, 0x0d, 0x23, 0x01, 1]);
+    expect(() => parseMidiClipFile(makeClip([
+      profileOff,
+      dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
+    ]))).toThrow(/complete MIDI-CI Set Profile On/);
+    expect(() => parseMidiClipFile(makeClip([
+      ...profile.slice(0, 2),
+      dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
+    ]))).toThrow(/incomplete SysEx7 message/);
+  });
+
+  it("rejects malformed profile configuration before MIDI Clip export", () => {
+    const incompleteProfile = setProfileOnPackets().slice(0, 2);
+    const invalidRegion: MidiRegionRow = {
+      ...region,
+      umpEvents: [
+        ...incompleteProfile.map((words) => ({ beat: 0, words, wordCount: 2,
+          configurationHeader: true, profileConfigurationHeader: true })),
+        { beat: 0, words: [0x20c0_0000], wordCount: 1 },
+      ],
+    };
+    expect(() => writeMidiClipFile(
+      [{ name: "Malformed profile", regions: [invalidRegion] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    )).toThrow(/incomplete SysEx7 message/);
+  });
+
+  it("exports profile configuration even when its source region has no musical events", () => {
+    const profile = setProfileOnPackets();
+    const configurationOnlyRegion: MidiRegionRow = {
+      ...region,
+      umpEvents: profile.map((words) => ({ beat: 0, words, wordCount: 2,
+        configurationHeader: true, profileConfigurationHeader: true })),
+    };
+    const parsed = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "Configuration only", regions: [configurationOnlyRegion] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+
+    expect(parsed.tracks[0].umpEvents).toEqual(profile.map((words) => ({ beat: 0,
+      words, wordCount: 2, configurationHeader: true, profileConfigurationHeader: true })));
   });
 
   it("rejects non-profile events before DCTPQ and clockstamped profile prefixes", () => {
-    const profile = [0x3016_f07e, 0x7f0d_2201];
+    const profile = setProfileOnPackets();
     expect(() => parseMidiClipFile(makeClip([
       [0x20c0_0000], dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
     ]))).toThrow(/Only MIDI Clip profile configuration may precede DCTPQ/);
     expect(() => parseMidiClipFile(makeClip([
-      dcs(0), profile, dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
+      dcs(0), ...profile, dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
     ]))).toThrow(/must not have a Delta Clockstamp/);
   });
 

@@ -2110,3 +2110,17 @@ across 151 files, TypeScript and production UI build passed, lint passed with
 12 existing unrelated warnings, and `git diff --check` passed. Native schema
 v13/Core tests were completed with the prior stage-A commit `4f99049e`. Keep
 independent profile/SysEx references open and do not push.
+
+Latest verified continuation — MIDI-CI profile-prefix validation (2026-10-04):
+the MIDI Clip parser now accepts pre-DCTPQ SysEx7 only when its complete UMP
+fragment stream identifies a MIDI-CI Set Profile On message. The writer applies
+the same bounded validation to profile-flagged packets. Payload bytes remain
+opaque and preserved; there is no profile negotiation or semantic decoding.
+Focused codec tests passed 21/21, including valid fragmented round-trip,
+configuration-only region preservation, rejecting Set Profile Off, incomplete
+streams, and timestamped profile data. The full UI passed 1,042/1,042 across
+151 files; TypeScript and production build passed; migration tests 9/9; Core
+test target build and CTest passed (1/1); changed-file lint and `git diff
+--check` passed. Rules follow MIDI Clip File v1.0 sections 6–7, MIDI-CI v1.2
+section 7.8, and UMP SysEx7 v1.1.1. Live MIDI-CI and broad reference
+interoperability remain open. Do not claim full MIDI 2.0 compatibility.

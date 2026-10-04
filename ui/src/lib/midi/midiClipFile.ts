@@ -7,6 +7,7 @@
 import type { MidiNoteRow } from "@/lib/state/types";
 import type { ImportedMidiFile, ImportedMidiTrack, MidiExportOptions, MidiExportTrack } from "@/lib/midi/standardMidiFile";
 import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";
+import { validateMidiClipProfilePackets } from "@/lib/midi/midiClipProfile";
 
 const MAGIC = "SMF2CLIP";
 const MAX_BYTES = 32 * 1024 * 1024;
@@ -155,6 +156,9 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   }
   if (!tpq) throw new Error("MIDI 2.0 clip is missing DCTPQ");
   if (!started || !ended) throw new Error("MIDI 2.0 clip is missing Start/End of Clip markers");
+  validateMidiClipProfilePackets(packets
+    .filter((packet) => packet.inProfileConfigurationHeader)
+    .map((packet) => packet.words));
 
   const notes: MidiNoteRow[] = [];
   const rawEvents: NonNullable<ImportedMidiTrack["umpEvents"]> = [];
@@ -457,7 +461,8 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
       const words = midi1EventToUmp(event.status, event.data);
       return words ? [{ relative, words }] : [];
     });
-    if (!notes.length && !sequenceUmpEvents.length && !midiEvents.length) continue;
+    if (!notes.length && !sequenceUmpEvents.length && !midiEvents.length
+        && !configurationEvents.length) continue;
 
     for (const event of configurationEvents) {
       const destination = event.profile ? profileConfigurationPackets : receiverConfigurationPackets;
@@ -545,6 +550,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   events.sort(compareClipEvents);
   profileConfigurationPackets.sort((a, b) => a.order - b.order);
   receiverConfigurationPackets.sort((a, b) => a.order - b.order);
+  validateMidiClipProfilePackets(profileConfigurationPackets.map((packet) => packet.words));
 
   const bytes = [...Array.from(MAGIC).map((letter) => letter.charCodeAt(0))];
   for (const packet of profileConfigurationPackets)

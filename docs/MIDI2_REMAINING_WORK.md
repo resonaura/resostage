@@ -130,8 +130,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   simultaneous normalized note edges and opaque sequence packets; extracted
   tempo/meter Flex Data is still normalized through project tempo/meter state.
   Configuration-header section identity is persisted, but its elapsed DCS
-  timing is intentionally flattened to beat zero; profile-prefix SysEx7 is
-  preserved structurally without MIDI-CI negotiation or semantic validation.
+  timing is intentionally flattened to beat zero. Before DCTPQ, only complete
+  MIDI-CI Set Profile On SysEx7 messages are accepted and retained as opaque
+  packets; the profile payload is not interpreted and no MIDI-CI negotiation
+  is performed.
 - `.mid` remains inherently lossy for data without a MIDI 1.0 equivalent.
   The loss report is a safeguard, not a universal translator. MPE/vendor
   encodings are not synthesized automatically.
@@ -286,3 +288,23 @@ independent profile/configuration references, SysEx interoperability, broad
 malformed-packet fixtures, MIDI-CI, native UMP endpoints, SMF2 Container and
 complete plug-in UMP playback remain open. See the task handoff/audit for exact
 next steps and commit status.
+
+### Latest continuation — MIDI-CI profile-prefix validation (2026-10-04)
+
+Profile data before DCTPQ is now recognized as MIDI-CI Set Profile On rather
+than treating every SysEx7 packet as profile configuration. The parser and
+writer require complete SysEx7 UMP message framing, consistent continuation
+by Group, legal 7-bit payload bytes and zero reserved padding; the reassembled
+prefix must identify Set Profile On and contain its minimum fixed fields.
+Payload bytes remain opaque and are preserved exactly. This does not negotiate
+MIDI-CI, validate the profile's meaning, or add UMP device support.
+
+Coverage includes a complete three-packet profile fixture, profile/config
+round-trip even when a source region has no musical events, rejecting Set
+Profile Off in the prefix, rejecting incomplete framing on import/export, and
+rejecting timestamped profile packets. The format rules follow MIDI Clip File
+v1.0 sections 6 and 7 and MIDI-CI v1.2 section 7.8; the wire encoding follows
+UMP SysEx7 rules in UMP & MIDI 2.0 Protocol v1.1.1. Validation passed: codec
+tests 21/21, full UI 1,042/1,042 across 151 files, TypeScript, production UI
+build, changed-file lint, migration tests 9/9, Core test target build/CTest
+(1/1), and `git diff --check`.

@@ -377,7 +377,7 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     midiRegion.umpEvents.push_back(sequenceEvent);
     MidiUmpEvent profileSetup;
     profileSetup.beat = 0.0;
-    profileSetup.words = {0x3000F07Eu, 0x0D220100u, 0u, 0u};
+    profileSetup.words = {0x30167E7Fu, 0x0D220100u, 0u, 0u};
     profileSetup.wordCount = 2;
     profileSetup.configurationHeader = true;
     profileSetup.profileConfigurationHeader = true;

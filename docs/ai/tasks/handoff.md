@@ -1473,3 +1473,16 @@ reference corpus, broad SysEx/malformed-packet corpus, MIDI-CI, native UMP
 devices, SMF2 Container, or full plug-in UMP playback exists. Do not claim full
 MIDI 2.0 compatibility. Before continuing, inspect `git status` and recent
 history to see whether the just-validated block has been committed.
+
+Latest verified continuation — MIDI-CI profile-prefix validation
+(2026-10-04): MIDI Clip import and export now accept profile-prefix packets
+only when they form complete, group-consistent SysEx7 messages identifying
+MIDI-CI Set Profile On. Payload bytes remain opaque, with no negotiation or
+semantic profile decoding. The fixture spans Start/Continue/End and verifies
+round-trip; rejects Profile Off, incomplete SysEx, and timestamped prefix
+packets, and preserves profile-only regions. Focused codec tests: 21/21; full
+UI: 1,042/1,042 across 151 files; TypeScript, production build, changed-file
+lint, migration tests 9/9, Core test target build, CTest 1/1, and diff check
+passed. Standards references: MIDI Clip File v1.0 §§6–7, MIDI-CI v1.2 §7.8,
+and UMP & MIDI 2.0 Protocol v1.1.1 SysEx7 format. Do not claim full MIDI 2.0
+conformance or push. Inspect `git status`/history before the next block.
