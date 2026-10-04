@@ -984,3 +984,13 @@ treated as conclusive. Focused panel tests passed 11/11; full UI passed
 910/910 across 138 files; TypeScript, production build, changed-file lint and
 diff check passed. No real vendor churn or project history/save/reopen fixture
 was run. Continue from `automation.md`; do not push.
+
+Latest continuation — meter cache identity reset (2026-10-03): complete Core
+origin/session/project-epoch changes now clear the UI's raw live levels as well
+as the shared clip holds and active-note snapshot. This protects against a new
+project reusing the same stable track/bus IDs before its first fresh meter
+packet. The change is driven by complete identity notifications; partial
+view-filtered state does not clear data. Focused peak/identity tests passed
+22/22, full UI 911/911 across 138 files, TypeScript, production build,
+changed-file lint and diff check passed. Remote reconnect and mounted visual
+acceptance remain open; see `performance.md`. Do not push.

@@ -221,6 +221,25 @@ open.
   frame cost with many strips; audio-meter needles keep their dedicated
   ballistics rather than generic scalar easing.
 
+### Raw live-meter identity reset — implemented follow-up (2026-10-03)
+
+The shared project-command identity store now publishes complete identity
+changes (origin, Core session, or project epoch). `liveLevels` subscribes and
+immediately clears its raw track/bus/click samples, clip holds and active-MIDI
+snapshot when that identity changes. This closes the gap where a replacement
+project reused a stable strip ID and the old raw live readout could remain
+visible until a new meter packet arrived. Partial view-filtered snapshots do
+not reset identity or readings. Backend switches retain their existing reset
+path.
+
+Regression coverage pushes stereo peaks for a track and bus, changes only the
+project epoch while reusing those IDs, verifies all old live-level entries are
+gone, and confirms the next packet belongs to the new identity. Focused peak
+and command-identity tests passed 22/22; full UI passed 911/911 across 138
+files; TypeScript, production build, changed-file lint and `git diff --check`
+passed. Remote Core reconnect and mounted Inspector/track-switch acceptance
+remain open.
+
 ### Shared rotary reset and MIDI CC Learn — implemented subset (2026-10-03)
 
 `ui/src/components/daw/RotaryControlMenu.tsx` provides the common context menu

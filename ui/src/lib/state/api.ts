@@ -70,7 +70,33 @@ export interface ProjectCommandIdentity {
   stateSessionId: string;
   projectEpoch: number;
 }
+export type ProjectCommandIdentityListener = (
+  identity: ProjectCommandIdentity | null,
+) => void;
 let _projectCommandIdentity: ProjectCommandIdentity | null = null;
+const _projectCommandIdentityListeners = new Set<ProjectCommandIdentityListener>();
+
+function publishProjectCommandIdentity(identity: ProjectCommandIdentity | null): void {
+  const previous = _projectCommandIdentity;
+  if (
+    previous?.origin === identity?.origin
+    && previous?.stateSessionId === identity?.stateSessionId
+    && previous?.projectEpoch === identity?.projectEpoch
+  ) return;
+
+  _projectCommandIdentity = identity;
+  const snapshot = identity ? { ...identity } : null;
+  for (const listener of [..._projectCommandIdentityListeners])
+    listener(snapshot);
+}
+
+/** Subscribe to complete Core/project identity changes, not partial snapshots. */
+export function subscribeProjectCommandIdentity(
+  listener: ProjectCommandIdentityListener,
+): () => void {
+  _projectCommandIdentityListeners.add(listener);
+  return () => _projectCommandIdentityListeners.delete(listener);
+}
 
 export function observeProjectCommandIdentity(snapshot: Partial<WebUiState>): void {
   const { stateSessionId, projectEpoch } = snapshot;
@@ -79,10 +105,14 @@ export function observeProjectCommandIdentity(snapshot: Partial<WebUiState>): vo
   // positional command fall back to an unfenced POST.
   if (stateSessionId === undefined || projectEpoch === undefined) return;
   if (!stateSessionId || !Number.isSafeInteger(projectEpoch) || projectEpoch < 0) {
-    _projectCommandIdentity = null;
+    publishProjectCommandIdentity(null);
     return;
   }
-  _projectCommandIdentity = { origin: backendOrigin(), stateSessionId, projectEpoch };
+  publishProjectCommandIdentity({
+    origin: backendOrigin(),
+    stateSessionId,
+    projectEpoch,
+  });
 }
 
 function captureProjectCommandIdentity(): ProjectCommandIdentity | null {

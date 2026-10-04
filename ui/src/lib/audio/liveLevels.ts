@@ -26,7 +26,10 @@ import {
   publishChannelPeak,
   resetChannelClipHolds,
 } from "@/lib/audio/channelClipHold";
-import { currentProjectCommandIdentity } from "@/lib/state/api";
+import {
+  currentProjectCommandIdentity,
+  subscribeProjectCommandIdentity,
+} from "@/lib/state/api";
 
 /**
  * A meter as the UI reads it.
@@ -245,6 +248,13 @@ export function resetLiveLevels(): void {
   clearActiveMidiNoteSnapshot();
   seq += 1;
 }
+
+// Meter row IDs can be reused by a replacement project. Drop every raw live
+// reading as soon as the authoritative Core/session/project identity changes,
+// not only when the backend URL changes. The next frame from that identity
+// repopulates the cache; until then every strip reads silence instead of a
+// previous project's peak.
+subscribeProjectCommandIdentity(() => resetLiveLevels());
 
 export function getLiveLedOutputs(): LiveLedOutput[] {
   return liveLedOutputs;

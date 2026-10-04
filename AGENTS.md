@@ -898,6 +898,10 @@ project epoch and stable strip ID. Timeline, Inspector and Mixer meter paints
 sample the same retained stereo maxima; a strip-level reset clears that one
 identity everywhere. Peak samples must not trigger React renders per telemetry
 frame, and project/Core changes must not leak retained values across identities.
+The raw high-rate meter cache is invalidated on complete Core/session/project
+identity changes as well as backend changes: project epoch can change while
+track and bus IDs are reused, so old live readings must clear before the next
+telemetry packet arrives.
 
 WebSocket/JSON state remains useful for browsers and slower structural state.
 In Electron, high-rate telemetry is UDP while HTTP polling supplies structural

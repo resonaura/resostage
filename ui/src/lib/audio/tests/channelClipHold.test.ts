@@ -15,7 +15,12 @@ import {
   resetChannelClipHolds,
   subscribeChannelClipHold,
 } from "@/lib/audio/channelClipHold";
-import { resetLiveLevels, pushLiveLevels } from "@/lib/audio/liveLevels";
+import {
+  getLiveLevels,
+  getTrackLiveLevel,
+  resetLiveLevels,
+  pushLiveLevels,
+} from "@/lib/audio/liveLevels";
 import {
   currentProjectCommandIdentity,
   observeProjectCommandIdentity,
@@ -165,5 +170,40 @@ describe("shared channel clip holds", () => {
     expect(busListener).toHaveBeenCalledTimes(1);
     unsubscribeTrack();
     unsubscribeBus();
+  });
+
+  it("clears raw live readings when a new project reuses the same strip IDs", () => {
+    observeProjectCommandIdentity({
+      stateSessionId: projectA.stateSessionId,
+      projectEpoch: projectA.projectEpoch,
+    });
+    const trackKey = channelClipHoldKey("track-1", currentProjectCommandIdentity());
+    pushLiveLevels({
+      tracks: [{ id: "track-1", peakDbL: 2.5, peakDbR: -4 }],
+      meters: [{ id: "bus-1", peakDbL: -5, peakDbR: 1.5 }],
+    });
+    expect(getTrackLiveLevel("track-1")?.peakDbL).toBe(2.5);
+    expect(getChannelPeakHold(trackKey)).toEqual({ leftDb: 2.5, rightDb: -4 });
+
+    observeProjectCommandIdentity({
+      stateSessionId: projectA.stateSessionId,
+      projectEpoch: projectA.projectEpoch + 1,
+    });
+
+    expect(getTrackLiveLevel("track-1")).toBeUndefined();
+    expect(getLiveLevels().tracks).toEqual([]);
+    expect(getLiveLevels().meters).toEqual([]);
+    const nextProjectKey = channelClipHoldKey(
+      "track-1",
+      currentProjectCommandIdentity(),
+    );
+    expect(getChannelPeakHold(nextProjectKey)).toEqual({
+      leftDb: -100,
+      rightDb: -100,
+    });
+
+    pushLiveLevels({ tracks: [{ id: "track-1", peakDbL: -3, peakDbR: -8 }] });
+    expect(getTrackLiveLevel("track-1")?.peakDbL).toBe(-3);
+    expect(getChannelPeakHold(nextProjectKey)).toEqual({ leftDb: -3, rightDb: -8 });
   });
 });

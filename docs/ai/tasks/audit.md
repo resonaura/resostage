@@ -1576,3 +1576,18 @@ Focused Plugin Automation panel tests passed 11/11; full UI passed 910/910
 across 138 files; TypeScript, production build, changed-file lint and diff
 check passed. Real AU/VST3 metadata churn and Core save/reopen/Undo/Redo remain
 unverified; see `automation.md` for exact limits.
+
+### Latest continuation — invalidate raw meter cache on project replacement (2026-10-03)
+
+`observeProjectCommandIdentity` now publishes only complete origin/session/
+epoch changes. The raw `liveLevels` store subscribes to that identity owner and
+clears cached track, bus, click, clip-hold and active-MIDI readings immediately.
+This prevents the same stable track ID in a replacement project from showing
+the previous project's peak before the next UDP/WS meter frame. Partial
+view-filtered snapshots are ignored, and the existing backend-change reset
+remains intact.
+
+Focused peak/identity tests passed 22/22; full UI passed 911/911 across 138
+files; TypeScript, production build, changed-file lint and diff check passed.
+Remote Core reconnect and mounted multi-surface acceptance remain open; see
+`performance.md`.
