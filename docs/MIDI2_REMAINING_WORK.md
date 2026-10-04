@@ -55,7 +55,8 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   packets on MIDI regions; current format 15 retains them, optional MIDI Clip
   configuration-section identity, separate release attributes, source
   presentation order for simultaneous note edges and opaque sequence UMP, and
-  the optional `thirtySecondsPerQuarter` signature-point field.
+  the optional `thirtySecondsPerQuarter` and
+  `midiClocksPerMetronomeClick` signature-point fields.
   Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and
   project serialization carry these fields so unsupported UMP packets can
@@ -142,7 +143,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   preserves source order for simultaneous normalized note edges and opaque
   sequence packets. Tempo/meter Flex Data is normalized through project maps,
   while the Set Time Signature 1/32-notes-per-quarter field is preserved by
-  each song signature point. Configuration-header section identity is
+  each song signature point. The MIDI 1.0 `FF 58` metronome-click interval is
+  also preserved as `midiClocksPerMetronomeClick` in project state and SMF
+  import/export. This byte has no MIDI 2.0 Set Time Signature equivalent;
+  `.midi2` export warns and requires confirmation when a selected song uses a
+  non-default value. Configuration-header section identity is
   persisted, but its elapsed DCS timing is intentionally flattened to beat
   zero. Before DCTPQ, only complete MIDI-CI Set Profile On SysEx7 messages are
   accepted and retained as opaque
@@ -516,3 +521,21 @@ this protects raw opaque-event round-trip as future UMP types are added. The
 widths follow UMP Protocol v1.1.1 Table 4. Focused MIDI Clip tests passed
 35/35, including the all-type import/export round-trip. This is framing
 coverage, not semantic support for the currently reserved message types.
+
+### Latest continuation — preserve SMF metronome-click interval metadata (2026-10-04)
+
+Standard MIDI File `FF 58` carries both the 1/32-notes-per-quarter value and
+the MIDI-clocks-per-metronome-click byte. ResoStage now preserves the latter
+as optional `SignaturePoint::midiClocksPerMetronomeClick` (default 24) across
+SMF import/export, Import MIDI tempo-map adoption, project JSON, Builder edits,
+and Core state/telemetry. Legacy projects without the field load as 24. Short
+or otherwise malformed `FF 51`/`FF 58` timing metadata is retained as an
+ordinary raw MIDI event instead of being silently discarded. Because MIDI 2.0
+Set Time Signature Flex Data has no click-interval field, `.midi2` export now
+counts selected non-default intervals and requires explicit confirmation
+before dropping them. Focused SMF tests passed 28/28; full UI passed
+1,063/1,063 across 151 files; Core CTest passed 1/1; the `ResoStage` target,
+TypeScript check, and production UI build passed. Independent cross-DAW
+fixtures and complete MIDI Clip interoperability remain open. References:
+[MIDI.org Standard MIDI Files specification](https://midi.org/standard-midi-files-specification),
+[UMP & MIDI 2.0 Protocol v1.1.1 §7.5.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

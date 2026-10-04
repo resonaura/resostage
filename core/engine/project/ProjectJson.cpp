@@ -543,6 +543,7 @@ struct WSignaturePoint {
     int denominator = 4;
     int bar = 1;
     int thirtySecondsPerQuarter = 8;
+    int midiClocksPerMetronomeClick = 24;
 };
 
 struct WSong {
@@ -1096,6 +1097,7 @@ WProject toWire(const Project& p) {
             wsp.denominator = sp.denominator;
             wsp.bar = sp.bar;
             wsp.thirtySecondsPerQuarter = sp.thirtySecondsPerQuarter;
+            wsp.midiClocksPerMetronomeClick = sp.midiClocksPerMetronomeClick;
             ws.signaturePoints.push_back(std::move(wsp));
         }
 
@@ -1525,6 +1527,9 @@ Project fromWire(const WProject& w) {
             pt.thirtySecondsPerQuarter = sp.thirtySecondsPerQuarter >= 0
                     && sp.thirtySecondsPerQuarter <= 255
                 ? sp.thirtySecondsPerQuarter : 8;
+            pt.midiClocksPerMetronomeClick = sp.midiClocksPerMetronomeClick >= 0
+                    && sp.midiClocksPerMetronomeClick <= 255
+                ? sp.midiClocksPerMetronomeClick : 24;
             song.signaturePoints.push_back(std::move(pt));
         }
 

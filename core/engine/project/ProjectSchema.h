@@ -692,6 +692,7 @@ struct SignaturePoint {
     int denominator = 4;
     int bar = 1;                  // 1-based bar number
     int thirtySecondsPerQuarter = 8; // MIDI time-signature notation field.
+    int midiClocksPerMetronomeClick = 24; // SMF time-signature metronome interval.
 };
 
 // What the transport does when a song reaches its end. Serialized as

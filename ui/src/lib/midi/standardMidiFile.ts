@@ -22,6 +22,8 @@ export interface MidiMeterEvent {
   denominator: number;
   /** MIDI time-signature notation field: count of 1/32 notes per quarter note. */
   thirtySecondsPerQuarter?: number;
+  /** Standard MIDI File time-signature field: clocks per metronome click. */
+  midiClocksPerMetronomeClick?: number;
 }
 
 export interface ImportedMidiTrack {
@@ -140,9 +142,11 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         const kind = reader.byte();
         const data = reader.take(reader.vlq());
         if (kind === 0x03) name = new TextDecoder().decode(data).slice(0, 128) || name;
+        let recognizedTimingMetaEvent = false;
         if (kind === 0x51 && data.length === 3) {
           const micros = (data[0] << 16) | (data[1] << 8) | data[2];
           if (micros > 0) {
+            recognizedTimingMetaEvent = true;
             const bpm = 60_000_000 / micros;
             const tempo = { beat: musicalPosition(tick), bpm };
             trackTempoEvents.push(tempo);
@@ -152,14 +156,17 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
             }
           }
         }
-        if (kind === 0x58 && data.length >= 2) {
+        if (kind === 0x58 && data.length === 4 && data[0] > 0 && data[1] <= 7) {
+          recognizedTimingMetaEvent = true;
           const numerator = data[0];
           const denominator = 2 ** data[1];
           result.numerator ??= numerator;
           result.denominator ??= denominator;
+          const midiClocksPerMetronomeClick = data[2];
           const thirtySecondsPerQuarter = data[3] ?? 8;
           const meter: MidiMeterEvent = {
             beat: musicalPosition(tick), numerator, denominator,
+            ...(midiClocksPerMetronomeClick !== 24 ? { midiClocksPerMetronomeClick } : {}),
             ...(thirtySecondsPerQuarter !== 8 ? { thirtySecondsPerQuarter } : {}),
           };
           trackMeterEvents.push(meter);
@@ -169,7 +176,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           reader.offset = trackEnd;
           break;
         }
-        if (kind !== 0x51 && kind !== 0x58 && kind !== 0x2f) {
+        if (!recognizedTimingMetaEvent && kind !== 0x2f) {
           events.push({ beat: musicalPosition(tick), status: 0xff, data: [kind, ...data] });
         }
         if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
@@ -356,6 +363,28 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
   return report;
 }
 
+/** Count selected song meter changes whose SMF-only click interval MIDI Clip cannot encode. */
+export function countMidi2TimeSignatureClickIntervalLoss(
+  songs: SongRow[], songIndices: number[],
+): number {
+  let count = 0;
+  for (const songIndex of songIndices) {
+    const song = songs[songIndex];
+    if (!song) continue;
+    const durationSeconds = song.endSeconds && song.endSeconds > 0
+      ? song.endSeconds
+      : Math.max(1, ...(song.midiRegions ?? []).map((region) =>
+        songSecondsAtBeat(song, region.startBeats + region.durationBeats)),
+      ...(song.regions ?? []).map((region) => region.startSeconds + region.durationSeconds),
+      ...song.events.map((event) => event.timeSeconds));
+    const durationBeats = songBeatsAtSeconds(song, durationSeconds);
+    count += (song.signaturePoints ?? []).filter((point) =>
+      point.beat >= 0 && point.beat <= durationBeats
+      && (point.midiClocksPerMetronomeClick ?? 24) !== 24).length;
+  }
+  return count;
+}
+
 export interface MidiExportOptions {
   bpm: number;
   numerator: number;
@@ -428,15 +457,22 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
     ?? { beat: origin, numerator: options.numerator, denominator: options.denominator };
   const meter = [{ ...initialMeter, beat: origin }, ...rawMeter.filter((event) => event.beat > origin)];
   for (const event of meter) {
+    if (!Number.isInteger(event.numerator) || event.numerator < 1 || event.numerator > 0xff)
+      throw new Error("MIDI meter numerator must be an unsigned nonzero 8-bit integer");
     const denomPower = Math.log2(event.denominator);
     if (!Number.isInteger(denomPower) || denomPower < 0 || denomPower > 7)
       throw new Error("MIDI meter denominator must be a power of two");
     const thirtySecondsPerQuarter = event.thirtySecondsPerQuarter ?? 8;
+    const midiClocksPerMetronomeClick = event.midiClocksPerMetronomeClick ?? 24;
+    if (!Number.isInteger(midiClocksPerMetronomeClick)
+        || midiClocksPerMetronomeClick < 0 || midiClocksPerMetronomeClick > 0xff)
+      throw new Error("MIDI meter clocks per metronome click must be an unsigned 8-bit integer");
     if (!Number.isInteger(thirtySecondsPerQuarter)
         || thirtySecondsPerQuarter < 0 || thirtySecondsPerQuarter > 0xff)
       throw new Error("MIDI meter 1/32-note count must be an unsigned 8-bit integer");
     metaEvents.push({ tick: Math.max(0, Math.round((event.beat - origin) * PPQN)), order: 1,
-      bytes: [0xff, 0x58, 4, event.numerator & 0xff, denomPower, 24, thirtySecondsPerQuarter] });
+      bytes: [0xff, 0x58, 4, event.numerator & 0xff, denomPower,
+        midiClocksPerMetronomeClick, thirtySecondsPerQuarter] });
   }
   metaEvents.sort((a, b) => a.tick - b.tick || a.order - b.order);
   const tempoTrack: number[] = [];
@@ -698,7 +734,8 @@ export function writeSongsMidiFile(songs: SongRow[], options: MidiSongExportOpti
     for (const point of signatures)
       if (point.beat >= 0 && point.beat <= durationBeats)
         meterEvents.push({ beat: beatOffset + point.beat, numerator: point.numerator,
-          denominator: point.denominator, thirtySecondsPerQuarter: point.thirtySecondsPerQuarter });
+          denominator: point.denominator, thirtySecondsPerQuarter: point.thirtySecondsPerQuarter,
+          midiClocksPerMetronomeClick: point.midiClocksPerMetronomeClick });
     for (const region of song.midiRegions ?? []) {
       if (options.trackIds && !options.trackIds.has(region.trackId)) continue;
       const name = trackNames.get(region.trackId) ?? region.trackId;

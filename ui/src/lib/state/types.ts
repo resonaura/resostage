@@ -465,6 +465,8 @@ export interface SignaturePointRow {
   bar: number;
   /** Preserves the MIDI time-signature 1/32-notes-per-quarter notation field. */
   thirtySecondsPerQuarter?: number;
+  /** Preserves the SMF time-signature MIDI clocks per metronome click byte. */
+  midiClocksPerMetronomeClick?: number;
 }
 
 export interface SongRow {

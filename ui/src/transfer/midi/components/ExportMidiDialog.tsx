@@ -5,7 +5,12 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { analyzeMidi1ExportLoss, writeSongsMidiFile, type MidiExportTrack } from "@/lib/midi/standardMidiFile";
+import {
+  analyzeMidi1ExportLoss,
+  countMidi2TimeSignatureClickIntervalLoss,
+  writeSongsMidiFile,
+  type MidiExportTrack,
+} from "@/lib/midi/standardMidiFile";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal, Switch } from "@/components/ui";
 
@@ -18,20 +23,22 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
   onClose: () => void;
 }) {
   // Partial structural state can arrive briefly while Core is opening a project.
-  const songs = Array.isArray(state.songs) ? state.songs : [];
-  const projectTracks = Array.isArray(state.tracks) ? state.tracks : [];
+  const songs = useMemo(() => Array.isArray(state.songs) ? state.songs : [], [state.songs]);
+  const projectTracks = useMemo(() => Array.isArray(state.tracks) ? state.tracks : [], [state.tracks]);
   const defaultSong = intent.songIndex ?? Math.max(0, state.songIndex);
   const [selectedSongs, setSelectedSongs] = useState<Set<number>>(() => new Set([defaultSong]));
   const [fromProjectStart, setFromProjectStart] = useState(true);
   const [expandLoops, setExpandLoops] = useState(true);
   const [format, setFormat] = useState<"midi1" | "midi2">("midi1");
   const [lossAccepted, setLossAccepted] = useState(false);
+  const [midi2LossAccepted, setMidi2LossAccepted] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     if (open) {
       setSelectedSongs(new Set([intent.songIndex ?? Math.max(0, state.songIndex)]));
       setFormat("midi1");
       setLossAccepted(false);
+      setMidi2LossAccepted(false);
       setError("");
     }
   }, [open, state.songIndex, intent.songIndex]);
@@ -43,7 +50,10 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
     [intent.kind, intent.songIndex, selectedSongs],
   );
   const exportSelectionKey = exportSongIndices.join(",");
-  useEffect(() => setLossAccepted(false), [format, exportSelectionKey, intent.kind, intent.regionId, intent.trackId]);
+  useEffect(() => {
+    setLossAccepted(false);
+    setMidi2LossAccepted(false);
+  }, [format, exportSelectionKey, intent.kind, intent.regionId, intent.trackId]);
   const exportTracks = useMemo(() => {
     const tracks = new Map<string, MidiExportTrack>();
     const trackNames = new Map(projectTracks.map((track) => [track.id, track.name]));
@@ -64,6 +74,11 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
   }, [exportSongIndices, songs, projectTracks, intent.kind, intent.regionId, intent.trackId]);
   const lossReport = useMemo(() => analyzeMidi1ExportLoss(exportTracks), [exportTracks]);
   const hasMidi1Loss = lossReport.noteAttributes + lossReport.groups + lossReport.quantizedVelocities + lossReport.unsupportedUmpEvents > 0;
+  const midi2ClickIntervalLossCount = useMemo(
+    () => countMidi2TimeSignatureClickIntervalLoss(songs, exportSongIndices),
+    [songs, exportSongIndices],
+  );
+  const hasMidi2Loss = midi2ClickIntervalLossCount > 0;
 
   const doExport = () => {
     try {
@@ -133,6 +148,16 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
                   <span>Export the compatible .mid file with these losses</span>
                 </label>
               </div>}
+              {format === "midi2" && hasMidi2Loss && <div className="space-y-2 rounded-lg border border-warning/35 bg-warning/5 p-3 text-xs">
+                <p className="font-medium text-warning">This MIDI Clip cannot preserve all selected MIDI 1.0 notation metadata:</p>
+                <ul className="list-inside list-disc text-foreground/70">
+                  <li>{midi2ClickIntervalLossCount} time-signature change(s) use a non-default MIDI-clock metronome-click interval, which has no MIDI 2.0 Set Time Signature field</li>
+                </ul>
+                <label className="flex items-start gap-2 text-foreground/80">
+                  <input type="checkbox" checked={midi2LossAccepted} onChange={(event) => setMidi2LossAccepted(event.target.checked)} />
+                  <span>Export the .midi2 clip without this MIDI 1.0-only metadata</span>
+                </label>
+              </div>}
               <div className={`max-h-40 space-y-1 overflow-auto rounded-lg border border-default/20 p-2 ${intent.kind === "region" ? "opacity-60" : ""}`}>
                 {songs.map((song, index) => (
                   <label key={index} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-default/15">
@@ -153,7 +178,10 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
             </Modal.Body>
             <Modal.Footer>
               <Button variant="secondary" onPress={onClose}>Cancel</Button>
-              <Button isDisabled={format === "midi1" && hasMidi1Loss && !lossAccepted} onPress={doExport}>Export {format === "midi2" ? ".midi2" : ".mid"}</Button>
+              <Button isDisabled={
+                (format === "midi1" && hasMidi1Loss && !lossAccepted)
+                || (format === "midi2" && hasMidi2Loss && !midi2LossAccepted)
+              } onPress={doExport}>Export {format === "midi2" ? ".midi2" : ".mid"}</Button>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

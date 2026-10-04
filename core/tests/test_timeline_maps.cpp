@@ -240,7 +240,7 @@ TEST_CASE("ProjectJson: DAW TrackKind, stripId, and MIDI round-trip serializatio
 
     song.signaturePoints = {
         {0.0, 4, 4, 1},
-        {16.0, 7, 8, 5, 11}
+        {16.0, 7, 8, 5, 11, 36}
     };
 
     p.songs.push_back(song);
@@ -291,6 +291,7 @@ TEST_CASE("ProjectJson: DAW TrackKind, stripId, and MIDI round-trip serializatio
     CHECK(s.signaturePoints[1].denominator == 8);
     CHECK(s.signaturePoints[1].bar == 5);
     CHECK(s.signaturePoints[1].thirtySecondsPerQuarter == 11);
+    CHECK(s.signaturePoints[1].midiClocksPerMetronomeClick == 36);
 }
 
 TEST_CASE("ProjectJson: backward compatibility with projects missing DAW fields") {
@@ -316,6 +317,9 @@ TEST_CASE("ProjectJson: backward compatibility with projects missing DAW fields"
       "bpm": 120.0,
       "timeSignature": { "numerator": 4, "denominator": 4 },
       "onEnded": "stop",
+      "signaturePoints": [
+        { "beat": 0.0, "numerator": 4, "denominator": 4, "bar": 1 }
+      ],
       "regions": [],
       "events": []
     }
@@ -339,7 +343,9 @@ TEST_CASE("ProjectJson: backward compatibility with projects missing DAW fields"
     REQUIRE(p.songs.size() == 1);
     CHECK(p.songs[0].midiRegions.empty());
     CHECK(p.songs[0].tempoPoints.empty());
-    CHECK(p.songs[0].signaturePoints.empty());
+    REQUIRE(p.songs[0].signaturePoints.size() == 1);
+    CHECK(p.songs[0].signaturePoints[0].thirtySecondsPerQuarter == 8);
+    CHECK(p.songs[0].signaturePoints[0].midiClocksPerMetronomeClick == 24);
 }
 
 } // TEST_SUITE

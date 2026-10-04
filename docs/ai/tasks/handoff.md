@@ -1648,3 +1648,16 @@ round-trip coverage for packet widths of all 16 UMP Message Types, including
 reserved types. Focused MIDI Clip tests 35/35. Source is UMP Protocol v1.1.1
 Table 4. This verifies framing only; unknown and reserved packet semantics
 remain opaque. Continue with field validation and independent fixtures.
+
+Latest continuation — preserve SMF metronome-click interval metadata
+(2026-10-04): Standard MIDI File `FF 58` click interval now survives MIDI
+import/export, project JSON, Builder edits and Core telemetry as
+`midiClocksPerMetronomeClick` (default 24). Invalid-length timing metadata is
+retained as raw MIDI events. MIDI Clip has no corresponding field, so its
+export dialog warns and requires confirmation before dropping selected
+non-default intervals. Legacy-project default, SMF round-trip and export-loss
+tests were added. Verification: SMF 28/28; full UI 1,063/1,063 in 151 files;
+Core CTest 1/1; `ResoStage` native target and UI production build pass; TS
+project build, changed-file lint and `git diff --check` pass. Pending: final
+diff review and an English commit; do not push. Continue researching
+independent MIDI Clip fixtures and avoid overstating cross-DAW compatibility.

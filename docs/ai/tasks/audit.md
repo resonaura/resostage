@@ -2306,3 +2306,19 @@ through MIDI Clip import/export; it does not claim semantic support for
 reserved types. Focused MIDI Clip tests passed 35/35. Source: UMP and MIDI 2.0
 Protocol v1.1.1 Table 4. Continue validating semantic field bounds and file
 round-trip edge cases, not merely framing.
+
+### Audit — SMF 0x58 metronome-click interval loss (2026-10-04)
+
+Confirmed a silent metadata-loss path: parsing SMF time signatures kept the
+`bb` 1/32-notes-per-quarter field but discarded `cc` MIDI Clocks per
+Metronome Click. The project could not preserve the value and MIDI 2.0 Clip
+export has no equivalent field. Added an optional persisted project property,
+defaults and byte-range validation, wired it through project JSON, the Core
+Builder, Web state and telemetry, and preserved it through SMF import/export
+and imported tempo-map adoption. Legacy JSON defaults to 24. The MIDI Clip
+export dialog now reports selected non-default click intervals and requires
+confirmation before loss. Malformed/short SMF timing meta events are retained
+as raw channel-track data. Regression coverage includes an older project
+without the field, non-default round-trip, and selection-aware loss reporting.
+Verification passed: SMF tests 28/28, UI 1,063/1,063 across 151 files, Core
+CTest 1/1, native `ResoStage` build, TypeScript and UI production build.

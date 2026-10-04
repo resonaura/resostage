@@ -616,6 +616,7 @@ struct WSignaturePointTelemetry {
     int denominator = 4;
     int bar = 1;
     int thirtySecondsPerQuarter = 8;
+    int midiClocksPerMetronomeClick = 24;
 };
 
 struct WSongTelemetry {

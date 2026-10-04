@@ -112,6 +112,7 @@ export function ImportMidiDialog({
           numerator: number;
           denominator: number;
           thirtySecondsPerQuarter?: number;
+          midiClocksPerMetronomeClick?: number;
         }>();
         meterByBeat.set(0, {
           beat: 0,

@@ -777,6 +777,7 @@ struct WebUiState {
             int denominator = 4;
             int bar = 1;
             int thirtySecondsPerQuarter = 8;
+            int midiClocksPerMetronomeClick = 24;
         };
         std::vector<SignaturePointRow> signaturePoints;
     };

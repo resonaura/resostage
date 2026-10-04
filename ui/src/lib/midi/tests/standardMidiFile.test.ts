@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
   analyzeMidi1ExportLoss,
   adaptMidiTracksToSongTempo,
+  countMidi2TimeSignatureClickIntervalLoss,
   midiSecondsAtBeat,
   parseStandardMidiFile,
   songBeatAtElapsedSeconds,
@@ -49,7 +50,8 @@ describe("Standard MIDI File", () => {
   it("round-trips a MIDI region with tempo and meter", () => {
     const bytes = writeStandardMidiFile([{ name: "Piano", regions: [region] }], {
       bpm: 123, numerator: 3, denominator: 4,
-      meterEvents: [{ beat: 0, numerator: 3, denominator: 4, thirtySecondsPerQuarter: 12 }],
+      meterEvents: [{ beat: 0, numerator: 3, denominator: 4, thirtySecondsPerQuarter: 12,
+        midiClocksPerMetronomeClick: 36 }],
       fromProjectStart: true, expandLoops: true,
     });
     const parsed = parseStandardMidiFile(bytes);
@@ -57,10 +59,81 @@ describe("Standard MIDI File", () => {
     expect(parsed.numerator).toBe(3);
     expect(parsed.denominator).toBe(4);
     expect(parsed.meterEvents[0].thirtySecondsPerQuarter).toBe(12);
+    expect(parsed.meterEvents[0].midiClocksPerMetronomeClick).toBe(36);
     expect(parsed.tracks[1].name).toBe("Piano");
     expect(parsed.tracks[1].notes[0]).toMatchObject({
       pitch: 60, startBeats: 8.5, durationBeats: 1.5,
     });
+  });
+
+  it("preserves malformed time-signature meta payloads as ordinary MIDI events", () => {
+    const malformed = { ...region, startBeats: 0, events: [
+      { beat: 0, status: 0xff, data: [0x58, 4, 4] },
+      { beat: 1, status: 0xff, data: [0x58, 0, 8, 24, 8] },
+    ] };
+    const bytes = writeStandardMidiFile([{ name: "Raw meta", regions: [malformed] }], {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false,
+    });
+    const parsed = parseStandardMidiFile(bytes);
+    expect(parsed.tracks[1].events).toContainEqual({
+      beat: 0, status: 0xff, data: [0x58, 4, 4],
+    });
+    expect(parsed.tracks[1].events).toContainEqual({
+      beat: 1, status: 0xff, data: [0x58, 0, 8, 24, 8],
+    });
+    expect(parsed.meterEvents).toHaveLength(1);
+    expect(parsed.meterEvents[0].midiClocksPerMetronomeClick ?? 24).toBe(24);
+  });
+
+  it.each([0, 256])("rejects SMF time-signature numerator %i that cannot be encoded", (numerator) => {
+    expect(() => writeStandardMidiFile([{ name: "Piano", regions: [region] }], {
+      bpm: 120, numerator: 4, denominator: 4,
+      meterEvents: [{ beat: 0, numerator, denominator: 4 }],
+      fromProjectStart: true, expandLoops: false,
+    })).toThrow(/numerator must be an unsigned nonzero 8-bit integer/);
+  });
+
+  it("exports all persisted time-signature notation metadata from project songs", () => {
+    const song: SongRow = {
+      name: "Meter metadata", bpm: 120, tsNum: 6, tsDen: 8, mode: "auto", endSeconds: 2,
+      click: false, clickBusId: "", clickSends: [],
+      signaturePoints: [{ beat: 0, numerator: 6, denominator: 8, bar: 1,
+        thirtySecondsPerQuarter: 12, midiClocksPerMetronomeClick: 36 }],
+      regions: [], midiRegions: [{ ...region, startBeats: 0 }], events: [],
+    };
+    const bytes = writeSongsMidiFile([song], {
+      songIndices: [0], tracks: [{ id: "t1", name: "Meter" }],
+      fromProjectStart: true, expandLoops: false,
+    });
+
+    expect(parseStandardMidiFile(bytes).meterEvents[0]).toMatchObject({
+      numerator: 6,
+      denominator: 8,
+      thirtySecondsPerQuarter: 12,
+      midiClocksPerMetronomeClick: 36,
+    });
+  });
+
+  it("reports selected MIDI 1-only metronome-click metadata lost by MIDI Clip export", () => {
+    const songs = [{
+      name: "Click metadata", bpm: 120, mode: "auto", tsNum: 4, tsDen: 4, endSeconds: 2,
+      click: false, clickBusId: "", clickSends: [], events: [], tempoPoints: [],
+      signaturePoints: [
+        { beat: 0, numerator: 4, denominator: 4, bar: 1 },
+        { beat: 2, numerator: 4, denominator: 4, bar: 2, midiClocksPerMetronomeClick: 36 },
+        { beat: 12, numerator: 4, denominator: 4, bar: 4, midiClocksPerMetronomeClick: 48 },
+      ],
+      midiRegions: [], regions: [],
+    }, {
+      name: "Default click", bpm: 120, mode: "auto", tsNum: 4, tsDen: 4, endSeconds: 2,
+      click: false, clickBusId: "", clickSends: [], events: [], tempoPoints: [],
+      signaturePoints: [{ beat: 0, numerator: 4, denominator: 4, bar: 1 }],
+      midiRegions: [], regions: [],
+    }] as unknown as SongRow[];
+
+    expect(countMidi2TimeSignatureClickIntervalLoss(songs, [0, 1])).toBe(1);
+    expect(countMidi2TimeSignatureClickIntervalLoss(songs, [1])).toBe(0);
   });
 
   it("preserves zero-tick note edges through Standard MIDI File tempo adaptation", () => {

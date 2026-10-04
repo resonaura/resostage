@@ -1222,7 +1222,7 @@ export const builder = {
     clickSends: { busId: string; level: number; enabled: boolean }[];
     tempoPoints?: { beat: number; bpm: number; timeSeconds: number; curve: number }[];
     signaturePoints?: { beat: number; numerator: number; denominator: number; bar: number;
-      thirtySecondsPerQuarter?: number }[];
+      thirtySecondsPerQuarter?: number; midiClocksPerMetronomeClick?: number }[];
   }) => postEditorMutation("/api/v1/builder/song/update", patch),
 
   trackAdd: (

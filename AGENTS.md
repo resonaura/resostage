@@ -1049,11 +1049,14 @@ Key ownership rules:
   transaction, evicting oldest entries deterministically when required.
 - Songs own timeline regions, sections, events, and light cues.
 - Song `signaturePoints` persist the MIDI time-signature `thirtySecondsPerQuarter`
-  notation field (unsigned 8-bit range, default 8) through project JSON and UI
-  telemetry. It is informational notation metadata and does not alter the
-  quarter-note/bar arithmetic in `SignatureMap`; legacy projects without the
-  field load with the default. Preserve it when importing/exporting MIDI 1.0
-  time-signature meta events and MIDI 2.0 Set Time Signature Flex Data.
+  notation field (unsigned 8-bit range, default 8) and
+  `midiClocksPerMetronomeClick` (unsigned 8-bit range, default 24) through
+  project JSON and UI telemetry. Both are informational notation metadata and
+  do not alter quarter-note/bar arithmetic in `SignatureMap`; legacy projects
+  without either field load with its default. Preserve both through MIDI 1.0
+  time-signature meta-event import/export. MIDI 2.0 Set Time Signature Flex
+  Data has no metronome-click interval field; exporting that format cannot
+  represent non-default MIDI 1.0 click metadata.
 - Stable entities use namespaced IDs such as `audio::track:1` and
   `audio::main`. Churn-heavy rows use UUIDv7 to survive copy/paste and undo.
 - Optional strings serialize as JSON `null`, not an empty-string convention.

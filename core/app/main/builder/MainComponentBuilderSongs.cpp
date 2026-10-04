@@ -319,6 +319,10 @@ void MainComponent::builderSongUpdate(const std::string& json) {
             getInt(pointValue, "thirtySecondsPerQuarter", point.thirtySecondsPerQuarter);
             if (point.thirtySecondsPerQuarter < 0 || point.thirtySecondsPerQuarter > 255)
                 continue;
+            getInt(pointValue, "midiClocksPerMetronomeClick", point.midiClocksPerMetronomeClick);
+            if (point.midiClocksPerMetronomeClick < 0
+                || point.midiClocksPerMetronomeClick > 255)
+                continue;
             importedPoints.push_back(point);
         }
         SignatureMap normalized(s.timeSignature.numerator, s.timeSignature.denominator,
