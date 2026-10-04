@@ -815,3 +815,14 @@ event after EOT is rejected. Focused Standard MIDI tests passed 77/77; full UI
 passed 1,116/1,116 across 151 files; TypeScript, production build, changed-file
 oxlint, and `git diff --check` passed. Basis: the MIDI Association
 [Standard MIDI Files specification](https://midi.org/standard-midi-files-specification).
+
+### Latest continuation — bound multi-file MIDI import memory (2026-10-04)
+
+The MIDI import dialog now parses selected files sequentially instead of
+reading and parsing the entire batch concurrently. It caps the aggregate
+retained notes, MIDI 1.0 events, and opaque UMP events at 200,000 items, the
+same ceiling as a single input file. This prevents a permitted 128-file batch
+from multiplying per-file limits into unbounded retained project state. Focused
+batch/SMF tests passed 79/79; full UI passed 1,118/1,118 across 152 files;
+TypeScript, production build, changed-file oxlint, and `git diff --check`
+passed.

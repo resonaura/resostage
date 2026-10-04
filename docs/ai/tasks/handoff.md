@@ -1927,3 +1927,12 @@ behavior was intentionally left unchanged. Focused SMF tests: 77/77; full UI:
 1,116/1,116 across 151 files; TypeScript, production build, changed-file
 oxlint and `git diff --check` passed. Commit this block in English without
 pushing, then continue conformance auditing.
+
+Latest verified MIDI import stability change (2026-10-04): the import dialog
+reads/parses files sequentially and rejects a batch whose retained notes,
+MIDI 1.0 events, and opaque UMP events exceed 200,000 total rows. This keeps
+multi-file imports within one bounded parsed-content budget. Import batch/SMF
+tests: 79/79; full UI: 1,118/1,118 across 152 files; TypeScript, production
+build, changed-file oxlint and `git diff --check` passed. Commit separately in
+English without pushing, then continue checking transaction behavior and MIDI
+file conformance.

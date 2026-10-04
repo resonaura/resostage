@@ -16,6 +16,7 @@ import {
 import { builder } from "@/lib/state/api";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal } from "@/components/ui";
+import { assertMidiBatchContentItemLimit, countMidiContentItems } from "@/transfer/midi/logic/importBatch";
 
 export type MidiTempoChoice = "keep-beats" | "fit-project-tempo" | "use-midi-tempo";
 
@@ -53,10 +54,15 @@ export function ImportMidiDialog({
         if (files.length > 128) throw new Error("Import at most 128 MIDI files at a time");
         const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
         if (totalBytes > 128 * 1024 * 1024) throw new Error("The selected MIDI files exceed the 128 MiB batch limit");
-        const batch = await Promise.all(files.map(async (file) => {
+        const batch: Array<{ file: File; midi: ImportedMidiFile }> = [];
+        let totalContentItems = 0;
+        for (const file of files) {
           if (file.size > 32 * 1024 * 1024) throw new Error(`${file.name}: MIDI file exceeds 32 MiB`);
-          return { file, midi: parseStandardMidiFile(new Uint8Array(await file.arrayBuffer())) };
-        }));
+          const midi = parseStandardMidiFile(new Uint8Array(await file.arrayBuffer()));
+          totalContentItems += countMidiContentItems(midi);
+          assertMidiBatchContentItemLimit(totalContentItems);
+          batch.push({ file, midi });
+        }
         if (batch.length > 1 && batch.some(({ midi }) => midi.format === 2))
           throw new Error("SMF Format 2 contains independent sequences with separate tempo maps. Import one Format 2 file at a time and choose a sequence explicitly.");
         if (batch.some(({ midi }) => !midi.tracks.some((track) => track.notes.length || track.events?.length || track.umpEvents?.length)))

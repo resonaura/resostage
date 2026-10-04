@@ -2602,3 +2602,11 @@ instead of silently dropped. No new strictness was added for a track with no
 EOT. Test coverage: 77/77 focused SMF; full UI: 1,116/1,116 across 151 files;
 TypeScript, production UI build, changed-file oxlint and `git diff --check`
 passed. Basis: MIDI Association Standard MIDI Files specification.
+
+Latest MIDI batch-import resource audit (2026-10-04): input files are parsed
+sequentially and aggregate retained notes/events/UMP rows are capped at
+200,000 across a batch (matching one file's retained-item budget), rather than
+allowing up to 128 independent file caps to accumulate. Focused import-batch
+and SMF tests: 79/79; full UI: 1,118/1,118 across 152 files; TypeScript,
+production build, changed-file oxlint and `git diff --check` passed. Review
+batch failure semantics and collection payload sizing in follow-up work.
