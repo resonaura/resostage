@@ -1004,3 +1004,11 @@ reattaches them to a different control. Focused UI passed 13/13, full UI
 unrelated lint warnings), native CTest passed 1/1, and diff check passed. This
 is not real AU/VST3 metadata-churn acceptance. Continue from the remaining
 items in `audit.md`, `automation.md` and `performance.md`. Do not push.
+
+Latest Audio Flow layout block (2026-10-03): exact crossing scores are bounded
+to 50,000 edge-pair comparisons per pass. Dense topologies switch to one
+deterministic forward/backward barycentre pass scored in O(E); unchanged
+topology still reuses cached positions. Focused layout tests passed 21/21,
+full UI passed 914/914 across 138 files, and TypeScript, production build,
+changed-file lint and diff check passed. This is not mounted dense-graph visual
+acceptance and does not implement sidechain routes. Do not push.

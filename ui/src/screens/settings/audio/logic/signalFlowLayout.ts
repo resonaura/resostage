@@ -43,6 +43,8 @@ export const NODE_WIDTH = 218;
 export const NODE_HEIGHT = 90;
 const COLUMN_GAP = 90;
 const ROW_GAP = 18;
+/** Pairwise crossing counts stay exact below this work bound per score pass. */
+export const MAX_PAIRWISE_CROSSING_COMPARISONS = 50_000;
 
 /**
  * Longest-path layering: a strip sits one column right of its furthest-left
@@ -131,6 +133,38 @@ export function countCrossings(
   return crossings;
 }
 
+/** Estimate exact pair checks and stop once the layout's quadratic budget is exceeded. */
+export function estimateCrossingComparisons(
+  edges: Array<{ from: string; to: string }>,
+  columnOf: Map<string, number>,
+): number {
+  const edgeCounts = new Map<string, number>();
+  let comparisons = 0;
+  for (const edge of edges) {
+    const sourceColumn = columnOf.get(edge.from);
+    const targetColumn = columnOf.get(edge.to);
+    if (sourceColumn === undefined || targetColumn === undefined) continue;
+    const key = `${sourceColumn}:${targetColumn}`;
+    const previousCount = edgeCounts.get(key) ?? 0;
+    comparisons += previousCount;
+    if (comparisons > MAX_PAIRWISE_CROSSING_COMPARISONS)
+      return MAX_PAIRWISE_CROSSING_COMPARISONS + 1;
+    edgeCounts.set(key, previousCount + 1);
+  }
+  return comparisons;
+}
+
+/** Linear fallback score for dense graphs where exact pairwise crossings are too costly. */
+function edgeSpanScore(
+  edges: Array<{ from: string; to: string }>,
+  rowOf: Map<string, number>,
+): number {
+  let score = 0;
+  for (const edge of edges)
+    score += Math.abs((rowOf.get(edge.from) ?? 0) - (rowOf.get(edge.to) ?? 0));
+  return score;
+}
+
 /** Sweeps of barycentre ordering. Past this the ordering stops improving. */
 const ORDERING_SWEEPS = 4;
 
@@ -182,8 +216,13 @@ function orderRows<Strip extends LayoutStrip>(
   }
 
   const columnIndices = [...byColumn.keys()].sort((a, b) => a - b);
+  const useExactCrossingScore = estimateCrossingComparisons(payload.edges, columns)
+    <= MAX_PAIRWISE_CROSSING_COMPARISONS;
+  const scoreLayout = () => useExactCrossingScore
+    ? countCrossings(payload.edges, columns, rowOf)
+    : edgeSpanScore(payload.edges, rowOf);
   let best = new Map(rowOf);
-  let bestCrossings = countCrossings(payload.edges, columns, rowOf);
+  let bestScore = scoreLayout();
 
   const sweep = (forwards: boolean) => {
     const order = forwards ? columnIndices : [...columnIndices].reverse();
@@ -211,14 +250,17 @@ function orderRows<Strip extends LayoutStrip>(
       });
       list.forEach((id, i) => rowOf.set(id, i));
     }
-    const crossings = countCrossings(payload.edges, columns, rowOf);
-    if (crossings < bestCrossings) {
-      bestCrossings = crossings;
+    const score = scoreLayout();
+    if (score < bestScore) {
+      bestScore = score;
       best = new Map(rowOf);
     }
   };
 
-  for (let i = 0; i < ORDERING_SWEEPS; i++) {
+  // Dense routing graphs use one forward/backward barycentre pair scored in
+  // O(E). Smaller graphs retain the more precise crossing-count sweeps.
+  const sweepCount = useExactCrossingScore ? ORDERING_SWEEPS : 1;
+  for (let i = 0; i < sweepCount; i++) {
     sweep(true);
     sweep(false);
   }

@@ -1604,3 +1604,16 @@ full UI lint and `git diff --check` passed (lint has 12 existing warnings in
 unrelated files); native engine build and CTest passed 1/1. No physical vendor
 plug-in fixture was run. Continue with `automation.md` and `performance.md`;
 do not claim real AU/VST3 metadata-churn acceptance.
+
+### Latest continuation — dense Audio Flow layout budget (2026-10-03)
+
+Signal Flow row ordering now retains exact crossing minimization only when the
+estimated pairwise work is at most 50,000 comparisons per score pass. Denser
+graphs use a deterministic forward/backward barycentre pass with a linear edge
+span score, while the topology cache still bypasses layout for meter/fader
+updates. A 160×160/25,600-edge test confirms the bounded path is selected and
+layout rows remain deterministic/non-overlapping. Focused tests passed 21/21;
+UI typecheck and changed-file lint passed. Full UI and production-build
+results are recorded in the handoff entry. This does not cap React Flow's
+linear edge rendering or establish visual legibility in a mounted dense graph;
+sidechain endpoints/routing remain open.

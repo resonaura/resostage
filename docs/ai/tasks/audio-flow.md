@@ -121,3 +121,22 @@ tests in 125 files; lint exited 0 with 12 existing warnings in unrelated
 files; `git diff --check` passed. This block changes no
 Core graph data and makes no sidechain claim. Remote Core, visual density,
 stale in-flight graph response and hardware audio acceptance remain open.
+
+## Bounded dense-graph layout — implemented subset (2026-10-03)
+
+The row-order optimizer estimates pairwise crossing work before scoring a
+layout. If the estimate is at most 50,000 comparisons per score pass, the
+existing four exact crossing-reduction sweeps are retained. Above that
+threshold, it performs one deterministic forward/backward barycentre pair and
+scores edge vertical span in O(E), avoiding repeated O(E²) scans. The estimate
+stops as soon as it crosses the threshold. The existing topology cache keeps
+meter/fader-only updates from rerunning either strategy.
+
+The dense regression creates a 160-by-160 all-to-all graph (25,600 edges),
+proves the exact-comparison estimate exceeds the budget, and verifies stable
+non-overlapping row assignments across repeated layouts. Focused layout tests
+passed 21/21; UI TypeScript and changed-file lint passed; full UI and
+production-build results are recorded in the latest audit/handoff entry. This
+bounds the optimizer's crossing work, not React Flow's O(E) rendering, and
+does not prove dense-graph visual legibility or manual interaction quality.
+Sidechain ports/edges and real plugin-input routing remain unimplemented.

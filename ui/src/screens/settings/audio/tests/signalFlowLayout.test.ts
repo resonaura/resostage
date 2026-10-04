@@ -7,10 +7,12 @@
 import { describe, expect, it } from "vitest";
 import {
   countCrossings,
+  estimateCrossingComparisons,
   formatDb,
   formatPan,
   layerStrips,
   layoutSignalFlow,
+  MAX_PAIRWISE_CROSSING_COMPARISONS,
   pathThrough,
   sourceChannelLabel,
   type MixGraphEdge,
@@ -172,6 +174,29 @@ describe("layoutSignalFlow", () => {
 
   it("survives an empty graph", () => {
     expect(layoutSignalFlow({ strips: [], edges: [] })).toEqual([]);
+  });
+
+  it("uses deterministic linear scoring when dense routing exceeds the pairwise budget", () => {
+    const sourceCount = 160;
+    const destinationCount = 160;
+    const sources = Array.from({ length: sourceCount }, (_, index) => strip(`source-${index}`, "track"));
+    const destinations = Array.from({ length: destinationCount }, (_, index) => strip(`bus-${index}`, "send"));
+    const edges = sources.flatMap((source) => destinations.map((destination) =>
+      edge(source.id, destination.id),
+    ));
+    const payload: MixGraphPayload = { strips: [...sources, ...destinations], edges };
+    const columns = layerStrips(payload);
+
+    expect(estimateCrossingComparisons(edges, columns))
+      .toBe(MAX_PAIRWISE_CROSSING_COMPARISONS + 1);
+
+    const first = layoutSignalFlow(payload);
+    const second = layoutSignalFlow(payload);
+    expect(first.map(({ strip: item, column, row }) => [item.id, column, row]))
+      .toEqual(second.map(({ strip: item, column, row }) => [item.id, column, row]));
+
+    const positions = new Set(first.map((item) => `${item.column}:${item.row}`));
+    expect(positions.size).toBe(payload.strips.length);
   });
 });
 
