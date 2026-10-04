@@ -142,12 +142,15 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   for (let trackIndex = 0; trackIndex < count; trackIndex++) {
     let trackLength: number | undefined;
     while (trackLength === undefined) {
+      if (reader.offset === bytes.length)
+        throw new Error(`MIDI header declares ${count} tracks but only ${trackIndex} were found`);
       const chunkType = reader.fourCC();
       const chunkLength = reader.uint32();
       const chunkEnd = reader.offset + chunkLength;
       if (chunkEnd > bytes.length) {
         throw new Error(chunkType === "MTrk" ? "Truncated MIDI track" : "Truncated MIDI chunk");
       }
+      if (chunkType === "MThd") throw new Error("Unexpected MIDI header chunk");
       if (chunkType === "MTrk") {
         trackLength = chunkLength;
       } else {
@@ -318,6 +321,21 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
     result.tracks.push({ name, notes, events: retainedEvents, tempoEvents: trackTempoEvents, meterEvents: trackMeterEvents,
       durationBeats: musicalPosition(tick) });
     reader.offset = trackEnd;
+  }
+  while (reader.offset < bytes.length) {
+    if (bytes.length - reader.offset < 8) throw new Error("Truncated MIDI chunk header");
+    const chunkType = reader.fourCC();
+    const chunkLength = reader.uint32();
+    const chunkEnd = reader.offset + chunkLength;
+    if (chunkEnd > bytes.length) {
+      throw new Error(chunkType === "MTrk" ? "Truncated MIDI track" : "Truncated MIDI chunk");
+    }
+    if (chunkType === "MTrk")
+      throw new Error("MIDI header track count does not match the file's track chunks");
+    if (chunkType === "MThd") throw new Error("Unexpected MIDI header chunk");
+    // Alien chunks may carry forward-compatible metadata; skip exactly their
+    // declared payload while still checking framing and the header's track count.
+    reader.offset = chunkEnd;
   }
   result.tempoEvents.sort((a, b) => a.beat - b.beat);
   result.meterEvents.sort((a, b) => a.beat - b.beat);

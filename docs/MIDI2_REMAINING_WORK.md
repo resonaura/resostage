@@ -790,3 +790,16 @@ extension and a truncated extension. Focused Standard MIDI tests passed 73/73;
 full UI passed 1,112/1,112 across 151 files; TypeScript, production build,
 changed-file oxlint, and `git diff --check` passed. Basis: the MIDI Association
 [Standard MIDI Files specification](https://midi.org/standard-midi-files-specification).
+
+### Latest continuation — validate Standard MIDI chunk inventory (2026-10-04)
+
+After parsing the number of tracks declared in `MThd`, the importer now scans
+remaining chunk framing instead of silently ignoring it. Well-formed unknown
+chunks remain forward-compatible and are skipped by declared length; an extra
+`MTrk`, duplicate `MThd`, or truncated trailing chunk is rejected. The parser
+also reports when the header declares tracks that are missing. Tests cover
+trailing alien data, an undeclared track, a repeated header, and a truncated
+trailing chunk. Focused Standard MIDI tests passed 76/76; full UI passed
+1,115/1,115 across 151 files; TypeScript, production build, changed-file
+oxlint, and `git diff --check` passed. Basis: the MIDI Association
+[Standard MIDI Files specification](https://midi.org/standard-midi-files-specification).

@@ -107,6 +107,40 @@ describe("Standard MIDI File", () => {
     expect(parsed.tracks.map((track) => track.notes[0]?.pitch)).toEqual([60, 61]);
   });
 
+  it("skips a well-formed unknown chunk after all declared tracks", () => {
+    const track = [0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4, 0, 0xff, 0x2f, 0];
+    const trailingMetadata = [0x58, 0x54, 0x52, 0x41, 0, 0, 0, 4, 0x4d, 0x54, 0x72, 0x6b];
+    const file = Uint8Array.from([
+      0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 1, 0xe0,
+      ...track,
+      ...trailingMetadata,
+    ]);
+
+    expect(parseStandardMidiFile(file).tracks).toHaveLength(1);
+  });
+
+  it("rejects undeclared extra tracks and duplicate header chunks", () => {
+    const track = [0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4, 0, 0xff, 0x2f, 0];
+    const header = [0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 1, 0xe0];
+
+    expect(() => parseStandardMidiFile(Uint8Array.from([
+      ...header, ...track, ...track,
+    ]))).toThrow(/track count does not match/);
+    expect(() => parseStandardMidiFile(Uint8Array.from([
+      ...header, ...header, ...track,
+    ]))).toThrow(/Unexpected MIDI header chunk/);
+  });
+
+  it("rejects truncated chunks after the declared track list", () => {
+    const file = Uint8Array.from([
+      0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 1, 0xe0,
+      0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4, 0, 0xff, 0x2f, 0,
+      0x58, 0x54, 0x52, 0x41, 0, 0, 0, 4, 0x01,
+    ]);
+
+    expect(() => parseStandardMidiFile(file)).toThrow(/Truncated MIDI chunk/);
+  });
+
   it("rejects an unknown chunk whose declared payload is truncated", () => {
     const file = Uint8Array.from([
       0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 1, 0xe0,

@@ -2586,3 +2586,12 @@ and a truncated one. Focused Standard MIDI tests: 73/73; full UI: 1,112/1,112
 across 151 files; TypeScript, production build, changed-file oxlint and
 `git diff --check` passed. Basis: MIDI Association Standard MIDI Files
 specification. Continue with format-boundary and interoperability fixtures.
+
+Latest Standard MIDI chunk-inventory audit (2026-10-04): import no longer
+silently drops an undeclared trailing `MTrk` or accepts a duplicate `MThd`.
+It validates framing after the declared track count while still skipping
+well-formed unknown chunks by length, including after the tracks; missing
+tracks and truncated trailing chunks receive explicit errors. Tests: 76/76
+focused SMF; full UI: 1,115/1,115 across 151 files; TypeScript, production UI
+build, changed-file oxlint and `git diff --check` passed. Continue checking
+End-of-Track termination and standard-vs-tolerant recovery policy.

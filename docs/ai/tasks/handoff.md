@@ -1911,3 +1911,11 @@ tests: 73/73; full UI: 1,112/1,112 across 151 files; TypeScript, production UI
 build, changed-file oxlint and `git diff --check` passed. Commit this isolated
 block in English without pushing, then continue SMF/MIDI Clip interoperability
 and malformed-boundary audits.
+
+Latest verified SMF chunk inventory fix (2026-10-04): the importer scans all
+remaining chunks after the declared `MThd` track count, skips well-formed alien
+chunks, and rejects extra `MTrk`, duplicate `MThd`, missing tracks, or malformed
+trailing chunks rather than silently importing only part of the file. Focused
+SMF tests: 76/76; full UI: 1,115/1,115 across 151 files; TypeScript, production
+build, changed-file oxlint and `git diff --check` passed. Commit separately in
+English without pushing, then continue conformance auditing.
