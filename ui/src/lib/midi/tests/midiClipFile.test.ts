@@ -295,7 +295,7 @@ describe("MIDI Clip File framing and resource bounds", () => {
   });
 
   it("keeps short bar-boundary meter changes on the full DCTPQ grid", () => {
-    const parsed = parseMidiClipFile(writeMidiClipFile(
+    const bytes = writeMidiClipFile(
       [{ name: "Short bars", regions: [region] }],
       { bpm: 120, numerator: 1, denominator: 128,
         meterEvents: [
@@ -303,12 +303,40 @@ describe("MIDI Clip File framing and resource bounds", () => {
           { beat: 1 / 32, numerator: 2, denominator: 4 },
         ],
         fromProjectStart: true, expandLoops: false },
-    ));
+    );
+    const dctpq = ((bytes[12] * 0x1000000) + (bytes[13] << 16) + (bytes[14] << 8) + bytes[15]) >>> 0;
+    expect(dctpq).toBe(0x0030_ff00);
+
+    const parsed = parseMidiClipFile(bytes);
 
     expect(parsed.meterEvents).toEqual([
       { beat: 0, numerator: 1, denominator: 128 },
       { beat: 1 / 32, numerator: 2, denominator: 4 },
     ]);
+  });
+
+  it("round-trips high-resolution long gaps and rejects expansion beyond its packet budget", () => {
+    const clock = [0x0010_1234];
+    const timestamp = [0x0020_5678];
+    const parsed = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "Long gap", regions: [{ ...region, durationBeats: 24,
+        umpEvents: [
+          { beat: 0, words: clock, wordCount: 1 },
+          { beat: 20, words: timestamp, wordCount: 1 },
+        ] }] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+    expect(parsed.tracks[0].umpEvents?.map(({ beat, words }) => ({ beat, words })))
+      .toEqual([{ beat: 0, words: clock }, { beat: 20, words: timestamp }]);
+
+    expect(() => writeMidiClipFile(
+      [{ name: "Unbounded gap", regions: [{ ...region, durationBeats: 1_000_000_001,
+        umpEvents: [
+          { beat: 0, words: clock, wordCount: 1 },
+          { beat: 1_000_000_000, words: timestamp, wordCount: 1 },
+        ] }] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    )).toThrow(/bounded UMP packet export limit/);
   });
 
   it("preserves distinct MIDI 2.0 Note-On and Note-Off attributes", () => {

@@ -1561,3 +1561,15 @@ changed-file lint and `git diff --check` passed. Sources:
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 Commit this verified block in English, do not push, then continue MIDI Clip
 precision/conformance work.
+
+Latest continuation — MIDI Clip high-resolution DCTPQ and bounded long-gap
+output (2026-10-04): writer now uses DCTPQ 65,280 (highest multiple of 960
+within the spec's 65,535 limit). Parser/writer share a hard 800,016 packet
+limit, and export preflights NOOP/DCS expansion plus safe integer ticks to
+avoid pathological time-gap loops. Tests cover DCTPQ, high-resolution 20-beat
+gaps and fast rejection of an over-budget gap. Focused tests 30/30; full UI
+1,051/1,051 across 151 files; TypeScript/build, changed-file lint and
+`git diff --check` passed. Source: [UMP & MIDI 2.0 Protocol v1.1.1 §7.2.3.1]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Commit this block in English, do not push; next inspect Set Tempo resolution,
+tempo range handling, and broader reference-file coverage.

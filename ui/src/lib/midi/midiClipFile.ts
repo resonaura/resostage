@@ -15,8 +15,11 @@ import {
 const MAGIC = "SMF2CLIP";
 const MAX_BYTES = 32 * 1024 * 1024;
 const MAX_EVENTS = 200_000;
-const TPQ = 960;
+// Highest DCTPQ at or below 65,535 that remains divisible by both the
+// 24-pulse MIDI Clock grid and the common 960 PPQ timeline grid.
+const TPQ = 65_280;
 const MAX_DELTA = 0x000f_ffff;
+const MAX_OUTPUT_PACKETS = MAX_EVENTS * 4 + 16;
 
 function packetWords(messageType: number): number {
   if (messageType <= 2 || messageType === 6 || messageType === 7) return 1;
@@ -128,10 +131,10 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   let activeDcsDelta: number | null = null;
   let immediatelyPrecededByDcs = false;
   while (reader.offset < bytes.length) {
-    // DCS packets are not retained as musical events, but still count toward
-    // parsing work. Allow one delta-control packet per retained event plus
-    // clip framing, and reject utility-packet floods early.
-    if (++packetCount > MAX_EVENTS * 2 + 16) throw new Error("MIDI 2.0 clip has too many UMP packets");
+    // DCS/NOOP packets are not retained as musical events, but still count
+    // toward parsing work. Long-gap resets add two control packets around an
+    // event's own DCS, so match the writer's bounded packet ceiling.
+    if (++packetCount > MAX_OUTPUT_PACKETS) throw new Error("MIDI 2.0 clip has too many UMP packets");
     const first = reader.word();
     const type = first >>> 28;
     const words = [first];
@@ -387,6 +390,13 @@ function appendWord(bytes: number[], word: number): void {
 
 function dcs(delta: number): number { return 0x00400000 | (delta & MAX_DELTA); }
 
+function clipTicksForBeat(beat: number): number {
+  const ticks = Math.round(beat * TPQ);
+  if (!Number.isSafeInteger(ticks) || ticks < 0)
+    throw new Error("MIDI 2.0 clip event time exceeds the safe DCTPQ range");
+  return ticks;
+}
+
 function midi1EventToUmp(status: number, data: number[]): number[] | null {
   const kind = status & 0xf0;
   if (status < 0x80 || status > 0xef || data.length < 1) return null;
@@ -433,7 +443,7 @@ function notePackets(note: MidiNoteRow, group: number): Array<{
 function compareClipEvents(a: ClipEvent, b: ClipEvent): number {
   // The writer serializes integer TPQ ticks. Compare on that same timeline so
   // floating-point beat math cannot split events that quantize to one tick.
-  const tickDifference = Math.round(a.beat * TPQ) - Math.round(b.beat * TPQ);
+  const tickDifference = clipTicksForBeat(a.beat) - clipTicksForBeat(b.beat);
   if (tickDifference !== 0) return tickDifference;
   const aPriorityEvent = a.priority < 0;
   const bPriorityEvent = b.priority < 0;
@@ -471,6 +481,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   const appendEvent = (event: ClipEvent) => {
     if (!Number.isFinite(event.beat) || event.beat < 0)
       throw new Error("MIDI 2.0 clip contains an invalid event time");
+    clipTicksForBeat(event.beat);
     if (events.length + profileConfigurationPackets.length + receiverConfigurationPackets.length >= MAX_EVENTS)
       throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
     events.push(event);
@@ -622,7 +633,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     // Unlike Set Tempo, Set Time Signature is bar-positioned, not restricted
     // to the 24 MIDI Clock pulses per quarter. Preserve the full output DCTPQ grid
     // so short bars such as 1/128 are not displaced by MIDI Clock quantization.
-    const quantizedBeat = Math.max(0, Math.round(beat * TPQ) / TPQ);
+    const quantizedBeat = Math.max(0, clipTicksForBeat(beat) / TPQ);
     const word1 = (((item.numerator & 0xff) << 24) | ((power & 0xff) << 16) | (8 << 8)) >>> 0;
     appendEvent({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], priority: -1, order: order++ });
   }
@@ -638,36 +649,38 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   assertNoMidiClipPropertyExchange(events.map((event) => event.words));
 
   const bytes = [...Array.from(MAGIC).map((letter) => letter.charCodeAt(0))];
-  for (const packet of profileConfigurationPackets)
-    for (const word of packet.words) appendWord(bytes, word >>> 0);
-  appendWord(bytes, dcs(0));
-  appendWord(bytes, 0x00300000 | TPQ);
+  let writtenPacketCount = 0;
+  const appendPacket = (words: number[]) => {
+    if (++writtenPacketCount > MAX_OUTPUT_PACKETS)
+      throw new Error("MIDI 2.0 clip exceeds the bounded UMP packet export limit");
+    for (const word of words) appendWord(bytes, word >>> 0);
+  };
+  for (const packet of profileConfigurationPackets) appendPacket(packet.words);
+  appendPacket([dcs(0)]);
+  appendPacket([0x00300000 | TPQ]);
   for (const packet of receiverConfigurationPackets) {
-    appendWord(bytes, dcs(0));
-    for (const word of packet.words) appendWord(bytes, word >>> 0);
+    appendPacket([dcs(0)]);
+    appendPacket(packet.words);
   }
-  appendWord(bytes, dcs(0));
-  appendWord(bytes, 0xf0200000); // UMP Stream: Start of Clip (complete, 128-bit packet)
-  appendWord(bytes, 0);
-  appendWord(bytes, 0);
-  appendWord(bytes, 0);
+  appendPacket([dcs(0)]);
+  appendPacket([0xf0200000, 0, 0, 0]); // UMP Stream: Start of Clip (complete, 128-bit packet)
   let previousTick = 0;
   for (const event of events) {
-    let tick = Math.max(previousTick, Math.round(event.beat * TPQ));
+    const tick = Math.max(previousTick, clipTicksForBeat(event.beat));
+    const requiredLongGapResets = Math.max(0, Math.floor((tick - previousTick - 1) / MAX_DELTA));
+    if (writtenPacketCount + requiredLongGapResets * 2 + 2 > MAX_OUTPUT_PACKETS)
+      throw new Error("MIDI 2.0 clip exceeds the bounded UMP packet export limit");
     while (tick - previousTick > MAX_DELTA) {
-      appendWord(bytes, dcs(MAX_DELTA));
+      appendPacket([dcs(MAX_DELTA)]);
       previousTick += MAX_DELTA;
-      appendWord(bytes, 0); // Utility NOOP resets the DC accumulator on very long gaps.
+      appendPacket([0]); // Utility NOOP resets the DC accumulator on very long gaps.
     }
-    appendWord(bytes, dcs(tick - previousTick));
-    for (const word of event.words) appendWord(bytes, word >>> 0);
+    appendPacket([dcs(tick - previousTick)]);
+    appendPacket(event.words);
     previousTick = tick;
   }
-  appendWord(bytes, dcs(0));
-  appendWord(bytes, 0xf0210000); // UMP Stream: End of Clip (complete, 128-bit packet)
-  appendWord(bytes, 0);
-  appendWord(bytes, 0);
-  appendWord(bytes, 0);
+  appendPacket([dcs(0)]);
+  appendPacket([0xf0210000, 0, 0, 0]); // UMP Stream: End of Clip (complete, 128-bit packet)
   return Uint8Array.from(bytes);
 }
 

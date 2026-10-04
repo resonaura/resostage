@@ -2207,3 +2207,18 @@ and `git diff --check` passed. Sources: [MIDI Clip File v1.0 §7.1.2]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf),
 [UMP & MIDI 2.0 Protocol v1.1.1 §§7.5.3–7.5.4]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — MIDI Clip DCTPQ and gap resource bound (2026-10-04)
+
+DCTPQ increased from 960 to 65,280 (the highest multiple of 960 not exceeding
+the protocol's 65,535 maximum). This retains the quarter-note/MIDI-Clock grid
+and common 960-PPQ positions at finer resolution. With the shorter per-DCS
+span, a valid sparse file may contain multiple DCS/NOOP resets per retained
+event. Parser and writer now share an 800,016 UMP packet ceiling; the exporter
+preflights reset expansion and safe integer tick conversion, avoiding
+pathological time gaps that previously could loop for an unbounded period.
+Tests verify the DCTPQ word, a 20-beat DCS/NOOP round-trip, and fast rejection
+of a gap exceeding budget. Focused MIDI Clip tests passed 30/30; full UI passed
+1,051/1,051 across 151 files; TypeScript/production build, changed-file lint
+and `git diff --check` passed. Standard: [UMP & MIDI 2.0 Protocol v1.1.1
+§7.2.3.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
