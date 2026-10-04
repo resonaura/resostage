@@ -707,6 +707,7 @@ their declared length, so a FourCC-like byte sequence inside unknown payload
 data is never treated as a track. Truncated unknown chunks reject cleanly. This
 follows the forward-compatible chunk rule in the MIDI Association [Standard
 MIDI Files specification](https://midi.org/standard-midi-files-specification).
+
 Focused Standard MIDI tests passed 69/69; full UI passed 1,104/1,104 across
 151 files; TypeScript, production build, changed-file oxlint, and
 `git diff --check` passed.
@@ -745,3 +746,14 @@ cover both cases. Focused Standard MIDI tests passed 71/71; full UI passed
 1,107/1,107 across 151 files; TypeScript, production build, changed-file
 oxlint, and `git diff --check` passed. Reference: [MIDI Association Standard
 MIDI Files specification](https://midi.org/standard-midi-files-specification).
+
+### Latest continuation — validate MIDI 1.0 UMP note bytes (2026-10-04)
+
+MIDI Clip import now rejects malformed Message Type 2 Note On/Off packets whose
+MIDI 1.0 data bytes have bit 7 set. The note parser previously masked those
+bits and converted the altered values to project notes, discarding the source
+packet. Tests cover invalid note-number and velocity bytes. Focused MIDI Clip
+tests passed 37/37; full UI passed 1,108/1,108 across 151 files; TypeScript,
+production build, changed-file oxlint, and `git diff --check` passed. Basis:
+[UMP & MIDI 2.0 Protocol v1.1.1 §7.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf)
+and the MIDI 1.0 channel-voice data-byte rules.

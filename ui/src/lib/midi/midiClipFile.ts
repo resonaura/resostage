@@ -329,6 +329,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
       const status = (word0 >>> 20) & 0xf;
       const channel = (word0 >>> 16) & 0xf;
       if ((status === 8 || status === 9) && (type === 2 || words.length === 2)) {
+        if (type === 2 && ((word0 & 0x8080) !== 0))
+          throw new Error("MIDI 1.0 UMP note data bytes must be 7-bit values");
         const pitch = (word0 >>> 8) & 0x7f;
         const eventVelocity = type === 4
           ? (words[1] >>> 16) & 0xffff

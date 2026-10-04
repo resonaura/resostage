@@ -1880,3 +1880,11 @@ full UI: 1,107/1,107 across 151 files; TypeScript, production build,
 changed-file oxlint and diff check passed. Review and commit in English,
 without pushing. Reference: MIDI Association Standard MIDI Files
 specification.
+
+Latest verified MIDI Clip fix (2026-10-04): import rejects MIDI 1.0 UMP
+Message Type 2 note edges with non-7-bit pitch or velocity bytes before they
+can be masked into different note data. Focused MIDI Clip tests: 37/37; full
+UI: 1,108/1,108 across 151 files; TypeScript, production build, changed-file
+oxlint and diff check passed. The rule follows UMP & MIDI 2.0 Protocol v1.1.1
+§7.3. Review and commit in English without pushing, then continue the MIDI Clip
+and Standard MIDI File codec audit.

@@ -120,6 +120,16 @@ describe("MIDI Clip File framing and resource bounds", () => {
       .toEqual(expected);
   });
 
+  it("rejects malformed MIDI 1.0 UMP note data instead of masking high bits", () => {
+    expect(() => parseMidiClipFile(framedClip([
+      dcs(0), [0x2090_bc64],
+    ]))).toThrow(/MIDI 1.0 UMP note data bytes must be 7-bit values/);
+
+    expect(() => parseMidiClipFile(framedClip([
+      dcs(0), [0x2080_3c80],
+    ]))).toThrow(/MIDI 1.0 UMP note data bytes must be 7-bit values/);
+  });
+
   it("applies shared DCS deltas cumulatively and preserves simultaneous presentation order", () => {
     const parsed = parseMidiClipFile(framedClip([
       dcs(120), [0x10f8_0000], [0x10fa_0000],

@@ -2552,3 +2552,11 @@ that would otherwise consume a byte from the next chunk. Focused Standard MIDI
 tests passed 71/71; full UI passed 1,107/1,107 across 151 files; TypeScript,
 production build, changed-file oxlint and `git diff --check` passed. Basis:
 MIDI Association Standard MIDI Files specification.
+
+Latest MIDI Clip note validation (2026-10-04): malformed MIDI 1.0 UMP Message
+Type 2 Note On/Off data bytes with bit 7 set are rejected before conversion.
+The previous mask-and-convert behavior changed invalid pitch/velocity values
+and dropped the original UMP. Tests cover both byte positions. Focused MIDI
+Clip tests passed 37/37; full UI passed 1,108/1,108 across 151 files;
+TypeScript, production build, changed-file oxlint and `git diff --check`
+passed. Basis: UMP & MIDI 2.0 Protocol v1.1.1 §7.3.
