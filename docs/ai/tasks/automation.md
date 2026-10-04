@@ -781,6 +781,9 @@ channels and additional event bytes; the complete group is clamped inside the
 region's source window or loop source window. Delete and the toolbar Delete
 button remove the selected events through the reliable region-event commit
 path. The toolbar reports selected event count.
+`usePianoRollControllerEventSelection` owns selection invalidation and the
+lane-aware Delete/Select All actions so the Piano Roll composition component
+does not own this event-editing policy.
 
 Selection uses bounded source-array indexes because persisted raw MIDI events
 do not have stable IDs. It is invalidated when project/region identity,
@@ -790,8 +793,8 @@ partial destructive edit. This does not add range marquee, cut/copy, freehand
 painting, raw-event curve tools, UMP/MIDI 2.0 editing, or hardware acceptance.
 Automation points remain a distinct data model.
 
-Verification: focused controller/gesture/lifecycle suites passed 25/25 after
-the final malformed-lane/invalid-loop guards; the full UI suite passed 942
-tests across 142 files, TypeScript and production build passed, and repository
-lint exited 0 with 12 existing warnings in unrelated files. `git diff --check`
-passed. No manual visual or hardware-device acceptance was performed.
+Verification: focused controller/gesture/lifecycle suites passed 27/27; the
+full UI suite passed 947 tests across 143 files, TypeScript and production
+build passed, and repository lint exited 0 with 12 existing warnings in
+unrelated files. `git diff --check` passed. No manual visual or hardware-device
+acceptance was performed.

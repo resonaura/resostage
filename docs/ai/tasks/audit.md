@@ -1745,14 +1745,15 @@ active-lane Select All, rigid group movement and Delete for raw MIDI 1.0 CC and
 pitch-bend events. Group movement preserves beat offsets, channels and extra
 event bytes and clamps the selection as a whole to the region or loop source
 window. Delete is sent through the reliable MIDI-region event transaction.
+The new `usePianoRollControllerEventSelection` hook owns selection invalidation
+and lane-aware Delete/Select All behavior separately from component composition.
 Selection uses bounded source-array indexes, not stable event IDs; it clears at
 history/identity/lane/mode boundaries and when authoritative data changes at a
 selected index. Lists above 16,384 events fail closed for these edit actions.
 
-Verification: full UI Vitest passed 942 tests across 142 files; production
+Verification: full UI Vitest passed 947 tests across 143 files; production
 build, TypeScript, full lint (exit 0; 12 pre-existing warnings) and
-`git diff --check` passed. After the last malformed-lane and invalid-loop
-guards, the focused controller/gesture/lifecycle set passed 25/25 and `tsc -b`
-passed.
+`git diff --check` passed. The focused controller/gesture/lifecycle set passed
+27/27 after the malformed-lane, invalid-loop and read-only selection guards.
 No physical MIDI device or manual visual acceptance was performed. Remaining
 raw-event gaps are freehand painting, curve tools and MIDI 2.0 UMP authoring.
