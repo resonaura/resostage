@@ -45,11 +45,17 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   const reader = new ClipReader(bytes);
   if (reader.fourCC() + reader.fourCC() !== MAGIC) throw new Error("Not a MIDI 2.0 Clip File");
 
-  const packets: Array<{ words: number[]; ticks: number; inSequence: boolean }> = [];
+  const packets: Array<{
+    words: number[];
+    ticks: number;
+    inSequence: boolean;
+    inConfigurationHeader: boolean;
+  }> = [];
   let ticks = 0;
   let startTicks = 0;
   let clipEndTicks = 0;
   let tpq = 0;
+  let hasDctpq = false;
   let started = false;
   let ended = false;
   let packetCount = 0;
@@ -76,6 +82,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         const value = first & 0xffff;
         if (value === 0) throw new Error("MIDI 2.0 clip has an invalid zero DCTPQ");
         tpq = value;
+        hasDctpq = true;
         lastDcsDelta = null;
       } else lastDcsDelta = null;
       continue;
@@ -104,7 +111,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     }
     if (packets.length >= MAX_EVENTS)
       throw new Error("MIDI 2.0 clip has too many UMP events");
-    packets.push({ words, ticks, inSequence: started });
+    packets.push({ words, ticks, inSequence: started,
+      inConfigurationHeader: hasDctpq && !started });
   }
   if (!tpq) throw new Error("MIDI 2.0 clip is missing DCTPQ");
   if (!started || !ended) throw new Error("MIDI 2.0 clip is missing Start/End of Clip markers");
@@ -116,21 +124,51 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   const meterEvents: ImportedMidiFile["meterEvents"] = [];
   let nextId = 1;
   let durationTicks = 0;
+  let configurationEventSeen = false;
+  let configurationTempoSeen = false;
+  let configurationMeterSeen = false;
+  let lastConfigurationEventWasTempo = false;
   for (const packet of packets) {
-    const { words, ticks: at, inSequence } = packet;
+    const { words, ticks: at, inSequence, inConfigurationHeader } = packet;
     const relativeTicks = inSequence ? Math.max(0, at - startTicks) : 0;
     durationTicks = Math.max(durationTicks, relativeTicks);
     const word0 = words[0];
     const type = word0 >>> 28;
     const beat = relativeTicks / tpq;
+    const flexStatusBank = (word0 >>> 8) & 0xff;
+    const flexStatus = word0 & 0xff;
+    const isSetTempo = type === 0xd && flexStatusBank === 0 && flexStatus === 0 && words.length === 4;
+    const isSetTimeSignature = type === 0xd && flexStatusBank === 0 && flexStatus === 1 && words.length === 4;
+    if (inConfigurationHeader) {
+      if (isSetTempo) {
+        if (configurationTempoSeen)
+          throw new Error("MIDI 2.0 clip configuration header contains more than one Set Tempo");
+        if (configurationEventSeen)
+          throw new Error("MIDI 2.0 clip configuration Set Tempo must be its first event after DCTPQ");
+        configurationTempoSeen = true;
+        configurationEventSeen = true;
+        lastConfigurationEventWasTempo = true;
+      } else if (isSetTimeSignature) {
+        if (configurationMeterSeen)
+          throw new Error("MIDI 2.0 clip configuration header contains more than one Set Time Signature");
+        if (!configurationTempoSeen || !lastConfigurationEventWasTempo)
+          throw new Error("MIDI 2.0 clip configuration Set Time Signature must immediately follow Set Tempo");
+        configurationMeterSeen = true;
+        configurationEventSeen = true;
+        lastConfigurationEventWasTempo = false;
+      } else {
+        configurationEventSeen = true;
+        lastConfigurationEventWasTempo = false;
+      }
+    }
+    if (!inSequence && !inConfigurationHeader && (isSetTempo || isSetTimeSignature))
+      throw new Error("MIDI 2.0 clip configuration tempo and meter messages must follow DCTPQ");
     if (type === 0xd) {
-      const statusBank = (word0 >>> 8) & 0xff;
-      const status = word0 & 0xff;
-      if (statusBank === 0 && status === 0 && words.length === 4) {
+      if (isSetTempo) {
         const units = words[1];
         if (units > 0) tempoEvents.push({ beat, bpm: 6_000_000_000 / units });
         continue;
-      } else if (statusBank === 0 && status === 1 && words.length === 4) {
+      } else if (isSetTimeSignature) {
         const numerator = (words[1] >>> 24) & 0xff;
         const denominatorPower = (words[1] >>> 16) & 0xff;
         if (numerator > 0 && denominatorPower <= 7)

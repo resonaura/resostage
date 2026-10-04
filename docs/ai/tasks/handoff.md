@@ -1383,3 +1383,17 @@ follows MIDI Clip File Specification v1.0 sections 6–7. Independent profile,
 configuration, SysEx and broader Flex Data/UMP interoperability fixtures and
 native UMP input/output remain open. Do not claim full MIDI 2.0 compatibility;
 do not push.
+
+Follow-up — MIDI Clip configuration tempo/meter conformance (2026-10-04):
+configuration-header Set Tempo and Set Time Signature are now validated
+separately from sequence events. Import rejects duplicate config tempo/meter,
+config tempo that is not first after DCTPQ, config time signature not
+immediately after tempo, and these Flex Data messages before DCTPQ. Optional
+profile-prefix packets before DCTPQ are not treated as ordinary configuration
+events. Multiple sequence tempo changes remain supported. Tests cover valid
+tempo/meter setup, each rejection case and multiple sequence tempos. Focused
+MIDI Clip tests passed 9/9; full UI passed 1,027 tests / 151 files; UI build,
+lint (12 existing unrelated warnings) and diff check passed. Rules are from
+MIDI Clip File Specification v1.0 sections 6.1.1–6.1.2. This is structural
+validation, not MIDI-CI profile or SysEx interoperability. See
+`docs/MIDI2_REMAINING_WORK.md`; do not push.

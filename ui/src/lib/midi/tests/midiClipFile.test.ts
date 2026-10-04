@@ -13,6 +13,8 @@ const dcs = (ticks: number) => [0x0040_0000 | ticks];
 const dctpq = (ticksPerQuarter: number) => [0x0030_0000 | ticksPerQuarter];
 const start = [0xf020_0000, 0, 0, 0];
 const end = [0xf021_0000, 0, 0, 0];
+const setTempo120 = [0xd010_0000, 50_000_000, 0, 0];
+const setMeter44 = [0xd010_0001, 0x0402_0800, 0, 0];
 
 function appendWord(bytes: number[], word: number): void {
   bytes.push((word >>> 24) & 0xff, (word >>> 16) & 0xff, (word >>> 8) & 0xff, word & 0xff);
@@ -69,7 +71,8 @@ describe("MIDI Clip File framing and resource bounds", () => {
   it("anchors musical timing at Start of Clip while preserving timed configuration at beat zero", () => {
     const parsed = parseMidiClipFile(makeClip([
       dcs(0), dctpq(960),
-      dcs(0), [0xd010_0000, 50_000_000, 0, 0],
+      dcs(0), setTempo120,
+      dcs(0), setMeter44,
       dcs(120), [0x20c0_0000],
       dcs(120), start,
       dcs(120), [0x4090_3c00, 0xffff_0000],
@@ -78,6 +81,7 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]));
 
     expect(parsed.tempoEvents).toEqual([{ beat: 0, bpm: 120 }]);
+    expect(parsed.meterEvents).toEqual([{ beat: 0, numerator: 4, denominator: 4 }]);
     expect(parsed.tracks[0].umpEvents).toEqual([
       { beat: 0, words: [0x20c0_0000], wordCount: 1 },
     ]);
@@ -87,6 +91,40 @@ describe("MIDI Clip File framing and resource bounds", () => {
       durationBeats: 2,
     });
     expect(parsed.tracks[0].durationBeats).toBe(2.125);
+  });
+
+  it("enforces configuration-header tempo and meter cardinality and order", () => {
+    const prefix = [dcs(0), dctpq(960)];
+    const invalid = [
+      { packets: [...prefix, dcs(0), setTempo120, dcs(0), setTempo120, dcs(0), start, dcs(0), end],
+        message: /more than one Set Tempo/ },
+      { packets: [...prefix, dcs(0), setTempo120, dcs(0), setMeter44, dcs(0), setMeter44, dcs(0), start, dcs(0), end],
+        message: /more than one Set Time Signature/ },
+      { packets: [...prefix, dcs(0), setMeter44, dcs(0), start, dcs(0), end],
+        message: /must immediately follow Set Tempo/ },
+      { packets: [...prefix, dcs(0), setTempo120, dcs(0), [0x20c0_0000], dcs(0), setMeter44,
+        dcs(0), start, dcs(0), end],
+        message: /must immediately follow Set Tempo/ },
+      { packets: [dcs(0), setTempo120, dcs(0), dctpq(960), dcs(0), start, dcs(0), end],
+        message: /must follow DCTPQ/ },
+      { packets: [...prefix, dcs(0), [0x20c0_0000], dcs(0), setTempo120, dcs(0), start, dcs(0), end],
+        message: /must be its first event after DCTPQ/ },
+    ];
+
+    for (const fixture of invalid)
+      expect(() => parseMidiClipFile(makeClip(fixture.packets))).toThrow(fixture.message);
+  });
+
+  it("allows multiple tempo changes in Clip Sequence Data", () => {
+    const parsed = parseMidiClipFile(framedClip([
+      dcs(0), setTempo120,
+      dcs(960), [0xd010_0000, 100_000_000, 0, 0],
+    ]));
+
+    expect(parsed.tempoEvents).toEqual([
+      { beat: 0, bpm: 120 },
+      { beat: 1, bpm: 60 },
+    ]);
   });
 
   it("requires a single DCTPQ preceded by a zero-delta clockstamp", () => {

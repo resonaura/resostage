@@ -34,6 +34,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   packets before Start are retained at beat zero (and tempo/meter Flex Data is
   interpreted at beat zero), so setup pre-roll cannot shift notes. The current
   project schema does not model a separate configuration-header timeline.
+- Configuration-header Set Tempo and Set Time Signature messages are checked
+  separately from sequence events: each is limited to one; configuration tempo
+  must be the first event after DCTPQ, and configuration time signature must
+  immediately follow that tempo. Multiple tempo changes in Clip Sequence Data
+  remain supported.
 - Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
   packets on MIDI regions; the current format 12 retains them. Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and

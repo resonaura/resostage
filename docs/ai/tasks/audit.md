@@ -1987,3 +1987,25 @@ warnings outside changed files; `git diff --check` passed. Source rule follows
 MIDI Clip File Specification v1.0 sections 6–7; broader independent
 configuration/profile, SysEx and Flex Data interoperability fixtures remain
 open. Do not claim complete MIDI Clip or end-to-end MIDI 2.0 conformance.
+
+### Latest continuation — MIDI Clip configuration tempo/meter conformance (2026-10-04)
+
+The parser now validates configuration-header Set Tempo/Set Time Signature
+separately from sequence events. It rejects duplicate configuration tempo or
+meter messages, a configuration tempo that is not the first event after DCTPQ,
+a time signature not immediately following that tempo, and these messages
+before DCTPQ. Profile-prefix packets before DCTPQ are not counted as ordinary
+configuration-header events. Sequence tempo changes remain unrestricted by
+the configuration-header cardinality rules. This follows the mandatory
+configuration rules in MIDI Clip File Specification v1.0 sections 6.1.1–6.1.2:
+<https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf>.
+
+Tests cover valid configuration tempo/meter, duplicate and out-of-order
+configuration messages, and multiple sequence tempo changes. Focused parser
+tests passed 9/9; full UI passed 1,027 tests across 151 files. Run the
+production build, lint and diff check before committing; do not infer broad
+MIDI-CI profile or SysEx interoperability from these structural checks.
+
+Verification completed: UI TypeScript/production build passed; repository lint
+exited 0 with 12 existing warnings outside changed files; `git diff --check`
+passed. No third-party profile/configuration or SysEx fixtures were available.
