@@ -35,6 +35,30 @@ describe("MIDI import batch bounds", () => {
     expect(countMidiContentItems(midi)).toBe(4);
   });
 
+  it("counts retained tempo and meter points in the aggregate batch budget", () => {
+    const mapRows = {
+      tempoEvents: [{ beat: 0, bpm: 120 }, { beat: 4, bpm: 90 }],
+      meterEvents: [{ beat: 0, numerator: 4, denominator: 4 }],
+    };
+    const emptyTrack = { name: "Timing", notes: [], durationBeats: 8 };
+
+    expect(countMidiContentItems({
+      format: 1,
+      tracks: [{ ...emptyTrack, ...mapRows }],
+      ...mapRows,
+    })).toBe(3);
+    expect(countMidiContentItems({
+      format: 2,
+      tracks: [{ ...emptyTrack, ...mapRows }],
+      tempoEvents: [], meterEvents: [],
+    })).toBe(3);
+    expect(countMidiContentItems({
+      format: "midi2-clip",
+      tracks: [emptyTrack],
+      ...mapRows,
+    })).toBe(3);
+  });
+
   it("uses the same explicit retained-item ceiling as one parsed file", () => {
     expect(MAX_MIDI_BATCH_CONTENT_ITEMS).toBe(200_000);
     expect(() => assertMidiBatchContentItemLimit(MAX_MIDI_BATCH_CONTENT_ITEMS)).not.toThrow();

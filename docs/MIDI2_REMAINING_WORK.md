@@ -828,6 +828,14 @@ closing or replacing the dialog stops further file reads/parsing after the
 current `arrayBuffer()` operation settles. TypeScript, production build,
 changed-file oxlint, and `git diff --check` passed.
 
+Follow-up memory-bound audit: the same 200,000-row aggregate now includes
+retained tempo and meter points. Format 0/1 and MIDI Clip count their effective
+file-level maps once; Format 2 counts each independent sequence map. This
+closes a gap where many small timing meta-events across a large batch could
+consume substantial parsed memory without reaching the prior note/event/UMP
+counter. Focused batch tests: 5/5; full UI: 1,133/1,133 across 154 files;
+TypeScript/production build, changed-file oxlint, and diff check pass.
+
 ### Latest continuation — isolate selected MIDI sequence timing (2026-10-04)
 
 When importing with the project-tempo update choice, the initial BPM and meter

@@ -1989,3 +1989,11 @@ full UI tests pass 1,132/1,132 across 154 files, production build and lint
 pass. Continue reviewing the remaining MIDI codec boundaries and loss
 report/export selection. Do not claim SMF2 Container, generic MIDI 2.0 device
 I/O, or complete hardware compatibility.
+
+The multi-file memory budget now also counts tempo and meter map points:
+effective global maps for SMF Format 0/1 and MIDI Clip, per-sequence maps for
+Format 2. This prevents timing-heavy files from bypassing the 200,000-row
+aggregate. Focused batch tests 5/5, full UI 1,133/1,133 across 154 files,
+TypeScript/build/lint passed. Next, continue the SMF/MIDI Clip conformance
+audit with evidence-backed fixes; do not assume track flattening or documented
+live UMP limitations are resolved.

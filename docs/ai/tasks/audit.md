@@ -2662,3 +2662,12 @@ both missing and stale-short lengths. Full UI tests pass 1,132/1,132 across
 154 files; production build, changed-file oxlint, and diff check pass. Continue
 the SMF/MIDI Clip interoperability audit; do not imply this resolves the open
 SMF2 Container or hardware MIDI 2.0 gaps.
+
+Follow-up batch-memory finding (2026-10-04): the retained-row counter had
+omitted tempo/meter events, allowing a batch dominated by timing metadata to
+exceed its intended memory budget. `countMidiContentItems` now counts effective
+global maps for Format 0/1 and MIDI Clip, and per-sequence maps for Format 2,
+without double-counting Format 0/1 track mirrors. Focused batch tests 5/5; full
+UI 1,133/1,133 across 154 files; TypeScript/production build and changed-file
+oxlint pass. Continue investigating concrete SMF/MIDI Clip interoperability
+gaps before broad feature expansion.

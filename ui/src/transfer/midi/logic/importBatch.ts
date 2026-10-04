@@ -30,12 +30,21 @@ export interface MidiRegionImportPatch {
   umpEvents: MidiUmpEventRow[];
 }
 
-/** Count material retained by the import dialog, including normalized note rows. */
+/** Count retained musical and timing rows held while a multi-file batch is prepared. */
 export function countMidiContentItems(midi: ImportedMidiFile): number {
-  return midi.tracks.reduce((total, track) => total
+  const contentItems = midi.tracks.reduce((total, track) => total
     + track.notes.length
     + (track.events?.length ?? 0)
     + (track.umpEvents?.length ?? 0), 0);
+  // Format 2 owns independent timing maps per sequence. Formats 0/1 and MIDI
+  // Clip expose their effective maps at file level; counting their per-track
+  // mirrors too would count the same retained source events twice.
+  const timingItems = midi.format === 2
+    ? midi.tracks.reduce((total, track) => total
+      + (track.tempoEvents?.length ?? 0)
+      + (track.meterEvents?.length ?? 0), 0)
+    : midi.tempoEvents.length + midi.meterEvents.length;
+  return contentItems + timingItems;
 }
 
 /** Count raw MIDI 1.0 event bytes retained by all tracks in one imported file. */
