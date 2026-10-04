@@ -17,6 +17,7 @@ import { songBeatsAtSeconds, songSecondsAtBeat } from "@/lib/midi/tempoMap";
 export { songBeatsAtSeconds, songSecondsAtBeat } from "@/lib/midi/tempoMap";
 
 const PPQN = 480;
+const MAX_VLQ = 0x0fffffff;
 const MAX_BYTES = 32 * 1024 * 1024;
 const MAX_TRACKS = 256;
 const MAX_EVENTS = 200_000;
@@ -338,7 +339,10 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
 }
 
 function vlq(value: number): number[] {
-  let n = Math.max(0, Math.floor(value));
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_VLQ) {
+    throw new Error("Standard MIDI File variable-length values must be integers from 0 to 0x0FFFFFFF");
+  }
+  let n = value;
   const out = [n & 0x7f];
   while ((n >>= 7) > 0) out.unshift((n & 0x7f) | 0x80);
   return out;

@@ -601,3 +601,19 @@ alter the reported loss clear prior consent. Focused SMF tests passed 29/29;
 full UI passed 1,064/1,064 across 151 files; TypeScript, production build, and
 changed-file lint passed. Reference: [UMP & MIDI 2.0 Protocol v1.1.1 §7.4.2]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — reject out-of-range Standard MIDI File VLQs (2026-10-04)
+
+The Standard MIDI File reader already rejected variable-length quantities
+longer than four bytes, but the writer could emit one when an event delta or
+length exceeded `0x0FFFFFFF`; it also silently coerced invalid/non-finite
+values. The shared writer encoder now accepts only safe integers in the SMF
+VLQ range, so invalid event times and deltas that cannot be represented fail
+explicitly instead of producing a file the parser rejects. Tests cover the
+maximum legal delta, one tick beyond it, and a non-finite event timestamp.
+Focused Standard MIDI File tests passed 55/55; full UI passed 1,089/1,089 across
+151 files, TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed. This intentionally rejects an
+unrepresentable gap rather than inserting a synthetic event into the user's
+sequence. The four-byte bound follows the [MIDI Association Standard MIDI
+Files specification](https://midi.org/standard-midi-files-specification).

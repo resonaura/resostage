@@ -1054,6 +1054,41 @@ describe("Standard MIDI File", () => {
     expect(() => parseStandardMidiFile(bytes.subarray(0, bytes.length - 3))).toThrow();
   });
 
+  it("writes only four-byte SMF variable-length values and rejects invalid event times", () => {
+    const maximumDelta = 0x0fffffff;
+    const boundaryRegion: MidiRegionRow = {
+      ...region,
+      startBeats: maximumDelta / 480 - region.notes[0].startBeats,
+      durationBeats: 4,
+    };
+    const boundaryBytes = writeStandardMidiFile([{ name: "Boundary", regions: [boundaryRegion] }], {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false,
+    });
+    expect(parseStandardMidiFile(boundaryBytes).tracks[1].notes[0].startBeats)
+      .toBeCloseTo(maximumDelta / 480, 5);
+
+    const tooFarRegion: MidiRegionRow = {
+      ...boundaryRegion,
+      startBeats: (maximumDelta + 1) / 480 - region.notes[0].startBeats,
+    };
+    expect(() => writeStandardMidiFile([{ name: "Too far", regions: [tooFarRegion] }], {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false,
+    })).toThrow(/integers from 0 to 0x0FFFFFFF/);
+
+    const invalidEventTime: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      notes: [],
+      events: [{ beat: Number.NaN, status: 0x90, data: [60, 100] }],
+    };
+    expect(() => writeStandardMidiFile([{ name: "Invalid", regions: [invalidEventTime] }], {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false,
+    })).toThrow(/integers from 0 to 0x0FFFFFFF/);
+  });
+
   it("concatenates chosen songs with tempo and meter changes at exact boundaries", () => {
     const makeSong = (name: string, bpm: number, numerator: number, midi: MidiRegionRow): SongRow => ({
       name, bpm, tsNum: numerator, tsDen: 4, mode: "auto", endSeconds: 2,

@@ -2426,3 +2426,14 @@ and `git diff --check` passed. This does not claim user-authored source order
 across independent same-tick DAW tracks; ties are deterministic by selected
 track/region order. Continue with the next bounded interoperability gap; do not
 push.
+
+Latest codec audit — SMF variable-length encoder bounds (2026-10-04): verified
+that parsing caps a VLQ at four bytes while writing did not enforce the same
+limit and silently coerced `NaN` to zero. The writer now rejects values outside
+the safe-integer range `[0, 0x0FFFFFFF]`. Regression coverage proves the
+maximum delta round-trips, the next tick is rejected, and non-finite event time
+cannot serialize as tick zero. Focused Standard MIDI File tests passed 55/55;
+full UI passed 1,089/1,089 across 151 files; TypeScript, production build,
+changed-file oxlint, and `git diff --check` passed. This follows the published MIDI Association Standard MIDI Files specification;
+rejecting is deliberate because synthetic spacer events would mutate the
+user's sequence and expose implementation artifacts to other applications.

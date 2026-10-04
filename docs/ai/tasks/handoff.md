@@ -1745,3 +1745,14 @@ continuation across regions. Focused tests: 88/88; full UI: 1,088/1,088 across
 passed. This closes only compound-state continuity for file export. Do not
 claim MIDI 2.0 live UMP I/O, MIDI-CI, SysEx8/MDS, or cross-DAW certification.
 Commit this verified block in English and do not push; continue after it.
+
+Latest in-progress codec hardening — SMF VLQ writer bounds (2026-10-04):
+`ui/src/lib/midi/standardMidiFile.ts` now validates every encoded VLQ as a safe
+integer in `[0, 0x0FFFFFFF]`. This aligns export with the existing four-byte
+parser cap and stops non-finite timestamps from becoming tick zero. The
+regression test covers the exact maximum, one tick over, and NaN event time.
+Focused SMF tests passed 55/55; full UI passed 1,089/1,089 across 151 files;
+TypeScript, production build, changed-file oxlint, and `git diff --check` also
+passed. Review and commit this verified block with an English message; do not
+push. Source:
+[MIDI Association Standard MIDI Files specification](https://midi.org/standard-midi-files-specification).
