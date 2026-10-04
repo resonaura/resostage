@@ -21,6 +21,8 @@ const MAX_VLQ = 0x0fffffff;
 const MAX_BYTES = 32 * 1024 * 1024;
 const MAX_TRACKS = 256;
 const MAX_EVENTS = 200_000;
+export const MAX_MIDI_EVENT_PAYLOAD_BYTES = 65_536;
+export const MAX_MIDI_REGION_EVENT_DATA_BYTES = 8 * 1024 * 1024;
 
 type MidiRegionEvent = NonNullable<MidiRegionRow["events"]>[number];
 type SmfByteSequence = number[] | {
@@ -139,6 +141,16 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   const result: ImportedMidiFile = { format: format as 0 | 1 | 2, tracks: [], tempoEvents: [], meterEvents: [] };
   let nextId = 1;
   let totalEventCount = 0;
+  let totalRetainedEventDataBytes = 0;
+  const retainEventData = (data: Uint8Array, prefixBytes = 0): number[] => {
+    const length = data.length + prefixBytes;
+    if (length > MAX_MIDI_EVENT_PAYLOAD_BYTES)
+      throw new Error("MIDI event data exceeds ResoStage's 65,536-byte per-event limit");
+    if (length > MAX_MIDI_REGION_EVENT_DATA_BYTES - totalRetainedEventDataBytes)
+      throw new Error("MIDI file event data exceeds ResoStage's 8 MiB per-region limit");
+    totalRetainedEventDataBytes += length;
+    return Array.from(data);
+  };
   for (let trackIndex = 0; trackIndex < count; trackIndex++) {
     let trackLength: number | undefined;
     while (trackLength === undefined) {
@@ -192,7 +204,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         const kind = reader.byte();
         const data = reader.take(reader.vlq());
         if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
-        if (kind === 0x03) name = new TextDecoder().decode(data).slice(0, 128) || name;
+        if (kind === 0x03) name = new TextDecoder().decode(data.subarray(0, 128)) || name;
         let recognizedTimingMetaEvent = false;
         if (kind === 0x51 && data.length === 3) {
           const micros = (data[0] << 16) | (data[1] << 8) | data[2];
@@ -230,13 +242,15 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           break;
         }
         if (!recognizedTimingMetaEvent && kind !== 0x2f) {
-          events.push({ beat: musicalPosition(tick), status: 0xff, data: [kind, ...data] });
+          events.push({ beat: musicalPosition(tick), status: 0xff,
+            data: [kind, ...retainEventData(data, 1)] });
         }
         continue;
       }
       if (status === 0xf0 || status === 0xf7) {
         runningStatus = 0;
-        events.push({ beat: musicalPosition(tick), status, data: Array.from(reader.take(reader.vlq())) });
+        events.push({ beat: musicalPosition(tick), status,
+          data: retainEventData(reader.take(reader.vlq())) });
         if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
         continue;
       }

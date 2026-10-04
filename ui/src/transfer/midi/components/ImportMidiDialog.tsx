@@ -16,7 +16,14 @@ import {
 import { builder } from "@/lib/state/api";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal } from "@/components/ui";
-import { assertMidiBatchContentItemLimit, countMidiContentItems } from "@/transfer/midi/logic/importBatch";
+import {
+  assertMidiBatchContentItemLimit,
+  assertMidiBatchEventDataLimit,
+  assertMidiRegionEventDataLimits,
+  buildMidiRegionImportPatch,
+  countMidiContentItems,
+  countMidiEventDataBytes,
+} from "@/transfer/midi/logic/importBatch";
 import { buildImportedSongTiming } from "@/transfer/midi/logic/importTiming";
 
 export type MidiTempoChoice = "keep-beats" | "fit-project-tempo" | "use-midi-tempo";
@@ -62,6 +69,7 @@ export function ImportMidiDialog({
         if (totalBytes > 128 * 1024 * 1024) throw new Error("The selected MIDI files exceed the 128 MiB batch limit");
         const batch: Array<{ file: File; midi: ImportedMidiFile }> = [];
         let totalContentItems = 0;
+        let totalEventDataBytes = 0;
         for (const file of files) {
           if (cancelled) return;
           if (file.size > 32 * 1024 * 1024) throw new Error(`${file.name}: MIDI file exceeds 32 MiB`);
@@ -70,6 +78,9 @@ export function ImportMidiDialog({
           const midi = parseStandardMidiFile(new Uint8Array(data));
           totalContentItems += countMidiContentItems(midi);
           assertMidiBatchContentItemLimit(totalContentItems);
+          totalEventDataBytes += countMidiEventDataBytes(midi);
+          assertMidiBatchEventDataLimit(totalEventDataBytes);
+          assertMidiRegionEventDataLimits(midi.tracks, file.name);
           batch.push({ file, midi });
         }
         if (batch.length > 1 && batch.some(({ midi }) => midi.format === 2))
@@ -107,6 +118,8 @@ export function ImportMidiDialog({
     let endSeconds = Math.max(0, song.endSeconds ?? 0);
     let activeTempoSong = song;
     try {
+      let tempoUpdate: { bpm: number; tempoPoints: ReturnType<typeof buildImportedSongTiming>["tempoPoints"];
+        signaturePoints: ReturnType<typeof buildImportedSongTiming>["signaturePoints"] } | null = null;
       if (choice === "use-midi-tempo" && parsed.length === 1) {
         const sourceSong = parsed[0].midi;
         const sourceTempoEvents = sourceSong.format === 2 ? selectedTempoEvents ?? [] : sourceSong.tempoEvents;
@@ -114,19 +127,15 @@ export function ImportMidiDialog({
         const importedTiming = buildImportedSongTiming(sourceTempoEvents, sourceMeterEvents);
         const { bpm, tempoPoints, signaturePoints } = importedTiming;
         activeTempoSong = { ...song, bpm, tempoPoints, signaturePoints };
-        await builder.songUpdate({
-          index: target?.songIndex ?? state.songIndex,
-          name: song.name, bpm, mode: song.mode,
-          tsNum: signaturePoints[0]?.numerator ?? 4,
-          tsDen: signaturePoints[0]?.denominator ?? 4,
-          click: song.click, clickBusId: song.clickBusId, clickSends: song.clickSends,
-          tempoPoints, signaturePoints,
-        });
+        tempoUpdate = { bpm, tempoPoints, signaturePoints };
       }
 
+      const plans: Array<{
+        file: File;
+        patch: ReturnType<typeof buildMidiRegionImportPatch>;
+      }> = [];
       for (let index = 0; index < parsed.length; index++) {
         const { file, midi } = parsed[index];
-        setProgress(`Importing ${index + 1} of ${parsed.length}: ${file.name}`);
         const sourceTempoEvents = midi.format === 2 && selectedSequence ? selectedSequence.tempoEvents ?? [] : midi.tempoEvents;
         const selectedTracks = midi.format === 2 && selectedSequence ? [selectedSequence] : midi.tracks;
         const sourceTracks = selectedTracks.filter((track) => track.notes.length > 0 || track.events?.length || track.umpEvents?.length);
@@ -138,25 +147,16 @@ export function ImportMidiDialog({
         const fileDurationBeats = choice === "fit-project-tempo"
           ? Math.max(1, ...convertedTracks.map((track) => track.durationBeats))
           : sourceEnd;
-        let id = 1;
-        const notes = convertedTracks.flatMap((track) => track.notes.map((note) => ({
-          ...note,
-          id: id++,
-        })));
-        const events = convertedTracks.flatMap((track) => track.events ?? []);
-        const umpEvents = convertedTracks.flatMap((track) => track.umpEvents ?? []);
-        await builder.midiRegionAdd({
+        const patch = buildMidiRegionImportPatch({
           songIndex: target?.songIndex ?? state.songIndex,
           trackId,
           name: `${file.name.replace(/\.(mid|midi|midi2)$/i, "")}${midi.format === 2 && selectedSequence ? ` - ${selectedSequence.name}` : ""}`,
           startBeats: cursor,
           durationBeats: fileDurationBeats,
-          loop: false,
-          loopLengthBeats: fileDurationBeats,
-          notes,
-          events,
-          umpEvents,
+          tracks: convertedTracks,
+          sourceName: file.name,
         });
+        plans.push({ file, patch });
         if (choice === "fit-project-tempo" || choice === "use-midi-tempo") {
           const startSeconds = songSecondsAtBeat(activeTempoSong, cursor);
           endSeconds = Math.max(endSeconds, startSeconds + originalDurationSeconds);
@@ -164,6 +164,23 @@ export function ImportMidiDialog({
           endSeconds = Math.max(endSeconds, songSecondsAtBeat(activeTempoSong, cursor + fileDurationBeats));
         }
         cursor += fileDurationBeats;
+      }
+
+      if (tempoUpdate) {
+        const { bpm, tempoPoints, signaturePoints } = tempoUpdate;
+        await builder.songUpdate({
+          index: target?.songIndex ?? state.songIndex,
+          name: song.name, bpm, mode: song.mode,
+          tsNum: signaturePoints[0]?.numerator ?? 4,
+          tsDen: signaturePoints[0]?.denominator ?? 4,
+          click: song.click, clickBusId: song.clickBusId, clickSends: song.clickSends,
+          tempoPoints, signaturePoints,
+        });
+      }
+      for (let index = 0; index < plans.length; index++) {
+        const plan = plans[index];
+        setProgress(`Importing ${index + 1} of ${plans.length}: ${plan.file.name}`);
+        await builder.midiRegionAdd(plan.patch);
       }
       if (endSeconds > (song.endSeconds ?? 0) + 0.05)
         await builder.songEnd(target?.songIndex ?? state.songIndex, endSeconds);

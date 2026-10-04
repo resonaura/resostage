@@ -1953,3 +1953,24 @@ reopen, parsing no longer depends on track focus, and the tempo mismatch check
 now detects beat-zero changes. Focused MIDI tests: 84/84; full UI: 1,123/1,123
 across 154 files; production build and changed-file oxlint passed. Commit this
 block in English without pushing, then continue auditing batch payload bounds.
+
+Latest continuation verified 2026-10-04: bounded SMF raw event payload
+retention before byte-array expansion, enforced 8 MiB aggregate raw MIDI 1.0
+event-data limits, and preflighted every prepared MIDI-region request against
+Core's 16 MiB route cap before starting project mutations. Core now validates
+MIDI 1.0 and UMP row/payload bounds, integer fields, byte/word ranges, and UMP
+packet lengths before enqueue; details are in `AGENTS.md` and
+`docs/MIDI2_REMAINING_WORK.md`. UI 1,126/1,126 and build/lint passed; Core
+admission tests 4/4 passed and app/test targets built. The Core suite passed
+619/619 with its macOS DLS editor-window GUI test excluded; the unfiltered run
+fails only that headless GUI integration case.
+
+Before committing, inspect the complete diff and preserve the explicit
+non-atomic batch limitation: all predictable format/size failures are found
+before mutation, but Core/network failure halfway through the sequence can
+leave prior region/tempo requests applied. Next implement a truthful partial
+completion message based on exact editor request outcomes (including
+`playbackApplied` mismatch), refresh authoritative state when an outcome is
+ambiguous, and never blindly resend. Then continue auditing SMF/MIDI Clip
+import/export edge cases. Use a separate English commit for this completed
+boundary block; do not push.

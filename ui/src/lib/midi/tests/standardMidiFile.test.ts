@@ -10,6 +10,7 @@ import {
   analyzeMidi2ExportLoss,
   adaptMidiTracksToSongTempo,
   countMidi2TimeSignatureClickIntervalLoss,
+  MAX_MIDI_EVENT_PAYLOAD_BYTES,
   midiTempoDiffersFromSong,
   midiExportTracksForSongs,
   midiSecondsAtBeat,
@@ -58,6 +59,19 @@ describe("Standard MIDI File", () => {
 
     expect(midiTempoDiffersFromSong([{ beat: 0, bpm: 90 }], song)).toBe(true);
     expect(midiTempoDiffersFromSong([{ beat: 0, bpm: 120 }], song)).toBe(false);
+  });
+
+  it("rejects raw event payloads Core cannot preserve before expanding byte arrays", () => {
+    const payloadLength = MAX_MIDI_EVENT_PAYLOAD_BYTES + 1;
+    const lengthBytes = [0x84, 0x80, 0x01];
+    const bytes = smfWithTrackEvents([
+      0, 0xf0,
+      ...lengthBytes,
+      ...Array(payloadLength).fill(0),
+      0, 0xff, 0x2f, 0,
+    ]);
+
+    expect(() => parseStandardMidiFile(bytes)).toThrow(/65,536-byte per-event limit/);
   });
 
   it("uses the SMF default tempo and converts imported timing into a destination tempo", () => {

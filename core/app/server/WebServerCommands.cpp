@@ -8,6 +8,7 @@
 #include "WebServerHttp.h"
 #include "server/BuilderJson.h"
 #include "server/AutomationJson.h"
+#include "server/MidiRegionAdmission.h"
 #include "server/WireTypes.h"
 
 #include <libwebsockets.h>
@@ -598,6 +599,11 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
             if (body == nullptr || !builder_json::parseJson(std::string(body, bodyLen), document)
                 || !document.is_object()) {
                 writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "Invalid MIDI region edit");
+                return true;
+            }
+            std::string midiError;
+            if (!midi_region_admission::validateMidiRegionCollectionLimits(document, midiError)) {
+                writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, midiError.c_str());
                 return true;
             }
             if (document.contains("automationLanes")) {

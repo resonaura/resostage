@@ -21,6 +21,8 @@ add_executable(resostage_engine_tests
   test_plugin_preset_store.cpp
   test_plugin_loading_session.cpp
   test_command_body_limits.cpp
+  test_midi_region_json_limits.cpp
+  ../app/server/MidiRegionAdmission.cpp
   ../app/plugins/PluginHostSharedMemory.cpp
   ../app/plugins/PluginPresetStore.cpp
   test_project_history.cpp

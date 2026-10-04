@@ -86,6 +86,13 @@ collections. Media/project uploads remain streamed. The single message-thread
 command queue is preallocated for at most 1024 pending commands and also has a
 32 MiB aggregate payload budget; failure is explicit 413/503, never a silently
 truncated or unbounded accepted edit.
+MIDI-region add/update admission additionally limits each note, MIDI 1.0 event,
+and UMP event collection to 200,000 rows; each raw MIDI 1.0 event payload to
+65,536 bytes; aggregate MIDI 1.0 event payload to 8 MiB per region; and UMP
+payload to 800,000 32-bit words per region. It validates event beats, exact
+integer status/word-count fields, MIDI bytes, UMP word widths, and packet length
+before queueing, so malformed or over-limit edits receive an explicit 400
+instead of being accepted and partially discarded by the project parser.
 Deterministic HTTP fault-injection routes exist only when
 `RESOSTAGE_ENABLE_TEST_HOOKS=ON` (default `OFF`), and every `/api/v1/test/*`
 request must verify a loopback peer before mutating test state. Queue-saturation

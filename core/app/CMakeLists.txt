@@ -115,6 +115,7 @@ target_sources(ResoStage PRIVATE
   plugins/PluginHostSharedMemory.cpp
   plugins/PluginHostProcess.cpp
   server/WebServerCommands.cpp
+  server/MidiRegionAdmission.cpp
   server/WebServer.cpp
   server/WebServerHttp.cpp
   server/WebServerJobs.cpp

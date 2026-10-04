@@ -851,3 +851,27 @@ resets the choice for each new open/import session and changing track focus no
 longer reparses all files. Focused MIDI tests passed 84/84; full UI passed
 1,123/1,123 across 154 files; production build, changed-file oxlint, and
 `git diff --check` passed.
+
+### Latest continuation — bound MIDI payloads before Core mutation (2026-10-04)
+
+Standard MIDI parsing now rejects a retained raw event larger than 65,536 bytes
+or more than 8 MiB of raw MIDI 1.0 payload per file before expanding the
+payload into JavaScript number arrays. Batch retention has the same 8 MiB raw
+event-data ceiling. Every MIDI region request is assembled and measured against
+Core's 16 MiB route limit before any project mutation; all region plans are
+prepared before tempo or region edits begin. Core independently validates
+collection shape/counts, MIDI byte values, exact integer fields, UMP 32-bit
+words, and packet word counts at HTTP admission, returning 400 before queueing
+instead of accepting an edit that its parser would partially discard. Limits
+are documented in `AGENTS.md` and implemented in
+`core/app/server/MidiRegionAdmission.cpp`.
+
+Validation: UI suite 1,126/1,126 across 154 files; production UI build and
+changed-file oxlint passed. Core admission tests 4/4 passed; the full Core
+suite had one macOS headless DLS editor-window integration failure, while the
+remaining 619 tests passed when that GUI-only case was excluded. Core app and
+test targets both built successfully. Remaining edge: a transport/Core failure
+after one successful request in a multi-region import is still a sequence of
+separate project mutations, not an atomic batch; the dialog must surface exact
+partial completion and refresh authoritative state rather than implying an
+all-or-nothing import.

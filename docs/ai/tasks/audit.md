@@ -2634,3 +2634,17 @@ dialog test and rerun the suite. Import dialog session initialization is now
 separate from parsing so track-focus changes do not restart parsing; tempo
 choice resets on each open. Focused MIDI: 84/84; full UI: 1,123/1,123 across
 154 files; production build, oxlint, and diff checks passed.
+
+Latest payload-boundary audit (2026-10-04): SMF raw-event data is bounded
+before byte-array expansion (65,536 bytes per event, 8 MiB retained per file
+and batch); per-region JSON is serialized and checked against Core's 16 MiB
+admission limit before edits start. Core admission now rejects malformed or
+over-limit MIDI 1.0/UMP payloads before queueing; limits are centralized in
+`core/app/server/MidiRegionAdmission.h` with implementation in its `.cpp`.
+The import workflow prepares all plans before applying tempo or regions. It is
+not transactional across multiple HTTP mutations: a later transport/Core error
+can leave earlier regions or tempo committed. Next audit exact request outcome
+handling and partial-import reporting; do not retry an ambiguous mutation.
+Validation: full UI 1,126/1,126; production UI build and changed-file oxlint
+passed; focused Core admission 4/4 and Core suite 619/619 excluding the one
+headless macOS DLS editor GUI case. ResoStage Core and test targets built.

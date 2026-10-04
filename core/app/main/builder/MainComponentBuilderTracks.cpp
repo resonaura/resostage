@@ -14,6 +14,7 @@
 #include "project/RouteId.h"
 #include "server/AutomationJson.h"
 #include "server/BuilderJson.h"
+#include "server/MidiRegionAdmission.h"
 
 #if JUCE_WINDOWS
 #include <windows.h>
@@ -26,6 +27,7 @@
 namespace resostage {
 
 using namespace builder_json;
+using namespace midi_region_admission;
 
 namespace {
 std::vector<MidiNote> parseMidiNotes(const glz::generic& doc) {
@@ -102,7 +104,7 @@ std::vector<MidiClipEvent> parseMidiClipEvents(const glz::generic& doc) {
     std::vector<MidiClipEvent> events;
     if (!doc.contains("events") || !doc["events"].is_array()) return events;
     const auto& values = doc["events"].get_array();
-    if (values.size() > 200'000) return events;
+    if (values.size() > kMaximumMidiRegionRows) return events;
     events.reserve(values.size());
     size_t totalPayloadBytes = 0;
     for (const auto& value : values) {
@@ -113,7 +115,8 @@ std::vector<MidiClipEvent> parseMidiClipEvents(const glz::generic& doc) {
         event.beat = std::max(0.0, event.beat);
         event.status = static_cast<uint8_t>(std::clamp(status, 0, 255));
         if (const auto* data = getArray(value, "data")) {
-            if (data->size() > 65'536 || totalPayloadBytes + data->size() > 8 * 1024 * 1024) continue;
+            if (data->size() > kMaximumMidiEventDataBytes
+                || totalPayloadBytes + data->size() > kMaximumMidiRegionEventDataBytes) continue;
             event.data.reserve(data->size());
             for (const auto& byteValue : *data) {
                 if (!byteValue.is_number()) { event.data.clear(); break; }
@@ -132,7 +135,7 @@ std::vector<MidiUmpEvent> parseMidiUmpEvents(const glz::generic& doc) {
     std::vector<MidiUmpEvent> events;
     if (!doc.contains("umpEvents") || !doc["umpEvents"].is_array()) return events;
     const auto& values = doc["umpEvents"].get_array();
-    if (values.size() > 200'000) return events;
+    if (values.size() > kMaximumMidiRegionRows) return events;
     events.reserve(values.size());
     size_t totalWords = 0;
     for (const auto& value : values) {
@@ -146,7 +149,7 @@ std::vector<MidiUmpEvent> parseMidiUmpEvents(const glz::generic& doc) {
         // The project/wire DTO uses a fixed four-word packet array; only the
         // leading `wordCount` entries are meaningful for shorter UMP types.
         if (words.size() < static_cast<size_t>(wordCount) || words.size() > 4
-            || totalWords + static_cast<size_t>(wordCount) > 800'000) continue;
+            || totalWords + static_cast<size_t>(wordCount) > kMaximumMidiRegionUmpWords) continue;
         bool valid = true;
         for (size_t i = 0; i < words.size(); ++i) {
             if (!words[i].is_number()) { valid = false; break; }
