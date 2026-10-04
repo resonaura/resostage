@@ -21,6 +21,7 @@ vi.mock("@/lib/state/api", async (importOriginal) => {
       midiRegionAdd: vi.fn(),
       songEnd: vi.fn(),
       songUpdate: vi.fn(),
+      trackAdd: vi.fn(),
     },
   };
 });
@@ -72,6 +73,31 @@ function midiFileWithTempo(bpm: number): File {
   return file;
 }
 
+function midiFileWithTwoTracks(): File {
+  const makeTrack = (name: string, pitch: number): number[] => {
+    const nameBytes = [...new TextEncoder().encode(name)];
+    const body = [
+      0, 0xff, 0x03, nameBytes.length, ...nameBytes,
+      0, 0x90, pitch, 100,
+      0x83, 0x60, 0x80, pitch, 0,
+      0, 0xff, 0x2f, 0,
+    ];
+    return [0x4d, 0x54, 0x72, 0x6b,
+      (body.length >>> 24) & 0xff, (body.length >>> 16) & 0xff,
+      (body.length >>> 8) & 0xff, body.length & 0xff, ...body];
+  };
+  const bytes = new Uint8Array([
+    0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 2, 1, 0xe0,
+    ...makeTrack("Piano", 60),
+    ...makeTrack("Strings", 67),
+  ]);
+  const file = new File([bytes], "two-track.mid", { type: "audio/midi" });
+  Object.defineProperty(file, "arrayBuffer", {
+    value: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  });
+  return file;
+}
+
 const song: SongRow = {
   name: "Song",
   bpm: 120,
@@ -102,12 +128,17 @@ describe("ImportMidiDialog session state", () => {
   let root: Root;
   const file = midiFileWithTempo(90);
 
-  async function render(open: boolean, files: File[] = [file]): Promise<void> {
+  async function render(
+    open: boolean,
+    files: File[] = [file],
+    target?: { songIndex: number; trackId?: string; startBeats?: number },
+  ): Promise<void> {
     await act(async () => {
       root.render(createElement(ImportMidiDialog, {
         open,
         files,
         state,
+        target,
         onClose: () => {},
       }));
     });
@@ -128,7 +159,9 @@ describe("ImportMidiDialog session state", () => {
 
   it("resets the tempo choice when the dialog is reopened", async () => {
     await render(true);
-    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    const tempoFieldset = [...container.querySelectorAll("fieldset")]
+      .find((fieldset) => fieldset.textContent?.includes("MIDI tempo differs from the song"));
+    const radios = [...(tempoFieldset?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? [])];
     expect(radios, container.innerHTML).toHaveLength(3);
 
     await act(async () => radios[2].click());
@@ -136,9 +169,58 @@ describe("ImportMidiDialog session state", () => {
 
     await render(false);
     await render(true);
-    const reopenedRadios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    const reopenedTempoFieldset = [...container.querySelectorAll("fieldset")]
+      .find((fieldset) => fieldset.textContent?.includes("MIDI tempo differs from the song"));
+    const reopenedRadios = [...(reopenedTempoFieldset?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? [])];
     expect(reopenedRadios[0].checked).toBe(true);
     expect(reopenedRadios[2].checked).toBe(false);
+  });
+
+  it("preserves source MIDI tracks as separate instrument tracks by default", async () => {
+    vi.mocked(builder.trackAdd).mockResolvedValue(undefined);
+    vi.mocked(builder.midiRegionAdd).mockResolvedValue(undefined);
+    await render(true, [midiFileWithTwoTracks()]);
+
+    const layoutRadios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(layoutRadios[0].checked).toBe(true);
+    const importButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Import");
+    await act(async () => {
+      importButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(builder.trackAdd).toHaveBeenCalledTimes(2);
+    const createdTracks = vi.mocked(builder.trackAdd).mock.calls.map(([, params]) => params!);
+    expect(createdTracks).toMatchObject([
+      { kind: "instrument", name: "two-track — Piano", seedMidiRegion: false },
+      { kind: "instrument", name: "two-track — Strings", seedMidiRegion: false },
+    ]);
+    expect(builder.midiRegionAdd).toHaveBeenCalledTimes(2);
+    const regions = vi.mocked(builder.midiRegionAdd).mock.calls.map(([patch]) => patch);
+    expect(regions.map((patch) => patch.trackId)).toEqual(createdTracks.map((track) => track.id));
+    expect(regions.map((patch) => patch.notes?.map((note) => note.pitch) ?? [])).toEqual([[60], [67]]);
+    expect(regions.map((patch) => patch.startBeats)).toEqual([0, 0]);
+  });
+
+  it("keeps explicit destination-track imports combined", async () => {
+    vi.mocked(builder.midiRegionAdd).mockResolvedValue(undefined);
+    await render(true, [midiFileWithTwoTracks()], { songIndex: 0, trackId: "track-1" });
+
+    const layoutRadios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(layoutRadios[0].checked).toBe(false);
+    expect(layoutRadios[1].checked).toBe(true);
+    const importButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Import");
+    await act(async () => {
+      importButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(builder.trackAdd).not.toHaveBeenCalled();
+    expect(builder.midiRegionAdd).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(builder.midiRegionAdd).mock.calls[0][0].notes?.map((note) => note.pitch))
+      .toEqual([60, 67]);
   });
 
   it("reports confirmed earlier regions when a later file is rejected", async () => {
@@ -211,7 +293,7 @@ describe("ImportMidiDialog session state", () => {
     expect(importButton?.disabled).toBe(true);
   });
 
-  it("keeps retry available after an exact rejection with no prior changes", async () => {
+  it("blocks retry after a region rejection leaves a confirmed empty imported track", async () => {
     vi.mocked(builder.midiRegionAdd).mockRejectedValueOnce(new EditorMutationError(
       "Core rejected the edit (HTTP 400)",
       "rejected",
@@ -228,6 +310,10 @@ describe("ImportMidiDialog session state", () => {
     });
 
     expect(builder.midiRegionAdd).toHaveBeenCalledTimes(1);
-    expect(importButton?.disabled).toBe(false);
+    expect(builder.trackAdd).toHaveBeenCalledTimes(1);
+    expect(importButton?.disabled).toBe(true);
+    const alert = container.querySelector('[role="alert"]')?.textContent ?? "";
+    expect(alert).toContain("1 of 1 new MIDI tracks");
+    expect(alert).toContain("Earlier confirmed changes were not rolled back");
   });
 });

@@ -189,11 +189,13 @@ void MainComponent::builderTrackAdd(const std::string& json) {
     std::string customName;
     int channelsVal = 2;
     std::string pluginId;
+    bool seedMidiRegion = true;
     if (parseJson(json, doc)) {
         getString(doc, "kind", kindStr);
         getString(doc, "name", customName);
         getInt(doc, "channels", channelsVal);
         getString(doc, "instrumentPluginId", pluginId);
+        getBool(doc, "seedMidiRegion", seedMidiRegion);
     }
 
     std::vector<std::string> used;
@@ -249,7 +251,8 @@ void MainComponent::builderTrackAdd(const std::string& json) {
 
     int songIdx = -1;
     getInt(doc, "songIndex", songIdx);
-    if (trackKind == TrackKind::Instrument && songIdx >= 0 && songIdx < static_cast<int>(proj.songs.size())) {
+    if (trackKind == TrackKind::Instrument && seedMidiRegion
+        && songIdx >= 0 && songIdx < static_cast<int>(proj.songs.size())) {
         SongDef& s = proj.songs[static_cast<size_t>(songIdx)];
         std::vector<std::string> usedMidi;
         for (const auto& r : s.midiRegions)

@@ -15,6 +15,8 @@ import {
   countMidiContentItems,
   MAX_MIDI_BATCH_EVENT_DATA_BYTES,
   MAX_MIDI_BATCH_CONTENT_ITEMS,
+  assertMidiBatchImportTrackLimit,
+  MAX_MIDI_BATCH_IMPORT_TRACKS,
 } from "@/transfer/midi/logic/importBatch";
 
 describe("MIDI import batch bounds", () => {
@@ -63,6 +65,12 @@ describe("MIDI import batch bounds", () => {
     expect(MAX_MIDI_BATCH_CONTENT_ITEMS).toBe(200_000);
     expect(() => assertMidiBatchContentItemLimit(MAX_MIDI_BATCH_CONTENT_ITEMS)).not.toThrow();
     expect(() => assertMidiBatchContentItemLimit(MAX_MIDI_BATCH_CONTENT_ITEMS + 1)).toThrow(/smaller batch/);
+  });
+
+  it("bounds structural track creation when preserving source MIDI tracks", () => {
+    expect(MAX_MIDI_BATCH_IMPORT_TRACKS).toBe(256);
+    expect(() => assertMidiBatchImportTrackLimit(256)).not.toThrow();
+    expect(() => assertMidiBatchImportTrackLimit(257)).toThrow(/combine mode or import a smaller batch/);
   });
 
   it("bounds raw event byte retention and rejects payloads Core would drop", () => {

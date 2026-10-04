@@ -927,3 +927,29 @@ both cases and verify region-note and tempo-map boundaries. Full UI tests pass
 1,132/1,132 across 154 files; production build, changed-file oxlint, and
 `git diff --check` pass. Continue auditing SMF/MIDI Clip selection, timing, and
 loss-report behavior; this does not add SMF2 Container support.
+
+### Latest continuation — preserve Standard MIDI source tracks on import (2026-10-04)
+
+Format 0/1 import now defaults to preserving each non-empty source MIDI track as
+its own instrument track and MIDI region, rather than flattening all tracks into
+one region on the focused destination. Users can explicitly select a destination
+track to retain the prior merge behavior. Format 2 still requires selecting one
+independent sequence; the selected sequence follows the same layout choice. In a
+multi-file batch, source tracks from one file share a start position and files
+are laid out sequentially. Timing maps continue to be applied through the
+existing tempo-choice workflow rather than duplicated on every source track.
+
+Track creation and region insertion are separate confirmed history mutations,
+not an atomic import transaction. The importer disables blind retry after any
+confirmed partial mutation and reports created-track and region counts. A
+failure after track creation but before its region is accepted can leave an
+empty track for manual cleanup; rollback is intentionally not inferred from
+track indices. New imported instrument tracks suppress only the Core's default
+seed pattern; normal track creation retains that default. New structural
+creation is capped at 256 tracks per import batch.
+
+Validation: import dialog and batch tests 13/13; full UI 1,138/1,138 across
+154 files; TypeScript/production build, changed-file oxlint, `git diff --check`,
+and Core application build passed. This improves SMF Format 0/1 track layout;
+it does not imply complete SMF/MIDI Clip interoperability or add SMF2 Container
+support.

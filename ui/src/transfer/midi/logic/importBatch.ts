@@ -12,6 +12,8 @@ import type { MidiClipEventRow, MidiNoteRow, MidiUmpEventRow } from "@/lib/state
 
 /** Keep a multi-file import within the single-file parser's retained-item budget. */
 export const MAX_MIDI_BATCH_CONTENT_ITEMS = 200_000;
+/** Bound project track creation when preserving many files' source tracks. */
+export const MAX_MIDI_BATCH_IMPORT_TRACKS = 256;
 /** Bound parsed byte-array expansion across the entire selected file batch. */
 export const MAX_MIDI_BATCH_EVENT_DATA_BYTES = MAX_MIDI_REGION_EVENT_DATA_BYTES;
 /** Keep in sync with core/app/server/CommandBodyLimits.h. */
@@ -111,4 +113,10 @@ export function buildMidiRegionImportPatch(input: {
 export function assertMidiBatchContentItemLimit(total: number): void {
   if (!Number.isSafeInteger(total) || total < 0 || total > MAX_MIDI_BATCH_CONTENT_ITEMS)
     throw new Error(`The selected MIDI files contain more than ${MAX_MIDI_BATCH_CONTENT_ITEMS.toLocaleString("en-US")} retained items. Import a smaller batch at a time.`);
+}
+
+/** Avoid queuing an unreasonable number of structural mutations in one import. */
+export function assertMidiBatchImportTrackLimit(total: number): void {
+  if (!Number.isSafeInteger(total) || total < 0 || total > MAX_MIDI_BATCH_IMPORT_TRACKS)
+    throw new Error(`A MIDI import can create at most ${MAX_MIDI_BATCH_IMPORT_TRACKS} tracks. Choose combine mode or import a smaller batch.`);
 }

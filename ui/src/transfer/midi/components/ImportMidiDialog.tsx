@@ -19,6 +19,7 @@ import { Button, Modal } from "@/components/ui";
 import {
   assertMidiBatchContentItemLimit,
   assertMidiBatchEventDataLimit,
+  assertMidiBatchImportTrackLimit,
   assertMidiRegionEventDataLimits,
   buildMidiRegionImportPatch,
   countMidiContentItems,
@@ -27,6 +28,25 @@ import {
 import { buildImportedSongTiming } from "@/transfer/midi/logic/importTiming";
 
 export type MidiTempoChoice = "keep-beats" | "fit-project-tempo" | "use-midi-tempo";
+type MidiTrackImportLayout = "source-tracks" | "destination-track";
+
+interface MidiRegionImportPlan {
+  file: File;
+  patch: ReturnType<typeof buildMidiRegionImportPatch>;
+  newTrack?: { id: string; name: string; sourceIndex: number };
+}
+
+function safeMidiTrackName(file: File, sourceName: string, sourceIndex: number): string {
+  const fileName = file.name.replace(/\.(mid|midi|midi2)$/i, "")
+    .replace(/\p{Cc}/gu, " ").trim().slice(0, 64) || "MIDI";
+  const trackName = sourceName.replace(/\p{Cc}/gu, " ").trim().slice(0, 48)
+    || `MIDI ${sourceIndex + 1}`;
+  return `${fileName} — ${trackName}`.slice(0, 120);
+}
+
+function hasMidiContent(track: ImportedMidiFile["tracks"][number]): boolean {
+  return track.notes.length > 0 || Boolean(track.events?.length || track.umpEvents?.length);
+}
 
 export function ImportMidiDialog({
   open, files, state, target, onClose,
@@ -42,6 +62,9 @@ export function ImportMidiDialog({
   const [choice, setChoice] = useState<MidiTempoChoice>("keep-beats");
   const [sequenceIndex, setSequenceIndex] = useState(0);
   const [trackId, setTrackId] = useState(target?.trackId ?? "");
+  const [trackLayout, setTrackLayout] = useState<MidiTrackImportLayout>(
+    target?.trackId ? "destination-track" : "source-tracks",
+  );
   const [busy, setBusy] = useState(false);
   const [requiresReview, setRequiresReview] = useState(false);
   const [progress, setProgress] = useState("");
@@ -53,6 +76,10 @@ export function ImportMidiDialog({
     if (!open) return;
     setTrackId(target?.trackId ?? midiTracks.find((track) => track.id === state.activeTrackId)?.id ?? midiTracks[0]?.id ?? "");
   }, [open, target?.trackId, midiTracks, state.activeTrackId]);
+
+  useEffect(() => {
+    if (open) setTrackLayout(target?.trackId ? "destination-track" : "source-tracks");
+  }, [open, target?.trackId]);
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +128,12 @@ export function ImportMidiDialog({
   const selectedSequence = format2File?.midi.tracks[Math.min(sequenceIndex, format2File.midi.tracks.length - 1)];
   const selectedTempoEvents = selectedSequence?.tempoEvents ?? format2File?.midi.tempoEvents;
   const selectedMeterEvents = selectedSequence?.meterEvents ?? format2File?.midi.meterEvents;
+  const hasSelectedContent = Boolean(parsed?.every(({ midi }) => {
+    const selectedTracks = midi.format === 2
+      ? selectedSequence ? [selectedSequence] : []
+      : midi.tracks;
+    return selectedTracks.some(hasMidiContent);
+  }));
   const hasTempoMismatch = Boolean(song && parsed?.some(({ midi }) => {
     const tempos = midi.format === 2 && selectedSequence ? selectedSequence.tempoEvents ?? [] : midi.tempoEvents;
     return midiTempoDiffersFromSong(tempos, song);
@@ -108,25 +141,26 @@ export function ImportMidiDialog({
   const canUseImportedTempo = Boolean(parsed && parsed.length === 1);
 
   const doImport = async () => {
-    if (!parsed || !song || !trackId) return;
-    const destinationTrack = state.tracks.find((track) => track.id === trackId);
-    if (!destinationTrack || !["instrument", "midi", "externalMidi"].includes(destinationTrack.kind ?? "")) {
-      setFailure("Choose an instrument or MIDI track");
-      return;
+    if (!parsed || !song || !hasSelectedContent) return;
+    if (trackLayout === "destination-track") {
+      const destinationTrack = state.tracks.find((track) => track.id === trackId);
+      if (!destinationTrack || !["instrument", "midi", "externalMidi"].includes(destinationTrack.kind ?? "")) {
+        setFailure("Choose an instrument or MIDI track");
+        return;
+      }
     }
     setBusy(true);
     setFailure("");
     let cursor = Math.max(0, target?.startBeats ?? 0);
     let endSeconds = Math.max(0, song.endSeconds ?? 0);
     let activeTempoSong = song;
+    let appliedTrackCount = 0;
     let appliedRegionCount = 0;
     let tempoApplied = false;
     let songEndApplied = false;
     let currentOperation = "";
-    let plans: Array<{
-      file: File;
-      patch: ReturnType<typeof buildMidiRegionImportPatch>;
-    }> = [];
+    let plannedTrackCount = 0;
+    let plans: MidiRegionImportPlan[] = [];
     try {
       let tempoUpdate: { bpm: number; tempoPoints: ReturnType<typeof buildImportedSongTiming>["tempoPoints"];
         signaturePoints: ReturnType<typeof buildImportedSongTiming>["signaturePoints"] } | null = null;
@@ -144,7 +178,8 @@ export function ImportMidiDialog({
         const { file, midi } = parsed[index];
         const sourceTempoEvents = midi.format === 2 && selectedSequence ? selectedSequence.tempoEvents ?? [] : midi.tempoEvents;
         const selectedTracks = midi.format === 2 && selectedSequence ? [selectedSequence] : midi.tracks;
-        const sourceTracks = selectedTracks.filter((track) => track.notes.length > 0 || track.events?.length || track.umpEvents?.length);
+        const sourceTracks = selectedTracks.filter(hasMidiContent);
+        if (!sourceTracks.length) throw new Error(`${file.name}: the selected sequence contains no importable MIDI content`);
         const sourceEnd = Math.max(1, ...sourceTracks.map((track) => track.durationBeats));
         const originalDurationSeconds = midiSecondsAtBeat(sourceTempoEvents, sourceEnd);
         const convertedTracks = choice === "fit-project-tempo"
@@ -153,16 +188,37 @@ export function ImportMidiDialog({
         const fileDurationBeats = choice === "fit-project-tempo"
           ? Math.max(1, ...convertedTracks.map((track) => track.durationBeats))
           : sourceEnd;
-        const patch = buildMidiRegionImportPatch({
-          songIndex: target?.songIndex ?? state.songIndex,
-          trackId,
-          name: `${file.name.replace(/\.(mid|midi|midi2)$/i, "")}${midi.format === 2 && selectedSequence ? ` - ${selectedSequence.name}` : ""}`,
-          startBeats: cursor,
-          durationBeats: fileDurationBeats,
-          tracks: convertedTracks,
-          sourceName: file.name,
-        });
-        plans.push({ file, patch });
+        const fileBaseName = file.name.replace(/\.(mid|midi|midi2)$/i, "");
+        const regionName = `${fileBaseName}${midi.format === 2 && selectedSequence ? ` - ${selectedSequence.name}` : ""}`;
+        if (trackLayout === "source-tracks") {
+          plannedTrackCount += convertedTracks.length;
+          assertMidiBatchImportTrackLimit(plannedTrackCount);
+          convertedTracks.forEach((convertedTrack, sourceIndex) => {
+            const id = `midi-import-${crypto.randomUUID()}`;
+            const name = safeMidiTrackName(file, sourceTracks[sourceIndex].name, sourceIndex);
+            const patch = buildMidiRegionImportPatch({
+              songIndex: target?.songIndex ?? state.songIndex,
+              trackId: id,
+              name: regionName,
+              startBeats: cursor,
+              durationBeats: fileDurationBeats,
+              tracks: [convertedTrack],
+              sourceName: file.name,
+            });
+            plans.push({ file, patch, newTrack: { id, name, sourceIndex } });
+          });
+        } else {
+          const patch = buildMidiRegionImportPatch({
+            songIndex: target?.songIndex ?? state.songIndex,
+            trackId,
+            name: regionName,
+            startBeats: cursor,
+            durationBeats: fileDurationBeats,
+            tracks: convertedTracks,
+            sourceName: file.name,
+          });
+          plans.push({ file, patch });
+        }
         if (choice === "fit-project-tempo" || choice === "use-midi-tempo") {
           const startSeconds = songSecondsAtBeat(activeTempoSong, cursor);
           endSeconds = Math.max(endSeconds, startSeconds + originalDurationSeconds);
@@ -186,9 +242,24 @@ export function ImportMidiDialog({
         tempoApplied = true;
         currentOperation = "";
       }
+      const newTrackPlans = plans.filter((plan) => plan.newTrack);
+      let addedTrackIndex = 0;
       for (let index = 0; index < plans.length; index++) {
         const plan = plans[index];
-        setProgress(`Importing ${index + 1} of ${plans.length}: ${plan.file.name}`);
+        if (plan.newTrack) {
+          addedTrackIndex++;
+          setProgress(`Creating MIDI track ${addedTrackIndex} of ${newTrackPlans.length}: ${plan.newTrack.name}`);
+          currentOperation = `new MIDI track ${addedTrackIndex} of ${newTrackPlans.length} (${plan.newTrack.name})`;
+          await builder.trackAdd(target?.songIndex ?? state.songIndex, {
+            id: plan.newTrack.id,
+            kind: "instrument",
+            name: plan.newTrack.name,
+            seedMidiRegion: false,
+          });
+          appliedTrackCount++;
+          currentOperation = "";
+        }
+        setProgress(`Importing region ${index + 1} of ${plans.length}: ${plan.file.name}`);
         currentOperation = `region ${index + 1} of ${plans.length} (${plan.file.name})`;
         await builder.midiRegionAdd(plan.patch);
         appliedRegionCount++;
@@ -205,12 +276,14 @@ export function ImportMidiDialog({
       const error = cause instanceof Error ? cause.message : "MIDI import failed";
       const mutationError = cause instanceof EditorMutationError ? cause : null;
       if (mutationError?.outcome === "stored") {
+        if (currentOperation.startsWith("new MIDI track ")) appliedTrackCount++;
         if (currentOperation.startsWith("region ")) appliedRegionCount++;
         if (currentOperation === "song tempo and meter update") tempoApplied = true;
         if (currentOperation === "song length update") songEndApplied = true;
       }
 
       const confirmedChanges = [
+        appliedTrackCount > 0 ? `${appliedTrackCount} of ${plans.filter((plan) => plan.newTrack).length} new MIDI tracks` : "",
         appliedRegionCount > 0 ? `${appliedRegionCount} of ${plans.length} MIDI regions` : "",
         tempoApplied ? "the imported tempo and meter" : "",
         songEndApplied ? "the extended song length" : "",
@@ -251,7 +324,9 @@ export function ImportMidiDialog({
               <p className="text-xs text-foreground/65">
                 {format2File
                   ? "SMF Format 2 stores independent sequences and tempo maps, not parallel tracks. Choose one sequence to import into the selected song; import other sequences separately."
-                  : `${files.length} file${files.length === 1 ? "" : "s"}. Each file becomes its own region; files are placed sequentially from the chosen start. MIDI tracks inside each file are combined into the selected destination track.`}
+                  : trackLayout === "source-tracks"
+                    ? `${files.length} file${files.length === 1 ? "" : "s"}. Source MIDI tracks become separate instrument tracks; files are placed sequentially from the chosen start.`
+                    : `${files.length} file${files.length === 1 ? "" : "s"}. Each file becomes its own region; files are placed sequentially from the chosen start. Source MIDI tracks are combined into the selected destination track.`}
               </p>
               {format2File && <label className="grid gap-1 text-xs">
                 Independent sequence
@@ -262,15 +337,21 @@ export function ImportMidiDialog({
               {parsed && <ul className="max-h-24 space-y-1 overflow-auto rounded-lg border border-default/20 p-2 text-xs">
                 {parsed.map(({ file, midi }) => <li key={`${file.name}:${file.size}:${file.lastModified}`} className="flex justify-between gap-3">
                   <span className="truncate">{file.name}</span>
-                  <span className="shrink-0 text-foreground/55">{midi.tracks.filter((track) => track.notes.length).length} note tracks{midi.bpm ? ` · ${midi.bpm.toFixed(1)} BPM` : " · default 120 BPM"}</span>
+                  <span className="shrink-0 text-foreground/55">{midi.tracks.filter(hasMidiContent).length} MIDI tracks{midi.bpm ? ` · ${midi.bpm.toFixed(1)} BPM` : " · default 120 BPM"}</span>
                 </li>)}
               </ul>}
-              <label className="grid gap-1 text-xs">
+              {parsed && <fieldset className="space-y-2 rounded-lg border border-default/20 p-3 text-xs">
+                <legend className="px-1 font-medium">MIDI track layout</legend>
+                <label className="flex gap-2"><input type="radio" checked={trackLayout === "source-tracks"} onChange={() => setTrackLayout("source-tracks")} /> Keep source tracks as separate instrument tracks.</label>
+                <label className="flex gap-2"><input type="radio" checked={trackLayout === "destination-track"} onChange={() => setTrackLayout("destination-track")} /> Combine source tracks into an existing track.</label>
+              </fieldset>}
+              {trackLayout === "destination-track" && <label className="grid gap-1 text-xs">
                 Destination track
                 <select className="rounded-lg border border-default/25 bg-surface px-3 py-2 text-foreground" value={trackId} onChange={(event) => setTrackId(event.target.value)}>
                   {midiTracks.map((track) => <option key={track.id} value={track.id}>{track.name} · {track.kind}</option>)}
                 </select>
-              </label>
+              </label>}
+              {parsed && !hasSelectedContent && <p role="alert" className="text-xs text-warning">The selected sequence has no MIDI content to import. Choose a sequence containing notes or MIDI events.</p>}
               {hasTempoMismatch && <fieldset className="space-y-2 rounded-lg border border-warning/30 p-3 text-xs">
                 <legend className="px-1 font-medium">MIDI tempo differs from the song</legend>
                 <label className="flex gap-2"><input type="radio" checked={choice === "keep-beats"} onChange={() => setChoice("keep-beats")} /> Keep beat positions; playback follows the project tempo.</label>
@@ -283,7 +364,8 @@ export function ImportMidiDialog({
             </Modal.Body>
             <Modal.Footer>
               <Button variant="secondary" isDisabled={busy} onPress={onClose}>Cancel</Button>
-              <Button isDisabled={busy || requiresReview || !parsed || !trackId || !midiTracks.length} onPress={() => void doImport()}>
+              <Button isDisabled={busy || requiresReview || !parsed || !hasSelectedContent
+                || (trackLayout === "destination-track" && (!trackId || !midiTracks.length))} onPress={() => void doImport()}>
                 {busy ? "Importing…" : requiresReview ? "Review before retry" : "Import"}
               </Button>
             </Modal.Footer>

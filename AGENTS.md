@@ -583,6 +583,14 @@ Preserve these rules:
   - Software Instrument tracks (`kind: "instrument"`), Audio tracks (`kind: "audio"`), and
     Aux Buses created via `builder.trackAdd(songIndex, { kind, name, instrumentPluginId })`
     with default MIDI pattern generation.
+  - `/api/v1/builder/track/add` also accepts an optional caller-provided `id` and
+    `seedMidiRegion` boolean. Omitting `seedMidiRegion` preserves the normal default
+    pattern; import workflows that create tracks with their own MIDI regions set it
+    to `false` to avoid an unrelated empty seed region. Standard MIDI import keeps
+    non-empty source tracks separate by default, while an explicit destination-track
+    choice merges them. Track creation and region insertion remain separate history
+    mutations; partial failures must report created tracks and committed regions and
+    must not offer a blind retry.
   - Track header controls include track kind icons (`Music` vs `Mic`) and phase invert toggle `Ø`.
 - Piano Roll track linkage:
   - Header explicitly displays active track badge with track color pill and switcher dropdown,

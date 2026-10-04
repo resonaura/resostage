@@ -2004,3 +2004,20 @@ event conversion share this origin, so notes, events, and effective initial
 tempo agree. Full UI 1,135/1,135, production build and lint pass. Continue the
 SMF/MIDI Clip audit, especially real multi-track import expectations and
 independent reference fixtures; no broad MIDI compatibility claim follows.
+
+Latest verified import-layout change (2026-10-04): Standard MIDI Format 0/1
+imports preserve each non-empty source track as a distinct instrument track and
+region by default. An explicit destination-track mode retains the old merged
+region behavior. Format 2 remains a user-selected independent sequence. Tracks
+within one file share the same start; subsequent files are placed sequentially.
+Track creation opts out of the Core's default seed pattern via
+`seedMidiRegion: false`; this is optional and normal track-add behavior remains
+unchanged. Import is not all-or-nothing: it reports confirmed tracks/regions,
+blocks blind retry after partial success, and may leave an empty imported track
+if its region request is rejected. Cap structural creation at 256 tracks per
+batch. Verified: focused import/batch tests 13/13, full UI 1,138/1,138 across
+154 files, production build, changed-file lint, Core app build, and diff check.
+Commit this block separately in English and do not push. Continue with reference
+SMF fixtures and audit program/channel/name metadata and export-loss reporting;
+avoid claiming full MIDI 2.0 device, SMF2 Container, or overall MIDI
+interoperability.

@@ -2679,3 +2679,18 @@ origin mismatch. A shared helper now ignores muted regions in Standard MIDI,
 MIDI Clip, and MIDI 1.0-to-UMP projection. Both formats have regression tests.
 Full UI 1,135/1,135 across 154 files; production build, lint, and diff check
 pass. Continue reviewing export option semantics and the remaining codec gaps.
+
+Latest import-structure audit (2026-10-04): Format 0/1 source tracks were being
+flattened into a single selected region. The import dialog now defaults to one
+new instrument track/region per non-empty source track, with an explicit
+combine-into-destination mode. Format 2 still selects one independent sequence;
+source tracks within each file align at one batch position and files advance
+sequentially. The importer disables retry after a confirmed partial mutation
+and reports exact created-track/region counts. Track and region creation are
+separate history commands, so failure can leave an empty track; do not claim
+atomic rollback. The optional `seedMidiRegion: false` avoids a default empty
+pattern only for imported tracks. A 256-new-track cap bounds structural work.
+Focused tests: 13/13; full UI: 1,138/1,138 across 154 files; UI production
+build, changed-file lint, Core build, and diff check passed. Next, audit real
+SMF fixtures for source-track metadata/program/channel fidelity and compare the
+loss report to actual imported/exported data before broad compatibility claims.

@@ -1230,8 +1230,11 @@ export const builder = {
     params?: {
       kind?: import("@/lib/state/types").TrackKindWire;
       name?: string;
+      id?: string;
       channels?: number;
       instrumentPluginId?: string;
+      /** Suppress the default pattern region when an importer adds its own regions. */
+      seedMidiRegion?: boolean;
     },
   ) => postEditorMutation("/api/v1/builder/track/add", { songIndex, ...params }),
   trackDuplicate: (index: number, withContent = false) =>
