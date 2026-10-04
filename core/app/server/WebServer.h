@@ -732,6 +732,8 @@ struct WebUiState {
                     uint16_t releaseVelocity = 0;
                     int attributeType = 0;
                     uint16_t attributeData = 0;
+                    int releaseAttributeType = 0;
+                    uint16_t releaseAttributeData = 0;
                 };
                 using MIDI2Data = Midi2Data;
                 std::optional<Midi2Data> midi2;

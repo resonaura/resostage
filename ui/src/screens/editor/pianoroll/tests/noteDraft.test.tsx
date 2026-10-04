@@ -44,7 +44,8 @@ describe("complete MIDI note acknowledgement", () => {
   });
 
   it("requires the complete MIDI 2.0 shadow without reducing its precision", () => {
-    const midi2 = { group: 1, velocity: 52000, releaseVelocity: 31000, attributeType: 3, attributeData: 14000 };
+    const midi2 = { group: 1, velocity: 52000, releaseVelocity: 31000, attributeType: 3, attributeData: 14000,
+      releaseAttributeType: 4, releaseAttributeData: 25000 };
     const precise = [note({ midi2 })];
     expect(sameEditableNotes(precise, original)).toBe(false);
     for (const field of Object.keys(midi2) as Array<keyof typeof midi2>) {

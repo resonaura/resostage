@@ -562,6 +562,8 @@ struct WMidiNoteTelemetry {
         uint16_t releaseVelocity = 0;
         int attributeType = 0;
         uint16_t attributeData = 0;
+        int releaseAttributeType = 0;
+        uint16_t releaseAttributeData = 0;
     };
     std::optional<WMidi2Data> midi2;
 };

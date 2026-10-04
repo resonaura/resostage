@@ -220,7 +220,14 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         const attributeType = type === 4 ? word0 & 0xff : 0;
         const attributeData = type === 4 ? words[1] & 0xffff : 0;
         const key = `${group}:${channel}:${pitch}`;
-        if (status === 9 && eventVelocity > 0) {
+        // MIDI 2.0 Note On velocity zero remains a Note On. Only MIDI 1.0
+        // Channel Voice UMP applies the legacy zero-velocity Note Off rule.
+        const isNoteOn = status === 9 && (type === 4 || eventVelocity > 0);
+        if (isNoteOn) {
+          // Group/channel/note number form the matching key here. When a sender
+          // reuses the same group/channel/note number for overlapping notes,
+          // pair releases FIFO; Attribute Type/Data are expressive payload,
+          // never a note identifier.
           const queue = held.get(key) ?? [];
           queue.push({ tick: relativeTicks, velocity: eventVelocity, attributeType, attributeData, group, channel, pitch });
           held.set(key, queue);
@@ -240,6 +247,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
               group: start.group, velocity: start.velocity,
               releaseVelocity: status === 8 ? eventVelocity : 0,
               attributeType: start.attributeType, attributeData: start.attributeData,
+              releaseAttributeType: type === 4 ? attributeType : 0,
+              releaseAttributeData: type === 4 ? attributeData : 0,
             },
           });
           if (!queue.length) held.delete(key);
@@ -255,7 +264,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
       startBeats: start.tick / tpq, durationBeats: 1 / 64,
       velocity: start.velocity / 65535, releaseVelocity: 0, probability: 1,
       midi2: { group: start.group, velocity: start.velocity, releaseVelocity: 0,
-        attributeType: start.attributeType, attributeData: start.attributeData },
+        attributeType: start.attributeType, attributeData: start.attributeData,
+        releaseAttributeType: 0, releaseAttributeData: 0 },
     });
   }
   const sequenceEndTicks = Math.max(0, clipEndTicks - startTicks);
@@ -295,11 +305,14 @@ function notePackets(note: MidiNoteRow, group: number): Array<{ beat: number; wo
   const pitch = Math.max(0, Math.min(127, Math.round(note.pitch)));
   const attrType = midi2?.attributeType ?? 0;
   const attrData = midi2?.attributeData ?? 0;
+  const releaseAttrType = midi2?.releaseAttributeType ?? attrType;
+  const releaseAttrData = midi2?.releaseAttributeData ?? attrData;
   const velocity = midi2?.velocity ?? midi1VelocityToMidi2(note.velocity);
   const releaseVelocity = midi2?.releaseVelocity ?? midi1VelocityToMidi2(note.releaseVelocity);
   const first = (status: number) => ((4 << 28) | (noteGroup << 24) | (status << 20) | (channel << 16) | (pitch << 8) | attrType) >>> 0;
   const on = [first(9), ((velocity << 16) | attrData) >>> 0];
-  const off = [first(8), ((releaseVelocity << 16) | attrData) >>> 0];
+  const offFirst = ((4 << 28) | (noteGroup << 24) | (8 << 20) | (channel << 16) | (pitch << 8) | releaseAttrType) >>> 0;
+  const off = [offFirst, ((releaseVelocity << 16) | releaseAttrData) >>> 0];
   return [
     { beat: note.startBeats, words: on },
     { beat: note.startBeats + note.durationBeats, words: off },

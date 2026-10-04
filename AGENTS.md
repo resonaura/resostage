@@ -1036,7 +1036,7 @@ parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `13`. A `.rsnraset` is normally a directory package containing
+format version is `14`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -1096,6 +1096,9 @@ serialization, migration and reopen without being treated as an ordinary send.
 v13 distinguishes MIDI Clip receiver-configuration UMP packets from musical
 sequence packets, including the profile prefix that precedes DCTPQ. Existing
 v12 UMP events migrate as ordinary sequence events unless explicitly tagged.
+v14 stores MIDI 2.0 Note-Off Attribute Type/Data independently from Note-On
+attributes. Older v13 notes inherit their Note-On attributes for release when
+loaded or migrated, preserving the previous round-trip behavior.
 MIDI regions keep source note
 coordinates; `clipOffsetBeats` identifies the current source phase, while
 `loopStartBeats` and `loopLengthBeats` bound the loop source window. Trimming

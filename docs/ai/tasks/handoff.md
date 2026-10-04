@@ -1438,3 +1438,19 @@ round-trips setup/sequence Program Changes from a trimmed loop region. Focused
 tests 35/35, full UI 1,034/1,034, TypeScript/build and diff check pass; lint has
 12 unrelated existing warnings. Commit in English, do not push, and continue
 MIDI codec conformance work without claiming complete MIDI 2.0 support.
+
+Latest verified continuation — MIDI 2.0 note-edge fidelity (2026-10-04):
+Project schema is now v14 with independent Note-On/Note-Off attribute pairs.
+MIDI Clip import/export preserves Note-Off attributes; type-4 Note On velocity
+zero remains an attack, while type-2 MIDI 1.0 UMP velocity zero remains a
+release. Overlap pairing is by Group/Channel/Note Number and FIFO for repeated
+identical keys; attributes are not note IDs. Version-13 migration and direct
+Core-read fallback both copy the old Note-On pair into missing release fields.
+The migrator refuses a future project version without touching its source.
+
+Validation passed: focused UI 54/54; full UI 1,037/1,037 (151 files); TypeScript,
+production build and changed-file lint; migration tests 7/7; Core
+RelWithDebInfo build and CTest (1/1 target); `git diff --check`. This does not
+finish MIDI 2.0 live UMP, MIDI-CI, SMF2 Container, or full plug-in/playback
+support. Continue from `docs/MIDI2_REMAINING_WORK.md`. The current note-edge
+implementation is isolated from future UMP endpoint work; do not push.

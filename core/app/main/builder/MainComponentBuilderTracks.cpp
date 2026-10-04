@@ -73,6 +73,14 @@ std::vector<MidiNote> parseMidiNotes(const glz::generic& doc) {
             if (getInt(noteVal["midi2"], "releaseVelocity", value)) midi2.releaseVelocity = static_cast<uint16_t>(std::clamp(value, 0, 65535));
             if (getInt(noteVal["midi2"], "attributeType", value)) midi2.attributeType = static_cast<uint8_t>(std::clamp(value, 0, 255));
             if (getInt(noteVal["midi2"], "attributeData", value)) midi2.attributeData = static_cast<uint16_t>(std::clamp(value, 0, 65535));
+            if (getInt(noteVal["midi2"], "releaseAttributeType", value))
+                midi2.releaseAttributeType = static_cast<uint8_t>(std::clamp(value, 0, 255));
+            else
+                midi2.releaseAttributeType = midi2.attributeType;
+            if (getInt(noteVal["midi2"], "releaseAttributeData", value))
+                midi2.releaseAttributeData = static_cast<uint16_t>(std::clamp(value, 0, 65535));
+            else
+                midi2.releaseAttributeData = midi2.attributeData;
             n.midi2 = midi2;
         }
         notes.push_back(n);

@@ -25,7 +25,9 @@
  * per-track pan-law choice; v8 adds trimmed MIDI loop source windows; v9
  * adds optional original-video references; v10 adds click solo-safe state;
  * v11 adds the bounded per-song automation curve cache; v12 adds optional
- * per-plug-in external sidechain routing):
+ * per-plug-in external sidechain routing; v13 retains MIDI Clip receiver
+ * configuration-section identity; v14 preserves independent MIDI 2.0
+ * Note-Off attributes):
  *
  *   ids            "<ns>::<kind>:<n>"  audio::track:1, audio::send:2,
  *                                      audio::out:11, light::bar:1,
@@ -46,7 +48,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 13;
+export const TARGET_FORMAT_VERSION = 14;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -705,13 +707,29 @@ export function upgradeFormat11PluginSidechains(old) {
 /** Preserve optional MIDI Clip configuration-header classification on UMP rows. */
 export function upgradeFormat12MidiClipHeaders(old) {
   const upgraded = structuredClone(old);
-  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  upgraded.format = { ...(upgraded.format ?? {}), version: 13 };
   for (const song of upgraded.songs ?? []) {
     for (const region of song.midiRegions ?? []) {
       for (const event of region.umpEvents ?? []) {
         if (!event || typeof event !== "object" || Array.isArray(event)) continue;
         event.configurationHeader ??= false;
         event.profileConfigurationHeader ??= false;
+      }
+    }
+  }
+  return upgraded;
+}
+
+/** Preserve independent MIDI 2.0 Note-Off attributes; v13 reused Note-On fields. */
+export function upgradeFormat13Midi2ReleaseAttributes(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  for (const song of upgraded.songs ?? []) {
+    for (const region of song.midiRegions ?? []) {
+      for (const note of region.notes ?? []) {
+        if (!note.midi2 || typeof note.midi2 !== "object" || Array.isArray(note.midi2)) continue;
+        note.midi2.releaseAttributeType ??= note.midi2.attributeType ?? 0;
+        note.midi2.releaseAttributeData ??= note.midi2.attributeData ?? 0;
       }
     }
   }
@@ -748,6 +766,9 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
     const isLegacy = path.basename(jsonPath) === LEGACY_JSON_NAME;
     const oldObj = JSON.parse(fs.readFileSync(jsonPath, "utf-8"));
     const fromVersion = oldObj.format?.version ?? oldObj.formatVersion ?? 1;
+    if (fromVersion > TARGET_FORMAT_VERSION) {
+      throw new Error(`Project format v${fromVersion} is newer than supported v${TARGET_FORMAT_VERSION}`);
+    }
     if (fromVersion === TARGET_FORMAT_VERSION && !isLegacy) {
       console.log(`Already at format v${TARGET_FORMAT_VERSION}: ${jsonPath}`);
       process.exit(0);
@@ -779,6 +800,8 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
       migrated = upgradeFormat11PluginSidechains(oldObj);
     } else if (!isLegacy && fromVersion === 12) {
       migrated = upgradeFormat12MidiClipHeaders(oldObj);
+    } else if (!isLegacy && fromVersion === 13) {
+      migrated = upgradeFormat13Midi2ReleaseAttributes(oldObj);
     } else {
       migrated = upgradeFormat6PanLawData(migrateProjectObject(oldObj));
     }
@@ -786,6 +809,7 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
     if (fromVersion < 11) migrated = upgradeFormat10AutomationCurveCache(migrated);
     if (fromVersion < 12) migrated = upgradeFormat11PluginSidechains(migrated);
     if (fromVersion < 13) migrated = upgradeFormat12MidiClipHeaders(migrated);
+    if (fromVersion < 14) migrated = upgradeFormat13Midi2ReleaseAttributes(migrated);
     fs.writeFileSync(outPath, `${JSON.stringify(migrated, null, 2)}\n`, "utf-8");
     if (isLegacy) fs.rmSync(jsonPath, { force: true });
     console.log(

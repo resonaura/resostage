@@ -327,7 +327,9 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
     for (const note of region.notes) {
       if (note.muted || !note.midi2) continue;
       report.midi2Notes++;
-      if (note.midi2.attributeType !== 0 || note.midi2.attributeData !== 0) report.noteAttributes++;
+      if (note.midi2.attributeType !== 0 || note.midi2.attributeData !== 0
+        || (note.midi2.releaseAttributeType ?? note.midi2.attributeType) !== 0
+        || (note.midi2.releaseAttributeData ?? note.midi2.attributeData) !== 0) report.noteAttributes++;
       if (note.midi2.group !== 0) report.groups++;
       const on = note.midi2.velocity;
       const off = note.midi2.releaseVelocity;

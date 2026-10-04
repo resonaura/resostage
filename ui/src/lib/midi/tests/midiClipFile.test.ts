@@ -129,6 +129,67 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]);
   });
 
+  it("preserves distinct MIDI 2.0 Note-On and Note-Off attributes", () => {
+    const parsed = parseMidiClipFile(framedClip([
+      dcs(0), [0x4090_3c01, 0x9234_abcd],
+      dcs(960), [0x4080_3c02, 0x4567_fedc],
+    ]));
+
+    expect(parsed.tracks[0].notes).toHaveLength(1);
+    expect(parsed.tracks[0].notes[0].midi2).toMatchObject({
+      velocity: 0x9234,
+      releaseVelocity: 0x4567,
+      attributeType: 1,
+      attributeData: 0xabcd,
+      releaseAttributeType: 2,
+      releaseAttributeData: 0xfedc,
+    });
+
+    const roundTrip = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "Independent attributes", regions: [{ ...region, notes: parsed.tracks[0].notes }] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+    expect(roundTrip.tracks[0].notes[0].midi2).toMatchObject(parsed.tracks[0].notes[0].midi2!);
+  });
+
+  it("keeps MIDI 2.0 zero-velocity Note On distinct from MIDI 1.0 zero-velocity Note Off", () => {
+    const midi2ZeroOn = parseMidiClipFile(framedClip([
+      dcs(0), [0x4090_3c01, 0x0000_1234],
+      dcs(480), [0x4080_3c02, 0x8000_5678],
+    ]));
+    expect(midi2ZeroOn.tracks[0].notes).toHaveLength(1);
+    expect(midi2ZeroOn.tracks[0].notes[0]).toMatchObject({
+      startBeats: 0,
+      durationBeats: 0.5,
+      velocity: 0,
+      midi2: { velocity: 0, attributeType: 1, attributeData: 0x1234,
+        releaseAttributeType: 2, releaseAttributeData: 0x5678 },
+    });
+
+    const midi1ZeroOff = parseMidiClipFile(framedClip([
+      dcs(0), [0x2090_3c64],
+      dcs(480), [0x2090_3c00],
+    ]));
+    expect(midi1ZeroOff.tracks[0].notes).toHaveLength(1);
+    expect(midi1ZeroOff.tracks[0].notes[0].durationBeats).toBe(0.5);
+  });
+
+  it("pairs overlapping same-key MIDI 2.0 notes in FIFO order, not by attribute payload", () => {
+    const parsed = parseMidiClipFile(framedClip([
+      dcs(0), [0x4090_3c01, 0x8000_1111],
+      dcs(120), [0x4090_3c02, 0x9000_2222],
+      dcs(120), [0x4080_3c03, 0x7000_3333],
+      dcs(120), [0x4080_3c04, 0x6000_4444],
+    ]));
+    expect(parsed.tracks[0].notes).toHaveLength(2);
+    expect(parsed.tracks[0].notes.map(({ startBeats, durationBeats, midi2 }) => ({
+      startBeats, durationBeats, on: midi2?.attributeData, off: midi2?.releaseAttributeData,
+    }))).toEqual([
+      { startBeats: 0, durationBeats: 0.25, on: 0x1111, off: 0x3333 },
+      { startBeats: 0.125, durationBeats: 0.25, on: 0x2222, off: 0x4444 },
+    ]);
+  });
+
   it("allows configuration tempo and meter to inherit DCTPQ's zero clockstamp", () => {
     const parsed = parseMidiClipFile(makeClip([
       dcs(0), dctpq(960), setTempo120, setMeter44,

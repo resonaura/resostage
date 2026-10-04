@@ -270,6 +270,7 @@ describe("Standard MIDI File", () => {
       notes: [{ ...region.notes[0], midi2: {
         group: 2, velocity: 0x9234, releaseVelocity: 0x4567,
         attributeType: 1, attributeData: 0xbeef,
+        releaseAttributeType: 0, releaseAttributeData: 0,
       } }],
       umpEvents: [{ beat: 1, words: [0x50000000, 0, 0, 0], wordCount: 4 }],
     };
@@ -280,6 +281,12 @@ describe("Standard MIDI File", () => {
       quantizedVelocities: 1,
       unsupportedUmpEvents: 1,
     });
+
+    const releaseOnly = { ...source, notes: [{ ...source.notes[0], midi2: {
+      ...source.notes[0].midi2!, attributeType: 0, attributeData: 0,
+      releaseAttributeType: 2, releaseAttributeData: 0x1234,
+    } }] };
+    expect(analyzeMidi1ExportLoss([{ name: "Release attribute", regions: [releaseOnly] }]).noteAttributes).toBe(1);
   });
 
   it("preserves source MIDI channels and non-note channel/meta events", () => {

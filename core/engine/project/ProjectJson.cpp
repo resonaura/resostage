@@ -489,6 +489,8 @@ struct WMidiNote {
         uint16_t releaseVelocity = 0;
         int attributeType = 0;
         uint16_t attributeData = 0;
+        std::optional<int> releaseAttributeType;
+        std::optional<uint16_t> releaseAttributeData;
     };
     std::optional<WMidi2Data> midi2;
 };
@@ -1035,6 +1037,8 @@ WProject toWire(const Project& p) {
                     midi2.releaseVelocity = n.midi2->releaseVelocity;
                     midi2.attributeType = n.midi2->attributeType;
                     midi2.attributeData = n.midi2->attributeData;
+                    midi2.releaseAttributeType = n.midi2->releaseAttributeType;
+                    midi2.releaseAttributeData = n.midi2->releaseAttributeData;
                     wn.midi2 = midi2;
                 }
                 wmr.notes.push_back(std::move(wn));
@@ -1438,6 +1442,9 @@ Project fromWire(const WProject& w) {
                     midi2.releaseVelocity = n.midi2->releaseVelocity;
                     midi2.attributeType = static_cast<uint8_t>(std::clamp(n.midi2->attributeType, 0, 255));
                     midi2.attributeData = n.midi2->attributeData;
+                    midi2.releaseAttributeType = static_cast<uint8_t>(std::clamp(
+                        n.midi2->releaseAttributeType.value_or(midi2.attributeType), 0, 255));
+                    midi2.releaseAttributeData = n.midi2->releaseAttributeData.value_or(midi2.attributeData);
                     note.midi2 = midi2;
                 }
                 reg.notes.push_back(std::move(note));

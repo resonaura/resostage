@@ -30,7 +30,11 @@ export function sameEditableNotes(left: MidiNoteRow[], right: MidiNoteRow[]): bo
       && actual.midi2.velocity === note.midi2.velocity
       && actual.midi2.releaseVelocity === note.midi2.releaseVelocity
       && actual.midi2.attributeType === note.midi2.attributeType
-      && actual.midi2.attributeData === note.midi2.attributeData;
+      && actual.midi2.attributeData === note.midi2.attributeData
+      && (actual.midi2.releaseAttributeType ?? actual.midi2.attributeType)
+        === (note.midi2.releaseAttributeType ?? note.midi2.attributeType)
+      && (actual.midi2.releaseAttributeData ?? actual.midi2.attributeData)
+        === (note.midi2.releaseAttributeData ?? note.midi2.attributeData);
   });
 }
 

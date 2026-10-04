@@ -2030,6 +2030,31 @@ across 151 files, TypeScript and production UI build passed, lint passed with
 v13/Core tests were completed with the prior stage-A commit `4f99049e`. Keep
 independent profile/SysEx references open and do not push.
 
+### Latest continuation — MIDI 2.0 note-edge fidelity (2026-10-04)
+
+Project format v14 now stores separate MIDI 2.0 Note-On and Note-Off Attribute
+Type/Data fields. The MIDI Clip parser preserves both edges and treats type-4
+MIDI 2.0 Note On with zero velocity as Note On; type-2 MIDI 1.0 UMP retains its
+zero-velocity Note-Off convention. Pairing uses Group/Channel/Note Number and
+FIFO for repeated overlapping identical keys; attribute payload is not used as
+a note ID. MIDI Clip export writes independent release fields. MIDI 1.0 loss
+report now warns for release-only note attributes.
+
+Project migration v13 -> v14 copies the prior Note-On pair into the new release
+pair. Direct Core loading of old v13 JSON has the same fallback, and older UI
+clients omitting the fields get the compatibility default. Future unknown
+formats are refused before backup or modification. Coverage includes codec
+round-trip, protocol zero-velocity distinction, overlap pairing, Piano Roll
+acknowledgement equality, C++ project JSON round-trip/legacy fallback, and CLI
+migration/no-touch future-version behavior.
+
+Validation: focused UI 54/54; full UI 1,037/1,037 across 151 files; TypeScript
+and production UI build passed; changed-file lint passed; migration tests 7/7;
+Core RelWithDebInfo build and CTest passed (1/1 test target). `git diff --check`
+passed. This is file/project fidelity only: live UMP devices, MIDI-CI, SMF2
+Container, full UMP playback, and MIDI 1.0 plug-in adaptation gaps remain open.
+Do not claim full MIDI 2.0 compatibility and do not push.
+
 ### Latest continuation — MIDI 1.0 export of configuration setup (2026-10-04)
 
 Standard MIDI File export now converts representable MIDI Clip receiver setup

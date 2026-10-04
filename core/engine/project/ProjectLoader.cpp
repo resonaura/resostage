@@ -760,6 +760,8 @@ bool ProjectLoader::reparseProject(std::string& error) {
         // v7 -> v8 defaults trimmed MIDI loop windows; v8 -> v9 defaults
         // optional video sources; v10 -> v11 defaults the automation curve
         // cache; v11 -> v12 defaults plug-in sidechain routing to disconnected.
+        // v13 -> v14 defaults separate MIDI 2.0 release attributes to the
+        // corresponding attack attributes for older persisted notes.
         // Promote only the private in-memory snapshot so opening a document
         // never rewrites its package.
         out.format.version = kCurrentFormatVersion;

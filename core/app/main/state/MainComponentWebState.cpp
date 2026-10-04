@@ -362,6 +362,8 @@ void MainComponent::publishWebState() {
                     midi2.releaseVelocity = n.midi2->releaseVelocity;
                     midi2.attributeType = n.midi2->attributeType;
                     midi2.attributeData = n.midi2->attributeData;
+                    midi2.releaseAttributeType = n.midi2->releaseAttributeType;
+                    midi2.releaseAttributeData = n.midi2->releaseAttributeData;
                     nr.midi2 = midi2;
                 }
                 mrr.notes.push_back(std::move(nr));

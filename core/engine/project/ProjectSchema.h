@@ -33,7 +33,9 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 13;
+inline constexpr int kCurrentFormatVersion = 14;
+// Format 14 stores independent Note-Off attribute fields. Version 13 note
+// records did not distinguish them, so missing release fields inherit Note-On.
 // Format 13 preserves whether a stored UMP packet belongs to the MIDI Clip
 // configuration header or its profile prefix. Older events default to the
 // musical sequence.
@@ -615,8 +617,10 @@ struct MidiNote {
         uint8_t group = 0; // UMP Group; MIDI 1.0 notes use group 0.
         uint16_t velocity = 0;
         uint16_t releaseVelocity = 0;
-        uint8_t attributeType = 0;
-        uint16_t attributeData = 0;
+        uint8_t attributeType = 0; // MIDI 2.0 Note-On Attribute Type.
+        uint16_t attributeData = 0; // MIDI 2.0 Note-On Attribute Data.
+        uint8_t releaseAttributeType = 0; // MIDI 2.0 Note-Off Attribute Type.
+        uint16_t releaseAttributeData = 0; // MIDI 2.0 Note-Off Attribute Data.
     };
     using MIDI2Data = Midi2Data;
     std::optional<Midi2Data> midi2; // Exact MIDI 2.0 note fields; absent for MIDI 1.0 notes.

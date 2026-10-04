@@ -22,8 +22,9 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - MIDI Clip File (`.midi2`) import/export supports the published single-stream
   UMP clip structure, clip framing, delta clocks, tempo and meter Flex Data,
   MIDI 1.0 Channel Voice UMP, MIDI 2.0 Note On/Off, note group, 16-bit attack
-  and release velocity, and the note attribute fields represented in the
-  current project schema.
+  and release velocity, and independent Note-On and Note-Off Attribute
+  Type/Data pairs. MIDI 2.0 Note On with zero velocity remains Note On; the
+  MIDI 1.0 UMP zero-velocity Note On convention is treated as Note Off.
 - MIDI Clip File parsing requires one DCTPQ with its preceding zero DCS,
   clockstamped Start/End markers, no bytes after End, and at most 200,000
   retained UMP events. Export enforces the same event cap while collecting
@@ -46,11 +47,15 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   immediately follow that tempo. Multiple tempo changes in Clip Sequence Data
   remain supported.
 - Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
-  packets on MIDI regions; current format 13 retains them and their optional
-  MIDI Clip configuration-section identity. Readable additive older
+  packets on MIDI regions; current format 14 retains them, optional MIDI Clip
+  configuration-section identity, and separate release attributes. Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and
   project serialization carry these fields so unsupported UMP packets can
   survive a save/load and MIDI Clip File round-trip.
+- For overlapping MIDI 2.0 notes, matching is scoped by UMP Group, Channel and
+  Note Number. Repeated overlapping events with the same key are paired FIFO;
+  Attribute Type/Data are never treated as a note ID. Different Note Numbers
+  naturally remain distinct note rows.
 - The Piano Roll edits normalized note velocity/release velocity and updates
   the corresponding stored 16-bit MIDI 2.0 value so edits do not leave stale
   high-resolution data behind.
@@ -108,11 +113,14 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - MIDI Clip File is one UMP event stream. Exporting multiple DAW tracks or
   songs merges them into that stream; the export dialog explains this. It does
   not preserve DAW track boundaries as separate UMP streams.
-- The MIDI 2.0 note schema represents one attack velocity, one release
-  velocity, one group, and one note-attribute type/data pair. It does not yet
-  model note IDs, multiple/independent note attributes, or all note-off
-  attributes. MIDI 2.0 notes normalized into Piano Roll notes may therefore
-  round-trip musically but not byte-for-byte in every expressive edge case.
+- The normalized MIDI 2.0 note schema represents one attack/release velocity,
+  one group, and one attribute pair for each edge. It does not retain original
+  packet byte layout or model arbitrary per-note controller lifetimes as note
+  metadata. Overlapping events sharing the same Group/Channel/Note Number use
+  FIFO pairing; no independent note-instance identity is persisted beyond the
+  protocol's note number. MIDI Clip normalized notes may therefore preserve
+  musical semantics without being byte-for-byte identical in every expressive
+  edge case.
 - Unknown UMP packets are retained as packet words and timing, but ResoStage
   does not interpret or promise playback for message types it does not
   implement. The original UMP stream's exact byte layout, utility packets,
@@ -163,9 +171,9 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
    MIDI Clip File profiles/configuration messages, simultaneous events,
    SysEx, Flex Data, malformed packets, large deltas, and all supported UMP
    message lengths. Existing tests cover core DCTPQ/DCS framing, Start/End,
-   shared deltas, long-gap resets and size caps. Specify exact handling for
-   note-off attributes and overlapping same-pitch notes; extend the project
-   note model only where round-trip requirements justify it.
+   shared deltas, long-gap resets, size caps, separate note-edge attributes,
+   zero-velocity protocol differences, and FIFO overlap matching. Add
+   independent reference files before claiming cross-DAW conformance.
 2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor,
    group/channel preview filters, direct point gestures, curve/smoothing,
    marquee selection and internal cut/copy/paste for recognized CC/Pitch Bend
@@ -231,3 +239,17 @@ Change and notes. Focused Standard MIDI/MIDI Clip tests passed 35/35; full UI
 passed 1,034/1,034 across 151 files; TypeScript and production UI build passed;
 lint passed with 12 existing unrelated warnings; diff check passed. This does
 not add full MIDI 2.0-to-1.0 conversion for unsupported UMP packet kinds.
+
+### Latest continuation — MIDI 2.0 note-edge fidelity (2026-10-04)
+
+Project format v14 stores Note-On and Note-Off Attribute Type/Data separately.
+The external migrator upgrades v13 by copying Note-On fields into release
+fields, matching the prior writer's behavior; the Core reader applies the same
+fallback when a v13 project is opened directly. MIDI Clip import preserves the
+actual Note-Off fields and export writes them back. MIDI 2.0 Note On at zero
+velocity remains an attack, while a type-2 MIDI 1.0 UMP zero-velocity Note On
+remains a release. Repeated overlap with the same Group/Channel/Note Number is
+paired FIFO; note attributes are not identity tokens. This does not complete
+platform UMP endpoints or general SMF2 Container support.
+The zero-velocity and note-edge rules are based on the official [UMP and MIDI
+2.0 Protocol Specification v1.1.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

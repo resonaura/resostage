@@ -356,6 +356,8 @@ export interface MidiNoteRow {
     releaseVelocity: number;
     attributeType: number;
     attributeData: number;
+    releaseAttributeType?: number;
+    releaseAttributeData?: number;
   };
 }
 

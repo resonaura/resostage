@@ -367,6 +367,8 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     midi2Note.id = 42;
     midi2Note.pitch = 64;
     midi2Note.midi2 = MidiNote::Midi2Data{3, 49152, 1234, 1, 0xBEEF};
+    midi2Note.midi2->releaseAttributeType = 4;
+    midi2Note.midi2->releaseAttributeData = 0xCAFE;
     midiRegion.notes.push_back(midi2Note);
     midiRegion.umpEvents.push_back(MidiUmpEvent{2.25, {0x40903C00u, 0xFFFF0000u, 0u, 0u}, 2});
     MidiUmpEvent profileSetup;
@@ -433,6 +435,8 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(restoredMidiRegion.notes[0].midi2->releaseVelocity == 1234);
     CHECK(restoredMidiRegion.notes[0].midi2->attributeType == 1);
     CHECK(restoredMidiRegion.notes[0].midi2->attributeData == 0xBEEF);
+    CHECK(restoredMidiRegion.notes[0].midi2->releaseAttributeType == 4);
+    CHECK(restoredMidiRegion.notes[0].midi2->releaseAttributeData == 0xCAFE);
     REQUIRE(restoredMidiRegion.umpEvents.size() == 2);
     CHECK(restoredMidiRegion.umpEvents[0].beat == doctest::Approx(2.25));
     CHECK(restoredMidiRegion.umpEvents[0].wordCount == 2);
@@ -444,6 +448,55 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(restoredMidiRegion.umpEvents[1].profileConfigurationHeader);
 
     std::remove(outPath.c_str());
+}
+
+TEST_CASE("ProjectJson defaults missing v13 release attributes to Note-On attributes") {
+    Project legacy;
+    legacy.format.version = 13;
+    SongDef song;
+    song.id = "meta::song:legacy-midi2";
+    MidiRegion region;
+    region.id = "midi-region-v13";
+    region.trackId = "audio::track:1";
+    MidiNote note;
+    note.id = 1;
+    note.midi2 = MidiNote::Midi2Data{2, 0x9234, 0x4567, 3, 0x1234};
+    note.midi2->releaseAttributeType = 4;
+    note.midi2->releaseAttributeData = 0x5678;
+    region.notes.push_back(note);
+    song.midiRegions.push_back(region);
+    legacy.songs.push_back(song);
+
+    std::string json = serializeProjectJson(legacy);
+    const auto removeField = [&json](const std::string& field) {
+        const std::string key = "\"" + field + "\":";
+        const auto start = json.find(key);
+        REQUIRE(start != std::string::npos);
+        const auto end = json.find_first_of(",}", start);
+        REQUIRE(end != std::string::npos);
+        if (json[end] == ',') {
+            json.erase(start, end - start + 1);
+        } else {
+            const auto comma = json.rfind(',', start);
+            REQUIRE(comma != std::string::npos);
+            json.erase(comma, end - comma);
+        }
+    };
+    removeField("releaseAttributeType");
+    removeField("releaseAttributeData");
+
+    Project restored;
+    std::string error;
+    REQUIRE(parseProjectJson(json, restored, error));
+    REQUIRE(restored.songs.size() == 1);
+    REQUIRE(restored.songs[0].midiRegions.size() == 1);
+    REQUIRE(restored.songs[0].midiRegions[0].notes.size() == 1);
+    const auto& restoredNote = restored.songs[0].midiRegions[0].notes[0];
+    REQUIRE(restoredNote.midi2.has_value());
+    CHECK(restoredNote.midi2->attributeType == 3);
+    CHECK(restoredNote.midi2->attributeData == 0x1234);
+    CHECK(restoredNote.midi2->releaseAttributeType == 3);
+    CHECK(restoredNote.midi2->releaseAttributeData == 0x1234);
 }
 
 TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips through save/load") {

@@ -467,6 +467,8 @@ std::string WebServer::buildStateJson(const char* view) const {
                         midi2.releaseVelocity = n.midi2->releaseVelocity;
                         midi2.attributeType = n.midi2->attributeType;
                         midi2.attributeData = n.midi2->attributeData;
+                        midi2.releaseAttributeType = n.midi2->releaseAttributeType;
+                        midi2.releaseAttributeData = n.midi2->releaseAttributeData;
                         wN.midi2 = midi2;
                     }
                     wMr.notes.push_back(std::move(wN));
