@@ -356,7 +356,10 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
           notes.push({
             id: nextId++, pitch, channel,
             startBeats: start.tick / tpq,
-            durationBeats: Math.max(1 / 64, (relativeTicks - start.tick) / tpq),
+            // MIDI timestamps are event times, not quantized note lengths. A
+            // Note On and its matching Note Off may share one tick; preserve
+            // that zero-length pair instead of inventing musical duration.
+            durationBeats: Math.max(0, (relativeTicks - start.tick) / tpq),
             velocity: start.velocity / 65535,
             releaseVelocity: (status === 8 ? eventVelocity : 0) / 65535,
             probability: 1,
@@ -504,7 +507,12 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
       const sourcePresentationOrder = item.presentationOrder;
       const hasSourceOrder = preserveSourceOrder && Number.isSafeInteger(sourcePresentationOrder)
         && sourcePresentationOrder! >= 0 && sourcePresentationOrder! <= MAX_EVENTS;
-      appendEvent({ ...item, priority: index === 0 ? 2 : 0, order: order++,
+      // For a zero-length note, keep its attack before its own release. For
+      // ordinary notes, release-before-attack remains necessary at retriggers.
+      const priority = durationBeats <= 0
+        ? (index === 0 ? 2 : 3)
+        : (index === 0 ? 4 : 0);
+      appendEvent({ ...item, priority, order: order++,
         ...(hasSourceOrder ? { sourceRegionOrder, sourcePresentationOrder } : {}) });
     }
   };

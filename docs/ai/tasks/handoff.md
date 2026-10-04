@@ -1609,3 +1609,15 @@ reused across an intervening Utility event. Focused MIDI Clip 31/31; full UI
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
 Continue auditing protocol edge cases and independent DAW fixtures. Commit
 verified blocks separately in English; do not push.
+
+Latest MIDI timing-fidelity continuation (2026-10-04): matched zero-tick Note
+On/Off pairs now remain zero-duration through `.mid`/`.midi2`, tempo adaptation,
+Core Builder/project JSON, and live/offline MIDI scheduling. The Piano Roll
+draws a compact selectable point note; resize can give it positive duration.
+Live event order is On then Off at one sample; offline sort releases prior
+notes before a point pair and keeps ordinary retriggers Off-before-On. Focused
+UI tests passed 73/73; full UI passed 1,055/1,055 across 151 files; Core CTest
+passed 1/1; the `ResoStage` target compiled; TypeScript/production build,
+changed-file lint and `git diff --check` passed. Audible output from
+zero-duration notes is receiver-dependent; do not claim otherwise. The details
+and sources are in `docs/MIDI2_REMAINING_WORK.md`.

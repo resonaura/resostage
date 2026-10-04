@@ -2257,3 +2257,16 @@ placement remains quantized to 1/24 quarter note as required by the protocol.
 Focused tests 31/31; full UI 1,052/1,052 across 151 files; TypeScript/build,
 changed-file lint and `git diff --check` passed. Reference: [UMP & MIDI 2.0
 Protocol v1.1.1 §7.5.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation addendum — preserve same-tick MIDI note edges (2026-10-04)
+
+MIDI Clip and Standard MIDI File codecs previously replaced matched zero-tick
+Note On/Off pairs with a positive minimum duration. The importers, tempo
+adapters, Core Builder, live scheduler, offline renderer, and Piano Roll now
+preserve and handle zero-duration notes without widening them. Same-sample
+attack/release ordering is explicit; ordinary retriggers still release the
+older note first. Focused UI tests passed 73/73; full UI passed 1,055/1,055
+across 151 files; Core CTest passed 1/1; the main `ResoStage` target compiled;
+TypeScript/production build, changed-file lint, and `git diff --check` passed.
+A receiver may not make an audible sound from a zero-length gate. Independent
+external DAW fixtures are still needed.

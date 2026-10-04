@@ -124,7 +124,8 @@ void AudioEngine::dispatchMidiRegionsForBlock(const PlaybackSongState& song,
                 : regionStartBeat - region.clipOffsetBeats;
 
             for (const auto& note : region.notes) {
-                if (note.muted || note.durationBeats <= 0.0)
+                if (note.muted || !std::isfinite(note.durationBeats)
+                    || note.durationBeats < 0.0)
                     continue;
                 if (region.loop && !midiRegionContainsLoopSourceBeat(
                         note.startBeats, region.loopStartBeats, loopLen))
@@ -178,7 +179,11 @@ void AudioEngine::dispatchMidiRegionsForBlock(const PlaybackSongState& song,
 
                 // Note-Off dispatch
                 const double clampedOffBeat = std::min(noteOffBeat, regionEndBeat);
-                if (noteOnBeat < regionEndBeat && clampedOffBeat > regionStartBeat) {
+                const bool instantaneousNote = note.durationBeats == 0.0;
+                const bool noteOnInsideRegion = noteOnBeat >= regionStartBeat
+                    && noteOnBeat < regionEndBeat;
+                if ((instantaneousNote && noteOnInsideRegion)
+                    || (noteOnBeat < regionEndBeat && clampedOffBeat > regionStartBeat)) {
                     const int64_t offSample = beatsToSamples(clampedOffBeat);
                     if (offSample >= blockStartSample && offSample < blockEndSample) {
                         const int sampleOffset = std::clamp(static_cast<int>(offSample - blockStartSample), 0, numSamples - 1);

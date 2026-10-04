@@ -604,7 +604,8 @@ export function createPianoRollPointerDownHandler({
 
     // Dynamic handle tolerance (8px converted to beats)
     const handleTol = Math.max(0.08, 8 / viewport.pixelsPerBeat);
-    const hit = spatialIndex.current.hitTest(beat, pitch, handleTol);
+    const pointTol = 4 / viewport.pixelsPerBeat;
+    const hit = spatialIndex.current.hitTest(beat, pitch, handleTol, pointTol);
 
     const beginExistingNoteInteraction = (noteHit: NonNullable<typeof hit>) => {
       let newSelection = new Set(selectedNoteIds);

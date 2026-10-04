@@ -119,6 +119,7 @@ export class SpatialNoteIndex {
     beat: number,
     pitch: number,
     handleToleranceBeats: number = 0.15,
+    pointToleranceBeats: number = handleToleranceBeats,
   ): HitTestResult | null {
     const pitchFloor = Math.floor(pitch);
     const candidateNotes = this.queryRange(
@@ -130,9 +131,17 @@ export class SpatialNoteIndex {
 
     for (const note of candidateNotes) {
       const noteEndBeat = note.startBeats + note.durationBeats;
-      if (beat >= note.startBeats && beat <= noteEndBeat) {
-        const isResizeHandle =
-          Math.abs(beat - noteEndBeat) <= handleToleranceBeats;
+      // A zero-tick MIDI note is drawn with a small minimum pixel width so it
+      // remains visible. Give that point event a matching bounded hit target;
+      // the right half can still be dragged to create an audible duration.
+      const isInstantaneous = note.durationBeats <= 0;
+      const hitEndBeat = isInstantaneous
+        ? note.startBeats + Math.max(0, pointToleranceBeats)
+        : noteEndBeat;
+      if (beat >= note.startBeats && beat <= hitEndBeat) {
+        const isResizeHandle = isInstantaneous
+          ? beat >= note.startBeats + Math.max(0, pointToleranceBeats) / 2
+          : Math.abs(beat - noteEndBeat) <= handleToleranceBeats;
         return { note, isResizeHandle };
       }
     }

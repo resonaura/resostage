@@ -31,6 +31,8 @@ struct OfflineMidiEvent {
     uint8_t dataLength = 0;
     bool noteOn = false;
     bool raw = false;
+    /** Both edges quantized to one sample; keep attack before its own release. */
+    bool instantaneous = false;
 };
 
 bool buildOfflineMidiEvents(const Project& project, const SongDef& song,

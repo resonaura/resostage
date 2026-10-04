@@ -55,7 +55,7 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
         for (int repeat = 0; repeat < repeatCount; ++repeat) {
             for (const auto& note : region.notes) {
                 if (note.muted || !std::isfinite(note.startBeats)
-                    || !std::isfinite(note.durationBeats) || note.durationBeats <= 0.0)
+                    || !std::isfinite(note.durationBeats) || note.durationBeats < 0.0)
                     continue;
                 if (region.loop && !midiRegionContainsLoopSourceBeat(
                         note.startBeats, loopStart, loopLength))
@@ -74,7 +74,9 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
                 const double noteOffBeat = std::min(
                     noteOnBeat + std::min(note.durationBeats, availableInLoop),
                     regionEndBeat);
-                if (noteOffBeat <= region.startBeats)
+                const bool instantaneousAtRegionStart = note.durationBeats == 0.0
+                    && noteOnBeat >= region.startBeats;
+                if (noteOffBeat <= region.startBeats && !instantaneousAtRegionStart)
                     continue;
                 const int64_t onSample = tempoMap.beatsToSamples(noteOnBeat, sampleRate);
                 const int64_t offSample = tempoMap.beatsToSamples(noteOffBeat, sampleRate);
@@ -83,7 +85,9 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
                     onSample, renderStartSample, regionStartSample});
                 const int64_t effectiveOffSample = std::min(offSample, renderEndSample);
                 if (effectiveOnSample >= renderEndSample
-                    || effectiveOffSample <= effectiveOnSample)
+                    || effectiveOffSample < effectiveOnSample
+                    || (effectiveOffSample == effectiveOnSample
+                        && onSample < effectiveOnSample))
                     continue;
                 const uint8_t pitch = static_cast<uint8_t>(std::clamp(
                     static_cast<int>(note.pitch), 0, 127));
@@ -98,6 +102,7 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
                 noteOn.velocity = velocity;
                 noteOn.releaseVelocity = releaseVelocity;
                 noteOn.noteOn = true;
+                noteOn.instantaneous = effectiveOffSample == effectiveOnSample;
                 events.push_back(noteOn);
                 OfflineMidiEvent noteOff = noteOn;
                 noteOff.sample = effectiveOffSample;
@@ -175,7 +180,14 @@ bool buildOfflineMidiEvents(const Project& project, const SongDef& song,
     }
     std::stable_sort(events.begin(), events.end(), [](const auto& a, const auto& b) {
         if (a.sample != b.sample) return a.sample < b.sample;
-        if (a.noteOn != b.noteOn) return !a.noteOn; // release before retrigger
+        const auto eventPhase = [](const OfflineMidiEvent& event) {
+            if (event.raw) return 1;
+            if (event.instantaneous) return event.noteOn ? 2 : 3;
+            return event.noteOn ? 4 : 0;
+        };
+        const int aPhase = eventPhase(a);
+        const int bPhase = eventPhase(b);
+        if (aPhase != bPhase) return aPhase < bPhase;
         if (a.raw != b.raw) return !a.raw;
         return a.strip < b.strip;
     });

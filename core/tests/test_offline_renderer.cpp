@@ -636,6 +636,13 @@ TEST_CASE("OfflineRenderer sends song-tempo MIDI to the private instrument proce
     note.releaseVelocity = 0.25f;
     note.midi2 = MidiNote::Midi2Data{0, 0x9234, 0x4567, 0, 0};
     region.notes.push_back(note);
+    MidiNote instantaneousNote;
+    instantaneousNote.id = 2;
+    instantaneousNote.pitch = 67;
+    instantaneousNote.startBeats = 1.25;
+    instantaneousNote.durationBeats = 0.0;
+    instantaneousNote.velocity = 0.75f;
+    region.notes.push_back(instantaneousNote);
     region.umpEvents.push_back(MidiUmpEvent{
         .beat = 0.75, .words = {0x40b20700u, 0x80000000u, 0, 0}, .wordCount = 2});
     song.midiRegions.push_back(region);
@@ -660,14 +667,20 @@ TEST_CASE("OfflineRenderer sends song-tempo MIDI to the private instrument proce
         };
     const auto result = OfflineRenderer{}.render(project, {}, request, {}, nullptr, factory);
     REQUIRE(result.ok);
-    REQUIRE(capturedEvents.size() == 2);
+    REQUIRE(capturedEvents.size() == 4);
     CHECK(capturedEvents[0].noteOn);
     CHECK(capturedEvents[0].sample == 12000);
     CHECK(capturedEvents[0].pitch == 64);
     CHECK(capturedEvents[0].velocity == 0x9234 >> 9);
-    CHECK_FALSE(capturedEvents[1].noteOn);
-    CHECK(capturedEvents[1].sample == 48000);
-    CHECK(capturedEvents[1].releaseVelocity == 0x4567 >> 9);
+    CHECK(capturedEvents[1].noteOn);
+    CHECK(capturedEvents[1].sample == 36000);
+    CHECK(capturedEvents[1].pitch == 67);
+    CHECK_FALSE(capturedEvents[2].noteOn);
+    CHECK(capturedEvents[2].sample == 36000);
+    CHECK(capturedEvents[2].pitch == 67);
+    CHECK_FALSE(capturedEvents[3].noteOn);
+    CHECK(capturedEvents[3].sample == 48000);
+    CHECK(capturedEvents[3].releaseVelocity == 0x4567 >> 9);
     REQUIRE(capturedRawEvents.size() == 1);
     CHECK(capturedRawEvents[0].sample == 18000);
     CHECK(capturedRawEvents[0].status == 0xb2);

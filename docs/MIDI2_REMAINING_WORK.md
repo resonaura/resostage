@@ -67,6 +67,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - The Piano Roll edits normalized note velocity/release velocity and updates
   the corresponding stored 16-bit MIDI 2.0 value so edits do not leave stale
   high-resolution data behind.
+- Matched same-tick MIDI 1.0/MIDI 2.0 Note On/Off pairs retain zero musical
+  duration through file import/export, tempo adaptation, project state, live
+  playback and offline rendering. Piano Roll gives zero-duration point notes a
+  minimal visible/hit target. Their attack is delivered before their same-sample
+  release; receivers are not guaranteed to produce audible sound for them.
 - MIDI Clip export is explicit. `.mid` remains the default; `.midi2` must be
   selected by the user. When exporting `.mid`, the dialog reports known
   MIDI 2.0 note/group/attribute/velocity and unsupported-UMP losses and asks
@@ -456,3 +461,22 @@ MIDI Clip tests passed 31/31; full UI passed 1,052/1,052 across 151 files;
 TypeScript/production build, changed-file lint and `git diff --check` passed.
 
 Source: [MIDI Clip File Specification v1.0 §3.2.2](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
+
+### Latest continuation — preserve same-tick MIDI note edges (2026-10-04)
+
+MIDI Clip and Standard MIDI File imports no longer widen a matched Note On/Off
+pair whose timestamps are identical. This zero duration survives SMPTE/time-map
+adaptation, the Core Builder and project JSON. Piano Roll renders a compact
+point note that remains selectable and can be resized into a positive length.
+Live MIDI queues Note On then Note Off at the same sample offset; offline event
+sorting releases older notes first, preserves the point pair's edge order, and
+keeps ordinary retriggers Off-before-On. Instrument response to a zero-length
+gate remains receiver-dependent. This does not claim byte-identical SMF/UMP
+round-trip or audible playback of a zero-length note.
+
+Focused codec/Piano Roll tests passed 73/73; the full UI suite passed
+1,055/1,055 across 151 files; Core engine CTest passed 1/1; the `ResoStage`
+Core target compiled; TypeScript/production build, changed-file lint and
+`git diff --check` passed. The semantics follow timestamp/delta-clock
+resolution in the [Standard MIDI Files specification](https://www.midi.org/specifications/file-format-specifications/standard-midi-files)
+and [MIDI Clip File Specification v1.0](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).

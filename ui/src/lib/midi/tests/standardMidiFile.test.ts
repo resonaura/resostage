@@ -63,6 +63,29 @@ describe("Standard MIDI File", () => {
     });
   });
 
+  it("preserves zero-tick note edges through Standard MIDI File tempo adaptation", () => {
+    const zeroNoteRegion: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [{ ...region.notes[0], startBeats: 1, durationBeats: 0 }],
+    };
+    const bytes = writeStandardMidiFile([{ name: "Zero note", regions: [zeroNoteRegion] }], {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false,
+    });
+    const parsed = parseStandardMidiFile(bytes);
+    expect(parsed.tracks[1].notes).toHaveLength(1);
+    expect(parsed.tracks[1].notes[0]).toMatchObject({ startBeats: 1, durationBeats: 0 });
+
+    const destination = {
+      name: "Destination", bpm: 90, mode: "auto" as const, tsNum: 4, tsDen: 4,
+      events: [], tempoPoints: [], signaturePoints: [], midiRegions: [], regions: [],
+    } as unknown as SongRow;
+    const adapted = adaptMidiTracksToSongTempo(parsed.tracks, [], destination);
+    expect(adapted[1].notes[0].durationBeats).toBe(0);
+  });
+
   it("round-trips MIDI 2.0 note precision and group in an SMF2 Clip", () => {
     const midi2Region: MidiRegionRow = {
       ...region,

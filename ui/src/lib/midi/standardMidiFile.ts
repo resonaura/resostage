@@ -218,7 +218,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           pitch: data1,
           channel,
           startBeats: musicalPosition(start.tick),
-          durationBeats: Math.max(0.03125, musicalPosition(tick) - musicalPosition(start.tick)),
+          durationBeats: Math.max(0, musicalPosition(tick) - musicalPosition(start.tick)),
           velocity: start.velocity / 127,
           releaseVelocity: data2 / 127,
           probability: 1,
@@ -230,7 +230,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         id: nextId++, pitch: key % 128,
         channel: Math.floor(key / 128),
         startBeats: musicalPosition(start.tick),
-        durationBeats: Math.max(0.03125, musicalPosition(tick) - musicalPosition(start.tick)),
+        durationBeats: Math.max(0, musicalPosition(tick) - musicalPosition(start.tick)),
         velocity: start.velocity / 127, releaseVelocity: 0, probability: 1,
       });
     }
@@ -279,7 +279,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         const startSeconds = note.startBeats;
         const endSeconds = startSeconds + note.durationBeats;
         note.startBeats = convertTime(startSeconds);
-        note.durationBeats = Math.max(0.03125, convertTime(endSeconds) - note.startBeats);
+        note.durationBeats = Math.max(0, convertTime(endSeconds) - note.startBeats);
       }
       for (const event of track.events ?? []) event.beat = convertTime(event.beat);
       track.durationBeats = convertTime(track.durationBeats);
@@ -468,7 +468,7 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           const availableInLoop = region.loop
             ? (region.loopStartBeats ?? 0) + loopLength - note.startBeats
             : note.durationBeats;
-          const end = Math.max(start + 1, Math.round((region.startBeats + Math.min(
+          const end = Math.max(start, Math.round((region.startBeats + Math.min(
             region.durationBeats,
             relative + Math.min(note.durationBeats, availableInLoop),
           ) - origin) * PPQN));
@@ -476,9 +476,12 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           const midi1Velocity = note.midi2 ? note.midi2.velocity >>> 9 : Math.round(note.velocity * 127);
           const velocity = Math.max(1, Math.min(127, midi1Velocity));
           const channel = Math.max(0, Math.min(15, Math.round(note.channel ?? 0)));
-          events.push({ tick: start, order: 1, bytes: [0x90 | channel, pitch, velocity] });
+          const isInstantaneous = end === start;
+          events.push({ tick: start, order: isInstantaneous ? 2 : 4,
+            bytes: [0x90 | channel, pitch, velocity] });
           const midi1ReleaseVelocity = note.midi2 ? note.midi2.releaseVelocity >>> 9 : Math.round(note.releaseVelocity * 127);
-          events.push({ tick: end, order: 0, bytes: [0x80 | channel, pitch, Math.max(0, Math.min(127, midi1ReleaseVelocity))] });
+          events.push({ tick: end, order: isInstantaneous ? 3 : 0,
+            bytes: [0x80 | channel, pitch, Math.max(0, Math.min(127, midi1ReleaseVelocity))] });
           totalEvents += 2;
           if (events.length > MAX_EVENTS || totalEvents > 400_000)
             throw new Error("MIDI export exceeds event limit");
@@ -614,7 +617,7 @@ export function adaptMidiTracksToSongTempo(
       const endSeconds = midiSecondsAtBeat(tempoEvents, note.startBeats + note.durationBeats);
       const startBeats = songBeatAtElapsedSeconds(song, startSeconds);
       const endBeats = songBeatAtElapsedSeconds(song, endSeconds);
-      return { ...note, startBeats, durationBeats: Math.max(1 / 64, endBeats - startBeats) };
+      return { ...note, startBeats, durationBeats: Math.max(0, endBeats - startBeats) };
     });
     const sourceEndSeconds = midiSecondsAtBeat(tempoEvents, track.durationBeats);
     const events = track.events?.map((event) => ({

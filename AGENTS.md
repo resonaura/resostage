@@ -1110,6 +1110,15 @@ releases, and opaque UMP packets. Missing/invalid order is `-1`; MIDI Clip
 export preserves source order only for simultaneous imported sequence events
 and retains deterministic Off-before-On ordering for new or loop-expanded
 events.
+MIDI note duration is nonnegative, and zero is meaningful: file codecs,
+tempo adaptation, project JSON, and Builder commands must preserve matched
+same-tick Note On/Off pairs without widening them. Piano Roll renders these
+point notes with a minimum visible/hit target; editing may give them a positive
+duration. Live playback queues attack then release at the same sample offset.
+Offline sorting releases previously-held notes first, then emits a same-sample
+point-note attack/release pair before later retriggers. Such a pair is
+structurally preserved but is not guaranteed to produce audible sound on every
+instrument.
 MIDI regions keep source note
 coordinates; `clipOffsetBeats` identifies the current source phase, while
 `loopStartBeats` and `loopLengthBeats` bound the loop source window. Trimming
@@ -1164,6 +1173,9 @@ saved plug-in states. Processors are marked non-realtime before
 MIDI regions are converted through the song `TempoMap` to sample-positioned
 events for software-instrument strips in that same graph pass; never route
 offline MIDI through the live dispatcher or share live processor instances.
+Zero-duration notes are retained as same-sample Note On/Note Off events. Keep
+their attack before their paired release, while ordinary retriggers still
+release the previous note before the next attack.
 
 When several taps are exported together, shorter tap paths are delayed to the
 slowest selected tap so every WAV shares one compensated sample origin. These

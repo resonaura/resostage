@@ -412,6 +412,36 @@ describe("MIDI Clip File framing and resource bounds", () => {
     expect(midi1ZeroOff.tracks[0].notes[0].durationBeats).toBe(0.5);
   });
 
+  it("preserves zero-tick MIDI 2.0 notes and keeps each new attack before its release", () => {
+    const imported = parseMidiClipFile(framedClip([
+      dcs(0), [0x4090_3c00, 0xffff_0000],
+      dcs(0), [0x4080_3c00, 0xffff_0000],
+    ]));
+    expect(imported.tracks[0].notes).toHaveLength(1);
+    expect(imported.tracks[0].notes[0]).toMatchObject({ startBeats: 0, durationBeats: 0 });
+
+    const roundTrip = parseMidiClipFile(writeMidiClipFile([{
+      name: "Imported zero note",
+      regions: [{ ...region, notes: imported.tracks[0].notes }],
+    }], { bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false }));
+    expect(roundTrip.tracks[0].notes[0].durationBeats).toBe(0);
+
+    const created = writeMidiClipFile([{
+      name: "New zero note",
+      regions: [{ ...region, notes: [{ ...note(9), durationBeats: 0 }] }],
+    }], { bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false });
+    const view = new DataView(created.buffer, created.byteOffset, created.byteLength);
+    const statuses: number[] = [];
+    for (let offset = 8; offset < created.byteLength; offset += 4) {
+      const first = view.getUint32(offset);
+      if ((first >>> 28) === 4 && ((first >>> 8) & 0x7f) === 60)
+        statuses.push((first >>> 20) & 0xf);
+    }
+    expect(statuses).toEqual([9, 8]);
+  });
+
   it("pairs overlapping same-key MIDI 2.0 notes in FIFO order, not by attribute payload", () => {
     const parsed = parseMidiClipFile(framedClip([
       dcs(0), [0x4090_3c01, 0x8000_1111],

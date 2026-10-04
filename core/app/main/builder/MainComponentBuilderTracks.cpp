@@ -46,7 +46,10 @@ std::vector<MidiNote> parseMidiNotes(const glz::generic& doc) {
         getDouble(noteVal, "startBeats", n.startBeats);
         getDouble(noteVal, "durationBeats", n.durationBeats);
         n.startBeats = std::max(0.0, n.startBeats);
-        n.durationBeats = std::max(0.03125, n.durationBeats);
+        // Import/file formats can encode a zero-tick Note On/Off pair. Keep
+        // the source edge timing; the playback scheduler handles both edges
+        // at the same sample instead of widening the project note.
+        n.durationBeats = std::max(0.0, n.durationBeats);
         double v = 0.8;
         if (getDouble(noteVal, "velocity", v))
             n.velocity = static_cast<float>(std::clamp(v, 0.0, 1.0));

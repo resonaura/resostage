@@ -159,7 +159,8 @@ export function createPianoRollPointerMoveHandler({
         const beat = sourceBeatAt(xToBeat(x));
         const pitch = yToPitch(y, height);
         const handleTol = Math.max(0.08, 8 / viewport.pixelsPerBeat);
-        const hit = spatialIndex.current.hitTest(beat, pitch, handleTol);
+        const pointTol = 4 / viewport.pixelsPerBeat;
+        const hit = spatialIndex.current.hitTest(beat, pitch, handleTol, pointTol);
         if (hit) {
           canvas.style.cursor = hit.isResizeHandle ? "ew-resize" : "grab";
         } else {

@@ -366,6 +366,7 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     MidiNote midi2Note;
     midi2Note.id = 42;
     midi2Note.pitch = 64;
+    midi2Note.durationBeats = 0.0;
     midi2Note.midi2 = MidiNote::Midi2Data{3, 49152, 1234, 1, 0xBEEF};
     midi2Note.midi2->releaseAttributeType = 4;
     midi2Note.midi2->releaseAttributeData = 0xCAFE;
@@ -433,6 +434,7 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     REQUIRE(p.songs[0].midiRegions.size() == 1);
     const auto& restoredMidiRegion = p.songs[0].midiRegions[0];
     REQUIRE(restoredMidiRegion.notes.size() == 1);
+    CHECK(restoredMidiRegion.notes[0].durationBeats == doctest::Approx(0.0));
     REQUIRE(restoredMidiRegion.notes[0].midi2.has_value());
     CHECK(restoredMidiRegion.notes[0].midi2->velocity == 49152);
     CHECK(restoredMidiRegion.notes[0].midi2->group == 3);

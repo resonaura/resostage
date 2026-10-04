@@ -248,7 +248,7 @@ export function drawPianoRollCanvas({
             region, note.startBeats, note.durationBeats,
           );
           if (
-            beat + visibleDuration > minBeat &&
+            beat + visibleDuration >= minBeat &&
             beat < maxBeat &&
             beat < region.durationBeats &&
             views.length < 20_000

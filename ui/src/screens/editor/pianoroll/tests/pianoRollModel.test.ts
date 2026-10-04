@@ -203,6 +203,28 @@ describe("Piano Roll Spatial Index", () => {
     expect(miss).toBeNull();
   });
 
+  it("keeps zero-tick imported notes visible to hit testing and resize", () => {
+    const index = new SpatialNoteIndex(4.0, 12);
+    const note: MidiNoteRow = {
+      id: 11,
+      pitch: 60,
+      startBeats: 2,
+      durationBeats: 0,
+      velocity: 0.8,
+      releaseVelocity: 0,
+      probability: 1,
+    };
+    index.rebuild([note]);
+
+    const bodyHit = index.hitTest(2.01, 60, 0.08, 0.04);
+    expect(bodyHit?.note.id).toBe(11);
+    expect(bodyHit?.isResizeHandle).toBe(false);
+    const resizeHit = index.hitTest(2.03, 60, 0.08, 0.04);
+    expect(resizeHit?.note.id).toBe(11);
+    expect(resizeHit?.isResizeHandle).toBe(true);
+    expect(index.hitTest(2.05, 60, 0.08, 0.04)).toBeNull();
+  });
+
   it("hit-tests velocity stalks independently of the visible pitch window", () => {
     const index = new SpatialNoteIndex(4.0, 12);
     const lowNote: MidiNoteRow = {
