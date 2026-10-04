@@ -1871,3 +1871,12 @@ full UI: 1,106/1,106 across 151 files; TypeScript, production build,
 changed-file oxlint and diff check passed. Review and commit this isolated
 block in English without pushing, then continue checking malformed chunk and
 event boundary behavior.
+
+Latest verified End-of-Track validation (2026-10-04): the parser checks meta
+payload bounds before special handling and rejects End-of-Track unless its
+payload length is zero. Regression fixtures cover nonempty EOT payload and a
+truncated EOT that would cross into the next chunk. Focused SMF tests: 71/71;
+full UI: 1,107/1,107 across 151 files; TypeScript, production build,
+changed-file oxlint and diff check passed. Review and commit in English,
+without pushing. Reference: MIDI Association Standard MIDI Files
+specification.

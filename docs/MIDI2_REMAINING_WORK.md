@@ -734,3 +734,14 @@ passed 1,106/1,106 across 151 files; TypeScript, production build,
 changed-file oxlint, and `git diff --check` passed. Continue the codec audit
 with malformed chunk-boundary fixtures; do not broaden this into accepting
 truncated events.
+
+### Latest continuation — validate End-of-Track framing (2026-10-04)
+
+The SMF parser now checks meta-event payload bounds before handling special
+events and rejects End-of-Track unless its payload length is zero. This avoids
+silently rewinding the reader after an End-of-Track event borrowed bytes from
+the next chunk, and rejects malformed nonempty End-of-Track payloads. Tests
+cover both cases. Focused Standard MIDI tests passed 71/71; full UI passed
+1,107/1,107 across 151 files; TypeScript, production build, changed-file
+oxlint, and `git diff --check` passed. Reference: [MIDI Association Standard
+MIDI Files specification](https://midi.org/standard-midi-files-specification).

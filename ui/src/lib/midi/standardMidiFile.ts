@@ -185,6 +185,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         runningStatus = 0;
         const kind = reader.byte();
         const data = reader.take(reader.vlq());
+        if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
         if (kind === 0x03) name = new TextDecoder().decode(data).slice(0, 128) || name;
         let recognizedTimingMetaEvent = false;
         if (kind === 0x51 && data.length === 3) {
@@ -217,13 +218,13 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           if (format !== 2) result.meterEvents.push(meter);
         }
         if (kind === 0x2f) {
+          if (data.length !== 0) throw new Error("Invalid End-of-Track event length");
           reader.offset = trackEnd;
           break;
         }
         if (!recognizedTimingMetaEvent && kind !== 0x2f) {
           events.push({ beat: musicalPosition(tick), status: 0xff, data: [kind, ...data] });
         }
-        if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
         continue;
       }
       if (status === 0xf0 || status === 0xf7) {

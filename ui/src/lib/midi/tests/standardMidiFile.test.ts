@@ -142,6 +142,27 @@ describe("Standard MIDI File", () => {
     expect(() => parseStandardMidiFile(file)).toThrow(/MIDI event exceeds track chunk/);
   });
 
+  it("rejects End-of-Track events with payload bytes or data beyond their track", () => {
+    const makeFile = (firstTrackBody: number[]) => {
+      const makeTrack = (body: number[]) => [
+        0x4d, 0x54, 0x72, 0x6b,
+        (body.length >>> 24) & 0xff, (body.length >>> 16) & 0xff,
+        (body.length >>> 8) & 0xff, body.length & 0xff,
+        ...body,
+      ];
+      return Uint8Array.from([
+        0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 2, 1, 0xe0,
+        ...makeTrack(firstTrackBody),
+        ...makeTrack([0, 0xff, 0x2f, 0]),
+      ]);
+    };
+
+    expect(() => parseStandardMidiFile(makeFile([0, 0xff, 0x2f, 1, 0])))
+      .toThrow(/Invalid End-of-Track event length/);
+    expect(() => parseStandardMidiFile(makeFile([0, 0xff, 0x2f, 1])))
+      .toThrow(/MIDI event exceeds track chunk/);
+  });
+
   it("folds MIDI 1.0 CC 88 into one-shot 14-bit note-edge velocities", () => {
     const parsed = parseStandardMidiFile(smfWithTrackEvents([
       0, 0xb0, 88, 25,

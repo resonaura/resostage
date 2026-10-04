@@ -2544,3 +2544,11 @@ fixture now rejects that malformed input. Focused Standard MIDI tests passed
 70/70; full UI passed 1,106/1,106 across 151 files; TypeScript, production
 build, changed-file oxlint and `git diff --check` passed. This is a bounded
 parser hardening fix, not a compatibility relaxation.
+
+Latest SMF End-of-Track audit (2026-10-04): meta payload bounds are now checked
+before special-event handling; End-of-Track must have zero payload bytes.
+Regressions cover a nonempty payload inside the track and a truncated payload
+that would otherwise consume a byte from the next chunk. Focused Standard MIDI
+tests passed 71/71; full UI passed 1,107/1,107 across 151 files; TypeScript,
+production build, changed-file oxlint and `git diff --check` passed. Basis:
+MIDI Association Standard MIDI Files specification.
