@@ -53,7 +53,12 @@ const theme = {
   accentForeground: "#ffffff",
 };
 
-function draw(ctx: CanvasRenderingContext2D, midiRegion: MidiRegionRow, lane: "cc74" | "pitchBend") {
+function draw(
+  ctx: CanvasRenderingContext2D,
+  midiRegion: MidiRegionRow,
+  lane: "cc74" | "pitchBend",
+  selectedControllerEventIndices = new Set<number>(),
+) {
   drawPianoRollBottomLane({
     context: ctx,
     width: 400,
@@ -73,6 +78,7 @@ function draw(ctx: CanvasRenderingContext2D, midiRegion: MidiRegionRow, lane: "c
     controllerLaneMode: "events",
     timeVisibleNotes: [],
     selectedNoteIds: new Set(),
+    selectedControllerEventIndices,
     localAutomationLanes: [],
     region: midiRegion,
     theme,
@@ -102,5 +108,13 @@ describe("Piano Roll raw controller canvas preview", () => {
 
     expect(ctx.arc).toHaveBeenCalledOnce();
     expect(ctx.arc).toHaveBeenCalledWith(74, expect.any(Number), 2.5, 0, Math.PI * 2);
+  });
+
+  it("draws a distinct outline around selected source events", () => {
+    const ctx = context();
+    draw(ctx, region([{ beat: 2, status: 0xb0, data: [74, 96] }]), "cc74", new Set([0]));
+
+    expect(ctx.arc).toHaveBeenCalledWith(94, expect.any(Number), 4.25, 0, Math.PI * 2);
+    expect(ctx.arc).toHaveBeenCalledWith(94, expect.any(Number), 5.25, 0, Math.PI * 2);
   });
 });

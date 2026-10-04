@@ -6,15 +6,13 @@
 
 import { useEffect } from "react";
 import { hotkeyManager, HotkeyScope } from "@/lib/interaction/HotkeyManager";
-import type { MidiNoteRow } from "@/lib/state/types";
 import type { PianoRollTool } from "@/screens/editor/pianoroll/logic/types";
 
 interface UsePianoRollCommandsOptions {
   setTool: (tool: PianoRollTool) => void;
   handleDeleteSelected: () => void;
+  handleSelectAll: () => void;
   handleQuantize: () => void;
-  getEditableNotes: () => MidiNoteRow[];
-  setSelectedNoteIds: (ids: Set<number>) => void;
   handleCutSelected: () => void;
   handleCopySelected: () => void;
   handlePasteNotes: () => void;
@@ -29,9 +27,8 @@ interface UsePianoRollCommandsOptions {
 export function usePianoRollCommands({
   setTool,
   handleDeleteSelected,
+  handleSelectAll,
   handleQuantize,
-  getEditableNotes,
-  setSelectedNoteIds,
   handleCutSelected,
   handleCopySelected,
   handlePasteNotes,
@@ -66,9 +63,7 @@ export function usePianoRollCommands({
       bind("tool-slice", "s", () => setTool("slice")),
       bind("tool-erase", "e", () => setTool("erase")),
       bind("quantize", "q", handleQuantize),
-      bind("select-all-notes", `${primary} + a`, () =>
-        setSelectedNoteIds(new Set(getEditableNotes().map((note) => note.id))),
-      ),
+      bind("select-all", `${primary} + a`, handleSelectAll),
       bind("cut-notes", `${primary} + x`, handleCutSelected),
       bind("copy-notes", `${primary} + c`, handleCopySelected),
       bind("paste-notes", `${primary} + v`, handlePasteNotes),
@@ -92,6 +87,7 @@ export function usePianoRollCommands({
     return () => unregister.forEach((dispose) => dispose());
   }, [
     handleDeleteSelected,
+    handleSelectAll,
     handleCutSelected,
     handleCopySelected,
     handlePasteNotes,
@@ -101,8 +97,6 @@ export function usePianoRollCommands({
     handleUndo,
     handleRedo,
     handleSplitAtPlayhead,
-    getEditableNotes,
-    setSelectedNoteIds,
     setTool,
   ]);
 }

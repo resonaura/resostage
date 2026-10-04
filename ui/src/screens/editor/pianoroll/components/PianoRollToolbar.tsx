@@ -31,15 +31,21 @@ const TOOLS = [
 /** Same grouping and design-system controls as the arrangement toolbar. */
 export function PianoRollToolbar(props: PianoRollToolbarProps) {
   const selectionEmpty = props.selectedCount === 0;
+  const controllerSelectionCount = props.selectedControllerEventCount ?? 0;
+  const allSelectionEmpty = selectionEmpty && controllerSelectionCount === 0;
   const snapEnabled = props.snapEnabled ?? props.snap > 0;
 
   return (
     <div className="z-20 flex shrink-0 flex-wrap items-center gap-2 border-b border-default/30 bg-background-secondary px-3 py-1.5 select-none">
       <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-foreground/40">
         Piano Roll
-        {props.selectedCount > 0 && (
+        {(props.selectedCount > 0 || controllerSelectionCount > 0) && (
           <span className="ml-2 font-normal lowercase text-foreground/25">
-            {props.selectedCount} selected
+            {props.selectedCount > 0 && controllerSelectionCount > 0
+              ? `${props.selectedCount} notes · ${controllerSelectionCount} events selected`
+              : props.selectedCount > 0
+                ? `${props.selectedCount} selected`
+                : `${controllerSelectionCount} events selected`}
           </span>
         )}
       </span>
@@ -64,13 +70,15 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
         <Separator orientation="vertical" />
         <ButtonGroup size="sm" variant="tertiary">
           {props.onCopySelected && (
-            <Button isIconOnly isDisabled={selectionEmpty} variant="default-soft"
-              aria-label="Copy selected notes" onPress={props.onCopySelected}>
+          <Button isIconOnly isDisabled={selectionEmpty} variant="default-soft"
+            aria-label="Copy selected notes" onPress={props.onCopySelected}>
               <Copy size={13} />
             </Button>
           )}
-          <Button isIconOnly isDisabled={selectionEmpty} variant="default-soft"
-            aria-label="Delete selected notes" onPress={props.onDeleteSelected}>
+          <Button isIconOnly isDisabled={allSelectionEmpty} variant="default-soft"
+            aria-label={controllerSelectionCount > 0 && selectionEmpty
+              ? "Delete selected MIDI events" : "Delete selected items"}
+            onPress={props.onDeleteSelected}>
             {props.onCopySelected && <ButtonGroup.Separator />}
             <Trash2 size={13} />
           </Button>

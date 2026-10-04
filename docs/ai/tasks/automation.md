@@ -690,14 +690,15 @@ retry path, while project/region identity changes and history boundaries retire
 the draft. Pending region creation carries notes and events together, avoiding
 loss when the first edit creates a previously empty MIDI region.
 
-This is a MIDI 1.0 raw-event editor, not UMP/MIDI 2.0 event authoring. It does
-not yet provide multi-event selection, freehand controller painting, a curve
-tool for raw events, or hardware-device acceptance. Those remain separate from
-automation lane editing and must not be conflated with it. Focused coverage
-includes pointer create/move/delete, channel/data preservation, loop mapping,
-exclusive-end clamping, bounded projection, rejected/uncertain authoritative
-drafts, pending-region creation, cancellation and history boundaries. The
-read-only status above describes the 2026-10-03 state and is superseded here.
+This is a MIDI 1.0 raw-event editor, not UMP/MIDI 2.0 event authoring. At the
+time of this implementation, multi-event selection was still open; the
+2026-10-04 continuation below adds it. Freehand controller painting, a curve
+tool for raw events, and hardware-device acceptance remain open and separate
+from automation lane editing. Focused coverage includes pointer
+create/move/delete, channel/data preservation, loop mapping, exclusive-end
+clamping, bounded projection, rejected/uncertain authoritative drafts,
+pending-region creation, cancellation and history boundaries. The read-only
+status above describes the 2026-10-03 state and is superseded here.
 
 ## Display motion note — 2026-10-03
 
@@ -767,3 +768,30 @@ full UI lint exited 0 with 12 pre-existing warnings in unrelated files.
 `resostage_engine_tests` rebuilt and CTest passed 1/1. `git diff --check`
 passed. No real AU/VST3 plug-in with duplicate IDs was exercised, so this is
 source/native-test verified, not vendor acceptance.
+
+### Latest continuation — multi-event selection and group editing (2026-10-04)
+
+Raw MIDI 1.0 CC and pitch-bend Events lanes now support multi-event selection.
+An unmodified click selects one event (or preserves a selected group when the
+clicked event is already in it); Shift-click or the platform primary modifier
+(Command on macOS, Control elsewhere) toggles one event in the selection.
+Select All operates on the active Events lane. Dragging a selected member moves
+the selected group rigidly in time and value, preserving event spacing,
+channels and additional event bytes; the complete group is clamped inside the
+region's source window or loop source window. Delete and the toolbar Delete
+button remove the selected events through the reliable region-event commit
+path. The toolbar reports selected event count.
+
+Selection uses bounded source-array indexes because persisted raw MIDI events
+do not have stable IDs. It is invalidated when project/region identity,
+history, lane or mode changes, or authoritative data changes beneath a selected
+index. Event scanning/editing refuses lists above 16,384 rather than applying a
+partial destructive edit. This does not add range marquee, cut/copy, freehand
+painting, raw-event curve tools, UMP/MIDI 2.0 editing, or hardware acceptance.
+Automation points remain a distinct data model.
+
+Verification: focused controller/gesture/lifecycle suites passed 25/25 after
+the final malformed-lane/invalid-loop guards; the full UI suite passed 942
+tests across 142 files, TypeScript and production build passed, and repository
+lint exited 0 with 12 existing warnings in unrelated files. `git diff --check`
+passed. No manual visual or hardware-device acceptance was performed.

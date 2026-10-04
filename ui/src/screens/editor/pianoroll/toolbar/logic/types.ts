@@ -34,6 +34,7 @@ export interface PianoRollToolbarProps {
   onLoopLengthBeatsChange?: (beats: string) => void;
   onLoopLengthBeatsCommit?: () => void;
   selectedCount: number;
+  selectedControllerEventCount?: number;
   onQuantize: () => void;
   onHumanize: () => void;
   onLegato?: () => void;

@@ -49,6 +49,8 @@ interface PianoRollCanvasProps {
   showGhostNotes: boolean;
   selectedNoteIds: Set<number>;
   onSelectionChange: (ids: Set<number>) => void;
+  selectedControllerEventIndices: Set<number>;
+  onControllerEventSelectionChange: (indices: Set<number>) => void;
   onNotesChange: (notes: MidiNoteRow[]) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
@@ -90,6 +92,8 @@ export function PianoRollCanvas({
   showGhostNotes,
   selectedNoteIds,
   onSelectionChange,
+  selectedControllerEventIndices,
+  onControllerEventSelectionChange,
   onNotesChange,
   onRegionChange,
   onEventsChange,
@@ -247,6 +251,7 @@ export function PianoRollCanvas({
       setLocalEvents,
       setHoveredPitch,
       onSelectionChange,
+      setControllerEventSelection: onControllerEventSelectionChange,
     });
 
   usePianoRollPlayheadFollow({
@@ -283,6 +288,7 @@ export function PianoRollCanvas({
     showGhostNotes,
     companionRegions,
     selectedNoteIds,
+    selectedControllerEventIndices,
     activeMidiPitches,
     timeSignatureNumerator,
     hoveredPitch,
@@ -321,6 +327,8 @@ export function PianoRollCanvas({
     controllerLaneMode,
     notesToRender,
     selectedNoteIds,
+    selectedControllerEventIndices,
+    onControllerEventSelectionChange,
     tool,
     snap,
     snapToScale,
@@ -442,6 +450,7 @@ export function PianoRollCanvas({
             lanes: localAutomationLanesRef.current,
             events: localEvents,
             selection: new Set(selectedNoteIds),
+            controllerEventSelection: new Set(selectedControllerEventIndices),
           };
           handlePointerDown(event);
           if (event.button === 0 && draggingRef.current)

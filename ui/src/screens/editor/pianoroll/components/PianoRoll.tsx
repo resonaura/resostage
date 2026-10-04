@@ -17,7 +17,11 @@ import { getTrackColor } from "@/lib/theme";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
 import { PianoRollHeader } from "@/screens/editor/pianoroll/components/PianoRollHeader";
 import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
-import { collectPianoRollControllerNumbers } from "@/screens/editor/pianoroll/logic/controllerLane";
+import {
+  collectControllerEventSourceIndices,
+  collectPianoRollControllerNumbers,
+  removeControllerEvents,
+} from "@/screens/editor/pianoroll/logic/controllerLane";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
 import { usePianoRollNoteDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteDraft";
@@ -89,6 +93,9 @@ export function PianoRoll({
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<number>>(
     new Set(),
   );
+  const [selectedControllerEventIndices, setSelectedControllerEventIndices] = useState<Set<number>>(
+    new Set(),
+  );
   const authoritativeNoteIdsRef = useRef({
     regionId: region.id,
     resetKey,
@@ -109,6 +116,31 @@ export function PianoRoll({
   });
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
   const [controllerLaneMode, setControllerLaneMode] = useState<PianoRollControllerLaneMode>("events");
+  const controllerEventSelectionBaseRef = useRef({
+    regionId: region.id,
+    resetKey,
+    events: regionEvents,
+  });
+  useEffect(() => {
+    const previous = controllerEventSelectionBaseRef.current;
+    if (previous.regionId !== region.id || previous.resetKey !== resetKey) {
+      setSelectedControllerEventIndices(new Set());
+    } else if (previous.events !== regionEvents) {
+      const selectionChangedUnderneath = [...selectedControllerEventIndices].some((index) => {
+        const before = previous.events[index];
+        const after = regionEvents[index];
+        return !before || !after || before.beat !== after.beat
+          || before.status !== after.status || before.data.length !== after.data.length
+          || before.data.some((byte, byteIndex) => byte !== after.data[byteIndex]);
+      });
+      if (selectionChangedUnderneath) setSelectedControllerEventIndices(new Set());
+    }
+    controllerEventSelectionBaseRef.current = { regionId: region.id, resetKey, events: regionEvents };
+  }, [region.id, resetKey, regionEvents, selectedControllerEventIndices]);
+  useEffect(() => {
+    if (bottomLane === "velocity" || controllerLaneMode !== "events")
+      setSelectedControllerEventIndices(new Set());
+  }, [bottomLane, controllerLaneMode]);
   const bottomLaneOptions = useMemo(() => {
     return pianoRollLaneOptions(
       collectPianoRollControllerNumbers(regionEvents),
@@ -118,6 +150,7 @@ export function PianoRoll({
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
   useEffect(() => subscribeHistoryBoundary(() => {
     setLoopLengthDraft(null);
+    setSelectedControllerEventIndices(new Set());
   }), []);
 
   useEffect(() => setLoopLengthDraft(null), [region.id, region.loopLengthBeats, resetKey]);
@@ -296,7 +329,7 @@ export function PianoRoll({
     scaleMode,
   });
   const {
-    handleDeleteSelected,
+    handleDeleteSelected: handleDeleteSelectedNotes,
     handleCutSelected,
     handleCopySelected,
     handlePasteNotes,
@@ -308,6 +341,41 @@ export function PianoRoll({
     handleLegato,
     handleOverlapTrim,
   } = noteActions;
+
+  const hasEditableControllerLane = bottomLane !== "velocity"
+    && controllerLaneMode === "events" && Boolean(onEventsChange);
+  const handleDeleteSelected = useCallback(() => {
+    if (hasEditableControllerLane && selectedControllerEventIndices.size > 0) {
+      const next = removeControllerEvents(
+        editableEvents,
+        [...selectedControllerEventIndices],
+        bottomLane,
+      );
+      if (next) commitEvents(next);
+      setSelectedControllerEventIndices(new Set());
+      return;
+    }
+    handleDeleteSelectedNotes();
+  }, [
+    hasEditableControllerLane,
+    selectedControllerEventIndices,
+    editableEvents,
+    bottomLane,
+    commitEvents,
+    handleDeleteSelectedNotes,
+  ]);
+
+  const handleSelectAll = useCallback(() => {
+    if (hasEditableControllerLane) {
+      const indices = collectControllerEventSourceIndices(editableEvents, bottomLane);
+      if (!indices) return;
+      setSelectedNoteIds(new Set());
+      setSelectedControllerEventIndices(new Set(indices));
+      return;
+    }
+    setSelectedControllerEventIndices(new Set());
+    setSelectedNoteIds(new Set(getEditableNotes().map((note) => note.id)));
+  }, [hasEditableControllerLane, editableEvents, bottomLane, getEditableNotes]);
 
   const handleUndo = useCallback(() => {
     discardDraft();
@@ -324,9 +392,8 @@ export function PianoRoll({
   usePianoRollCommands({
     setTool,
     handleDeleteSelected,
+    handleSelectAll,
     handleQuantize,
-    getEditableNotes,
-    setSelectedNoteIds,
     handleCutSelected,
     handleCopySelected,
     handlePasteNotes,
@@ -406,6 +473,7 @@ export function PianoRoll({
           })
         }
         selectedCount={selectedNoteIds.size}
+        selectedControllerEventCount={hasEditableControllerLane ? selectedControllerEventIndices.size : 0}
         onQuantize={handleQuantize}
         onHumanize={handleHumanize}
         onLegato={handleLegato}
@@ -484,6 +552,8 @@ export function PianoRoll({
           showGhostNotes={showGhostNotes}
           selectedNoteIds={selectedNoteIds}
           onSelectionChange={setSelectedNoteIds}
+          selectedControllerEventIndices={selectedControllerEventIndices}
+          onControllerEventSelectionChange={setSelectedControllerEventIndices}
           onNotesChange={commitNotes}
           onRegionChange={onRegionChange}
           bottomLane={bottomLane}

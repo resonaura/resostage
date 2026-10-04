@@ -18,6 +18,7 @@ import {
 import {
   buildPianoRollControllerProjection,
   clampControllerDisplayBeat,
+  collectControllerEventSourceIndices,
   createControllerEvent,
   defaultControllerChannel,
   MAX_EDITABLE_CONTROLLER_EVENTS,
@@ -64,6 +65,8 @@ interface PianoRollPointerDownHandlerOptions {
   controllerLaneMode: PianoRollControllerLaneMode;
   notesToRender: MidiNoteRow[];
   selectedNoteIds: Set<number>;
+  selectedControllerEventIndices: Set<number>;
+  onControllerEventSelectionChange: (indices: Set<number>) => void;
   tool: PianoRollTool;
   snap: GridSnapValue;
   snapToScale: boolean;
@@ -106,6 +109,8 @@ export function createPianoRollPointerDownHandler({
   controllerLaneMode,
   notesToRender,
   selectedNoteIds,
+  selectedControllerEventIndices,
+  onControllerEventSelectionChange,
   tool,
   snap,
   snapToScale,
@@ -161,6 +166,9 @@ export function createPianoRollPointerDownHandler({
       };
       return;
     }
+
+    if (y < gridBottom && selectedControllerEventIndices.size > 0)
+      onControllerEventSelectionChange(new Set());
 
     // ── B. Click in the Velocity, MIDI Event, or Automation lane ─────────
     if (y >= gridBottom) {
@@ -219,6 +227,15 @@ export function createPianoRollPointerDownHandler({
           canvas.releasePointerCapture(e.pointerId);
           return;
         }
+        const activeLaneIndices = collectControllerEventSourceIndices(beforeEvents, bottomLane);
+        if (!activeLaneIndices) {
+          canvas.releasePointerCapture(e.pointerId);
+          return;
+        }
+        const activeLaneIndexSet = new Set(activeLaneIndices);
+        const activeSelection = new Set(
+          [...selectedControllerEventIndices].filter((index) => activeLaneIndexSet.has(index)),
+        );
         let hitIndex = -1;
         let nearestDistance = 8;
         for (const projected of projection.events) {
@@ -230,8 +247,20 @@ export function createPianoRollPointerDownHandler({
             hitIndex = projected.sourceEventIndex;
           }
         }
+        if (hitIndex >= 0 && (e.shiftKey || isPrimaryModifier(e))) {
+          const toggled = new Set(activeSelection);
+          if (toggled.has(hitIndex)) toggled.delete(hitIndex);
+          else toggled.add(hitIndex);
+          onSelectionChange(new Set());
+          onControllerEventSelectionChange(toggled);
+          canvas.releasePointerCapture(e.pointerId);
+          return;
+        }
         let gestureEvents = beforeEvents;
         let sourceEventIndex = hitIndex;
+        let sourceEventIndices = hitIndex >= 0 && activeSelection.has(hitIndex)
+          ? [...activeSelection]
+          : hitIndex >= 0 ? [hitIndex] : [];
         let added = false;
         if (hitIndex < 0) {
           if (beforeEvents.length >= MAX_EDITABLE_CONTROLLER_EVENTS) {
@@ -250,15 +279,20 @@ export function createPianoRollPointerDownHandler({
           }
           gestureEvents = [...beforeEvents, event];
           sourceEventIndex = gestureEvents.length - 1;
+          sourceEventIndices = [sourceEventIndex];
           added = true;
           setLocalEvents(gestureEvents);
         }
+        onSelectionChange(new Set());
+        onControllerEventSelectionChange(new Set(sourceEventIndices));
         midiEventGestureRef.current = {
           beforeEvents,
           baseEvents: gestureEvents,
           sourceEventIndex,
+          sourceEventIndices,
           added,
           anchorBeat: displayBeat,
+          anchorValue: value,
           changed: added,
           lastBeat: displayBeat,
           lastValue: value,

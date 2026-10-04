@@ -19,6 +19,7 @@ import { controllerValueFromY } from "@/screens/editor/pianoroll/logic/canvasUti
 import {
   clampControllerDisplayBeat,
   editControllerEvent,
+  moveControllerEvents,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
 import {
   boundedNoteMove,
@@ -200,13 +201,22 @@ export function createPianoRollPointerMoveHandler({
         y, gridBottom, height, bottomLane === "pitchBend",
       );
       if (gesture.lastBeat === displayBeat && gesture.lastValue === value) return;
-      const updated = editControllerEvent(
-        gesture.baseEvents,
-        gesture.sourceEventIndex,
-        bottomLane,
-        beat,
-        value,
-      );
+      const updated = gesture.sourceEventIndices.length > 1
+        ? moveControllerEvents(
+          gesture.baseEvents,
+          gesture.sourceEventIndices,
+          bottomLane,
+          region,
+          displayBeat - gesture.anchorBeat,
+          value - gesture.anchorValue,
+        )
+        : editControllerEvent(
+          gesture.baseEvents,
+          gesture.sourceEventIndex,
+          bottomLane,
+          beat,
+          value,
+        );
       if (!updated) return;
       gesture.lastBeat = displayBeat;
       gesture.lastValue = value;

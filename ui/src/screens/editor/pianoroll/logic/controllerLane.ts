@@ -58,6 +58,124 @@ export function collectPianoRollControllerNumbers(
   return controllerNumbers;
 }
 
+/** Return source-array identities for the active lane, or null when editing is over cap. */
+export function collectControllerEventSourceIndices(
+  events: MidiClipEventRow[],
+  lane: PianoRollBottomLane,
+): number[] | null {
+  if (events.length > MAX_EDITABLE_CONTROLLER_EVENTS) return null;
+  const pitchBend = lane === "pitchBend";
+  const controller = pitchBend ? -1 : Number(lane.slice(2));
+  if (!pitchBend && (!lane.startsWith("cc") || !Number.isInteger(controller)
+      || controller < 0 || controller > 127))
+    return [];
+  const indices: number[] = [];
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    const command = event.status & 0xf0;
+    if (pitchBend ? command === 0xe0
+      : command === 0xb0 && event.data[0] === controller)
+      indices.push(index);
+  }
+  return indices;
+}
+
+/** Remove a selected source-index set only when every member belongs to this lane. */
+export function removeControllerEvents(
+  events: MidiClipEventRow[],
+  sourceEventIndices: number[],
+  lane: PianoRollBottomLane,
+): MidiClipEventRow[] | null {
+  if (events.length > MAX_EDITABLE_CONTROLLER_EVENTS || sourceEventIndices.length === 0)
+    return null;
+  const pitchBend = lane === "pitchBend";
+  const controller = pitchBend ? -1 : Number(lane.slice(2));
+  if (!pitchBend && (!lane.startsWith("cc") || !Number.isInteger(controller)
+      || controller < 0 || controller > 127))
+    return null;
+  const indices = new Set(sourceEventIndices);
+  if (indices.size !== sourceEventIndices.length) return null;
+  for (const index of indices) {
+    const event = events[index];
+    if (!Number.isInteger(index) || index < 0 || index >= events.length || !event)
+      return null;
+    if (pitchBend ? (event.status & 0xf0) !== 0xe0
+      : (event.status & 0xf0) !== 0xb0 || event.data[0] !== controller)
+      return null;
+  }
+  return events.filter((_, index) => !indices.has(index))
+    .map((event) => ({ ...event, data: [...event.data] }));
+}
+
+/** Move one or more lane events as a rigid group, preserving their spacing and channels. */
+export function moveControllerEvents(
+  events: MidiClipEventRow[],
+  sourceEventIndices: number[],
+  lane: PianoRollBottomLane,
+  region: MidiRegionRow,
+  beatDelta: number,
+  valueDelta: number,
+): MidiClipEventRow[] | null {
+  if (events.length > MAX_EDITABLE_CONTROLLER_EVENTS || sourceEventIndices.length === 0
+      || !Number.isFinite(beatDelta) || !Number.isFinite(valueDelta)
+      || !Number.isFinite(region.durationBeats) || region.durationBeats <= 0
+      || !Number.isFinite(region.clipOffsetBeats)
+      || !Number.isFinite(region.loopStartBeats ?? 0)
+      || !Number.isFinite(region.loopLengthBeats)
+      || (region.loop && region.loopLengthBeats <= 1e-9))
+    return null;
+  const indices = new Set(sourceEventIndices);
+  if (indices.size !== sourceEventIndices.length) return null;
+
+  const pitchBend = lane === "pitchBend";
+  const controller = pitchBend ? -1 : Number(lane.slice(2));
+  if (!pitchBend && (!lane.startsWith("cc") || !Number.isInteger(controller)
+      || controller < 0 || controller > 127))
+    return null;
+
+  let minSourceBeat = Number.POSITIVE_INFINITY;
+  let maxSourceBeat = Number.NEGATIVE_INFINITY;
+  for (const index of indices) {
+    const event = events[index];
+    if (!Number.isInteger(index) || index < 0 || index >= events.length || !event
+        || !Number.isFinite(event.beat))
+      return null;
+    if (pitchBend ? (event.status & 0xf0) !== 0xe0
+      : (event.status & 0xf0) !== 0xb0 || event.data[0] !== controller)
+      return null;
+    minSourceBeat = Math.min(minSourceBeat, event.beat);
+    maxSourceBeat = Math.max(maxSourceBeat, event.beat);
+  }
+
+  const looped = region.loop && region.loopLengthBeats > 1e-9;
+  const windowStart = looped ? (region.loopStartBeats ?? 0) : region.clipOffsetBeats;
+  const windowLength = looped ? region.loopLengthBeats : region.durationBeats;
+  const windowEnd = windowStart + windowLength - DISPLAY_BEAT_EPSILON;
+  const minDelta = windowStart - minSourceBeat;
+  const maxDelta = windowEnd - maxSourceBeat;
+  if (maxDelta < minDelta) return null;
+  const boundedBeatDelta = Math.max(minDelta, Math.min(maxDelta, beatDelta));
+  const updated = events.map((event) => ({ ...event, data: [...event.data] }));
+  for (const index of indices) {
+    const original = events[index];
+    const value = pitchBend
+      ? ((Math.max(0, Math.min(127, Math.trunc(original.data[1]))) << 7)
+        + Math.max(0, Math.min(127, Math.trunc(original.data[0])))) - 8192
+      : Math.max(0, Math.min(127, Math.trunc(original.data[1])));
+    if (original.data.length < 2 || !Number.isFinite(value)) return null;
+    const replacement = createControllerEvent(
+      lane,
+      original.beat + boundedBeatDelta,
+      value + valueDelta,
+      original.status & 0x0f,
+    );
+    if (!replacement) return null;
+    replacement.data = [...replacement.data, ...original.data.slice(replacement.data.length)];
+    updated[index] = replacement;
+  }
+  return updated;
+}
+
 interface SelectedEvent {
   beat: number;
   value: number;
@@ -242,16 +360,7 @@ export function removeControllerEvent(
   sourceEventIndex: number,
   lane: PianoRollBottomLane,
 ): MidiClipEventRow[] | null {
-  if (!Number.isInteger(sourceEventIndex) || sourceEventIndex < 0
-      || sourceEventIndex >= events.length)
-    return null;
-  const event = events[sourceEventIndex];
-  const controller = lane === "pitchBend" ? -1 : Number(lane.slice(2));
-  if (lane === "pitchBend" ? (event.status & 0xf0) !== 0xe0
-    : (event.status & 0xf0) !== 0xb0 || event.data[0] !== controller)
-    return null;
-  return events.filter((_, index) => index !== sourceEventIndex)
-    .map((item) => ({ ...item, data: [...item.data] }));
+  return removeControllerEvents(events, [sourceEventIndex], lane);
 }
 
 /** Compare complete event data independent of Core's stable beat sort. */

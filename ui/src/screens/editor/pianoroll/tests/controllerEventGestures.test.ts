@@ -64,6 +64,11 @@ function harness(source: MidiRegionRow) {
   const setLocalEvents = vi.fn((events: MidiClipEventRow[] | null) => {
     localEventsRef.current = events;
   });
+  const selectedControllerEventIndices = new Set<number>();
+  const onControllerEventSelectionChange = vi.fn((indices: Set<number>) => {
+    selectedControllerEventIndices.clear();
+    for (const index of indices) selectedControllerEventIndices.add(index);
+  });
   const onEventsChange = vi.fn();
   const snapBeat = (beat: number) => Math.max(0, Math.round(beat * 4) / 4);
   const xToBeat = (x: number) => (x - viewport.keyWidth) / viewport.pixelsPerBeat;
@@ -98,6 +103,8 @@ function harness(source: MidiRegionRow) {
     controllerLaneMode: "events",
     notesToRender: source.notes,
     selectedNoteIds: new Set(),
+    selectedControllerEventIndices,
+    onControllerEventSelectionChange,
     tool: "select",
     snap: 0.25,
     snapToScale: false,
@@ -185,10 +192,13 @@ function harness(source: MidiRegionRow) {
     onRegionChange: noOp,
     onEventsChange,
   });
-  return { pointerDown, pointerMove, pointerEnd, onEventsChange, localEventsRef, draggingRef };
+  return {
+    pointerDown, pointerMove, pointerEnd, onEventsChange, localEventsRef, draggingRef,
+    selectedControllerEventIndices, onControllerEventSelectionChange,
+  };
 }
 
-function pointer(clientX: number, clientY: number, pointerId = 1) {
+function pointer(clientX: number, clientY: number, pointerId = 1, shiftKey = false) {
   return {
     button: 0,
     pointerId,
@@ -196,7 +206,7 @@ function pointer(clientX: number, clientY: number, pointerId = 1) {
     clientY,
     metaKey: false,
     ctrlKey: false,
-    shiftKey: false,
+    shiftKey,
     stopPropagation: vi.fn(),
     preventDefault: vi.fn(),
   } as unknown as ReactPointerEvent<HTMLCanvasElement>;
@@ -241,6 +251,30 @@ describe("Piano Roll raw MIDI event gestures", () => {
     expect(h.onEventsChange).toHaveBeenCalledOnce();
     expect(h.onEventsChange.mock.calls[0][0]).toEqual([
       { beat: 3, status: 0xb3, data: [74, 110] },
+    ]);
+  });
+
+  it("shift-selects and rigidly moves multiple events without changing their spacing", () => {
+    const source = region([
+      { beat: 2, status: 0xb2, data: [74, 30] },
+      { beat: 4, status: 0xb3, data: [74, 90] },
+    ]);
+    const h = harness(source);
+    const firstY = controllerYFromValue(30, 310, 400, false);
+    const secondY = controllerYFromValue(90, 310, 400, false);
+    h.pointerDown(pointer(214, firstY, 1, true));
+    h.pointerDown(pointer(374, secondY, 2, true));
+    expect([...h.selectedControllerEventIndices]).toEqual([0, 1]);
+
+    h.pointerDown(pointer(214, firstY, 3));
+    expect(h.draggingRef.current?.type).toBe("midiEvent");
+    h.pointerMove(pointer(234, controllerYFromValue(40, 310, 400, false), 3));
+    h.pointerEnd.handlePointerUp(pointer(234, controllerYFromValue(40, 310, 400, false), 3));
+
+    expect(h.onEventsChange).toHaveBeenCalledOnce();
+    expect(h.onEventsChange.mock.calls[0][0]).toEqual([
+      { beat: 2.25, status: 0xb2, data: [74, 40] },
+      { beat: 4.25, status: 0xb3, data: [74, 100] },
     ]);
   });
 

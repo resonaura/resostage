@@ -36,6 +36,7 @@ describe("Piano Roll gesture lifecycle", () => {
   let localNotes: MidiNoteRow[] | null;
   let localEvents: MidiClipEventRow[] | null;
   let selection: Set<number>;
+  let controllerEventSelection: Set<number>;
   let capture: Set<number>;
 
   function Harness({ regionId }: { regionId: string }) {
@@ -50,6 +51,7 @@ describe("Piano Roll gesture lifecycle", () => {
     localNotes = null;
     localEvents = null;
     selection = new Set();
+    controllerEventSelection = new Set();
     const canvas = {
       hasPointerCapture: (id: number) => capture.has(id),
       releasePointerCapture: vi.fn((id: number) => capture.delete(id)),
@@ -70,6 +72,7 @@ describe("Piano Roll gesture lifecycle", () => {
       setLocalEvents: (next) => { localEvents = next; },
       setHoveredPitch: vi.fn(),
       onSelectionChange: (next) => { selection = next; },
+      setControllerEventSelection: (next) => { controllerEventSelection = next; },
     };
     container = document.createElement("div");
     document.body.append(container);
@@ -91,7 +94,10 @@ describe("Piano Roll gesture lifecycle", () => {
     localNotes = notes;
     lanes = [];
     localEvents = [{ beat: 1, status: 0xb0, data: [64, 127] }];
-    lifecycle.beginGesture(7, { notes: null, pendingNotes: null, lanes: null, events: null, selection: new Set() });
+    lifecycle.beginGesture(7, {
+      notes: null, pendingNotes: null, lanes: null, events: null,
+      selection: new Set(), controllerEventSelection: new Set(),
+    });
     expect(activeDragCount()).toBe(1);
 
     act(() => root.render(createElement(Harness, { regionId: "b" })));
@@ -110,7 +116,10 @@ describe("Piano Roll gesture lifecycle", () => {
   it("Escape restores the pre-gesture draft without discarding a previous in-flight edit", () => {
     capture.add(8);
     options.draggingRef.current = drag();
-    lifecycle.beginGesture(8, { notes, pendingNotes: notes, lanes: null, selection: new Set([1]) });
+    lifecycle.beginGesture(8, {
+      notes, pendingNotes: notes, lanes: null, selection: new Set([1]),
+      controllerEventSelection: new Set([2, 3]),
+    });
     options.pendingCommitRef.current = [{ ...notes[0], startBeats: 4 }];
     localNotes = options.pendingCommitRef.current;
 
@@ -121,6 +130,7 @@ describe("Piano Roll gesture lifecycle", () => {
     expect(localNotes).toBe(notes);
     expect(options.pendingCommitRef.current).toBe(notes);
     expect([...selection]).toEqual([1]);
+    expect([...controllerEventSelection]).toEqual([2, 3]);
     expect(options.draggingRef.current).toBeNull();
     expect(capture.size).toBe(0);
     expect(activeDragCount()).toBe(0);
@@ -129,13 +139,19 @@ describe("Piano Roll gesture lifecycle", () => {
   it("only unexpected capture loss cancels; normal pointer-up does not revert", () => {
     capture.add(9);
     options.draggingRef.current = drag();
-    lifecycle.beginGesture(9, { notes: null, pendingNotes: null, lanes: null, selection: new Set() });
+    lifecycle.beginGesture(9, {
+      notes: null, pendingNotes: null, lanes: null, selection: new Set(),
+      controllerEventSelection: new Set(),
+    });
     localNotes = notes;
     lifecycle.endGesture();
     lifecycle.lostPointerCapture(9);
     expect(localNotes).toBe(notes);
 
-    lifecycle.beginGesture(10, { notes: null, pendingNotes: null, lanes: null, selection: new Set() });
+    lifecycle.beginGesture(10, {
+      notes: null, pendingNotes: null, lanes: null, selection: new Set(),
+      controllerEventSelection: new Set(),
+    });
     lifecycle.lostPointerCapture(10);
     expect(localNotes).toBeNull();
     expect(options.draggingRef.current).toBeNull();

@@ -23,6 +23,7 @@ export interface PianoRollGestureSnapshot {
   lanes: AutomationLaneRow[] | null;
   events?: MidiClipEventRow[] | null;
   selection: Set<number>;
+  controllerEventSelection: Set<number>;
 }
 
 interface PianoRollGestureLifecycleOptions {
@@ -41,6 +42,7 @@ interface PianoRollGestureLifecycleOptions {
   setLocalEvents: (events: MidiClipEventRow[] | null) => void;
   setHoveredPitch: (pitch: number | null) => void;
   onSelectionChange: (ids: Set<number>) => void;
+  setControllerEventSelection: (indices: Set<number>) => void;
 }
 
 /**
@@ -93,6 +95,7 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
       current.setControllerPreview(snapshot.lanes);
       current.setLocalEvents(snapshot.events ?? null);
       current.onSelectionChange(snapshot.selection);
+      current.setControllerEventSelection(snapshot.controllerEventSelection);
     });
   }, [clearGesture, endGesture]);
 

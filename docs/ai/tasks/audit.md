@@ -1719,11 +1719,11 @@ other event data, carries pending placeholder-region note/event content, and
 waits for authoritative region echo. Loop/trim projection edits source event
 identity, and the right edge is treated as exclusive. Focused regression tests
 cover pointer gestures, retries/rejections, cancellation, history boundary and
-pending region creation. This does not cover UMP/MIDI 2.0 event authoring,
-multi-event editing, freehand controller painting, physical-device acceptance,
-or manual visual acceptance. See `automation.md` for implementation detail and
-remaining edges. Full-suite/build/lint results are recorded after verification
-in the latest `handoff.md` continuation entry.
+pending region creation. At the time of this audit entry, multi-event editing
+was still open; the latest 2026-10-04 handoff continuation supersedes that
+item. Remaining gaps are UMP/MIDI 2.0 event authoring, freehand controller
+painting, physical-device acceptance, and manual visual acceptance. See
+`automation.md` for implementation detail and remaining edges.
 
 ### Latest performance follow-up — bounded controller scan allocation (2026-10-04)
 
@@ -1737,3 +1737,22 @@ The lane-picker follow-up also removed its own 16,384-event prefix copy:
 `collectPianoRollControllerNumbers()` preserves bounded lane discovery while
 scanning by index. This is a source-level allocation reduction, not a
 frame-time measurement.
+
+### Latest continuation — multi-event raw MIDI editing (2026-10-04)
+
+Piano Roll Events lanes now support Shift/platform-primary toggle selection,
+active-lane Select All, rigid group movement and Delete for raw MIDI 1.0 CC and
+pitch-bend events. Group movement preserves beat offsets, channels and extra
+event bytes and clamps the selection as a whole to the region or loop source
+window. Delete is sent through the reliable MIDI-region event transaction.
+Selection uses bounded source-array indexes, not stable event IDs; it clears at
+history/identity/lane/mode boundaries and when authoritative data changes at a
+selected index. Lists above 16,384 events fail closed for these edit actions.
+
+Verification: full UI Vitest passed 942 tests across 142 files; production
+build, TypeScript, full lint (exit 0; 12 pre-existing warnings) and
+`git diff --check` passed. After the last malformed-lane and invalid-loop
+guards, the focused controller/gesture/lifecycle set passed 25/25 and `tsc -b`
+passed.
+No physical MIDI device or manual visual acceptance was performed. Remaining
+raw-event gaps are freehand painting, curve tools and MIDI 2.0 UMP authoring.

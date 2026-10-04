@@ -110,8 +110,10 @@ export interface PianoRollMidiEventGesture {
   beforeEvents: MidiClipEventRow[];
   baseEvents: MidiClipEventRow[];
   sourceEventIndex: number;
+  sourceEventIndices: number[];
   added: boolean;
   anchorBeat: number;
+  anchorValue: number;
   changed: boolean;
   lastBeat: number;
   lastValue: number;

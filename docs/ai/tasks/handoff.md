@@ -1101,10 +1101,11 @@ files; TypeScript project build, production UI build and lint passed. Lint
 reported 12 existing warnings outside the changed files; `git diff --check`
 passed. No physical MIDI device or manual browser visual test has been run.
 Remaining:
-multi-event selection/edit, freehand controller painting, raw-event curve
-tools, MIDI 2.0 UMP event authoring, and actual-device/visual acceptance. Next
-review the complete diff, commit all intended source/docs changes in English,
-and continue with the next still-open task. Do not push.
+freehand controller painting, raw-event curve tools, MIDI 2.0 UMP event
+authoring, and actual-device/visual acceptance. Multi-event selection/edit was
+still open at this entry and is superseded by the latest continuation below.
+Next review the complete diff, commit all intended source/docs changes in
+English, and continue with the next still-open task. Do not push.
 
 ### Latest performance follow-up — avoid event-prefix clone (2026-10-04)
 
@@ -1127,3 +1128,22 @@ logic now collects CC IDs by indexed bounded scan, preserving the original
 cap/semantics. A focused regression checks that the source array's `slice()`
 is not called. Verify focused/full UI tests, TypeScript, build, lint and diff
 check before committing this block. No frame-time/profile claim. Do not push.
+
+### Latest continuation — multi-event raw MIDI editing (2026-10-04)
+
+Piano Roll Events lanes now support Shift/platform-primary toggle selection,
+active-lane Select All, rigid group movement and Delete for raw MIDI 1.0 CC and
+pitch-bend events. Group movement preserves beat offsets, channels and extra
+event bytes and clamps the selection as a whole to the region or loop source
+window. Delete is sent through the reliable MIDI-region event transaction.
+Selection uses bounded source-array indexes, not stable event IDs; it clears at
+history/identity/lane/mode boundaries and when authoritative data changes at a
+selected index. Lists above 16,384 events fail closed for these edit actions.
+
+Verification: focused controller/gesture/lifecycle tests pass 25/25 after the
+final malformed-lane and invalid-loop guards; `tsc -b` and changed-file lint
+pass. The complete UI suite passed 942 tests across 142 files, production build
+passed, full lint exited 0 with 12 existing warnings, and `git diff --check`
+passed. No hardware-device or manual visual acceptance was run. Remaining raw-
+event gaps are freehand painting, curve tools and MIDI 2.0 UMP authoring. Commit
+this block in English and continue with the next open audit item. Do not push.

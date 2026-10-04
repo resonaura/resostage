@@ -10,9 +10,12 @@ import {
   buildPianoRollControllerProjection,
   clampControllerDisplayBeat,
   collectPianoRollControllerNumbers,
+  collectControllerEventSourceIndices,
   createControllerEvent,
   editControllerEvent,
+  moveControllerEvents,
   removeControllerEvent,
+  removeControllerEvents,
   sameEditableMidiEvents,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
 import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
@@ -144,6 +147,53 @@ describe("Piano Roll raw MIDI controller lanes", () => {
       original[1],
     ]);
     expect(editControllerEvent(original, 1, "cc74", 3, 64)).toBeNull();
+  });
+
+  it("selects and deletes multiple source events from only the active lane", () => {
+    const source = [cc(1, 74, 20), cc(2, 11, 30), cc(3, 74, 40, 2)];
+    const indices = collectControllerEventSourceIndices(source, "cc74");
+    expect(indices).toEqual([0, 2]);
+    expect(removeControllerEvents(source, indices ?? [], "cc74")).toEqual([source[1]]);
+    expect(removeControllerEvents(source, [0, 1], "cc74")).toBeNull();
+    expect(removeControllerEvents(source, [0, 0], "cc74")).toBeNull();
+    expect(removeControllerEvents(source, [0], "cc128")).toBeNull();
+    expect(collectControllerEventSourceIndices(
+      Array.from({ length: 16_385 }, (_, index) => cc(index / 100, 74, index % 128)),
+      "cc74",
+    )).toBeNull();
+  });
+
+  it("moves selected CC events rigidly, preserves channels and clamps the source window", () => {
+    const source = [
+      { beat: 1, status: 0xb0 | 2, data: [74, 20, 9] },
+      cc(2, 11, 30),
+      cc(3, 74, 40, 3),
+    ];
+    const moved = moveControllerEvents(source, [0, 2], "cc74", region(), 2, 10);
+    expect(moved).toEqual([
+      { beat: 3, status: 0xb0 | 2, data: [74, 30, 9] },
+      source[1],
+      cc(5, 74, 50, 3),
+    ]);
+
+    const clamped = moveControllerEvents(source, [0, 2], "cc74", region(), -8, 0);
+    expect(clamped?.[0].beat).toBe(0);
+    expect(clamped?.[2].beat).toBe(2);
+  });
+
+  it("keeps looped event groups inside the visible source loop window", () => {
+    const loopRegion = region({
+      loop: true,
+      loopStartBeats: 4,
+      loopLengthBeats: 2,
+      clipOffsetBeats: 4.5,
+    });
+    const source = [cc(4.25, 74, 20), cc(5.5, 74, 40)];
+    const moved = moveControllerEvents(source, [0, 1], "cc74", loopRegion, 1, 0);
+    expect(moved?.map((event) => event.beat)).toEqual([4.749999, 5.999999]);
+    expect(moveControllerEvents(
+      [cc(5, 74, 10)], [0], "cc74", region({ loop: true, loopLengthBeats: 0 }), 1, 0,
+    )).toBeNull();
   });
 
   it("encodes pedals as off/on, clamps pitch bend, and deletes only the selected event", () => {

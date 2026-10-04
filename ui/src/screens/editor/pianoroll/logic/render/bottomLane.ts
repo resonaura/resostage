@@ -26,6 +26,7 @@ interface PianoRollBottomLaneOptions {
   controllerLaneMode: PianoRollControllerLaneMode;
   timeVisibleNotes: PianoRollNoteView[];
   selectedNoteIds: Set<number>;
+  selectedControllerEventIndices: Set<number>;
   trackColor?: string;
   localAutomationLanes: AutomationLaneRow[] | null;
   region: MidiRegionRow;
@@ -47,6 +48,7 @@ export function drawPianoRollBottomLane({
   controllerLaneMode,
   timeVisibleNotes,
   selectedNoteIds,
+  selectedControllerEventIndices,
   trackColor,
   localAutomationLanes,
   region,
@@ -279,8 +281,16 @@ export function drawPianoRollBottomLane({
         ctx.lineTo(x, y);
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        const selected = selectedControllerEventIndices.has(event.sourceEventIndex);
+        ctx.arc(x, y, selected ? 4.25 : 2.5, 0, Math.PI * 2);
         ctx.fill();
+        if (selected) {
+          ctx.strokeStyle = theme.foreground;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(x, y, 5.25, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       }
       ctx.restore();
     }
@@ -289,5 +299,25 @@ export function drawPianoRollBottomLane({
       ctx.font = "8px sans-serif";
       ctx.fillText("MIDI VIEW LIMITED", Math.max(viewport.keyWidth + 4, width - 104), laneY + 14);
     }
+  }
+
+  if (controllerLaneMode === "events" && isPedal
+      && selectedControllerEventIndices.size > 0) {
+    const projection = buildPianoRollControllerProjection(region, bottomLane, minBeat, maxBeat);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(viewport.keyWidth, laneY, width - viewport.keyWidth, height - laneY);
+    ctx.clip();
+    ctx.strokeStyle = theme.foreground;
+    ctx.lineWidth = 1.25;
+    for (const event of projection.events) {
+      if (!selectedControllerEventIndices.has(event.sourceEventIndex)) continue;
+      const x = beatToX(event.beat);
+      const y = controllerYFromValue(event.value, gridBottom, height, false);
+      ctx.beginPath();
+      ctx.arc(x, y, 5.25, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }

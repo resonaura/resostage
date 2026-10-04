@@ -30,6 +30,7 @@ export interface PianoRollRenderParams {
   showGhostNotes: boolean;
   companionRegions: MidiRegionRow[];
   selectedNoteIds: Set<number>;
+  selectedControllerEventIndices: Set<number>;
   activeMidiPitches: Set<number>;
   timeSignatureNumerator: number;
   hoveredPitch: number | null;
@@ -56,6 +57,7 @@ export function drawPianoRollCanvas({
   showGhostNotes,
   companionRegions,
   selectedNoteIds,
+  selectedControllerEventIndices,
   activeMidiPitches,
   timeSignatureNumerator,
   hoveredPitch,
@@ -401,6 +403,7 @@ export function drawPianoRollCanvas({
       controllerLaneMode,
       timeVisibleNotes,
       selectedNoteIds,
+      selectedControllerEventIndices,
       trackColor,
       localAutomationLanes,
       region,
