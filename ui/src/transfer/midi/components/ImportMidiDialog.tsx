@@ -17,6 +17,7 @@ import { builder } from "@/lib/state/api";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal } from "@/components/ui";
 import { assertMidiBatchContentItemLimit, countMidiContentItems } from "@/transfer/midi/logic/importBatch";
+import { buildImportedSongTiming } from "@/transfer/midi/logic/importTiming";
 
 export type MidiTempoChoice = "keep-beats" | "fit-project-tempo" | "use-midi-tempo";
 
@@ -105,46 +106,9 @@ export function ImportMidiDialog({
         const sourceSong = parsed[0].midi;
         const sourceTempoEvents = sourceSong.format === 2 ? selectedTempoEvents ?? [] : sourceSong.tempoEvents;
         const sourceMeterEvents = sourceSong.format === 2 ? selectedMeterEvents ?? [] : sourceSong.meterEvents;
-        const bpm = sourceTempoEvents.filter((point) => point.beat <= 0).at(-1)?.bpm ?? sourceSong.bpm ?? 120;
-        const tempoByBeat = new Map<number, { beat: number; bpm: number }>();
-        tempoByBeat.set(0, { beat: 0, bpm: 120 });
-        for (const point of sourceTempoEvents) {
-          if (point.beat >= 0) tempoByBeat.set(point.beat, point);
-        }
-        const tempoPoints = [...tempoByBeat.values()].sort((a, b) => a.beat - b.beat).map((point) => ({
-          ...point,
-          timeSeconds: midiSecondsAtBeat(sourceTempoEvents, point.beat),
-          curve: 0,
-        }));
-        const meterByBeat = new Map<number, {
-          beat: number;
-          numerator: number;
-          denominator: number;
-          thirtySecondsPerQuarter?: number;
-          midiClocksPerMetronomeClick?: number;
-        }>();
-        meterByBeat.set(0, {
-          beat: 0,
-          numerator: sourceSong.numerator ?? 4,
-          denominator: sourceSong.denominator ?? 4,
-        });
-        for (const point of sourceMeterEvents) {
-          if (point.beat >= 0) meterByBeat.set(point.beat, point);
-        }
-        let bar = 1;
-        let previousBeat = 0;
-        let previousNumerator = sourceSong.numerator ?? 4;
-        let previousDenominator = sourceSong.denominator ?? 4;
-        const signaturePoints = [...meterByBeat.values()].sort((a, b) => a.beat - b.beat).map((point) => {
-          const beatsPerBar = previousNumerator * 4 / previousDenominator;
-          bar += Math.floor(Math.max(0, point.beat - previousBeat) / beatsPerBar + 1e-9);
-          const result = { ...point, bar };
-          previousBeat = point.beat;
-          previousNumerator = point.numerator;
-          previousDenominator = point.denominator;
-          return result;
-        });
-        activeTempoSong = { ...song, bpm, tempoPoints };
+        const importedTiming = buildImportedSongTiming(sourceTempoEvents, sourceMeterEvents);
+        const { bpm, tempoPoints, signaturePoints } = importedTiming;
+        activeTempoSong = { ...song, bpm, tempoPoints, signaturePoints };
         await builder.songUpdate({
           index: target?.songIndex ?? state.songIndex,
           name: song.name, bpm, mode: song.mode, tsNum: song.tsNum, tsDen: song.tsDen,

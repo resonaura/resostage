@@ -2612,3 +2612,11 @@ stops parsing additional files after the current `arrayBuffer()` resolves.
 TypeScript, production build, changed-file oxlint and `git diff --check`
 passed. Review batch failure semantics and collection payload sizing in
 follow-up work.
+
+Latest MIDI tempo-import audit (2026-10-04): importing selected Format 2
+sequences no longer borrows the first sequence's fallback tempo/meter. Timing
+maps start at SMF defaults 120 BPM and 4/4 when no beat-zero event exists, and
+later changes remain at their source beat. This also corrects late first
+tempo/meter events in Format 0/1. Focused import timing/batch/SMF tests: 82/82;
+full UI: 1,121/1,121 across 153 files; TypeScript, production build,
+changed-file oxlint and `git diff --check` passed.

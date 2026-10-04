@@ -827,3 +827,13 @@ batch/SMF tests passed 79/79; full UI passed 1,118/1,118 across 152 files;
 closing or replacing the dialog stops further file reads/parsing after the
 current `arrayBuffer()` operation settles. TypeScript, production build,
 changed-file oxlint, and `git diff --check` passed.
+
+### Latest continuation — isolate selected MIDI sequence timing (2026-10-04)
+
+When importing with the project-tempo update choice, the initial BPM and meter
+are now derived only from the selected sequence's own maps. Missing beat-zero
+events use the SMF defaults (120 BPM and 4/4), rather than borrowing Format 2
+track 1's values or promoting a later event to beat zero. The same rule keeps
+later Format 0/1 tempo and meter changes at their actual beats. Focused timing,
+batch, and SMF tests passed 82/82; full UI passed 1,121/1,121 across 153 files;
+TypeScript, production build, changed-file oxlint and `git diff --check` passed.
