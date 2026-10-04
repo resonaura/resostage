@@ -378,3 +378,16 @@ Focused MIDI Clip tests passed 27/27; the full UI passed 1,048/1,048 across
 151 files; TypeScript/production build, changed-file lint, and `git diff --check`
 passed. This remains file-codec support, not live UMP scheduling or complete
 MIDI 2.0 interoperability.
+
+### Latest continuation — validate MIDI Clip boundary markers (2026-10-04)
+
+MIDI Clip Start of Clip and End of Clip UMPs now require `Form=Complete`, a
+zero low reserved field in word 0, and zero remaining data words. The parser
+previously accepted multipart forms or nonzero reserved data based only on the
+status code. Malformed import fixtures cover both markers and each reserved
+data area. The rule follows [UMP & MIDI 2.0 Protocol v1.1.1 §7.1.10–7.1.11 and Appendix F](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+Focused MIDI Clip tests passed 28/28; full UI passed 1,049/1,049 across
+151 files; TypeScript/production build, changed-file lint and `git diff --check`
+passed. This validates framing only; timing placement and independent
+cross-application fixtures remain open.

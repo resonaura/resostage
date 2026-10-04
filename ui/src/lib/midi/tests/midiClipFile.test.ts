@@ -132,6 +132,25 @@ describe("MIDI Clip File framing and resource bounds", () => {
       expect(() => parseMidiClipFile(makeClip(fixture.packets))).toThrow(fixture.message);
   });
 
+  it("requires complete Start and End of Clip messages with zero reserved data", () => {
+    const prefix = [dcs(0), dctpq(960), dcs(0)];
+    const invalid = [
+      { packets: [...prefix, [0xf420_0000, 0, 0, 0], dcs(0), start, dcs(0), end],
+        message: /Start of Clip has an invalid form or nonzero reserved data/ },
+      { packets: [...prefix, [0xf020_0001, 0, 0, 0], dcs(0), start, dcs(0), end],
+        message: /Start of Clip has an invalid form or nonzero reserved data/ },
+      { packets: [...prefix, [0xf020_0000, 1, 0, 0], dcs(0), start, dcs(0), end],
+        message: /Start of Clip has an invalid form or nonzero reserved data/ },
+      { packets: [...prefix, start, dcs(0), [0xf421_0000, 0, 0, 0]],
+        message: /End of Clip has an invalid form or nonzero reserved data/ },
+      { packets: [...prefix, start, dcs(0), [0xf021_0000, 0, 0, 1]],
+        message: /End of Clip has an invalid form or nonzero reserved data/ },
+    ];
+
+    for (const fixture of invalid)
+      expect(() => parseMidiClipFile(makeClip(fixture.packets))).toThrow(fixture.message);
+  });
+
   it("anchors musical timing at Start of Clip while preserving timed configuration at beat zero", () => {
     const parsed = parseMidiClipFile(makeClip([
       dcs(0), dctpq(960),

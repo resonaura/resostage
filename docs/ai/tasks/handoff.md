@@ -1535,3 +1535,13 @@ Numerator raw zero → 256 is an implementation inference from the spec's
 Number of 1/32 Notes field and validate timing/bar-boundary placement before
 claiming complete Flex Data support. Commit this verified block in English,
 do not push, then continue conformance work.
+
+Latest continuation — MIDI Clip boundary markers (2026-10-04): parser now
+validates Start/End of Clip Form=Complete and zero reserved payload; tests cover
+both invalid forms and nonzero reserved fields. Focused tests 28/28; full UI
+1,049/1,049 across 151 files; TypeScript/build, changed-file lint and
+`git diff --check` passed. Official source: [UMP & MIDI 2.0 Protocol v1.1.1
+§7.1.10–7.1.11 and Appendix F]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Next audit timing-event positions versus MIDI Clock/bar recommendations and
+independent file fixtures; commit each verified block in English, do not push.

@@ -59,6 +59,13 @@ function validateTimingFlexMessage(words: number[]): void {
   }
 }
 
+function validateClipMarker(words: number[], name: "Start" | "End"): void {
+  const word0 = words[0];
+  const format = (word0 >>> 26) & 0x3;
+  if (format !== 0 || (word0 & 0xffff) !== 0 || words.slice(1).some((word) => word !== 0))
+    throw new Error(`MIDI 2.0 clip ${name} of Clip has an invalid form or nonzero reserved data`);
+}
+
 class ClipReader {
   offset = 0;
   readonly bytes: Uint8Array;
@@ -174,6 +181,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     if (type === 0xf) {
       const status = (first >>> 16) & 0x3ff;
       if (status === 0x20) {
+        validateClipMarker(words, "Start");
         if (started || ended) throw new Error("MIDI 2.0 clip has an unexpected Start of Clip");
         if (precedingDcsDelta === null)
           throw new Error("MIDI 2.0 clip Start of Clip must have a preceding Delta Clockstamp");
@@ -182,6 +190,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         continue;
       }
       if (status === 0x21) {
+        validateClipMarker(words, "End");
         if (!started || ended) throw new Error("MIDI 2.0 clip has an unexpected End of Clip");
         if (precedingDcsDelta === null)
           throw new Error("MIDI 2.0 clip End of Clip must have a preceding Delta Clockstamp");

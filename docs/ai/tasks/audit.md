@@ -2177,3 +2177,16 @@ at a bar boundary. Focused codec tests passed 27/27, full UI passed 1,048/1,048
 across 151 files, UI TypeScript/production build and changed-file lint passed,
 and `git diff --check` passed. Do not claim complete MIDI Clip/Flex Data
 conformance.
+
+### Latest continuation — MIDI Clip boundary-marker validation (2026-10-04)
+
+Start/End of Clip messages are now checked as complete UMPs (`Form=0`) with
+zero reserved low bits and zero remaining data words. Previously, parser
+accepted any form/payload if status was `0x20`/`0x21`. Added malformed fixtures
+for multipart form and nonzero reserved data on both boundaries. Focused
+MIDI Clip tests passed 28/28; full UI passed 1,049/1,049 across 151 files;
+TypeScript/production build, changed-file lint and `git diff --check` passed.
+Basis: [UMP & MIDI 2.0 Protocol v1.1.1 §7.1.10–7.1.11 and Appendix F]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Timing placement and cross-application fixtures remain unverified; do not claim
+complete MIDI Clip interoperability.
