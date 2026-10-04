@@ -23,7 +23,7 @@ export function PluginParameterValueReadout({
   enabled: boolean;
   stripId: string;
   slot: Pick<PluginSlotRow, "id" | "pluginId" | "loadState"> | null;
-  parameter: { index: number; name: string };
+  parameter: { index: number; name: string; parameterId?: string };
   valueIdentity: string;
 }) {
   const snapshot = usePluginParameterValue({
@@ -33,7 +33,8 @@ export function PluginParameterValueReadout({
     parameterIndex: parameter.index,
     valueIdentity,
   });
-  const motionKey = `${valueIdentity}:${stripId}:${slot?.id ?? ""}:${slot?.pluginId ?? ""}:${parameter.index}`;
+  const parameterIdentity = parameter.parameterId ?? `param:${parameter.index}`;
+  const motionKey = `${valueIdentity}:${stripId}:${slot?.id ?? ""}:${slot?.pluginId ?? ""}:${parameterIdentity}`;
 
   return (
     <div className="shrink-0 text-right" title="Latest normalized value sampled from the Core plug-in host">

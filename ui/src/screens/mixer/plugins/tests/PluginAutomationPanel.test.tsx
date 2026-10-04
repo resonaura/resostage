@@ -15,13 +15,14 @@ import type {
   SongRow,
 } from "@/lib/state/types";
 
-const { parameters, parameterValues } = vi.hoisted(() => ({
+const { parameters, parameterValues, automationLaneAdd } = vi.hoisted(() => ({
   parameters: vi.fn(),
   parameterValues: vi.fn(),
+  automationLaneAdd: vi.fn(),
 }));
 
 vi.mock("@/lib/state/api", () => ({
-  builder: { automationLaneAdd: vi.fn(), automationLaneRemove: vi.fn() },
+  builder: { automationLaneAdd, automationLaneRemove: vi.fn() },
   pluginChains: { parameters, parameterValues },
 }));
 
@@ -46,13 +47,14 @@ function parameterList(
   slotId: string,
   descriptors: PluginParameterList["parameters"],
   stripId = "track-a",
+  truncated = false,
 ): PluginParameterList {
   return {
     stripId,
     slotId,
     loadState: "loaded",
     loadError: "",
-    truncated: false,
+    truncated,
     parameters: descriptors,
   };
 }
@@ -98,6 +100,7 @@ describe("PluginAutomationPanel parameter identity", () => {
     vi.useFakeTimers();
     parameters.mockReset();
     parameterValues.mockReset();
+    automationLaneAdd.mockReset();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -109,12 +112,16 @@ describe("PluginAutomationPanel parameter identity", () => {
     vi.useRealTimers();
   });
 
-  const render = (valueIdentity = "session:1:1", visible = true) =>
+  const render = (
+    valueIdentity = "session:1:1",
+    visible = true,
+    songOverride = song,
+  ) =>
     createElement(PluginAutomationPanel, {
       visible,
       stripId: "track-a",
       slots,
-      song,
+      song: songOverride,
       songIndex: 0,
       valueIdentity,
     });
@@ -150,6 +157,183 @@ describe("PluginAutomationPanel parameter identity", () => {
     expect(container.textContent).not.toContain("Read only");
     expect(parameters).toHaveBeenCalledWith("track-a", "slot-a");
     expect(parameterValues).toHaveBeenCalledWith("track-a", "slot-a");
+  });
+
+  it("creates a plug-in automation lane with the exact strip, slot and vendor parameter identity", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [{
+      index: 2,
+      parameterId: "id:filter.cutoff",
+      name: "Cutoff",
+      label: "Hz",
+      defaultValue: 0.5,
+      currentValue: 0.5,
+      steps: 0,
+      automatable: true,
+    }]));
+    parameterValues.mockResolvedValue(parameterValueList("slot-a", 2));
+
+    await act(async () => root.render(render()));
+    const addLane = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Add lane"));
+    expect(addLane).toBeDefined();
+    await act(async () => addLane!.click());
+
+    expect(automationLaneAdd).toHaveBeenCalledWith(expect.objectContaining({
+      songIndex: 0,
+      domain: "plugin",
+      stripId: "track-a",
+      entityId: "slot-a",
+      parameterId: "id:filter.cutoff",
+    }));
+  });
+
+  it("matches an existing automation lane only by exact strip, slot and parameter identity", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [{
+      index: 2,
+      parameterId: "id:filter.cutoff",
+      name: "Cutoff",
+      label: "Hz",
+      defaultValue: 0.5,
+      currentValue: 0.5,
+      steps: 0,
+      automatable: true,
+    }]));
+    parameterValues.mockResolvedValue(parameterValueList("slot-a", 2));
+    const lane = {
+      id: "lane-existing",
+      target: {
+        domain: "plugin",
+        stripId: "track-b",
+        entityId: "slot-a",
+        parameterId: "id:filter.cutoff",
+      },
+    };
+    const songWithForeignLane = {
+      automationLanes: [lane],
+    } as unknown as SongRow;
+
+    await act(async () => root.render(render("session:1:1", true, songWithForeignLane)));
+
+    expect(container.textContent).toContain("Add lane");
+    expect(container.textContent).not.toContain("Remove");
+  });
+
+  it("keeps a legacy index-based lane associated with its reported parameter index", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [{
+      index: 2,
+      parameterId: "id:filter.cutoff",
+      name: "Cutoff",
+      label: "Hz",
+      defaultValue: 0.5,
+      currentValue: 0.5,
+      steps: 0,
+      automatable: true,
+    }]));
+    parameterValues.mockResolvedValue(parameterValueList("slot-a", 2));
+    const songWithLegacyLane = {
+      automationLanes: [{
+        id: "lane-legacy",
+        target: {
+          domain: "plugin",
+          stripId: "track-a",
+          entityId: "slot-a",
+          parameterId: "param:2",
+        },
+      }],
+    } as unknown as SongRow;
+
+    await act(async () => root.render(render("session:1:1", true, songWithLegacyLane)));
+
+    expect(container.textContent).toContain("Remove");
+    expect(container.textContent).not.toContain("not exposed by this plug-in");
+  });
+
+  it("reports persisted lanes whose parameter is no longer exposed by the exact plug-in", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [{
+      index: 2,
+      parameterId: "id:filter.cutoff",
+      name: "Cutoff",
+      label: "Hz",
+      defaultValue: 0.5,
+      currentValue: 0.5,
+      steps: 0,
+      automatable: true,
+    }]));
+    parameterValues.mockResolvedValue(parameterValueList("slot-a", 2));
+    const songWithUnboundLane = {
+      automationLanes: [{
+        id: "lane-unbound",
+        target: {
+          domain: "plugin",
+          stripId: "track-a",
+          entityId: "slot-a",
+          parameterId: "id:removed.parameter",
+        },
+      }],
+    } as unknown as SongRow;
+
+    await act(async () => root.render(render("session:1:1", true, songWithUnboundLane)));
+
+    expect(container.textContent).toContain("1 saved automation lane references a parameter not exposed");
+    expect(container.textContent).toContain("rebind it in the Timeline");
+  });
+
+  it("does not report an unbound lane when parameter metadata was truncated", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [{
+      index: 2,
+      parameterId: "id:filter.cutoff",
+      name: "Cutoff",
+      label: "Hz",
+      defaultValue: 0.5,
+      currentValue: 0.5,
+      steps: 0,
+      automatable: true,
+    }], "track-a", true));
+    parameterValues.mockResolvedValue(parameterValueList("slot-a", 2));
+    const songWithPotentiallyTruncatedLane = {
+      automationLanes: [{
+        id: "lane-possibly-unbound",
+        target: {
+          domain: "plugin",
+          stripId: "track-a",
+          entityId: "slot-a",
+          parameterId: "id:possibly-truncated",
+        },
+      }],
+    } as unknown as SongRow;
+
+    await act(async () => root.render(render("session:1:1", true, songWithPotentiallyTruncatedLane)));
+
+    expect(container.textContent).not.toContain("not exposed by this plug-in");
+  });
+
+  it("does not attach an unscoped legacy lane to the current chain without proof of ownership", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [{
+      index: 2,
+      parameterId: "id:filter.cutoff",
+      name: "Cutoff",
+      label: "Hz",
+      defaultValue: 0.5,
+      currentValue: 0.5,
+      steps: 0,
+      automatable: true,
+    }]));
+    parameterValues.mockResolvedValue(parameterValueList("slot-a", 2));
+    const songWithUnscopedLane = {
+      automationLanes: [{
+        id: "lane-unscoped",
+        target: {
+          domain: "plugin",
+          entityId: "slot-a",
+          parameterId: "id:filter.cutoff",
+        },
+      }],
+    } as unknown as SongRow;
+
+    await act(async () => root.render(render("session:1:1", true, songWithUnscopedLane)));
+
+    expect(container.textContent).toContain("no owning strip ID");
+    expect(container.textContent).not.toContain("Remove");
   });
 
   it("waits for the isolated host and retries parameter discovery while visible", async () => {

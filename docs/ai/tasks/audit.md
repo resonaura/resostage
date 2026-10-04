@@ -1560,3 +1560,19 @@ passed. No manual visual, hardware playback, or live recording acceptance was
 performed. Direct raw CC editing and physical-device live-recording acceptance
 remain open; arbitrary-CC live capture/preview is implemented in the block
 above.
+
+### Latest continuation — exact plug-in parameter lane identity (2026-10-03)
+
+Plugin Automation now uses the host-provided stable `parameterId` for selection
+and new lane creation, and sends the exact owning `stripId` together with the
+slot and parameter. Existing-lane lookup is exact to the current chain; legacy
+`param:N` lanes retain their explicit index fallback. Complete descriptor
+catalogs surface persisted exact-chain lanes whose parameter is no longer
+exposed without deleting their data. Truncated catalogs do not claim that a
+parameter is absent, and legacy lanes without an owner are reported as
+unscoped instead of attached to whichever modal happens to be open.
+
+Focused Plugin Automation panel tests passed 11/11; full UI passed 910/910
+across 138 files; TypeScript, production build, changed-file lint and diff
+check passed. Real AU/VST3 metadata churn and Core save/reopen/Undo/Redo remain
+unverified; see `automation.md` for exact limits.

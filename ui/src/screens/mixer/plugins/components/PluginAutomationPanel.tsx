@@ -15,6 +15,7 @@ import { PluginParameterValueReadout } from "@/screens/mixer/plugins/components/
 
 interface PluginParameter {
   index: number;
+  parameterId: string;
   name: string;
   label: string;
   defaultValue: number;
@@ -25,8 +26,20 @@ interface PluginParameter {
 type PluginParameterCatalog = {
   identity: string;
   state: "idle" | "loading" | "loaded" | "missing" | "failed";
+  truncated: boolean;
   parameters: PluginParameter[];
 };
+
+function matchesPluginParameterId(
+  storedId: string,
+  parameter: PluginParameter,
+): boolean {
+  // Keep projects authored before vendor parameter IDs were persisted
+  // readable. New lanes always use parameter.parameterId; old param:N lanes
+  // retain the Core's explicit index-fallback semantics.
+  return storedId === parameter.parameterId
+    || storedId === `param:${parameter.index}`;
+}
 
 /**
  * Parameter discovery and automation lane editing for one plug-in chain.
@@ -52,9 +65,10 @@ export function PluginAutomationPanel({
   const [parameterCatalog, setParameterCatalog] = useState<PluginParameterCatalog>({
     identity: "",
     state: "idle",
+    truncated: false,
     parameters: [],
   });
-  const [automationParameterIndex, setAutomationParameterIndex] = useState<number | null>(null);
+  const [automationParameterId, setAutomationParameterId] = useState<string | null>(null);
   const [automationSearch, setAutomationSearch] = useState("");
   const [automationError, setAutomationError] = useState("");
   const editGesture = useRef(createEditGesture()).current;
@@ -69,7 +83,7 @@ export function PluginAutomationPanel({
   const automationSlotLoadState = automationSlot?.loadState ?? "";
   const currentParameterCatalog = parameterCatalog.identity === automationSlotIdentity
     ? parameterCatalog
-    : { identity: automationSlotIdentity, state: "loading" as const, parameters: [] };
+    : { identity: automationSlotIdentity, state: "loading" as const, truncated: false, parameters: [] };
   const automationParameters = currentParameterCatalog.parameters;
 
   useEffect(() => {
@@ -83,9 +97,10 @@ export function PluginAutomationPanel({
       setParameterCatalog({
         identity: automationSlotIdentity,
         state: "idle",
+        truncated: false,
         parameters: [],
       });
-      setAutomationParameterIndex(null);
+      setAutomationParameterId(null);
       return;
     }
     let disposed = false;
@@ -93,9 +108,10 @@ export function PluginAutomationPanel({
     setParameterCatalog({
       identity: automationSlotIdentity,
       state: "loading",
+      truncated: false,
       parameters: [],
     });
-    setAutomationParameterIndex(null);
+    setAutomationParameterId(null);
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     async function loadParameters() {
       try {
@@ -106,6 +122,7 @@ export function PluginAutomationPanel({
           setParameterCatalog({
             identity: automationSlotIdentity,
             state: "failed",
+            truncated: false,
             parameters: [],
           });
           setAutomationError("Plug-in identity changed while reading parameters.");
@@ -115,6 +132,7 @@ export function PluginAutomationPanel({
           setParameterCatalog({
             identity: automationSlotIdentity,
             state: "loading",
+            truncated: false,
             parameters: [],
           });
           setAutomationError(response.loadError);
@@ -126,6 +144,7 @@ export function PluginAutomationPanel({
           setParameterCatalog({
             identity: automationSlotIdentity,
             state: response.loadState,
+            truncated: false,
             parameters: [],
           });
           setAutomationError(response.loadError);
@@ -137,14 +156,16 @@ export function PluginAutomationPanel({
         setParameterCatalog({
           identity: automationSlotIdentity,
           state: "loaded",
+          truncated: response.truncated,
           parameters: automatableParameters,
         });
-        setAutomationParameterIndex(automatableParameters[0]?.index ?? null);
+        setAutomationParameterId(automatableParameters[0]?.parameterId ?? null);
       } catch (reason: unknown) {
         if (!disposed) {
           setParameterCatalog({
             identity: automationSlotIdentity,
             state: "failed",
+            truncated: false,
             parameters: [],
           });
           setAutomationError(reason instanceof Error ? reason.message : "Could not read plug-in parameters");
@@ -162,15 +183,28 @@ export function PluginAutomationPanel({
     `${parameter.name} ${parameter.label}`.toLocaleLowerCase().includes(automationSearch.trim().toLocaleLowerCase()),
   );
   const selectedParameter = automationParameters.find(
-    (parameter) => parameter.index === automationParameterIndex,
+    (parameter) => parameter.parameterId === automationParameterId,
   ) ?? null;
   const automationLanes = (song?.automationLanes ?? []).filter(
-    (lane) => lane.target.domain === "plugin" && slots.some((slot) => slot.id === lane.target.entityId),
+    (lane) => lane.target.domain === "plugin"
+      && lane.target.stripId === stripId
+      && slots.some((slot) => slot.id === lane.target.entityId),
   );
   const selectedAutomationLane = automationSlot && selectedParameter
     ? automationLanes.find((lane) => lane.target.entityId === automationSlot.id
-      && lane.target.parameterId === `param:${selectedParameter.index}`)
+      && matchesPluginParameterId(lane.target.parameterId, selectedParameter))
     : undefined;
+  const unboundAutomationLaneCount = automationSlot
+    && currentParameterCatalog.state === "loaded"
+    && !currentParameterCatalog.truncated
+    ? automationLanes.filter((lane) => lane.target.entityId === automationSlot.id
+      && !automationParameters.some((parameter) => matchesPluginParameterId(lane.target.parameterId, parameter))).length
+    : 0;
+  const unscopedLegacyLaneCount = automationSlot
+    ? (song?.automationLanes ?? []).filter((lane) => lane.target.domain === "plugin"
+      && !lane.target.stripId
+      && lane.target.entityId === automationSlot.id).length
+    : 0;
 
   const addAutomationLane = async () => {
     if (!automationSlot || !selectedParameter || !song) return;
@@ -179,8 +213,9 @@ export function PluginAutomationPanel({
       await builder.automationLaneAdd({
         songIndex,
         domain: "plugin",
+        stripId,
         entityId: automationSlot.id,
-        parameterId: `param:${selectedParameter.index}`,
+        parameterId: selectedParameter.parameterId,
         valueType: "floatNormalized",
         defaultValue: selectedParameter.defaultValue,
         minValue: 0,
@@ -224,9 +259,9 @@ export function PluginAutomationPanel({
         ) : (
           <div className="min-h-0 max-h-40 overflow-y-auto rounded-lg border border-default/25 bg-surface">
             {filteredAutomationParameters.map((parameter) => (
-              <button type="button" key={parameter.index}
-                onClick={() => setAutomationParameterIndex(parameter.index)}
-                className={`flex w-full items-center justify-between gap-2 border-b border-default/15 px-2.5 py-2 text-left last:border-b-0 ${automationParameterIndex === parameter.index ? "bg-accent/10 text-accent" : "hover:bg-default/10"}`}>
+              <button type="button" key={parameter.parameterId}
+                onClick={() => setAutomationParameterId(parameter.parameterId)}
+                className={`flex w-full items-center justify-between gap-2 border-b border-default/15 px-2.5 py-2 text-left last:border-b-0 ${automationParameterId === parameter.parameterId ? "bg-accent/10 text-accent" : "hover:bg-default/10"}`}>
                 <span className="min-w-0 truncate text-xs">{parameter.name}</span>
                 <span className="shrink-0 text-[10px] text-foreground/40">{parameter.label || `#${parameter.index + 1}`}</span>
               </button>
@@ -261,6 +296,16 @@ export function PluginAutomationPanel({
               <AutomationMiniGraph lane={selectedAutomationLane} song={song!} songIndex={songIndex} parameterSteps={selectedParameter.steps} />
             )}
           </div>
+        )}
+        {unboundAutomationLaneCount > 0 && (
+          <p role="status" className="text-[10px] leading-relaxed text-warning">
+            {unboundAutomationLaneCount} saved automation {unboundAutomationLaneCount === 1 ? "lane references" : "lanes reference"} a parameter not exposed by this plug-in. The data is preserved; rebind it in the Timeline.
+          </p>
+        )}
+        {unscopedLegacyLaneCount > 0 && (
+          <p role="status" className="text-[10px] leading-relaxed text-warning">
+            {unscopedLegacyLaneCount} legacy automation {unscopedLegacyLaneCount === 1 ? "lane has" : "lanes have"} no owning strip ID and {unscopedLegacyLaneCount === 1 ? "is" : "are"} not attached here. Confirm or rebind it in the Timeline.
+          </p>
         )}
         {automationError && <p className="text-[10px] text-danger">{automationError}</p>}
         <p className="text-[10px] leading-relaxed text-foreground/40">

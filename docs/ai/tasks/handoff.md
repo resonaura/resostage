@@ -972,3 +972,15 @@ the full UI passed 904/904 across 138 files, TypeScript and changed-test lint
 passed, and `git diff --check` passed. No production source changed in this
 verification pass. Browser/Core save/reopen and two-lane history acceptance
 remain open as detailed in `automation.md`.
+
+Latest continuation — plug-in automation parameter identity (2026-10-03): the
+Mixer/Inspector Plugin Automation panel now creates lanes with exact
+`(stripId, slotId, parameterId)` from the host descriptor instead of a volatile
+parameter index. It does not attach a same-slot lane from another chain;
+legacy `param:N` identity remains compatible, and unscoped legacy lanes are
+warned rather than guessed. A complete descriptor list reports missing
+parameters as unbound while preserving their data; truncated metadata is not
+treated as conclusive. Focused panel tests passed 11/11; full UI passed
+910/910 across 138 files; TypeScript, production build, changed-file lint and
+diff check passed. No real vendor churn or project history/save/reopen fixture
+was run. Continue from `automation.md`; do not push.

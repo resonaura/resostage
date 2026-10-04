@@ -687,3 +687,28 @@ production build, lint and `git diff --check` passed. Lint reports the same
 12 existing warnings in unrelated files. Automated sends still do not have a
 numeric readout interpolation path; Inspector and plug-in parameter controls
 also remain open. Do not describe every automatable value as smoothed.
+
+## Plugin Automation panel — exact parameter identity (2026-10-03)
+
+The Mixer/Inspector Plugin Automation panel now keys parameter selection and
+new lane creation by the host descriptor's `parameterId`, not the current
+numeric parameter index. New plug-in lanes send the exact `stripId`, `slotId`
+(`entityId`) and parameter ID to Core. Existing lane lookup requires the exact
+strip and slot pair, so another chain reusing a legacy slot ID is never shown
+as this chain's lane. Legacy `param:N` lanes continue to match the exact
+reported index for compatibility; newly created lanes use the vendor ID when
+available.
+
+After a complete, non-truncated descriptor response, the panel reports exact
+chain lanes whose parameter ID is no longer exposed, preserves their data, and
+directs the user to Timeline recovery/rebinding. It deliberately does not make
+an unscoped legacy lane appear attached to the currently open chain; it reports
+that ownership is unknown. A truncated descriptor list is not treated as proof
+that a parameter is missing. Existing loading/failure states continue to gate
+parameter actions until the host is ready.
+
+Focused Plugin Automation panel tests passed 11/11; the full UI suite passed
+910 tests across 138 files; TypeScript, production build, changed-file lint and
+`git diff --check` passed. This validates UI identity and warning behavior, not
+real AU/VST3 parameter churn or Core Undo/Redo/save/reopen. Those remain open,
+as do full Touch/Latch/Write and remote/device acceptance above.
