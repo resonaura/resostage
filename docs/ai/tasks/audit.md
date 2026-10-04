@@ -1922,6 +1922,27 @@ drawn over the controller lane using the editor accent color.
 Focused marquee/gesture tests passed 25/25; full UI Vitest passed 1,006 tests
 across 148 files; TypeScript, production UI build, lint and `git diff --check`
 passed. Lint reports 12 existing warnings outside this change. No manual
-visual, physical-device or frame-time acceptance was done. Raw-event UMP
-cut/copy, codec conformance, native UMP transport and full MIDI 2.0
-compatibility remain open.
+visual, physical-device or frame-time acceptance was done. UMP range marquee
+and internal cut/copy/paste now exist; codec conformance, native UMP transport
+and full MIDI 2.0 compatibility remain open.
+
+### Latest continuation — UMP controller cut/copy/paste (2026-10-04)
+
+Piano Roll now supports internal cut/copy/paste for selected recognized MIDI
+2.0 CC/Pitch Bend points. The clipboard stores exact packet words, lane,
+relative source-beat offsets and span; Group/Channel filters are checked both
+when copying and pasting. It is a bounded module clipboard that survives editor
+unmounts, not an OS clipboard. Paste uses the current playhead translated by
+`midiRegionSourceBeat`; when the target MIDI region loops, offsets wrap into
+its `[loopStartBeats, loopStartBeats + loopLengthBeats)` source window. Invalid,
+oversized or filter-incompatible operations fail closed. Cut and paste submit
+one full UMP collection through the reliable event draft and exact region
+history path; successful paste selects the appended source indexes. MIDI 1.0
+event and UMP collections stay separate.
+
+Focused clipboard/hook/transform tests passed 19/19; the full UI suite passed
+1,018 tests across 150 files. UI TypeScript and production build passed; lint
+passed with 12 pre-existing warnings outside this change, and `git diff
+--check` passed. No Electron/device visual acceptance has been run. Continue
+with MIDI Clip File conformance fixtures, then evaluate remaining UMP editor
+and native transport gaps; do not claim end-to-end MIDI 2.0 compatibility.

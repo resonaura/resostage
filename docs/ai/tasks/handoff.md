@@ -1329,7 +1329,23 @@ React selection renders.
 Focused marquee/gesture suites passed 25/25; full UI Vitest passed 1,006 tests
 across 148 files; TypeScript, production UI build, repository lint and
 `git diff --check` passed. Lint has 12 existing warnings unrelated to this
-work. No manual visual, device or frame-profile acceptance was done. Continue
-with UMP cut/copy only after defining one atomic exact-region history edit that
-preserves packet words and event ownership; then address codec conformance and
-native UMP transport. No push.
+work. No manual visual, device or frame-profile acceptance was done.
+
+### Latest continuation — UMP controller cut/copy/paste (2026-10-04)
+
+Recognized MIDI 2.0 UMP CC/Pitch Bend selections now support internal
+cut/copy/paste from Piano Roll's existing actions and shared hotkeys. This
+bounded in-process clipboard stores exact packet words, active lane, relative
+source beats and span. Copy and paste validate Group/Channel filters and all
+packet bounds; cut/paste commit one complete `umpEvents` collection through
+the reliable Piano Roll event draft and exact region-history route. Paste maps
+the playhead through region trim and, for looped regions, wraps each offset
+inside the source loop window. Successful paste selects its inserted source
+indexes. No conversion to MIDI 1.0 or OS clipboard occurs.
+
+Focused clipboard/hook/transform tests passed 19/19; full UI Vitest passed
+1,018 tests across 150 files. TypeScript and production build passed; lint
+passed with 12 existing warnings outside this change; `git diff --check` passed.
+No manual Electron or hardware acceptance was run. Next: commit this verified
+block, then proceed to MIDI Clip File conformance fixtures and remaining native
+UMP transport gaps. Do not push.

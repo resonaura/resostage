@@ -38,6 +38,8 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
   const snapEnabled = props.snapEnabled ?? props.snap > 0;
   const umpPreviewLane = props.bottomLane !== undefined
     && isPianoRollUmpControllerLane(props.bottomLane);
+  const canCopySelectedUmpEvents = umpPreviewLane
+    && controllerSelectionCount > 0;
 
   return (
     <div className="z-20 flex shrink-0 flex-wrap items-center gap-2 border-b border-default/30 bg-background-secondary px-3 py-1.5 select-none">
@@ -74,8 +76,11 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
         <Separator orientation="vertical" />
         <ButtonGroup size="sm" variant="tertiary">
           {props.onCopySelected && (
-          <Button isIconOnly isDisabled={selectionEmpty} variant="default-soft"
-            aria-label="Copy selected notes" onPress={props.onCopySelected}>
+          <Button isIconOnly isDisabled={selectionEmpty && !canCopySelectedUmpEvents}
+            variant="default-soft"
+            aria-label={canCopySelectedUmpEvents
+              ? "Copy selected MIDI 2.0 events" : "Copy selected notes"}
+            onPress={props.onCopySelected}>
               <Copy size={13} />
             </Button>
           )}
@@ -87,8 +92,11 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
             <Trash2 size={13} />
           </Button>
           {props.onCutSelected && (
-            <Button isIconOnly isDisabled={selectionEmpty} variant="default-soft"
-              aria-label="Cut selected notes" onPress={props.onCutSelected}>
+            <Button isIconOnly isDisabled={selectionEmpty && !canCopySelectedUmpEvents}
+              variant="default-soft"
+              aria-label={canCopySelectedUmpEvents
+                ? "Cut selected MIDI 2.0 events" : "Cut selected notes"}
+              onPress={props.onCutSelected}>
               <ButtonGroup.Separator /><Scissors size={13} />
             </Button>
           )}

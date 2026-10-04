@@ -65,7 +65,14 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   time movement retains the complete 32-bit data value and value movement maps
   vertical pointer displacement across the full UMP word range. New point
   drafts can be moved before first commit. Trim/loop occurrences map back to
-  source beats. Opaque and reserved packets remain unchanged.
+  source beats. UMP CC/Pitch Bend points support curve/smoothing transforms,
+  bounded Select-tool range marquee (including additive platform-primary
+  selection), and internal cut/copy/paste. Clipboard packets retain exact
+  words, lane, Group, Channel, and relative beat spacing; cut/paste commits
+  through the same reliable UMP region history path. Paste uses the playhead's
+  trim/loop-mapped source beat and wraps offsets into the region's active loop
+  window. The internal clipboard survives Piano Roll unmounts but is not the
+  system clipboard. Opaque and reserved packets remain unchanged.
 
 ## Known limitations
 
@@ -97,9 +104,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   deletion, curve shaping and smoothing. Continuous transforms preserve the
   full unsigned 32-bit data word, endpoints, event timing and opaque packets;
   binary pedal CC64–69 are excluded. Canvas marquee selection now supports
-  visible points and additive Shift/platform-primary selection. Raw event
-  cut/copy is not implemented. The semantic event dialog remains available for
-  exact field entry.
+  visible points and additive Shift/platform-primary selection. Internal
+  cut/copy/paste now preserves complete selected packet words and relative
+  timing, uses exact region history edits, and wraps pasted points through the
+  source loop window. It does not bridge to the OS clipboard. The semantic
+  event dialog remains available for exact field entry.
 - The importer has focused unit coverage but no maintained conformance corpus
   from other DAWs and no broad cross-application round-trip certification.
 
@@ -126,12 +135,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
    notes; extend the project note model only where round-trip requirements
    justify it.
 2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor,
-   group/channel preview filters, and direct point gestures for recognized
-   CC/Pitch Bend packets, plus bounded curve/smoothing transforms, are
-   implemented. Next add raw event cut/copy only if it can retain packet
-   identity and exact history semantics. Keep MIDI 1.0 `events` and UMP
-   `umpEvents` separate and use the exact MIDI-region history/acknowledgement
-   path.
+   group/channel preview filters, direct point gestures, curve/smoothing,
+   marquee selection and internal cut/copy/paste for recognized CC/Pitch Bend
+   packets are implemented. Keep MIDI 1.0 `events` and UMP `umpEvents`
+   separate and use the exact MIDI-region history/acknowledgement path. Add
+   tests for clipboard behavior to future gesture or loop-timing changes.
 3. **Finish MIDI 1.0 interoperability:** maintain Format 0/1/2 fixtures,
    validate SMPTE timing and tempo/meter maps against independent files, and
    improve the `.mid` loss report so every supported conversion and every

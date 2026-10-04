@@ -941,4 +941,24 @@ pointer remains within the same selected points.
 Focused marquee/gesture tests passed 25/25; full UI tests passed 1,006/1,006
 across 148 files; TypeScript and production UI build passed. Lint exited 0 with
 12 existing unrelated warnings; `git diff --check` passed. No manual display or
-hardware acceptance was performed. Raw UMP event cut/copy remains open.
+hardware acceptance was performed. UMP internal cut/copy/paste is now
+implemented; codec conformance, native UMP transport and end-to-end MIDI 2.0
+compatibility remain open.
+
+### Piano Roll UMP controller clipboard (2026-10-04)
+
+Selected recognized MIDI 2.0 CC/Pitch Bend points can be copied, cut and pasted
+inside the Piano Roll using its existing Cut/Copy actions and shared keyboard
+commands. The internal bounded clipboard preserves exact packet words, lane,
+Group/Channel and relative beat offsets. Paste targets the source beat under
+the playhead, accounting for region trim; active region loops wrap clipboard
+offsets into the source loop window. Cut/paste use one reliable UMP collection
+edit and the existing exact region history route. The clipboard is internal to
+ResoStage, not the operating-system clipboard. Invalid or oversized operations
+are no-ops and MIDI 1.0 event collections are never modified by these actions.
+
+Focused clipboard and hook tests passed 12/12; including transform coverage,
+the combined focused run passed 19/19. Full UI Vitest passed 1,018 tests across
+150 files; TypeScript and production build passed; lint passed with 12 existing
+warnings outside this change; `git diff --check` passed. No manual Electron or
+device acceptance was performed.

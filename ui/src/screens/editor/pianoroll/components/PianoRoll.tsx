@@ -34,6 +34,7 @@ import {
   umpControllerTransformAvailability,
 } from "@/screens/editor/pianoroll/logic/umpControllerTransforms";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
+import { usePianoRollUmpClipboardActions } from "@/screens/editor/pianoroll/hooks/usePianoRollUmpClipboardActions";
 import { usePianoRollControllerEventSelection } from "@/screens/editor/pianoroll/hooks/usePianoRollControllerEventSelection";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
 import { usePianoRollNoteDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteDraft";
@@ -384,9 +385,9 @@ export function PianoRoll({
   });
   const {
     handleDeleteSelected: handleDeleteSelectedNotes,
-    handleCutSelected,
-    handleCopySelected,
-    handlePasteNotes,
+    handleCutSelected: handleCutSelectedNotes,
+    handleCopySelected: handleCopySelectedNotes,
+    handlePasteNotes: handlePasteNotesToNotes,
     handleSplitAtPlayhead,
     handleQuantize,
     handleHumanize,
@@ -421,6 +422,47 @@ export function PianoRoll({
     getEditableNotes,
     deleteSelectedNotes: handleDeleteSelectedNotes,
   });
+  const {
+    handleCopy: handleCopyUmpEvents,
+    handleCut: handleCutUmpEvents,
+    handlePaste: handlePasteUmpEvents,
+  } = usePianoRollUmpClipboardActions({
+    enabled: Boolean(onUmpEventsChange),
+    region,
+    events: editableUmpEvents,
+    selectedSourceIndices: selectedUmpControllerEventIndices,
+    lane: bottomLane,
+    groupFilter: umpGroupFilter,
+    channelFilter: umpChannelFilter,
+    playheadBeats,
+    commitEvents: commitUmpEvents,
+    setSelectedSourceIndices: setSelectedUmpControllerEventIndices,
+  });
+  const handleCopySelected = useCallback(() => {
+    if (isPianoRollUmpControllerLane(bottomLane)
+        && selectedUmpControllerEventIndices.size > 0) {
+      handleCopyUmpEvents();
+      return;
+    }
+    handleCopySelectedNotes();
+  }, [bottomLane, selectedUmpControllerEventIndices, handleCopyUmpEvents,
+    handleCopySelectedNotes]);
+  const handleCutSelected = useCallback(() => {
+    if (isPianoRollUmpControllerLane(bottomLane)
+        && selectedUmpControllerEventIndices.size > 0) {
+      handleCutUmpEvents();
+      return;
+    }
+    handleCutSelectedNotes();
+  }, [bottomLane, selectedUmpControllerEventIndices, handleCutUmpEvents,
+    handleCutSelectedNotes]);
+  const handlePasteNotes = useCallback(() => {
+    if (isPianoRollUmpControllerLane(bottomLane)) {
+      handlePasteUmpEvents();
+      return;
+    }
+    handlePasteNotesToNotes();
+  }, [bottomLane, handlePasteUmpEvents, handlePasteNotesToNotes]);
   const umpTransformAvailability = useMemo(() => (
     onUmpEventsChange && isPianoRollUmpControllerLane(bottomLane)
       ? umpControllerTransformAvailability(
