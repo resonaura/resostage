@@ -9,15 +9,21 @@ import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyState, type SongRow, type WebUiState } from "@/lib/state/types";
+import { builder, EditorMutationError } from "@/lib/state/api";
 import { ImportMidiDialog } from "@/transfer/midi/components/ImportMidiDialog";
 
-vi.mock("@/lib/state/api", () => ({
-  builder: {
-    midiRegionAdd: vi.fn(),
-    songEnd: vi.fn(),
-    songUpdate: vi.fn(),
-  },
-}));
+vi.mock("@/lib/state/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/state/api")>();
+  return {
+    ...actual,
+    builder: {
+      ...actual.builder,
+      midiRegionAdd: vi.fn(),
+      songEnd: vi.fn(),
+      songUpdate: vi.fn(),
+    },
+  };
+});
 
 vi.mock("@/components/ui", async () => {
   const React = await import("react");
@@ -96,11 +102,11 @@ describe("ImportMidiDialog session state", () => {
   let root: Root;
   const file = midiFileWithTempo(90);
 
-  async function render(open: boolean): Promise<void> {
+  async function render(open: boolean, files: File[] = [file]): Promise<void> {
     await act(async () => {
       root.render(createElement(ImportMidiDialog, {
         open,
-        files: [file],
+        files,
         state,
         onClose: () => {},
       }));
@@ -109,6 +115,7 @@ describe("ImportMidiDialog session state", () => {
 
   beforeEach(() => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    vi.clearAllMocks();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -132,5 +139,95 @@ describe("ImportMidiDialog session state", () => {
     const reopenedRadios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
     expect(reopenedRadios[0].checked).toBe(true);
     expect(reopenedRadios[2].checked).toBe(false);
+  });
+
+  it("reports confirmed earlier regions when a later file is rejected", async () => {
+    vi.mocked(builder.midiRegionAdd)
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new EditorMutationError(
+        "Core rejected the edit (HTTP 400)", "rejected", "/api/v1/builder/midi-region/add", 2,
+      ));
+    await render(true, [midiFileWithTempo(90), midiFileWithTempo(100)]);
+    const importButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Import");
+    expect(importButton).toBeTruthy();
+
+    await act(async () => {
+      importButton!.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(builder.midiRegionAdd).toHaveBeenCalledTimes(2);
+    const alert = container.querySelector('[role="alert"]')?.textContent ?? "";
+    expect(alert).toContain("1 of 2 MIDI regions");
+    expect(alert).toContain("Earlier confirmed changes were not rolled back");
+    expect(importButton?.disabled).toBe(true);
+  });
+
+  it("warns and does not retry when a region mutation outcome is unknown", async () => {
+    vi.mocked(builder.midiRegionAdd).mockRejectedValueOnce(new EditorMutationError(
+      "Core did not confirm the project edit before timeout",
+      "unknown",
+      "/api/v1/builder/midi-region/add",
+      1,
+    ));
+    await render(true);
+    const importButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Import");
+
+    await act(async () => {
+      importButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(builder.midiRegionAdd).toHaveBeenCalledTimes(1);
+    const alert = container.querySelector('[role="alert"]')?.textContent ?? "";
+    expect(alert).toContain("outcome of region 1 of 1");
+    expect(alert).toContain("Do not retry");
+    expect(importButton?.disabled).toBe(true);
+  });
+
+  it("reports a region as committed when playback publication is uncertain", async () => {
+    vi.mocked(builder.midiRegionAdd).mockRejectedValueOnce(new EditorMutationError(
+      "Core stored the project edit, but audio is using its last valid snapshot",
+      "stored",
+      "/api/v1/builder/midi-region/add",
+      1,
+    ));
+    await render(true);
+    const importButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Import");
+
+    await act(async () => {
+      importButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(builder.midiRegionAdd).toHaveBeenCalledTimes(1);
+    const alert = container.querySelector('[role="alert"]')?.textContent ?? "";
+    expect(alert).toContain("1 of 1 MIDI regions");
+    expect(alert).toContain("last valid snapshot");
+    expect(alert).toContain("request's project history");
+    expect(importButton?.disabled).toBe(true);
+  });
+
+  it("keeps retry available after an exact rejection with no prior changes", async () => {
+    vi.mocked(builder.midiRegionAdd).mockRejectedValueOnce(new EditorMutationError(
+      "Core rejected the edit (HTTP 400)",
+      "rejected",
+      "/api/v1/builder/midi-region/add",
+      1,
+    ));
+    await render(true);
+    const importButton = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent === "Import");
+
+    await act(async () => {
+      importButton?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(builder.midiRegionAdd).toHaveBeenCalledTimes(1);
+    expect(importButton?.disabled).toBe(false);
   });
 });

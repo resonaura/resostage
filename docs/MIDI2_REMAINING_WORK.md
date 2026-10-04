@@ -872,6 +872,26 @@ suite had one macOS headless DLS editor-window integration failure, while the
 remaining 619 tests passed when that GUI-only case was excluded. Core app and
 test targets both built successfully. Remaining edge: a transport/Core failure
 after one successful request in a multi-region import is still a sequence of
-separate project mutations, not an atomic batch; the dialog must surface exact
-partial completion and refresh authoritative state rather than implying an
-all-or-nothing import.
+separate project mutations, not an atomic batch. The dialog now reports exact
+confirmed progress, stored-but-not-published edits, and unknown outcomes; it
+does not claim rollback or offer a blind retry.
+
+### Latest continuation — report partial MIDI imports truthfully (2026-10-04)
+
+The import dialog now tracks confirmed tempo, region, and song-length requests.
+If a later request is rejected, it reports how many earlier regions were
+committed and explicitly says those changes were not rolled back. A `stored`
+outcome is reported as committed in project history while preserving Core's
+audio-snapshot warning. An `unknown` outcome identifies the operation/file,
+notes that an authoritative refresh was requested, and warns against retrying
+until the active project is checked. Tests cover rejection after an earlier
+success, stored-but-not-playback-applied, and unknown outcomes with exactly one
+attempt. The Import button is disabled after any known partial, stored, or
+unknown outcome until the dialog is reopened for manual review; an exact
+rejection before any mutation remains retryable. This improves recovery
+messaging and prevents accidental duplicate regions, but it does not make
+multi-region import atomic or add compensating rollback.
+
+Validation: focused dialog tests 5/5; full UI suite 1,130/1,130 across 154
+files; production UI build, changed-file oxlint, and `git diff --check` passed.
+Core targets and admission tests remain verified by the previous entry.

@@ -2643,8 +2643,12 @@ over-limit MIDI 1.0/UMP payloads before queueing; limits are centralized in
 `core/app/server/MidiRegionAdmission.h` with implementation in its `.cpp`.
 The import workflow prepares all plans before applying tempo or regions. It is
 not transactional across multiple HTTP mutations: a later transport/Core error
-can leave earlier regions or tempo committed. Next audit exact request outcome
-handling and partial-import reporting; do not retry an ambiguous mutation.
-Validation: full UI 1,126/1,126; production UI build and changed-file oxlint
-passed; focused Core admission 4/4 and Core suite 619/619 excluding the one
-headless macOS DLS editor GUI case. ResoStage Core and test targets built.
+can leave earlier regions or tempo committed. The dialog now reports completed
+region count, committed tempo/song-length changes, stored-but-not-published
+status, and unknown outcomes without retrying; actual rollback/atomic batching
+remains out of scope. Import stays disabled after partial/stored/unknown
+outcomes until reopen/manual review; an exact rejection with no prior mutation
+remains retryable. Focused recovery tests pass 5/5; full UI 1,130/1,130 across
+154 files, production build, changed-file oxlint, and diff check pass. Earlier
+Core verification: admission 4/4, filtered Core suite 619/619, app/test targets
+built; one headless macOS DLS editor GUI case fails in the unfiltered suite.

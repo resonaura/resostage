@@ -13,7 +13,7 @@ import {
   songSecondsAtBeat,
   type ImportedMidiFile,
 } from "@/lib/midi/standardMidiFile";
-import { builder } from "@/lib/state/api";
+import { builder, EditorMutationError } from "@/lib/state/api";
 import type { WebUiState } from "@/lib/state/types";
 import { Button, Modal } from "@/components/ui";
 import {
@@ -43,6 +43,7 @@ export function ImportMidiDialog({
   const [sequenceIndex, setSequenceIndex] = useState(0);
   const [trackId, setTrackId] = useState(target?.trackId ?? "");
   const [busy, setBusy] = useState(false);
+  const [requiresReview, setRequiresReview] = useState(false);
   const [progress, setProgress] = useState("");
   const song = state.songs[target?.songIndex ?? state.songIndex];
   const midiTracks = useMemo(() => state.tracks.filter((track) =>
@@ -60,6 +61,7 @@ export function ImportMidiDialog({
     setProgress("");
     setChoice("keep-beats");
     setSequenceIndex(0);
+    setRequiresReview(false);
     let cancelled = false;
     void (async () => {
       try {
@@ -117,6 +119,14 @@ export function ImportMidiDialog({
     let cursor = Math.max(0, target?.startBeats ?? 0);
     let endSeconds = Math.max(0, song.endSeconds ?? 0);
     let activeTempoSong = song;
+    let appliedRegionCount = 0;
+    let tempoApplied = false;
+    let songEndApplied = false;
+    let currentOperation = "";
+    let plans: Array<{
+      file: File;
+      patch: ReturnType<typeof buildMidiRegionImportPatch>;
+    }> = [];
     try {
       let tempoUpdate: { bpm: number; tempoPoints: ReturnType<typeof buildImportedSongTiming>["tempoPoints"];
         signaturePoints: ReturnType<typeof buildImportedSongTiming>["signaturePoints"] } | null = null;
@@ -130,10 +140,6 @@ export function ImportMidiDialog({
         tempoUpdate = { bpm, tempoPoints, signaturePoints };
       }
 
-      const plans: Array<{
-        file: File;
-        patch: ReturnType<typeof buildMidiRegionImportPatch>;
-      }> = [];
       for (let index = 0; index < parsed.length; index++) {
         const { file, midi } = parsed[index];
         const sourceTempoEvents = midi.format === 2 && selectedSequence ? selectedSequence.tempoEvents ?? [] : midi.tempoEvents;
@@ -168,6 +174,7 @@ export function ImportMidiDialog({
 
       if (tempoUpdate) {
         const { bpm, tempoPoints, signaturePoints } = tempoUpdate;
+        currentOperation = "song tempo and meter update";
         await builder.songUpdate({
           index: target?.songIndex ?? state.songIndex,
           name: song.name, bpm, mode: song.mode,
@@ -176,17 +183,57 @@ export function ImportMidiDialog({
           click: song.click, clickBusId: song.clickBusId, clickSends: song.clickSends,
           tempoPoints, signaturePoints,
         });
+        tempoApplied = true;
+        currentOperation = "";
       }
       for (let index = 0; index < plans.length; index++) {
         const plan = plans[index];
         setProgress(`Importing ${index + 1} of ${plans.length}: ${plan.file.name}`);
+        currentOperation = `region ${index + 1} of ${plans.length} (${plan.file.name})`;
         await builder.midiRegionAdd(plan.patch);
+        appliedRegionCount++;
+        currentOperation = "";
       }
-      if (endSeconds > (song.endSeconds ?? 0) + 0.05)
+      if (endSeconds > (song.endSeconds ?? 0) + 0.05) {
+        currentOperation = "song length update";
         await builder.songEnd(target?.songIndex ?? state.songIndex, endSeconds);
+        songEndApplied = true;
+        currentOperation = "";
+      }
       onClose();
     } catch (cause) {
-      setFailure(cause instanceof Error ? cause.message : "MIDI import failed. Some earlier files may already have been imported.");
+      const error = cause instanceof Error ? cause.message : "MIDI import failed";
+      const mutationError = cause instanceof EditorMutationError ? cause : null;
+      if (mutationError?.outcome === "stored") {
+        if (currentOperation.startsWith("region ")) appliedRegionCount++;
+        if (currentOperation === "song tempo and meter update") tempoApplied = true;
+        if (currentOperation === "song length update") songEndApplied = true;
+      }
+
+      const confirmedChanges = [
+        appliedRegionCount > 0 ? `${appliedRegionCount} of ${plans.length} MIDI regions` : "",
+        tempoApplied ? "the imported tempo and meter" : "",
+        songEndApplied ? "the extended song length" : "",
+      ].filter(Boolean);
+      const confirmedSummary = confirmedChanges.length
+        ? `Core confirmed these changes in the request's project history: ${confirmedChanges.join(", ")}.`
+        : "";
+      if (mutationError?.outcome === "unknown") {
+        setRequiresReview(true);
+        setFailure([
+          error,
+          `The outcome of ${currentOperation || "the current operation"} is unknown; the UI has requested an authoritative state refresh. Do not retry until the active project is checked.`,
+          confirmedSummary,
+        ].filter(Boolean).join(" "));
+      } else if (mutationError?.outcome === "stored") {
+        setRequiresReview(true);
+        setFailure(`${error}${confirmedSummary ? ` ${confirmedSummary}` : ""}`);
+      } else if (confirmedSummary) {
+        setRequiresReview(true);
+        setFailure(`${error} Earlier confirmed changes were not rolled back. Check the project that received them before retrying. ${confirmedSummary}`);
+      } else {
+        setFailure(error);
+      }
     } finally {
       setBusy(false);
       setProgress("");
@@ -236,7 +283,9 @@ export function ImportMidiDialog({
             </Modal.Body>
             <Modal.Footer>
               <Button variant="secondary" isDisabled={busy} onPress={onClose}>Cancel</Button>
-              <Button isDisabled={busy || !parsed || !trackId || !midiTracks.length} onPress={() => void doImport()}>{busy ? "Importing…" : "Import"}</Button>
+              <Button isDisabled={busy || requiresReview || !parsed || !trackId || !midiTracks.length} onPress={() => void doImport()}>
+                {busy ? "Importing…" : requiresReview ? "Review before retry" : "Import"}
+              </Button>
             </Modal.Footer>
           </Modal.Dialog>
         </Modal.Container>

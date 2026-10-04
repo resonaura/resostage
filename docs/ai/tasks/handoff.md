@@ -1965,12 +1965,17 @@ admission tests 4/4 passed and app/test targets built. The Core suite passed
 619/619 with its macOS DLS editor-window GUI test excluded; the unfiltered run
 fails only that headless GUI integration case.
 
-Before committing, inspect the complete diff and preserve the explicit
-non-atomic batch limitation: all predictable format/size failures are found
-before mutation, but Core/network failure halfway through the sequence can
-leave prior region/tempo requests applied. Next implement a truthful partial
-completion message based on exact editor request outcomes (including
-`playbackApplied` mismatch), refresh authoritative state when an outcome is
-ambiguous, and never blindly resend. Then continue auditing SMF/MIDI Clip
-import/export edge cases. Use a separate English commit for this completed
-boundary block; do not push.
+The follow-up recovery work is now implemented in `ImportMidiDialog`: confirmed
+earlier region/tempo/song-length mutations are counted; stored-but-not-published
+outcomes retain Core's playback warning; unknown outcomes identify the current
+file/operation, request an authoritative refresh through the existing API path,
+and explicitly prohibit blind retry. A rejected later request states that
+earlier confirmed mutations were not rolled back. Tests cover rejected-after-
+success, stored, and unknown outcomes. The Import button now remains disabled
+after partial/stored/unknown outcomes until reopen/manual review; exact
+rejection before any mutation stays retryable. Focused recovery tests pass
+5/5; full UI suite: 1,130/1,130 across 154 files; production build,
+changed-file oxlint and diff check passed. This is truthful recovery UI, not
+transactional batch import: do not claim rollback or all-or-nothing behavior.
+Commit this recovery block separately in English and without pushing, then
+continue the SMF/MIDI Clip import/export audit.
