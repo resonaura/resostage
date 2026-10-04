@@ -450,6 +450,27 @@ function midi1ProgramChangeToUmp(
   return [first, second];
 }
 
+function midi1ParameterToUmp(
+  channel: number,
+  type: "rpn" | "nrpn",
+  bank: number,
+  index: number,
+  value14: number,
+): number[] {
+  const value32 = upscale14To32(value14);
+  const status = type === "rpn" ? 0x2 : 0x3;
+  const first = ((4 << 28) | (status << 20) | (channel << 16) | (bank << 8) | index) >>> 0;
+  return [first, value32];
+}
+
+/** MIDI 2.0 Appendix D.1.3 min/center/max upscaling for a 14-bit value. */
+function upscale14To32(value: number): number {
+  const shifted = (value << 18) >>> 0;
+  if (value <= 0x2000) return shifted;
+  const repeated = value & 0x1fff;
+  return (shifted | (repeated << 5) | (repeated >>> 8)) >>> 0;
+}
+
 /** Convert one complete, representable MIDI 1.0 message to group-zero UMPs. */
 export function midi1EventToUmps(status: number, data: number[]): number[][] | null {
   if (!Number.isInteger(status) || status < 0x80 || status > 0xff) return null;
@@ -500,6 +521,19 @@ export interface Midi1ClipEventConversion {
   exceededEventLimit: boolean;
 }
 
+interface Midi1ParameterState {
+  selectedType?: "rpn" | "nrpn";
+  rpnMsb?: number;
+  rpnLsb?: number;
+  nrpnMsb?: number;
+  nrpnLsb?: number;
+  hasRpnMsb: boolean;
+  hasRpnLsb: boolean;
+  hasNrpnMsb: boolean;
+  hasNrpnLsb: boolean;
+  pendingDataMsb?: { value: number; beat: number; sourceOrder: number };
+}
+
 /**
  * Convert a track's ordered MIDI 1.0 events to UMP while keeping SysEx
  * continuation state local to that track. An F7 without an open F0 is an SMF
@@ -512,6 +546,7 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
   let pendingSysex: Array<{ beat: number; payload: number[]; sourceOrder: number }> | null = null;
   let pendingByteCount = 0;
   const bankByChannel = new Map<number, { msb: number; lsb: number; pendingMessageCount: number }>();
+  const parameterByChannel = new Map<number, Midi1ParameterState>();
   const maxPendingBytes = MAX_EVENTS * 6;
   const append = (beat: number, words: number[], sourceOrder: number, packetOrder: number) => {
     if (converted.events.length >= MAX_EVENTS) {
@@ -556,6 +591,61 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
         if (converted.exceededEventLimit) return;
       }
     }
+  };
+  const parameterStateFor = (channel: number): Midi1ParameterState => {
+    const existing = parameterByChannel.get(channel);
+    if (existing) return existing;
+    const created: Midi1ParameterState = {
+      hasRpnMsb: false, hasRpnLsb: false, hasNrpnMsb: false, hasNrpnLsb: false,
+    };
+    parameterByChannel.set(channel, created);
+    return created;
+  };
+  const flushParameterData = (channel: number, state: Midi1ParameterState) => {
+    const pending = state.pendingDataMsb;
+    if (!pending) return;
+    state.pendingDataMsb = undefined;
+
+    const type = state.selectedType;
+    const bank = type === "rpn" ? state.rpnMsb : state.nrpnMsb;
+    const index = type === "rpn" ? state.rpnLsb : state.nrpnLsb;
+    const hasCompleteSelection = type === "rpn"
+      ? state.hasRpnMsb && state.hasRpnLsb
+      : type === "nrpn" && state.hasNrpnMsb && state.hasNrpnLsb;
+    if (!type || !hasCompleteSelection || bank === undefined || index === undefined
+        || (type === "rpn" && bank === 0x7f && index === 0x7f)) {
+      converted.unsupportedEventCount++;
+      return;
+    }
+    append(pending.beat, midi1ParameterToUmp(channel, type, bank, index, pending.value << 7), pending.sourceOrder, 0);
+  };
+  const convertParameterData = (
+    channel: number,
+    state: Midi1ParameterState,
+    lsb: number,
+    beat: number,
+    sourceOrder: number,
+  ) => {
+    const pending = state.pendingDataMsb;
+    if (!pending) {
+      converted.unsupportedEventCount++;
+      return;
+    }
+    state.pendingDataMsb = undefined;
+
+    const type = state.selectedType;
+    const bank = type === "rpn" ? state.rpnMsb : state.nrpnMsb;
+    const index = type === "rpn" ? state.rpnLsb : state.nrpnLsb;
+    const hasCompleteSelection = type === "rpn"
+      ? state.hasRpnMsb && state.hasRpnLsb
+      : type === "nrpn" && state.hasNrpnMsb && state.hasNrpnLsb;
+    if (!type || !hasCompleteSelection || bank === undefined || index === undefined
+        || (type === "rpn" && bank === 0x7f && index === 0x7f)) {
+      converted.unsupportedEventCount++;
+      return;
+    }
+    const value14 = (pending.value << 7) | lsb;
+    append(beat, midi1ParameterToUmp(channel, type, bank, index, value14), sourceOrder, 0);
   };
 
   for (const [sourceOrder, event] of events.entries()) {
@@ -608,6 +698,52 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
     if (pendingSysex && !isRealtime) discardPendingSysex();
     const kind = event.status & 0xf0;
     const channel = event.status & 0x0f;
+
+    if (kind === 0xb0 && [6, 38, 98, 99, 100, 101].includes(event.data[0])) {
+      const controller = event.data[0];
+      const valid = event.data.length === 2
+        && event.data.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0x7f);
+      const state = parameterStateFor(channel);
+      if ([98, 99, 100, 101].includes(controller)) flushParameterData(channel, state);
+      else if (controller === 6 && state.pendingDataMsb)
+        flushParameterData(channel, state);
+
+      if (!valid) {
+        converted.unsupportedEventCount++;
+        continue;
+      }
+      const value = event.data[1];
+      switch (controller) {
+        case 101:
+          state.selectedType = "rpn";
+          state.rpnMsb = value;
+          state.hasRpnMsb = true;
+          break;
+        case 100:
+          state.selectedType = "rpn";
+          state.rpnLsb = value;
+          state.hasRpnLsb = true;
+          break;
+        case 99:
+          state.selectedType = "nrpn";
+          state.nrpnMsb = value;
+          state.hasNrpnMsb = true;
+          break;
+        case 98:
+          state.selectedType = "nrpn";
+          state.nrpnLsb = value;
+          state.hasNrpnLsb = true;
+          break;
+        case 6:
+          state.pendingDataMsb = { value, beat: event.beat, sourceOrder };
+          break;
+        case 38:
+          convertParameterData(channel, state, value, event.beat, sourceOrder);
+          break;
+      }
+      continue;
+    }
+
     if (kind === 0xb0 && (event.data[0] === 0 || event.data[0] === 32)) {
       const valid = event.data.length === 2
         && event.data.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 0x7f);
@@ -638,6 +774,7 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
     for (const [packetOrder, words] of packets.entries()) append(event.beat, words, sourceOrder, packetOrder);
   }
   if (pendingSysex) discardPendingSysex();
+  for (const [channel, state] of parameterByChannel) flushParameterData(channel, state);
   for (const bank of bankByChannel.values())
     converted.unsupportedEventCount += bank.pendingMessageCount;
   converted.events.sort((a, b) => a.beat - b.beat

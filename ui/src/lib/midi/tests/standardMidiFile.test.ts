@@ -432,7 +432,67 @@ describe("Standard MIDI File", () => {
       { beat: 0.75, status: 0xb0, data: [6, 12] },
     ]);
     expect(converted.events).toEqual([]);
-    expect(converted.unsupportedEventCount).toBe(4);
+    expect(converted.unsupportedEventCount).toBe(3);
+  });
+
+  it("converts complete MIDI 1.0 RPN data entry to a MIDI 2.0 Registered Controller", () => {
+    const converted = midi1EventsToUmps([
+      { beat: 0, status: 0xb2, data: [101, 0] },
+      { beat: 0, status: 0xb2, data: [100, 0] },
+      { beat: 1, status: 0xb2, data: [6, 2] },
+      { beat: 1.25, status: 0xb2, data: [38, 50] },
+    ]);
+
+    expect(converted.events).toMatchObject([
+      { beat: 1.25, words: [0x40220000, 0x04c80000] },
+    ]);
+    expect(converted.unsupportedEventCount).toBe(0);
+  });
+
+  it("converts NRPN per channel and flushes a 7-bit Data Entry MSB at its original beat", () => {
+    const converted = midi1EventsToUmps([
+      { beat: 0, status: 0xb0, data: [101, 0] },
+      { beat: 0, status: 0xb0, data: [100, 1] },
+      { beat: 0.25, status: 0xb0, data: [6, 1] },
+      { beat: 0, status: 0xb5, data: [99, 12] },
+      { beat: 0, status: 0xb5, data: [98, 34] },
+      { beat: 0.5, status: 0xb5, data: [6, 64] },
+      { beat: 1, status: 0xb0, data: [6, 3] },
+    ]);
+
+    expect(converted.events.map((event) => ({ beat: event.beat, words: event.words }))).toEqual([
+      { beat: 0.25, words: [0x40200001, 0x02000000] },
+      { beat: 0.5, words: [0x40350c22, 0x80000000] },
+      { beat: 1, words: [0x40200001, 0x06000000] },
+    ]);
+    expect(converted.unsupportedEventCount).toBe(0);
+  });
+
+  it("does not translate RPN null selection or incomplete/orphan Data Entry", () => {
+    const converted = midi1EventsToUmps([
+      { beat: 0, status: 0xb0, data: [101, 127] },
+      { beat: 0, status: 0xb0, data: [100, 127] },
+      { beat: 0.25, status: 0xb0, data: [6, 1] },
+      { beat: 1, status: 0xb1, data: [100, 5] },
+      { beat: 1.25, status: 0xb1, data: [6, 2] },
+      { beat: 2, status: 0xb2, data: [38, 3] },
+    ]);
+
+    expect(converted.events).toEqual([]);
+    expect(converted.unsupportedEventCount).toBe(3);
+  });
+
+  it("keeps ordinary 14-bit controller MSB and LSB messages independent", () => {
+    const converted = midi1EventsToUmps([
+      { beat: 0, status: 0xb0, data: [1, 64] },
+      { beat: 0.25, status: 0xb0, data: [33, 127] },
+    ]);
+
+    expect(converted.events.map((event) => event.words)).toEqual([
+      [0x2b000140],
+      [0x2b00217f],
+    ]);
+    expect(converted.unsupportedEventCount).toBe(0);
   });
 
   it("converts MIDI 1.0 system common/realtime UMPs and reports group loss", () => {
@@ -481,6 +541,34 @@ describe("Standard MIDI File", () => {
     expect(analyzeMidi1ExportLoss([{ name: "Programs", regions: [source] }]).unsupportedUmpEvents).toBe(0);
   });
 
+  it("expands MIDI 2.0 RPN and NRPN controllers to ordered MIDI 1.0 selector/data messages", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0.5, words: [0x40200000, 0x04c80000], wordCount: 2 },
+        { beat: 1.5, words: [0x40350c22, 0x80000000], wordCount: 2 },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile([{ name: "Parameters", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+
+    expect(parsed.tracks[1].events?.filter((event) => (event.status & 0xf0) === 0xb0)).toEqual([
+      { beat: 0.5, status: 0xb0, data: [101, 0] },
+      { beat: 0.5, status: 0xb0, data: [100, 0] },
+      { beat: 0.5, status: 0xb0, data: [6, 2] },
+      { beat: 0.5, status: 0xb0, data: [38, 50] },
+      { beat: 1.5, status: 0xb5, data: [99, 12] },
+      { beat: 1.5, status: 0xb5, data: [98, 34] },
+      { beat: 1.5, status: 0xb5, data: [6, 64] },
+      { beat: 1.5, status: 0xb5, data: [38, 0] },
+    ]);
+    expect(analyzeMidi1ExportLoss([{ name: "Parameters", regions: [source] }]).unsupportedUmpEvents).toBe(0);
+  });
+
   it("rejects malformed MIDI 2.0 Program Change reserved bits and invalid absent-bank fields", () => {
     const source: MidiRegionRow = {
       ...region,
@@ -507,6 +595,20 @@ describe("Standard MIDI File", () => {
       ],
     };
     expect(analyzeMidi1ExportLoss([{ name: "Invalid MIDI 1 UMP", regions: [source] }]).unsupportedUmpEvents).toBe(2);
+  });
+
+  it("rejects reserved bits in MIDI 2.0 RPN and NRPN addresses", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: [0x40208000, 0], wordCount: 2 },
+        { beat: 1, words: [0x40300080, 0], wordCount: 2 },
+      ],
+    };
+    expect(analyzeMidi1ExportLoss([{ name: "Invalid parameters", regions: [source] }]).unsupportedUmpEvents).toBe(2);
   });
 
   it("reports MIDI 1.0 escapes and unrepresentable metadata before MIDI Clip export", () => {

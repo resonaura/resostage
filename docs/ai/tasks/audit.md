@@ -2368,3 +2368,23 @@ between separate DAW regions yet. Focused MIDI codec tests passed 74/74; full
 UI passed 1,074/1,074 across 151 files; TypeScript, production build,
 changed-file lint, and `git diff --check` passed. Basis: [UMP & MIDI 2.0
 Protocol v1.1.1 §§D.3.3–D.3.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — MIDI 1.0 and MIDI 2.0 RPN/NRPN translation (2026-10-04)
+
+Added per-channel stateful MIDI 1.0 RPN/NRPN assembly in MIDI Clip export:
+CC 101/100 and CC 99/98 select the parameter, CC 6 supplies Data Entry MSB,
+and optional CC 38 completes the 14-bit value. The prior Data Entry MSB is
+flushed when another MSB or selector begins; an end-of-stream MSB is also
+flushed. The legal RPN null selection is not output, and orphan/incomplete
+Data Entry is included in the lossy export count. Reverse MIDI 2.0 RPN/NRPN
+conversion emits the MIDI 1.0 selector MSB, selector LSB, Data Entry MSB and
+Data Entry LSB sequence, rejecting reserved address bits. Both directions use
+the default Appendix D.1 min/center/max scaling. Channel isolation, null and
+incomplete sequences, independent ordinary 14-bit CC pairs, round-trip output,
+and malformed reserved fields have regression coverage. Focused MIDI tests
+passed 80/80; full UI passed 1,080/1,080 across 151 files; TypeScript,
+production build, changed-file oxlint and `git diff --check` passed. Basis:
+[UMP & MIDI 2.0 Protocol v1.1.1 §§7.4.7, D.1, D.2.3 and D.3.3]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+This closes the earlier RPN/NRPN gap. CC 88 High Resolution Velocity Prefix
+still needs note-edge integration; do not encode it as a generic CC.

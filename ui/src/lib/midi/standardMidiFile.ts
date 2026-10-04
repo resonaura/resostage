@@ -591,6 +591,25 @@ function umpEventToMidi1(words: number[], wordCount: number): Midi1EventFromUmp 
       ] : undefined,
     };
   }
+  if (status === 0x2 || status === 0x3) {
+    // MIDI 1.0 represents one MIDI 2.0 RPN/NRPN value as a four-message
+    // selector + Data Entry sequence. The two unused UMP bits must be zero.
+    if ((first & 0x8080) !== 0) return null;
+    const value14 = scale32To14(value32);
+    const selectorStatus = 0xb0 | channel;
+    const selectorMsb = status === 0x2 ? 101 : 99;
+    const selectorLsb = status === 0x2 ? 100 : 98;
+    return {
+      status: selectorStatus,
+      data: [38, value14 & 0x7f],
+      group,
+      precedingMessages: [
+        { status: selectorStatus, data: [selectorMsb, data1] },
+        { status: selectorStatus, data: [selectorLsb, data2] },
+        { status: selectorStatus, data: [6, (value14 >>> 7) & 0x7f] },
+      ],
+    };
+  }
   if (status === 0x8) return { status: statusByte, data: [data1, scale32To7(value32)], group };
   if (status === 0x9) return {
     status: statusByte, data: [data1, Math.max(1, scale32To7(value32))], group,

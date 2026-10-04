@@ -90,12 +90,21 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   zero bank fields. Invalid reserved bits are rejected. Export warns before
   dropping ambiguous F7 escape events, unsupported SMF meta events, malformed
   or interrupted SysEx, and other unrepresentable raw events. Nonzero UMP
-  Groups are not representable in SMF and are reported before export. On the
-  reverse path, MIDI 1.0 CC 0/32 are accumulated per channel within each source
-  region and folded into its next Program Change; bank selects without a later
-  Program Change and special compound CCs (RPN/NRPN and velocity prefix) are
-  reported as losses rather than misencoded as ordinary MIDI 2.0 CCs. Bank
-  state is not yet shared across separate DAW regions.
+  Groups are not representable in SMF and are reported before export. MIDI 2.0
+  RPN/NRPN UMPs expand to the ordered MIDI 1.0 selector MSB, selector LSB,
+  Data Entry MSB, and Data Entry LSB messages; reserved address bits are
+  rejected. In the reverse direction, MIDI 1.0 CC 0/32 are accumulated per
+  channel and folded into the next Program Change, while RPN/NRPN CC sequences
+  are assembled per channel and converted using Appendix D.1 min/center/max
+  scaling. Unmatched Bank Select, orphan Data Entry, null/incomplete parameter
+  sequences, and the high-resolution velocity prefix are never mislabeled as
+  ordinary MIDI 2.0 CCs. Bank and parameter state is scoped to each source
+  region during MIDI Clip export and is not yet shared across DAW regions.
+  RPN/NRPN conversion has per-channel selector/data state, emits the prior
+  Data Entry value when the next selector or MSB closes it, supports the
+  optional LSB, ignores the legal RPN null selection, and reports orphan or
+  incomplete Data Entry. Values use the default MIDI 2.0 min/center/max
+  scaling in both directions.
 - Exporting a subset from a nonzero timeline origin carries the effective
   tempo and meter at that origin into beat zero of the exported clip.
 - MIDI Clip export follows region mute, trim and loop placement. At an exact
@@ -178,10 +187,13 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   semantics, vendor-specific translations, and arbitrary system/meta events
   are not synthesized automatically. An SMF F7 event without an open F0 is
   ambiguous between a continuation and an escape event; ResoStage does not
-  guess. MIDI 1.0 RPN/NRPN compound sequences and High Resolution Velocity
-  Prefix are currently reported as unsupported, not converted. Bank state is
-  scoped to each region during MIDI Clip export. MPE/vendor encodings are not
-  synthesized automatically.
+  guess. MIDI 1.0 High Resolution Velocity Prefix (CC 88) is currently
+  reported as unsupported, not converted: SMF parsing normalizes note events
+  separately from raw controller events, so correct prefix association needs
+  persisted source ordering and note-edge representation rather than a
+  controller-only conversion. Bank and RPN/NRPN state is scoped to each region
+  during MIDI Clip export. MPE/vendor encodings are not synthesized
+  automatically.
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay

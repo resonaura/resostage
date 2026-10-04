@@ -1698,3 +1698,19 @@ tests 74/74; full UI 1,074/1,074 across 151 files; TypeScript/production
 build, changed-file lint, and `git diff --check` passed. Standard: UMP & MIDI
 2.0 Protocol v1.1.1 §§D.3.3–D.3.4. Commit in English, do not push, and
 continue the file-codec audit.
+
+Latest verified continuation — MIDI 1.0 and MIDI 2.0 RPN/NRPN translation
+(2026-10-04): MIDI 1.0 CC 101/100 and 99/98 selectors plus CC 6/38 Data Entry
+are held per channel and translated into MIDI 2.0 RPN/NRPN UMPs. CC 38 completes
+the current value; a following CC 6 or selector flushes the preceding Data Entry
+MSB without an LSB. RPN null selection is not emitted; orphan/incomplete Data
+Entry is counted as unsupported. Reverse export validates reserved address bits
+and emits CC selector MSB, selector LSB, Data Entry MSB, then Data Entry LSB.
+Both directions use the MIDI 2.0 Appendix D.1 min/center/max 14→32 scaling.
+Focused MIDI tests 80/80; full UI 1,080/1,080 across 151 files; TypeScript,
+production build, changed-file oxlint and `git diff --check` passed. Basis: UMP
+& MIDI 2.0 Protocol v1.1.1 §§7.4.7 and D.1/D.2.3/D.3.3. This supersedes the
+prior handoff note that RPN/NRPN conversion was open. Next: implement CC 88
+High Resolution Velocity Prefix by associating it with note edges, preserving
+source ordering and lossy-export analysis; do not treat CC 88 as a generic CC.
+Commit in English; do not push.
