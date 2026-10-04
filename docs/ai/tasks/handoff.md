@@ -1852,3 +1852,13 @@ for embedded `MTrk` signatures. Focused Standard MIDI tests passed 69/69; full
 UI passed 1,104/1,104 across 151 files; TypeScript, production build,
 changed-file oxlint, and `git diff --check` passed. This follows the
 MIDI Association Standard MIDI Files specification.
+
+MIDI Clip profile-prefix validation now distinguishes MIDI-CI v1.1 (exactly
+18 UMP SysEx7 payload bytes) from v1.2 (20 bytes including Channel Count),
+preserves forward-compatible future minor suffix fields, rejects reserved
+major version bits, requires broadcast source/destination MUIDs, and enforces
+zero requested channels for v1.2+ Group/Function Block destinations. Focused
+MIDI Clip tests passed 36/36; full UI passed 1,105/1,105 across 151 files;
+TypeScript, production build, changed-file oxlint, and `git diff --check`
+passed. See MIDI-CI v1.2 and MIDI Clip File v1.0, linked in
+`docs/MIDI2_REMAINING_WORK.md`.

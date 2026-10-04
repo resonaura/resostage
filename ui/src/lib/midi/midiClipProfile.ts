@@ -5,7 +5,9 @@
  */
 
 // MIDI Clip-specific MIDI-CI validation for the profile prefix and sequence.
-const MAX_SET_PROFILE_ON_BYTES = 18;
+const MIDI_CI_PROFILE_ON_V1_BYTES = 18;
+const MIDI_CI_PROFILE_ON_V2_BYTES = 20;
+const MAX_SET_PROFILE_ON_BYTES = MIDI_CI_PROFILE_ON_V2_BYTES;
 
 interface SysEx7MessageState {
   byteCount: number;
@@ -49,14 +51,24 @@ function appendPayload(state: SysEx7MessageState, bytes: number[]): void {
 function validateSetProfileOn(state: SysEx7MessageState): void {
   const prefix = state.prefix;
   const validDestination = prefix[1] <= 0x0f || prefix[1] === 0x7e || prefix[1] === 0x7f;
-  if (state.byteCount < MAX_SET_PROFILE_ON_BYTES
-      || prefix[0] !== 0x7e
+  const version = prefix[4];
+  const validVersion = version >= 1 && (version & 0xe0) === 0;
+  const validLength = version === 1
+    ? state.byteCount === MIDI_CI_PROFILE_ON_V1_BYTES
+    : version === 2
+      ? state.byteCount === MIDI_CI_PROFILE_ON_V2_BYTES
+      : version > 2 && state.byteCount >= MIDI_CI_PROFILE_ON_V2_BYTES;
+  if (prefix[0] !== 0x7e
       || !validDestination
       || prefix[2] !== 0x0d
       || prefix[3] !== 0x22
-      || !Number.isInteger(prefix[4])
-      || prefix[4] < 1)
+      || !validVersion
+      || !validLength)
     throw new Error("MIDI Clip profile data must be a complete MIDI-CI Set Profile On message");
+  if (prefix.slice(5, 13).some((byte) => byte !== 0x7f))
+    throw new Error("MIDI Clip Set Profile On must use broadcast source and destination MUIDs");
+  if (version >= 2 && prefix[1] >= 0x7e && (prefix[18] !== 0 || prefix[19] !== 0))
+    throw new Error("MIDI Clip Set Profile On must request zero channels for Group or Function Block destinations");
 }
 
 /** Validate and preserve the UMP packets in the profile prefix before DCTPQ. */

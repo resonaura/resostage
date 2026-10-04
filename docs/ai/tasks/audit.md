@@ -2528,3 +2528,11 @@ unknown chunks. It does not scan unknown payload bytes for embedded FourCCs.
 Focused tests passed 69/69; full UI passed 1,104/1,104 across 151 files;
 TypeScript, production build, changed-file oxlint, and `git diff --check`
 passed. See the MIDI Association Standard MIDI Files specification.
+
+MIDI Clip Set Profile On validation now matches MIDI-CI versioned layouts
+(v1.1 exact 18-byte UMP payload, v1.2 exact 20-byte payload, future minor
+versions may append fields); it rejects reserved major-version bits, non-
+broadcast MUIDs, and nonzero v1.2+ channel counts for Group/Function Block
+destinations. Focused MIDI Clip tests passed 36/36; full UI passed 1,105/1,105
+across 151 files; TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed. Basis: MIDI-CI v1.2 and MIDI Clip File v1.0.

@@ -35,14 +35,28 @@ function sysex7Packet(group: number, status: number, payload: number[]): number[
   ];
 }
 
-function setProfileOnPackets(group = 0): number[][] {
-  const bytes = [0x7e, 0x7f, 0x0d, 0x22, 0x01,
-    1, 2, 3, 4, 5, 6, 7, 8, 0x7e, 0x7f, 0x7e, 0x7f, 1];
-  return [
-    sysex7Packet(group, 1, bytes.slice(0, 6)),
-    sysex7Packet(group, 2, bytes.slice(6, 12)),
-    sysex7Packet(group, 3, bytes.slice(12)),
-  ];
+function sysex7MessagePackets(group: number, bytes: number[]): number[][] {
+  const chunks = Array.from({ length: Math.ceil(bytes.length / 6) }, (_, index) =>
+    bytes.slice(index * 6, (index + 1) * 6));
+  return chunks.map((payload, index) => sysex7Packet(group,
+    chunks.length === 1 ? 0 : index === 0 ? 1 : index === chunks.length - 1 ? 3 : 2,
+    payload));
+}
+
+function setProfileOnPackets(
+  group = 0,
+  version = 1,
+  destination = 0x7f,
+  requestedChannels = 0,
+  includeVersion2Fields = version >= 2,
+  muidByte = 0x7f,
+  extraBytes: number[] = [],
+): number[][] {
+  const bytes = [0x7e, destination, 0x0d, 0x22, version,
+    ...Array<number>(8).fill(muidByte), 0x7e, 0x7f, 0x7e, 0x7f, 1];
+  if (includeVersion2Fields) bytes.push(requestedChannels & 0x7f, (requestedChannels >>> 7) & 0x7f);
+  bytes.push(...extraBytes);
+  return sysex7MessagePackets(group, bytes);
 }
 
 function propertyExchangePackets(group = 0): number[][] {
@@ -627,6 +641,30 @@ describe("MIDI Clip File framing and resource bounds", () => {
       ...profile.slice(0, 2),
       dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
     ]))).toThrow(/incomplete SysEx7 message/);
+  });
+
+  it("validates MIDI-CI Set Profile On lengths and fields by message version", () => {
+    const parseProfile = (profile: number[][]) => parseMidiClipFile(makeClip([
+      ...profile,
+      dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
+    ]));
+    const version1 = parseProfile(setProfileOnPackets());
+    const version2 = parseProfile(setProfileOnPackets(0, 2, 0x01, 12));
+
+    expect(version1.tracks[0].umpEvents).toHaveLength(3);
+    expect(version2.tracks[0].umpEvents).toHaveLength(4);
+    expect(version2.tracks[0].umpEvents?.every((event) => event.profileConfigurationHeader)).toBe(true);
+
+    const version2MissingChannelCount = setProfileOnPackets(0, 2, 0x01, 0, false);
+    const version1WithUnexpectedField = setProfileOnPackets(0, 1, 0x7f, 0, false, 0x7f, [0]);
+    const version2GroupWithRequestedChannels = setProfileOnPackets(0, 2, 0x7f, 1);
+    const reservedMajorVersion = setProfileOnPackets(0, 0x21);
+    const nonBroadcastMuid = setProfileOnPackets(0, 1, 0x7f, 0, false, 0x7e);
+
+    for (const invalid of [version2MissingChannelCount, version1WithUnexpectedField, reservedMajorVersion])
+      expect(() => parseProfile(invalid)).toThrow(/complete MIDI-CI Set Profile On/);
+    expect(() => parseProfile(version2GroupWithRequestedChannels)).toThrow(/zero channels/);
+    expect(() => parseProfile(nonBroadcastMuid)).toThrow(/broadcast source and destination MUIDs/);
   });
 
   it("rejects malformed profile configuration before MIDI Clip export", () => {

@@ -710,3 +710,15 @@ MIDI Files specification](https://midi.org/standard-midi-files-specification).
 Focused Standard MIDI tests passed 69/69; full UI passed 1,104/1,104 across
 151 files; TypeScript, production build, changed-file oxlint, and
 `git diff --check` passed.
+
+MIDI Clip profile-prefix validation now checks MIDI-CI Set Profile On layouts
+by Message Format Version: v1.1 requires exactly 18 UMP SysEx7 payload bytes;
+v1.2 requires 20 including Channel Count. Future minor versions may append
+fields, but reserved major-version bits are rejected. Profile messages in a
+MIDI Clip must use broadcast source/destination MUIDs, and v1.2+ Group or
+Function Block destinations must request zero channels. Tests cover valid v1.1
+and v1.2 messages plus truncated/extra fields and invalid reserved/address
+values. Focused MIDI Clip tests passed 36/36; full UI passed 1,105/1,105 across
+151 files; TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed. References: [MIDI-CI v1.2 §§5.2–5.4, 7.8](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-101-UM_v1-2_MIDI-CI_Specification.pdf)
+and [MIDI Clip File v1.0 §6.2](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
