@@ -98,6 +98,10 @@ void MixRenderer::beginBlock(const MixGraph& graph, int numSamples) {
         automationOverrides[s].muteActive = false;
         std::fill_n(preRow(s, 0), span, 0.0f);
         std::fill_n(preRow(s, 1), span, 0.0f);
+        // postFader is also the bounded staging row returned by sourceChannel.
+        // It is consumed before this strip writes its post-fader result.
+        std::fill_n(postFaderRow(s, 0), span, 0.0f);
+        std::fill_n(postFaderRow(s, 1), span, 0.0f);
     }
     for (size_t e = 0; e < graph.edges.size() && e < automationEdgeOverrides.size(); ++e) {
         automationEdgeOverrides[e].active = false;
@@ -140,7 +144,7 @@ void MixRenderer::setAutomationEdgeGain(uint32_t edgeIndex, float gainLinear) no
 float* MixRenderer::sourceChannel(uint32_t stripIndex, int channel) {
     if (stripIndex >= stripCapacity || channel < 0 || channel > 1)
         return nullptr;
-    return preRow(stripIndex, channel);
+    return postFaderRow(stripIndex, channel);
 }
 
 const float* MixRenderer::postChannel(uint32_t stripIndex, int channel) const {
@@ -296,6 +300,29 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
                 smoothed = targetEdgeGain;
         }
 
+        // A strip's own stream/live input is not represented by a graph edge.
+        // Apply its prepared input delay after routed inputs have been
+        // accumulated, using postFader as source staging that is no longer
+        // needed once this strip reaches the forward sweep.
+        const float* sourceL = postFaderRow(s, 0);
+        const float* sourceR = postFaderRow(s, 1);
+        if (processors.stripInputDelays != nullptr
+            && s < processors.stripInputDelayCount) {
+            const auto& delay = processors.stripInputDelays[s];
+            if (delay.process != nullptr) {
+                float* delayedL = edgeDelayScratch.data();
+                float* delayedR = delayedL + maxBlock;
+                delay.process(delay.context, sourceL, sourceR, delayedL,
+                              delayedR, span, true);
+                sourceL = delayedL;
+                sourceR = delayedR;
+            }
+        }
+        for (int sample = 0; sample < span; ++sample) {
+            destL[sample] += sourceL[sample];
+            destR[sample] += sourceR[sample];
+        }
+
         const size_t sidechainStart = sidechainCursor;
         while (sidechainCursor < graph.sidechainEdges.size()
                && graph.sidechainEdges[sidechainCursor].to == s) {
@@ -305,13 +332,25 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
                 const auto& sourceAutomation = automationOverrides[edge.from];
                 const bool sourceMutedByAutomation = sourceAutomation.muteActive
                     && sourceAutomation.mute;
+                const bool inputEnabled = edge.active && !sourceMutedByAutomation;
+                const float* sidechainL = postRow(edge.from, 0);
+                const float* sidechainR = postRow(edge.from, 1);
+                if (processors.sidechainEdgeDelays != nullptr
+                    && sidechainCursor < processors.sidechainEdgeDelayCount) {
+                    const auto& delay =
+                        processors.sidechainEdgeDelays[sidechainCursor];
+                    if (delay.process != nullptr)
+                        delay.process(delay.context, sidechainL, sidechainR,
+                                      span, inputEnabled, &sidechainL,
+                                      &sidechainR);
+                }
                 sidechainScratch[sidechainCursor] = {
                     edge.pluginSlotIndex,
                     edge.inputBusIndex,
                     edge.channelMode,
-                    postRow(edge.from, 0),
-                    postRow(edge.from, 1),
-                    edge.active && !sourceMutedByAutomation};
+                    sidechainL,
+                    sidechainR,
+                    inputEnabled};
             }
             ++sidechainCursor;
         }

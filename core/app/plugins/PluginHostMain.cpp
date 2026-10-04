@@ -203,6 +203,7 @@ private:
                 area.processorLatencySamples.store(static_cast<uint32_t>(
                     std::max(0, runtime->processorLatencySamples())),
                     std::memory_order_release);
+                runtime->publishSlotLatencies(area);
                 area.latencyChangeCounter.fetch_add(1, std::memory_order_release);
             }
         }
@@ -345,6 +346,7 @@ public:
                 std::memory_order_relaxed);
             area->processorTailSeconds = runtime->bank()->tailSeconds();
             runtime->publishSlotStatuses(*area);
+            runtime->publishSlotLatencies(*area);
             runtime->publishParameterDescriptors(*area);
             runtime->publishSidechainBusDescriptors(*area);
         }

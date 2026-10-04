@@ -111,6 +111,10 @@ TEST_CASE("plug-in host shared frames have a validated versioned ABI") {
     initialize(area, 41, 512);
 
     CHECK(validate(area, 41, 512));
+    CHECK(area.protocolVersion == 12);
+    CHECK(area.pluginSlotLatencySamples[0].load(std::memory_order_relaxed) == 0);
+    area.pluginSlotLatencySamples[0].store(37, std::memory_order_release);
+    CHECK(area.pluginSlotLatencySamples[0].load(std::memory_order_acquire) == 37);
     CHECK_FALSE(validate(area, 40, 512));
     CHECK_FALSE(validate(area, 41, 256));
     area.protocolVersion++;

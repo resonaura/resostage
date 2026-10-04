@@ -9,6 +9,7 @@
 #include "audio/graph/MixMath.h"
 #include "audio/graph/MixLatency.h"
 #include "audio/graph/MixRenderer.h"
+#include "plugins/PluginDelayBank.h"
 
 #include <algorithm>
 #include <cmath>
@@ -96,6 +97,30 @@ void captureSidechain(void* context, float*, float*, int,
     if (inputs[0].left != nullptr && inputs[0].right != nullptr) {
         capture.left = inputs[0].left[0];
         capture.right = inputs[0].right[0];
+    }
+}
+
+struct SidechainAlignmentCapture {
+    float priorLeft = 0.0f;
+    float priorRight = 0.0f;
+    uint32_t mismatchedSamples = 0;
+};
+
+void captureAlignedSidechain(void* context, float* left, float* right,
+                             int samples, const MixSidechainInput* inputs,
+                             uint32_t inputCount) noexcept {
+    auto& capture = *static_cast<SidechainAlignmentCapture*>(context);
+    if (inputCount == 0 || inputs == nullptr || inputs[0].left == nullptr
+        || inputs[0].right == nullptr)
+        return;
+    for (int sample = 0; sample < samples; ++sample) {
+        const float alignedLeft = capture.priorLeft;
+        const float alignedRight = capture.priorRight;
+        capture.priorLeft = left[sample];
+        capture.priorRight = right[sample];
+        if (std::abs(alignedLeft - inputs[0].left[sample]) > 1.0e-6f
+            || std::abs(alignedRight - inputs[0].right[sample]) > 1.0e-6f)
+            ++capture.mismatchedSamples;
     }
 }
 
@@ -728,6 +753,123 @@ TEST_CASE("latency plan aligns every input at a summing strip") {
         if (graph.edges[i].from == second && graph.edges[i].to == main)
             CHECK(plan.edgeDelaySamples[i] == 5);
     }
+}
+
+TEST_CASE("latency plan aligns a direct strip input with a sidechain at its insert") {
+    MixGraph graph;
+    graph.strips.resize(3);
+    graph.strips[0].id = "audio::track:source";
+    graph.strips[1].id = "audio::track:destination";
+    graph.strips[2].id = "audio::main";
+    graph.strips[2].kind = StripKind::Main;
+    graph.edges.push_back({.from = 0, .to = 2});
+    graph.edges.push_back({.from = 1, .to = 2});
+    graph.sidechainEdges.push_back({
+        .from = 0, .to = 1, .pluginSlotIndex = 1,
+        .inputBusIndex = 1,
+        .channelMode = SidechainChannelMode::Automatic,
+        .active = true,
+        .pluginSlotId = "compressor"});
+
+    // Source chain latency is three samples. The destination's first insert
+    // contributes one sample before the sidechain-aware second insert.
+    const std::vector<uint32_t> stripLatency{3, 1, 0};
+    const std::vector<std::vector<uint32_t>> slotLatency{
+        {}, {1, 0}, {}};
+    const MixLatencyPlan plan = buildMixLatencyPlan(
+        graph, stripLatency, slotLatency);
+
+    CHECK(plan.stripInputDelaySamples[0] == 0);
+    CHECK(plan.stripInputDelaySamples[1] == 2);
+    CHECK(plan.sidechainEdgeDelaySamples[0] == 0);
+    CHECK(plan.stripOutputLatencySamples[1] == 3);
+    CHECK(plan.maximumOutputLatencySamples == 3);
+
+    // If the destination insert prefix is longer than the source path, keep
+    // its direct input untouched and delay only the auxiliary feed.
+    const std::vector<std::vector<uint32_t>> longerPrefix{
+        {}, {6, 0}, {}};
+    const std::vector<uint32_t> longerStripLatency{3, 6, 0};
+    const MixLatencyPlan longerPlan = buildMixLatencyPlan(
+        graph, longerStripLatency, longerPrefix);
+    CHECK(longerPlan.stripInputDelaySamples[1] == 0);
+    CHECK(longerPlan.sidechainEdgeDelaySamples[0] == 3);
+}
+
+TEST_CASE("latency plan does not pretend a pre-chain pad delays instrument audio") {
+    MixGraph graph;
+    graph.strips.resize(3);
+    graph.strips[0].id = "audio::track:source";
+    graph.strips[1].id = "audio::track:instrument";
+    graph.strips[1].isInstrumentTrack = true;
+    graph.strips[2].id = "audio::main";
+    graph.strips[2].kind = StripKind::Main;
+    graph.edges.push_back({.from = 0, .to = 2});
+    graph.edges.push_back({.from = 1, .to = 2});
+    graph.sidechainEdges.push_back({
+        .from = 0, .to = 1, .pluginSlotIndex = 1,
+        .inputBusIndex = 1,
+        .channelMode = SidechainChannelMode::Automatic,
+        .active = true,
+        .pluginSlotId = "compressor"});
+
+    const std::vector<uint32_t> stripLatency{8, 4, 0};
+    const std::vector<std::vector<uint32_t>> slotLatency{
+        {}, {4, 0}, {}};
+    const MixLatencyPlan plan = buildMixLatencyPlan(
+        graph, stripLatency, slotLatency);
+
+    CHECK(plan.stripInputDelaySamples[1] == 0);
+    CHECK(plan.sidechainEdgeDelaySamples[0] == 0);
+    REQUIRE(plan.sidechainAlignmentUnavailable.size() == 1);
+    CHECK(plan.sidechainAlignmentUnavailable[0]);
+    CHECK(plan.stripOutputLatencySamples[1] == 4);
+}
+
+TEST_CASE("renderer aligns direct audio and sidechain at the selected insert") {
+    MixGraph graph;
+    graph.strips.resize(3);
+    graph.strips[0].id = "audio::track:source";
+    graph.strips[1].id = "audio::track:destination";
+    graph.strips[2].id = "audio::main";
+    graph.strips[2].kind = StripKind::Main;
+    graph.edges.push_back({.from = 0, .to = 2});
+    graph.edges.push_back({.from = 1, .to = 2});
+    graph.sidechainEdges.push_back({
+        .from = 0, .to = 1, .pluginSlotIndex = 1,
+        .inputBusIndex = 1,
+        .channelMode = SidechainChannelMode::Automatic,
+        .active = true,
+        .pluginSlotId = "compressor"});
+
+    constexpr int samples = 16;
+    const std::vector<uint32_t> stripLatency{3, 1, 0};
+    const std::vector<std::vector<uint32_t>> slotLatency{
+        {}, {1, 0}, {}};
+    std::vector<std::string> warnings;
+    auto delayBank = PluginDelayBank::build(
+        graph, stripLatency, 48000.0, warnings, nullptr, slotLatency, samples);
+    REQUIRE(delayBank != nullptr);
+    CHECK(warnings.empty());
+
+    MixRenderer renderer;
+    renderer.prepare(48000.0, samples, graph.strips.size(),
+                     std::max(graph.edges.size(), graph.sidechainEdges.size()));
+    TestDelay sourceLatency(3);
+    SidechainAlignmentCapture alignment;
+    std::vector<MixStripProcessor> processors(graph.strips.size());
+    processors[0] = {&sourceLatency, processTestStripDelay};
+    processors[1] = {&alignment, nullptr, captureAlignedSidechain};
+    MixProcessorView processorView{processors.data(), processors.size()};
+    delayBank->applyTo(processorView);
+
+    renderer.beginBlock(graph, samples);
+    renderer.sourceChannel(0, 0)[0] = 1.0f;
+    renderer.sourceChannel(0, 1)[0] = 1.0f;
+    renderer.sourceChannel(1, 0)[0] = 1.0f;
+    renderer.sourceChannel(1, 1)[0] = 1.0f;
+    renderer.process(graph, samples, processorView);
+    CHECK(alignment.mismatchedSamples == 0);
 }
 
 TEST_CASE("renderer applies prepared edge compensation without callback allocation") {

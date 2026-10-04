@@ -157,6 +157,9 @@ public:
     bool hasPlugins() const noexcept { return hasAnyPlugins; }
     /** Worker-thread refresh used after a JUCE latency-change notification. */
     std::vector<uint32_t> snapshotStripLatencies() const;
+    /** Per-chain, per-insert latency snapshot; helper pipeline latency is excluded. */
+    std::vector<std::vector<uint32_t>>
+    snapshotStripPluginSlotLatencies() const;
     /** Allocation-free latency refresh for the single-chain helper host. */
     int snapshotMaximumProcessorLatency() const noexcept;
     /** Message-thread health query; never used by the audio callback. */

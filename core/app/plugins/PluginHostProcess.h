@@ -58,6 +58,14 @@ public:
         return area != nullptr
             ? area->processorLatencySamples.load(std::memory_order_acquire) : 0;
     }
+    uint32_t pluginSlotLatencySamples(size_t slotIndex) const noexcept {
+        const auto* area = sharedMemory.area();
+        return area != nullptr
+            && slotIndex < plugin_host::kMaximumPluginSlotsPerChain
+                ? area->pluginSlotLatencySamples[slotIndex].load(
+                      std::memory_order_acquire)
+                : 0;
+    }
     uint64_t latencyChangeCounter() const noexcept {
         const auto* area = sharedMemory.area();
         return area != nullptr

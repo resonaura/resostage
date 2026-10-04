@@ -236,6 +236,13 @@ uint64_t latencyLayoutKey(const MixGraph& graph, uint64_t processorKey) {
     uint64_t hash = kFnvOffset;
     hashU64(hash, processorKey);
     hashU64(hash, graph.routingLayoutKey);
+    // Instrument-generated audio cannot use the same pre-chain PDC pad as a
+    // streamed track. A source-kind change must therefore rebuild the latency
+    // plan even though its routing and plug-in slot identities are unchanged.
+    for (const auto& strip : graph.strips) {
+        hashBytes(hash, strip.id);
+        hashByte(hash, strip.isInstrumentTrack ? 1u : 0u);
+    }
     return hash;
 }
 
@@ -374,6 +381,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         strip.id = track.id;
         strip.name = track.name;
         strip.kind = StripKind::Track;
+        strip.isInstrumentTrack = track.kind == TrackKind::Instrument;
         strip.soloGroup = SoloGroup::Sources;
         strip.channels = clampChannels(track.channels);
         strip.gainLinear = dbToGain(track.gainDb);

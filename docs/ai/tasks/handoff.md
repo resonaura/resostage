@@ -52,7 +52,8 @@ to plug-in auxiliary input buses, and read-only Signal Flow visualization
 bounded aux-input bus capability snapshot from the host (ABI v11) and exposes
 it alongside plug-in parameters. It is still incomplete: no undoable UI route
 authoring, no slot-aware PDC, and no real AU/VST3 acoustic acceptance. Do not
-push.
+push. This initial status is superseded by the later route-authoring and PDC
+follow-ups below; real vendor acceptance remains open.
 
 Verified implementation block — persisted plug-in automation identity: source now
 stores the exact strip ID with each plug-in automation target and carries it
@@ -1056,3 +1057,20 @@ CTest 1/1 and diff check passed. Do not push. Still open: sidechain PDC,
 real vendor signal-path tests, active-playback/helper-failure behavior and
 acoustic live/offline parity. Continue from `audio-flow.md`; do not claim full
 sidechain compatibility without real AU/VST3 audio evidence.
+The PDC status in this route-authoring entry is superseded by the latest PDC
+block below.
+
+Latest sidechain PDC block (2026-10-03): helper ABI v12 publishes per-slot
+plugin latency separately from helper pipeline latency. Core computes PDC at
+the selected effect insert using slot-prefix latency and prepares bounded
+direct-input, normal-edge and sidechain delay rings off audio. Unchanged rings
+are reused by stable endpoint, sample rate and delay length. Offline rendering
+uses the same renderer and sidechain scratch capacity. If a late sidechain
+would need delaying audio synthesized inside a MIDI instrument chain, Core
+does not fake alignment; it leaves the feed unpadded and warns. A complete
+solution needs per-slot main-path delay. Focused tests cover plan/renderer
+behavior, delay memory/ring reuse and this instrument edge case; full native
+CTest and optimized Core/helper build must be rerun before this block is
+committed. No real sidechain-capable AU/VST3 acoustic test was run.
+Active-playback/helper failure and live/offline parity remain open. Do not
+push.

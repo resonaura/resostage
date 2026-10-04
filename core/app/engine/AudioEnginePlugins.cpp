@@ -328,13 +328,13 @@ void AudioEngine::runPluginBankBuilder() {
             result.bank = current->bank;
             const auto currentLatencies =
                 result.bank->snapshotStripLatencies();
-            const PluginDelayBank* previousDelay =
-                (current->routingLayoutKey == request.graph->routingLayoutKey)
-                    ? current->delayBank.get() : nullptr;
+            const auto slotLatencies =
+                result.bank->snapshotStripPluginSlotLatencies();
             result.delayBank = PluginDelayBank::build(
                 *request.graph, currentLatencies,
                 request.sampleRate, result.warnings,
-                previousDelay);
+                current->delayBank.get(), slotLatencies,
+                static_cast<uint32_t>(std::max(1, request.maximumBlockSize)));
         } else {
             std::vector<PluginProcessorBank::StateBlob> transientStates;
             std::vector<std::string> stateSnapshotWarnings;
@@ -350,7 +350,7 @@ void AudioEngine::runPluginBankBuilder() {
             }
             const PluginDelayBank* previousDelay =
                 (current != nullptr && current->projectEpoch == request.projectEpoch
-                 && current->routingLayoutKey == request.graph->routingLayoutKey)
+                 && current->delayBank != nullptr)
                     ? current->delayBank.get() : nullptr;
             result = PluginProcessorBank::build(
                 request.project, *request.graph, resources,

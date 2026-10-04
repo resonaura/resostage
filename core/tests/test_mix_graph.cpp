@@ -568,6 +568,19 @@ TEST_CASE("buildMixGraph: processor layout key ignores controls but tracks inser
     CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != firstStateResource);
 }
 
+TEST_CASE("buildMixGraph: instrument source kind invalidates only the PDC layout") {
+    Project project = makeProject();
+    const MixGraph audioGraph = buildMixGraph(project, outputs16());
+    project.tracks[0].kind = TrackKind::Instrument;
+    const MixGraph instrumentGraph = buildMixGraph(project, outputs16());
+
+    REQUIRE_FALSE(instrumentGraph.strips.empty());
+    CHECK(instrumentGraph.strips[0].isInstrumentTrack);
+    CHECK(instrumentGraph.processorLayoutKey == audioGraph.processorLayoutKey);
+    CHECK(instrumentGraph.routingLayoutKey == audioGraph.routingLayoutKey);
+    CHECK(instrumentGraph.latencyLayoutKey != audioGraph.latencyLayoutKey);
+}
+
 TEST_CASE("buildMixGraph keys sidechain source order and plugin bus layout") {
     Project project = makeProject();
     PluginSlot effect;

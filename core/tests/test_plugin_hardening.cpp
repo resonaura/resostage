@@ -205,7 +205,7 @@ TEST_CASE("Dynamic PDC: unchanged delays retain the actual audio-owned ring") {
     CHECK(warnings.empty());
 }
 
-TEST_CASE("Dynamic PDC: changed delay or topology starts with fresh bounded history") {
+TEST_CASE("Dynamic PDC: only changed delay, endpoint, or sample rate resets history") {
     MixGraph graph;
     graph.strips.resize(3);
     graph.routingLayoutKey = 17;
@@ -219,25 +219,116 @@ TEST_CASE("Dynamic PDC: changed delay or topology starts with fresh bounded hist
     std::array<float, 4> output{};
     oldView.edgeDelays[0].process(oldView.edgeDelays[0].context, input.data(), input.data(),
                                  output.data(), output.data(), 4, true);
-    struct Scenario { uint32_t delay; uint64_t routingKey; double sampleRate; };
-    for (const auto scenario : {Scenario{2, 17, 48000.0}, Scenario{6, 17, 48000.0},
-                                Scenario{4, 18, 48000.0}, Scenario{4, 17, 96000.0}}) {
+    struct Scenario {
+        uint32_t delay;
+        uint64_t routingKey;
+        double sampleRate;
+        bool changeEndpoint;
+        bool expectSharedHistory;
+    };
+    for (const auto scenario : {
+             Scenario{2, 17, 48000.0, false, false},
+             Scenario{6, 17, 48000.0, false, false},
+             Scenario{4, 18, 48000.0, false, true},
+             Scenario{4, 18, 48000.0, true, false},
+             Scenario{4, 17, 96000.0, false, false}}) {
         graph.routingLayoutKey = scenario.routingKey;
+        graph.edges[0].sendIndex = scenario.changeEndpoint ? 2 : MixEdge::kNoSend;
         const auto delay = scenario.delay;
         auto next = PluginDelayBank::build(graph, {0, delay, 0}, scenario.sampleRate,
                                            warnings, previous.get());
         MixProcessorView view;
         next->applyTo(view);
         REQUIRE(view.edgeDelays[0].process != nullptr);
-        CHECK(view.edgeDelays[0].context != oldView.edgeDelays[0].context);
+        CHECK((view.edgeDelays[0].context == oldView.edgeDelays[0].context)
+              == scenario.expectSharedHistory);
         std::array<float, 6> silence{};
         std::array<float, 6> fresh{};
         fresh.fill(1.0f);
         view.edgeDelays[0].process(view.edgeDelays[0].context, silence.data(), silence.data(),
                                   fresh.data(), fresh.data(), static_cast<int>(delay), false);
-        for (uint32_t sample = 0; sample < delay; ++sample)
-            CHECK(fresh[sample] == 0.0f);
+        if (scenario.expectSharedHistory) {
+            for (uint32_t sample = 0; sample < delay; ++sample)
+                CHECK(fresh[sample] == static_cast<float>(sample + 1));
+        } else {
+            for (uint32_t sample = 0; sample < delay; ++sample)
+                CHECK(fresh[sample] == 0.0f);
+        }
     }
+}
+
+TEST_CASE("Dynamic PDC prepares slot-aware sidechain delay lines") {
+    MixGraph graph;
+    graph.strips.resize(2);
+    graph.strips[0].id = "audio::track:source";
+    graph.strips[1].id = "audio::track:destination";
+    graph.sidechainEdges.push_back({
+        .from = 0, .to = 1, .pluginSlotIndex = 1,
+        .inputBusIndex = 1,
+        .channelMode = SidechainChannelMode::Automatic,
+        .active = true,
+        .pluginSlotId = "compressor"});
+    const std::vector<std::vector<uint32_t>> slotLatency{{}, {5, 0}};
+    std::vector<std::string> warnings;
+    auto bank = PluginDelayBank::build(
+        graph, {2, 5}, 48000.0, warnings, nullptr, slotLatency, 8);
+    REQUIRE(bank != nullptr);
+    CHECK(warnings.empty());
+
+    MixProcessorView view;
+    bank->applyTo(view);
+    REQUIRE(view.sidechainEdgeDelayCount == 1);
+    REQUIRE(view.sidechainEdgeDelays[0].process != nullptr);
+    std::array<float, 8> input{1.0f, 2.0f, 3.0f, 4.0f,
+                               5.0f, 6.0f, 7.0f, 8.0f};
+    const float* outputLeft = nullptr;
+    const float* outputRight = nullptr;
+    view.sidechainEdgeDelays[0].process(
+        view.sidechainEdgeDelays[0].context, input.data(), input.data(),
+        static_cast<int>(input.size()), true, &outputLeft, &outputRight);
+    REQUIRE(outputLeft != nullptr);
+    REQUIRE(outputRight != nullptr);
+    CHECK(outputLeft[0] == doctest::Approx(0.0f));
+    CHECK(outputLeft[1] == doctest::Approx(0.0f));
+    CHECK(outputLeft[2] == doctest::Approx(0.0f));
+    CHECK(outputLeft[3] == doctest::Approx(1.0f));
+    CHECK(outputLeft[4] == doctest::Approx(2.0f));
+    CHECK(outputRight[4] == doctest::Approx(2.0f));
+
+    // An unrelated graph-layout change must retain the ring for this same
+    // sidechain endpoint, insert identity, bus and unchanged delay length.
+    graph.routingLayoutKey = 9;
+    auto next = PluginDelayBank::build(
+        graph, {2, 5}, 48000.0, warnings, bank.get(), slotLatency, 8);
+    MixProcessorView nextView;
+    next->applyTo(nextView);
+    CHECK(nextView.sidechainEdgeDelays[0].context
+          == view.sidechainEdgeDelays[0].context);
+}
+
+TEST_CASE("Dynamic PDC reports late sources that cannot align to instrument audio") {
+    MixGraph graph;
+    graph.strips.resize(2);
+    graph.strips[0].id = "audio::track:source";
+    graph.strips[1].id = "audio::track:instrument";
+    graph.strips[1].isInstrumentTrack = true;
+    graph.sidechainEdges.push_back({
+        .from = 0, .to = 1, .pluginSlotIndex = 1,
+        .inputBusIndex = 1,
+        .channelMode = SidechainChannelMode::Automatic,
+        .active = true,
+        .pluginSlotId = "compressor"});
+
+    std::vector<std::string> warnings;
+    auto bank = PluginDelayBank::build(
+        graph, {8, 4}, 48000.0, warnings, nullptr, {{}, {4, 0}}, 8);
+    REQUIRE(bank != nullptr);
+    REQUIRE(warnings.size() == 1);
+    CHECK(warnings[0].find("generated instrument audio") != std::string::npos);
+    MixProcessorView view;
+    bank->applyTo(view);
+    REQUIRE(view.sidechainEdgeDelayCount == 1);
+    CHECK(view.sidechainEdgeDelays[0].process == nullptr);
 }
 
 TEST_CASE("Dynamic PDC: builder never reads samples concurrently written by audio") {

@@ -72,6 +72,22 @@ struct MixEdgeDelay {
     Process process = nullptr;
 };
 
+// Delayed sidechain blocks need to remain available until the destination's
+// complete serial processor chain has routed each feed to its owning slot.
+// The prepared delay line therefore owns one bounded output block as well as
+// its history and returns read-only pointers valid for this render block.
+struct MixSidechainEdgeDelay {
+    using Process = void (*)(void* context,
+                             const float* inputLeft,
+                             const float* inputRight,
+                             int numSamples,
+                             bool inputEnabled,
+                             const float** outputLeft,
+                             const float** outputRight) noexcept;
+    void* context = nullptr;
+    Process process = nullptr;
+};
+
 struct MixProcessorView {
     const MixStripProcessor* strips = nullptr;
     size_t count = 0;
@@ -79,6 +95,10 @@ struct MixProcessorView {
     size_t edgeDelayCount = 0;
     const uint32_t* stripOutputLatencySamples = nullptr;
     size_t stripOutputLatencyCount = 0;
+    const MixEdgeDelay* stripInputDelays = nullptr;
+    size_t stripInputDelayCount = 0;
+    const MixSidechainEdgeDelay* sidechainEdgeDelays = nullptr;
+    size_t sidechainEdgeDelayCount = 0;
 };
 
 class MixRenderer {

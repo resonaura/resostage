@@ -410,7 +410,8 @@ OfflineRenderResult OfflineRenderer::render(const Project& project,
         }
         MixRenderer mixer;
         mixer.prepare(request.sampleRate, kBlockSize, graph.strips.size(),
-                      graph.edges.size());
+                      std::max(graph.edges.size(),
+                               graph.sidechainEdges.size()));
         std::unique_ptr<OfflineProcessorSession> processorSession;
         if (processorFactory) {
             processorSession = processorFactory(

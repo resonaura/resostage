@@ -1693,3 +1693,18 @@ slot-aware PDC, real sidechain-capable AU/VST3 fixtures, active-playback
 acceptance, bypass/helper-failure behavior, and acoustic live/offline parity.
 Do not claim real plug-in sound-path acceptance without a known capable plugin
 and captured audio-level evidence.
+
+### Superseding status — slot-aware sidechain PDC (2026-10-03)
+
+The live-host ABI advanced to v12 to publish per-slot latency separately from
+the helper pipeline. Core now prepares ordinary-edge, direct-stream, and
+sidechain PDC using the destination effect's cumulative upstream slot latency.
+Offline rendering shares the same prepared renderer path. Delay allocation is
+bounded and stable rings are reused by endpoint/sample-rate/delay identity.
+
+This is not complete for every topology: if a MIDI instrument's generated
+audio must be delayed between its generator and a later effect, current PDC
+cannot do that. It leaves a late sidechain source uncompensated and reports a
+preparation warning. Per-slot main-path delay and real AU/VST3 acoustic
+acceptance remain open. See `audio-flow.md` for implementation details and
+verification.

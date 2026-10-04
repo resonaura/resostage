@@ -85,6 +85,10 @@ struct MixStrip {
     std::string id; // "audio::track:1", "audio::send:2", "audio::main", "audio::out:11"
     std::string name;
     StripKind kind = StripKind::Track;
+    // Instrument tracks generate their main audio inside an insert slot from
+    // MIDI, so a delay on the strip's external audio input cannot move that
+    // generated signal relative to an auxiliary sidechain feed.
+    bool isInstrumentTrack = false;
     SoloGroup soloGroup = SoloGroup::None;
 
     int channels = 2;        // 1 = fold L+R to mono before pan

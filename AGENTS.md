@@ -520,10 +520,20 @@ Preserve these rules:
   passes block-local post-output source views to the owning plug-in slot; the
   live helper copies only the active block into bounded shared-memory feeds,
   then JUCE maps those feeds to the selected auxiliary input bus. Do not retain
-  callback pointers or allocate while handling them. Sidechain path-delay
-  compensation is not yet implemented: ordinary send-edge PDC does not imply
-  sidechain alignment. Keep this limitation explicit until a slot-aware PDC
-  plan and regression coverage land.
+  callback pointers or allocate while handling them. PDC is calculated off
+  audio using source-strip output latency and cumulative destination-chain
+  latency before the bound effect. Ordinary routed inputs, direct streamed
+  track/click inputs, and sidechain feeds are compensated at their respective
+  summing/insert points. Delay rings and sidechain output scratch are prebuilt
+  under the same 10-second/128-MiB bounds; the callback only advances them.
+  Ring history is reused by stable endpoint identity when sample rate and exact
+  delay length match; changed delays start from silence. Instrument-generated
+  audio is created inside a plug-in slot, so a pre-chain input pad cannot move
+  it. If its sidechain source arrives later than the target insert's main path,
+  leave the feed unpadded and publish an explicit preparation warning;
+  per-slot main-path delay for this case remains a known limitation. Unit
+  coverage verifies direct-audio alignment and this instrument limitation;
+  real AU/VST3 acoustic acceptance remains required.
 - Track pan law is persisted per track (`0dB` legacy balance, `-3dB` constant power,
   `-4.5dB` broadcast, or `-6dB` constant voltage). Missing values resolve to the
   legacy balance law; format v7 plus `scripts/migrate.mjs` preserves old mixes.
@@ -615,7 +625,7 @@ Preserve these rules:
   rejected before allocation and counted by the bank. Complete channel-wide
   32/48-event panic bursts take priority over pending musical packets. Offline
   non-realtime banks retain full SysEx/growing buffers; never use that mode in
-  a live callback. The live-host shared-memory ABI is version 11; each audio
+  a live callback. The live-host shared-memory ABI is version 12; each audio
   frame carries at most eight fixed-size stereo sidechain feeds tagged with
   the target plug-in slot, auxiliary input bus and channel mode. Inactive feeds
   are zero-filled, and helper processing consumes only the declared sample
@@ -623,7 +633,10 @@ Preserve these rules:
   immutable per-slot catalog of auxiliary input bus indices, names, channel
   counts and enabled state; Core exposes it with plug-in parameter metadata.
   The audio callback never enumerates buses or allocates for this metadata.
-  This bounded ABI payload never allocates in Core's audio callback.
+  The ABI also publishes bounded per-slot processor latency; Core uses it to
+  prepare slot-aware sidechain PDC. Helper pipeline latency is separate and is
+  not included in per-slot values. This bounded ABI payload never allocates in
+  Core's audio callback.
   Fixed per-slot power/bypass mailboxes coalesce latest-state controls
   independently of the parameter queue. Helper DSP owns power counters/envelopes; other threads
   publish atomic intents. Explicit parking is not cancelled by automatic wake.

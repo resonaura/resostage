@@ -663,6 +663,39 @@ std::vector<uint32_t> PluginProcessorBank::snapshotStripLatencies() const {
     return latencies;
 }
 
+std::vector<std::vector<uint32_t>>
+PluginProcessorBank::snapshotStripPluginSlotLatencies() const {
+    std::vector<std::vector<uint32_t>> latencies(chains.size());
+    for (size_t strip = 0; strip < chains.size(); ++strip) {
+        const auto& chain = chains[strip];
+        if (chain == nullptr)
+            continue;
+        auto& stripLatencies = latencies[strip];
+        stripLatencies.reserve(chain->nodes.size());
+        for (size_t slot = 0; slot < chain->nodes.size(); ++slot) {
+            const auto& node = chain->nodes[slot];
+            uint32_t latency = 0;
+            if (node != nullptr) {
+                if (chain->hostedProcess != nullptr
+                    && chain->hostedProcess->process != nullptr) {
+                    latency = chain->hostedProcess->process
+                        ->pluginSlotLatencySamples(slot);
+                } else if (node->instance != nullptr) {
+                    try {
+                        latency = static_cast<uint32_t>(std::max(
+                            0, node->instance->getLatencySamples()));
+                    } catch (...) {
+                        // A failed vendor latency query is treated as zero;
+                        // processor health remains governed by its own path.
+                    }
+                }
+            }
+            stripLatencies.push_back(latency);
+        }
+    }
+    return latencies;
+}
+
 int PluginProcessorBank::snapshotMaximumProcessorLatency() const noexcept {
     int maximum = 0;
     for (const auto& chain : chains) {
@@ -1762,9 +1795,13 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
         if (bank->chains[strip] != nullptr)
             bank->hostedStripIndices.push_back(strip);
     bank->stripProcessorLatencySamples = std::move(stripProcessorLatencies);
+    const auto stripPluginSlotLatencySamples =
+        bank->snapshotStripPluginSlotLatencies();
     result.delayBank = PluginDelayBank::build(
         graph, bank->stripProcessorLatencySamples, sampleRate,
-        result.warnings, previousDelayBank);
+        result.warnings, previousDelayBank,
+        stripPluginSlotLatencySamples,
+        static_cast<uint32_t>(std::max(1, maximumBlockSize)));
     // Subscribe only after preparation and state restore. Notifications from
     // those setup calls describe the latency already measured above and must
     // not trigger a rebuild loop immediately after publication.

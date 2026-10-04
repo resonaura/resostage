@@ -45,6 +45,8 @@ public:
     void closeAllEditors();
     bool hasVisibleEditors() const noexcept;
     void publishSlotStatuses(plugin_host::SharedArea& area) const noexcept;
+    /** Publishes fixed per-insert latency values before Ready and on change. */
+    void publishSlotLatencies(plugin_host::SharedArea& area) const noexcept;
     /** Writes bounded parameter names before the shared host becomes Ready. */
     void publishParameterDescriptors(plugin_host::SharedArea& area) const noexcept;
     /** Writes bounded auxiliary input-bus metadata before the host becomes Ready. */

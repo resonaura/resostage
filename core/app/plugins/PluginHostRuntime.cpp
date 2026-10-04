@@ -378,6 +378,31 @@ void PluginHostRuntime::publishSlotStatuses(
     }
 }
 
+void PluginHostRuntime::publishSlotLatencies(
+    plugin_host::SharedArea& area) const noexcept {
+    const uint32_t count = std::min<uint32_t>(area.pluginSlotCount,
+        plugin_host::kMaximumPluginSlotsPerChain);
+    for (uint32_t slot = 0; slot < count; ++slot)
+        area.pluginSlotLatencySamples[slot].store(0, std::memory_order_relaxed);
+    if (builtBank.bank == nullptr || projectLoader.project().tracks.empty())
+        return;
+
+    try {
+        const auto strip = graph.find(
+            projectLoader.project().tracks.front().effectiveStripId());
+        const auto latencies = builtBank.bank->snapshotStripPluginSlotLatencies();
+        if (strip >= latencies.size())
+            return;
+        const auto& slotLatencies = latencies[strip];
+        for (uint32_t slot = 0; slot < count && slot < slotLatencies.size(); ++slot)
+            area.pluginSlotLatencySamples[slot].store(
+                slotLatencies[slot], std::memory_order_release);
+    } catch (...) {
+        // PDC degrades to zero per-slot latency instead of blocking or
+        // preventing a successfully prepared helper chain from becoming live.
+    }
+}
+
 void PluginHostRuntime::publishParameterDescriptors(
     plugin_host::SharedArea& area) const noexcept {
     area.parameterDescriptorCount = 0;
