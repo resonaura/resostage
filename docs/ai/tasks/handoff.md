@@ -1776,3 +1776,12 @@ TypeScript, production build, changed-file oxlint, and `git diff --check`
 passed. Review diff and commit in English without pushing. Source:
 [Standard MIDI Files specification]
 (https://midi.org/standard-midi-files-specification).
+
+Next in-progress parser hardening — running status around Real-Time bytes
+(2026-10-04): while permissively parsing raw F8–FE events, preserve the prior
+Channel Voice running status; System Common, SysEx and meta still clear it.
+Test covers both the Real-Time exception and System Common reset. Focused SMF
+tests passed 58/58; full UI passed 1,093/1,093 across 151 files; TypeScript,
+production build, changed-file oxlint, and `git diff --check` passed. Review
+and commit in English without pushing. This is recovery support for tolerated files, not a claim that
+real-time events are valid SMF track events.

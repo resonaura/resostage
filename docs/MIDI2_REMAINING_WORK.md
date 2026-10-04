@@ -643,3 +643,19 @@ TypeScript and changed-file oxlint passed; full UI passed 1,092/1,092 across
 151 files, the production build, and `git diff --check` passed. See the MIDI
 Association [Standard MIDI Files specification]
 (https://midi.org/standard-midi-files-specification).
+
+### Latest continuation — preserve running status around real-time bytes (2026-10-04)
+
+The permissive SMF parser accepts System Real-Time bytes as raw events, but it
+was also clearing the current Channel Voice running status for them. It now
+retains that status around F8–FE; System Common, SysEx, and meta events still
+clear it. Regression coverage verifies a subsequent running-status note is
+parsed correctly and that System Common still requires a fresh status byte.
+Focused SMF tests passed 58/58; full UI passed 1,093/1,093 across 151 files,
+TypeScript, production build, changed-file oxlint, and `git diff --check` passed.
+This is defensive support for files
+containing tolerated real-time events, not a claim that such events are
+standard SMF track events. The behavior follows MIDI Association guidance that
+Real-Time messages may occur anywhere and do not alter running status:
+[MIDI messages](https://midi.org/about-midi-part-3midi-messages), [MIDI.org
+running-status discussion](https://midi.org/community/getting-started-with-midi-1/note-off/paged/2).

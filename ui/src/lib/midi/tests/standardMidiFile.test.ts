@@ -1115,6 +1115,24 @@ describe("Standard MIDI File", () => {
     }
   });
 
+  it("keeps running status across System Real-Time events but clears it for System Common", () => {
+    const parsed = parseStandardMidiFile(smfWithTrackEvents([
+      0, 0x90, 60, 100,
+      0, 0xf8,
+      0, 61, 100,
+      0, 0xff, 0x2f, 0,
+    ]));
+    expect(parsed.tracks[0].notes.map((note) => note.pitch)).toEqual([60, 61]);
+    expect(parsed.tracks[0].events).toContainEqual({ beat: 0, status: 0xf8, data: [] });
+
+    expect(() => parseStandardMidiFile(smfWithTrackEvents([
+      0, 0x90, 60, 100,
+      0, 0xf1, 1,
+      0, 61, 100,
+      0, 0xff, 0x2f, 0,
+    ]))).toThrow(/running status without preceding event/);
+  });
+
   it("concatenates chosen songs with tempo and meter changes at exact boundaries", () => {
     const makeSong = (name: string, bpm: number, numerator: number, midi: MidiRegionRow): SongRow => ({
       name, bpm, tsNum: numerator, tsDen: 4, mode: "auto", endSeconds: 2,

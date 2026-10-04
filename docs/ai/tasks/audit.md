@@ -2456,3 +2456,13 @@ unknown meta payloads and SysEx bytes. Focused SMF tests passed 57/57; full UI
 passed 1,092/1,092 across 151 files; TypeScript, production build,
 changed-file oxlint, and `git diff --check` passed. See MIDI Association
 Standard MIDI Files Specification.
+
+Latest parser audit — MIDI Real-Time running status (2026-10-04): the SMF
+parser permissively accepts F8–FE raw events, but incorrectly cleared a prior
+Channel Voice running status before reading the next event. It now preserves
+the channel status across those single-byte messages while System Common,
+SysEx, and meta events still clear it. Regressions cover both behaviors.
+Focused SMF tests passed 58/58; full UI passed 1,093/1,093 across 151 files;
+TypeScript, production build, changed-file oxlint, and `git diff --check`
+passed. This is defensive handling of
+tolerated real-time bytes, not endorsement as standard SMF track data.

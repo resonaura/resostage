@@ -206,7 +206,8 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         continue;
       }
       if (status >= 0xf0) {
-        runningStatus = 0;
+        const isRealtime = status >= 0xf8;
+        if (!isRealtime) runningStatus = 0;
         const systemDataLength = status === 0xf1 || status === 0xf3 ? 1
           : status === 0xf2 ? 2
             : status === 0xf6 || status >= 0xf8 ? 0 : -1;
