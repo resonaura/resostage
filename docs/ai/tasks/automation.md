@@ -624,10 +624,10 @@ assertions; `ResoStage` and `resostage_engine_tests` built and the full native
 suite passed 592 cases / 428,766 assertions. No physical MIDI recording test
 was run. The 4,096-event capture capacity and 512-event global preview
 capacity can truncate dense or many-track sessions. A live-preview truncation
-warning and arbitrary Piano Roll CC lane remain open. Do not describe this
+warning and arbitrary-CC live-preview lane remain open. Do not describe this
 bounded live view as lossless.
 
-## Piano Roll switch-pedal lanes — implemented subset (2026-10-03)
+## Piano Roll MIDI controller lanes — implemented subset (2026-10-03)
 
 The Piano Roll controller-lane selector now exposes CC64–69 individually
 (sustain, portamento, sostenuto, soft pedal, legato footswitch, and hold 2).
@@ -638,13 +638,19 @@ channel has sent its release.
 The projection bounds source scanning at 16,384 events, mapped work at 12,000
 events, and loop passes at 1,200; a limited projection displays `CC VIEW
 LIMITED` rather than silently implying a complete trace. No MIDI events are
-created or changed by viewing the lane. Arbitrary CC controller lanes and
-editing pedal events through this lane remain open.
+created or changed by viewing the lane. The follow-up adds every CC present in
+the selected region to the lane picker (without listing all 128 controllers
+for ordinary projects), plots raw CC values as event stems, and shows 14-bit
+pitch bend around its bipolar center. Trim and MIDI-loop mapping share the
+region timing helpers. Raw MIDI events remain read-only; the existing editable
+region automation curve is separate and is not rewritten into raw event data.
+Direct creation/editing of raw CC and pedal events, plus arbitrary-CC live
+recording preview, remain open.
 
-Focused Piano Roll tests passed 10/10; the full UI suite passed 845 tests across
-128 files; UI TypeScript, changed-file lint and production build passed.
-`git diff --check` passed. No device playback/recording or manual visual
-acceptance was performed.
+The controller-lane implementation passed 14 focused tests; full UI passed 901
+tests across 138 files; TypeScript and production build passed. Lint exited 0
+with 12 warnings in unrelated files and none in changed files; `git diff --check`
+passed. No device playback/recording or manual visual acceptance was performed.
 
 ## Display motion note — 2026-10-03
 

@@ -20,17 +20,51 @@ export const PIANO_ROLL_SNAP_OPTIONS: readonly SelectOption[] = [
 ];
 
 export const PIANO_ROLL_LANE_OPTIONS: readonly SelectOption[] = [
-  { id: "velocity", label: "Velocity" },
-  { id: "cc1", label: "CC 1 · Modulation" },
-  { id: "cc11", label: "CC 11 · Expression" },
-  { id: "cc64", label: "CC 64 · Sustain" },
-  { id: "cc65", label: "CC 65 · Portamento" },
-  { id: "cc66", label: "CC 66 · Sostenuto" },
-  { id: "cc67", label: "CC 67 · Soft Pedal" },
-  { id: "cc68", label: "CC 68 · Legato" },
-  { id: "cc69", label: "CC 69 · Hold 2" },
-  { id: "pitchBend", label: "Pitch Bend" },
+  { id: "velocity", label: "Velocity", section: "Notes" },
+  { id: "cc1", label: "CC 1 · Modulation", section: "Common MIDI Controllers" },
+  { id: "cc11", label: "CC 11 · Expression", section: "Common MIDI Controllers" },
+  { id: "cc64", label: "CC 64 · Sustain", section: "Switch Pedals" },
+  { id: "cc65", label: "CC 65 · Portamento", section: "Switch Pedals" },
+  { id: "cc66", label: "CC 66 · Sostenuto", section: "Switch Pedals" },
+  { id: "cc67", label: "CC 67 · Soft Pedal", section: "Switch Pedals" },
+  { id: "cc68", label: "CC 68 · Legato", section: "Switch Pedals" },
+  { id: "cc69", label: "CC 69 · Hold 2", section: "Switch Pedals" },
+  { id: "pitchBend", label: "Pitch Bend", section: "Channel Events" },
 ];
+
+const COMMON_CONTROLLER_IDS = new Set(
+  PIANO_ROLL_LANE_OPTIONS
+    .map((option) => option.id)
+    .filter((id) => id.startsWith("cc")),
+);
+
+/** Add imported, nonstandard CC lanes without making the picker list all 128 by default. */
+export function pianoRollLaneOptions(
+  controllerNumbers: Iterable<number>,
+  selectedLane: string,
+): readonly SelectOption[] {
+  const customIds = new Set<string>();
+  for (const controller of controllerNumbers) {
+    if (Number.isInteger(controller) && controller >= 0 && controller <= 127) {
+      const id = `cc${controller}`;
+      if (!COMMON_CONTROLLER_IDS.has(id)) customIds.add(id);
+    }
+  }
+  if (/^cc(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-7])$/.test(selectedLane)
+      && !COMMON_CONTROLLER_IDS.has(selectedLane))
+    customIds.add(selectedLane);
+
+  if (customIds.size === 0) return PIANO_ROLL_LANE_OPTIONS;
+  const customOptions = [...customIds]
+    .sort((left, right) => Number(left.slice(2)) - Number(right.slice(2)))
+    .map((id) => ({ id, label: `CC ${id.slice(2)}`, section: "Other MIDI Controllers" }));
+  const pitchBendIndex = PIANO_ROLL_LANE_OPTIONS.findIndex((option) => option.id === "pitchBend");
+  return [
+    ...PIANO_ROLL_LANE_OPTIONS.slice(0, pitchBendIndex),
+    ...customOptions,
+    ...PIANO_ROLL_LANE_OPTIONS.slice(pitchBendIndex),
+  ];
+}
 
 export const PIANO_ROLL_ROOT_OPTIONS: readonly SelectOption[] = NOTE_NAMES.map(
   (label, root) => ({ id: String(root), label }),

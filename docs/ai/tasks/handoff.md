@@ -84,6 +84,19 @@ continuity, or the historical reopen failure. Remaining stress and device/vendor
 acceptance are in `performance.md`. The harness removes only its temporary
 copies; do not run it against or mutate the Recent project. Do not push.
 
+Latest verified Piano Roll MIDI event-preview block (2026-10-03): the lower
+lane picker adds any CC controller present in the selected MIDI region without
+showing 128 choices in ordinary projects. The canvas displays raw CC values as
+trim/loop-mapped value stems and decodes 14-bit pitch-bend events. Existing
+CC64–69 state spans remain specialized. Raw event preview is read-only and does
+not replace the separate editable automation curves. Projection scans at most
+16,384 source events, emits at most 12,000 visible events and expands at most
+1,200 loop passes. Focused tests passed 14/14; full UI passed 901 tests / 138
+files; TypeScript and production build passed; lint had 12 unrelated existing
+warnings and none in changed files; diff check passed. Direct raw CC editing,
+arbitrary-CC live recording preview and manual visual/device acceptance remain
+open. See `automation.md`; do not push.
+
 Latest verified UI display block (see recent git history):
 Timeline and Mixer numeric fader-gain/pan labels use the shared
 `components/daw/EasedReadout.tsx`, which eases authoritative automation display

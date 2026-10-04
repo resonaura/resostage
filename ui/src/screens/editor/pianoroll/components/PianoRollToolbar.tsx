@@ -124,7 +124,8 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
         <PianoRollOptions {...props} />
         {props.onBottomLaneChange && (
           <Select size="sm" fullWidth={false} aria-label="Bottom automation lane"
-            options={PIANO_ROLL_LANE_OPTIONS} value={props.bottomLane ?? "velocity"}
+            options={props.bottomLaneOptions ?? PIANO_ROLL_LANE_OPTIONS}
+            value={props.bottomLane ?? "velocity"}
             onChange={(value) => props.onBottomLaneChange?.(value as PianoRollBottomLane)}
             startContent={<SlidersHorizontal size={13} />} className="w-36" />
         )}

@@ -5,6 +5,7 @@
  */
 
 import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
+import type { SelectOption } from "@/components/ui";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
@@ -50,6 +51,7 @@ export interface PianoRollToolbarProps {
   snapEnabled?: boolean;
   onToggleSnap?: () => void;
   bottomLane?: PianoRollBottomLane;
+  bottomLaneOptions?: readonly SelectOption[];
   onBottomLaneChange?: (lane: PianoRollBottomLane) => void;
   pixelsPerBeat?: number;
   onPixelsPerBeatChange?: (val: number) => void;

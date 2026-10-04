@@ -1343,9 +1343,11 @@ acceptance is split into [automation.md](automation.md),
   derives CC64–69 switch-pedal intervals from persisted region events, Piano
   Roll now has separate CC64–69 bottom lanes, and live recording
   preview now carries bounded CC64–69 edges in WLiveRecordingRegion. The live
-  overlay merges latest-wins telemetry for the recording lifetime. The Piano
-  Roll still needs a deliberate all-controller lane model and live/persisted
-  parity; do not duplicate or regress existing paths. Apple sources
+  overlay merges latest-wins telemetry for the recording lifetime. Piano Roll
+  now also exposes every raw CC found in the selected region and pitch-bend
+  events with trim/loop-aware value previews. Raw MIDI-event editing and
+  arbitrary-CC live-preview parity remain open; do not duplicate or regress
+  existing paths. Apple sources
   distinguish CC64 state, Piano Roll controller data and Score Editor notation;
   see automation.md.
 - Plug-in live helpers are per strip chain and offline processors are private.
@@ -1526,3 +1528,22 @@ Focused tests passed 10/10; the full UI suite passed 845 tests across 128 files;
 TypeScript, changed-file lint, production build and `git diff --check` passed.
 No device or manual visual test. Arbitrary CC lanes and direct pedal-event
 editing remain open.
+
+### Implementation progress — all persisted MIDI CC and pitch-bend lane previews (2026-10-03)
+
+Piano Roll now derives nonstandard CC choices from the selected region rather
+than crowding every project's picker with 128 choices. Common modulation,
+expression and switch-pedal lanes remain available. The selected lane previews
+raw MIDI CC value events; pitch bend is decoded as 14-bit bipolar data. Events
+are mapped through the shared MIDI region trim/loop timing rules, source scans
+are capped at 16,384 events, projected output at 12,000 events, and loop
+expansion at 1,200 passes. Truncated views are labeled. Existing CC64–69 held
+spans remain the specialized pedal presentation. Raw event data is read-only;
+automation-point editing remains an independent region automation target.
+
+Focused projection/canvas/pedal tests passed 14/14; full UI passed 901 tests
+across 138 files; TypeScript and production build passed. Lint exited 0 with 12
+warnings in unrelated existing files and none in changed files; diff check
+passed. No manual visual, hardware playback, or live recording acceptance was
+performed. Direct raw CC editing and arbitrary-CC live recording preview remain
+open.

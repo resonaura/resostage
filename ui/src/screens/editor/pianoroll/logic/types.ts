@@ -18,6 +18,7 @@ export type PianoRollBottomLane =
   | "cc67" // Soft Pedal
   | "cc68" // Legato Footswitch
   | "cc69" // Hold 2
+  | `cc${number}` // Other raw MIDI controllers present in this region
   | "pitchBend";
 
 export type GridSnapValue =

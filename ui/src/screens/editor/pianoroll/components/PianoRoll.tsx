@@ -16,6 +16,7 @@ import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import { getTrackColor } from "@/lib/theme";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
 import { PianoRollHeader } from "@/screens/editor/pianoroll/components/PianoRollHeader";
+import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
 import { usePianoRollNoteDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteDraft";
@@ -94,6 +95,15 @@ export function PianoRoll({
     regionId: region.id, resetKey, notes: region.notes, onNotesChange,
   });
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
+  const bottomLaneOptions = useMemo(() => {
+    const controllerNumbers = new Set<number>();
+    for (const event of (region.events ?? []).slice(0, 16_384)) {
+      const status = event.status & 0xf0;
+      if (status === 0xb0 && event.data.length > 1)
+        controllerNumbers.add(event.data[0]);
+    }
+    return pianoRollLaneOptions(controllerNumbers, bottomLane);
+  }, [region.events, bottomLane]);
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
   useEffect(() => subscribeHistoryBoundary(() => {
     setLoopLengthDraft(null);
@@ -400,6 +410,7 @@ export function PianoRoll({
         onCutSelected={handleCutSelected}
         onSplitAtPlayhead={handleSplitAtPlayhead}
         bottomLane={bottomLane}
+        bottomLaneOptions={bottomLaneOptions}
         onBottomLaneChange={setBottomLane}
         pixelsPerBeat={viewport.pixelsPerBeat}
         onPixelsPerBeatChange={(ppb) => {

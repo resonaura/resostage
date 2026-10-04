@@ -11,6 +11,7 @@ import {
 } from "@/lib/midi/midiRegionTiming";
 import type { PianoRollBottomLane, PianoRollViewport } from "@/screens/editor/pianoroll/logic/types";
 import type { PianoRollNoteView, PianoRollRenderTheme } from "@/screens/editor/pianoroll/logic/render/types";
+import { buildPianoRollControllerProjection } from "@/screens/editor/pianoroll/logic/controllerLane";
 import { buildPianoRollPedalProjection } from "@/screens/editor/pianoroll/logic/pedalLane";
 
 interface PianoRollBottomLaneOptions {
@@ -110,7 +111,10 @@ export function drawPianoRollBottomLane({
     cc69: "CC 69 · HOLD 2",
     pitchBend: "CHANNEL PITCH BEND",
   };
-  const title = laneLabels[bottomLane] || bottomLane.toUpperCase();
+  const title = laneLabels[bottomLane]
+    || (bottomLane.startsWith("cc")
+      ? `CC ${bottomLane.slice(2)} · MIDI EVENTS`
+      : bottomLane.toUpperCase());
 
   ctx.fillStyle = theme.muted;
   ctx.font = "9px sans-serif";
@@ -243,6 +247,44 @@ export function drawPianoRollBottomLane({
       ctx.fillStyle = theme.muted;
       ctx.font = "8px sans-serif";
       ctx.fillText("CC VIEW LIMITED", Math.max(viewport.keyWidth + 4, width - 88), laneY + 14);
+    }
+  }
+
+  // Raw channel events remain distinct from editable region automation points.
+  // CC64–69 already have held-state spans above; other CCs and pitch bend are
+  // rendered as bounded value stems so imported events are visible too.
+  const isPedal = bottomLane.startsWith("cc")
+    && pedalController >= 64 && pedalController <= 69;
+  if (!isPedal && (bottomLane === "pitchBend" || bottomLane.startsWith("cc"))) {
+    const projection = buildPianoRollControllerProjection(
+      region, bottomLane, minBeat, maxBeat,
+    );
+    if (projection.events.length > 0) {
+      const baselineY = controllerYFromValue(0, gridBottom, height, isPB);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(viewport.keyWidth, laneY, width - viewport.keyWidth, height - laneY);
+      ctx.clip();
+      ctx.strokeStyle = theme.accent;
+      ctx.fillStyle = theme.accent;
+      ctx.lineWidth = 1.5;
+      for (const event of projection.events) {
+        const x = beatToX(event.beat);
+        const y = controllerYFromValue(event.value, gridBottom, height, isPB);
+        ctx.beginPath();
+        ctx.moveTo(x, baselineY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+    if (projection.truncated) {
+      ctx.fillStyle = theme.muted;
+      ctx.font = "8px sans-serif";
+      ctx.fillText("MIDI VIEW LIMITED", Math.max(viewport.keyWidth + 4, width - 104), laneY + 14);
     }
   }
 }
