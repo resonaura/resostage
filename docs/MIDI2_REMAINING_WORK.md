@@ -779,3 +779,14 @@ Regression coverage checks both import and export. Focused MIDI Clip tests
 passed 39/39; full UI passed 1,110/1,110 across 151 files; TypeScript,
 production build, changed-file oxlint, and `git diff --check` passed. Basis:
 [MIDI Clip File v1.0 §6.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
+
+### Latest continuation — honor extended Standard MIDI headers (2026-10-04)
+
+Standard MIDI import no longer imposes an arbitrary 1 KiB maximum on the
+declared `MThd` chunk. It skips the complete extension payload within the
+existing 32 MiB whole-file bound and reports a truncated header distinctly,
+before attempting to parse track chunks. Tests cover a valid 1,025-byte
+extension and a truncated extension. Focused Standard MIDI tests passed 73/73;
+full UI passed 1,112/1,112 across 151 files; TypeScript, production build,
+changed-file oxlint, and `git diff --check` passed. Basis: the MIDI Association
+[Standard MIDI Files specification](https://midi.org/standard-midi-files-specification).

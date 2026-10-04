@@ -96,27 +96,30 @@ class Reader {
     }
     throw new Error("Invalid MIDI variable-length quantity");
   }
-  take(length: number): Uint8Array {
+  take(length: number, errorMessage = "Truncated MIDI track"): Uint8Array {
     if (length < 0 || this.offset + length > this.bytes.length)
-      throw new Error("Truncated MIDI track");
+      throw new Error(errorMessage);
     const result = this.bytes.subarray(this.offset, this.offset + length);
     this.offset += length;
     return result;
   }
 }
 
-/** Parse SMF 0/1 on PPQN or SMPTE clocks, retaining paired notes and MIDI events. */
+/** Parse SMF 0/1/2 on PPQN or SMPTE clocks, retaining paired notes and MIDI events. */
 export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   if (bytes.length > MAX_BYTES) throw new Error("MIDI file exceeds 32 MiB limit");
   if (isMidiClipFile(bytes)) return parseMidiClipFile(bytes);
   const reader = new Reader(bytes);
   if (reader.fourCC() !== "MThd") throw new Error("Not a Standard MIDI File");
   const headerLength = reader.uint32();
-  if (headerLength < 6 || headerLength > 1024) throw new Error("Invalid MIDI header");
+  if (headerLength < 6) throw new Error("Invalid MIDI header");
   const format = reader.uint16();
   const count = reader.uint16();
   const division = reader.uint16();
-  reader.take(headerLength - 6);
+  // Honor the chunk's declared size instead of imposing an arbitrary extension
+  // cap. The whole-file size limit above bounds the skip and the reader checks
+  // that the complete header payload is present before advancing.
+  reader.take(headerLength - 6, "Truncated MIDI header");
   if (format > 2 || count < 1 || count > MAX_TRACKS || (format === 0 && count !== 1))
     throw new Error("Only MIDI format 0/1/2 with up to 256 tracks is supported");
   const smpte = (division & 0x8000) !== 0;

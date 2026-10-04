@@ -2577,3 +2577,12 @@ Tests cover both import and export. Focused MIDI Clip tests passed 39/39; full
 UI passed 1,110/1,110 across 151 files; TypeScript, production build,
 changed-file oxlint and `git diff --check` passed. Basis: MIDI Clip File v1.0
 §6.4.
+
+Latest Standard MIDI header compatibility audit (2026-10-04): removed the
+arbitrary 1 KiB cap on declared `MThd` extensions. Import still respects the
+32 MiB whole-file limit and now rejects truncated header extensions with a
+header-specific diagnostic. Regressions cover a valid 1,025-byte extension
+and a truncated one. Focused Standard MIDI tests: 73/73; full UI: 1,112/1,112
+across 151 files; TypeScript, production build, changed-file oxlint and
+`git diff --check` passed. Basis: MIDI Association Standard MIDI Files
+specification. Continue with format-boundary and interoperability fixtures.

@@ -1903,3 +1903,11 @@ data, following MIDI Clip File v1.0 §6.4. Valid non-PE receiver SysEx remains
 supported. Focused MIDI Clip tests: 39/39; full UI: 1,110/1,110 across 151
 files; TypeScript, production build, changed-file oxlint and diff check passed.
 Review and commit this block in English without pushing, then continue auditing.
+
+Latest verified Standard MIDI compatibility fix (2026-10-04): removed the
+arbitrary 1 KiB limit on declared `MThd` extension data while preserving the
+32 MiB input bound and adding a clear truncated-header rejection. Focused SMF
+tests: 73/73; full UI: 1,112/1,112 across 151 files; TypeScript, production UI
+build, changed-file oxlint and `git diff --check` passed. Commit this isolated
+block in English without pushing, then continue SMF/MIDI Clip interoperability
+and malformed-boundary audits.

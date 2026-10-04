@@ -116,6 +116,26 @@ describe("Standard MIDI File", () => {
     expect(() => parseStandardMidiFile(file)).toThrow(/Truncated MIDI chunk/);
   });
 
+  it("honors extended SMF headers beyond an arbitrary small extension limit", () => {
+    const headerExtension = Array(1_025).fill(0x5a);
+    const file = Uint8Array.from([
+      0x4d, 0x54, 0x68, 0x64, 0, 0, 4, 7, 0, 0, 0, 1, 1, 0xe0,
+      ...headerExtension,
+      0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4, 0, 0xff, 0x2f, 0,
+    ]);
+
+    expect(parseStandardMidiFile(file).tracks).toHaveLength(1);
+  });
+
+  it("rejects a truncated extended SMF header before reading a track", () => {
+    const file = Uint8Array.from([
+      0x4d, 0x54, 0x68, 0x64, 0, 0, 4, 7, 0, 0, 0, 1, 1, 0xe0,
+      0x5a,
+    ]);
+
+    expect(() => parseStandardMidiFile(file)).toThrow(/Truncated MIDI header/);
+  });
+
   it("does not read truncated system-event data from the next track chunk", () => {
     const firstTrackBody = [0, 0xf1];
     const firstTrack = [
