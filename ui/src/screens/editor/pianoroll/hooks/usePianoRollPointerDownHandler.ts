@@ -21,6 +21,7 @@ import {
   collectControllerEventSourceIndices,
   createControllerEvent,
   defaultControllerChannel,
+  indexControllerEventSourcesByBeat,
   MAX_EDITABLE_CONTROLLER_EVENTS,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
 import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
@@ -262,6 +263,9 @@ export function createPianoRollPointerDownHandler({
           ? [...activeSelection]
           : hitIndex >= 0 ? [hitIndex] : [];
         let added = false;
+        let sourceEventIndexByBeat: Map<number, number> | null = null;
+        let channel = hitIndex >= 0 ? beforeEvents[hitIndex].status & 0x0f
+          : defaultControllerChannel(beforeEvents, bottomLane);
         if (hitIndex < 0) {
           if (beforeEvents.length >= MAX_EDITABLE_CONTROLLER_EVENTS) {
             canvas.releasePointerCapture(e.pointerId);
@@ -271,7 +275,7 @@ export function createPianoRollPointerDownHandler({
             bottomLane,
             sourceBeat,
             value,
-            defaultControllerChannel(beforeEvents, bottomLane),
+            channel,
           );
           if (!event) {
             canvas.releasePointerCapture(e.pointerId);
@@ -281,8 +285,19 @@ export function createPianoRollPointerDownHandler({
           sourceEventIndex = gestureEvents.length - 1;
           sourceEventIndices = [sourceEventIndex];
           added = true;
-          setLocalEvents(gestureEvents);
+          channel = event.status & 0x0f;
         }
+        const painting = tool === "draw" && hitIndex < 0;
+        if (painting) {
+          sourceEventIndexByBeat = indexControllerEventSourcesByBeat(
+            gestureEvents, bottomLane, channel,
+          );
+          if (!sourceEventIndexByBeat) {
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+        }
+        if (added) setLocalEvents(gestureEvents);
         onSelectionChange(new Set());
         onControllerEventSelectionChange(new Set(sourceEventIndices));
         midiEventGestureRef.current = {
@@ -290,6 +305,9 @@ export function createPianoRollPointerDownHandler({
           baseEvents: gestureEvents,
           sourceEventIndex,
           sourceEventIndices,
+          sourceEventIndexByBeat,
+          channel,
+          painting,
           added,
           anchorBeat: displayBeat,
           anchorValue: value,

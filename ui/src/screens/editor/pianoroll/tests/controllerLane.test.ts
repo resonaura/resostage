@@ -13,9 +13,12 @@ import {
   collectControllerEventSourceIndices,
   createControllerEvent,
   editControllerEvent,
+  indexControllerEventSourcesByBeat,
   moveControllerEvents,
+  paintControllerEventPoints,
   removeControllerEvent,
   removeControllerEvents,
+  sampleControllerPaintSegment,
   sameEditableMidiEvents,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
 import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
@@ -179,6 +182,80 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     const clamped = moveControllerEvents(source, [0, 2], "cc74", region(), -8, 0);
     expect(clamped?.[0].beat).toBe(0);
     expect(clamped?.[2].beat).toBe(2);
+  });
+
+  it("samples snapped paint segments in either direction with a hard point cap", () => {
+    const forward = sampleControllerPaintSegment(0, 256, 0, 127, 0.125);
+    expect(forward).not.toBeNull();
+    expect(forward).toHaveLength(256);
+    expect(forward?.[0]).toEqual({ beat: 1, value: expect.any(Number) });
+    expect(forward?.at(-1)).toEqual({ beat: 256, value: 127 });
+
+    const reverse = sampleControllerPaintSegment(4, 2, 127, 0, 0.25);
+    expect(reverse?.map((point) => point.beat)).toEqual([
+      3.75, 3.5, 3.25, 3, 2.75, 2.5, 2.25, 2,
+    ]);
+    expect(sampleControllerPaintSegment(0, 0.5, 0, 127, 0)?.map((point) => point.beat))
+      .toEqual([0.125, 0.25, 0.375, 0.5]);
+    expect(sampleControllerPaintSegment(1, 1, 20, 90, 0.25)).toEqual([
+      { beat: 1, value: 90 },
+    ]);
+    expect(sampleControllerPaintSegment(0, 1, 0, 1, Number.NaN)).toBeNull();
+  });
+
+  it("upserts painted points on the active channel and preserves extra MIDI bytes", () => {
+    const source = [
+      { beat: 1, status: 0xb3, data: [74, 20, 9] },
+      cc(2, 11, 40),
+    ];
+    const painted = paintControllerEventPoints(source, "cc74", 3, [
+      { beat: 1, value: 90 },
+      { beat: 1.5, value: 64 },
+    ]);
+    expect(painted?.events).toEqual([
+      { beat: 1, status: 0xb3, data: [74, 90, 9] },
+      source[1],
+      cc(1.5, 74, 64, 3),
+    ]);
+    expect(painted?.sourceEventIndices).toEqual([0, 2]);
+    expect(paintControllerEventPoints(source, "cc74", 3, [
+      { beat: 1, value: 90 },
+      { beat: 3, value: 64 },
+    ], { maxEventCount: source.length })).toBeNull();
+    expect(paintControllerEventPoints(source, "cc128", 3, [
+      { beat: 1, value: 90 },
+    ])).toBeNull();
+    expect(source[0]).toEqual({ beat: 1, status: 0xb3, data: [74, 20, 9] });
+  });
+
+  it("reuses the per-gesture event index and fails closed at the touched-event bound", () => {
+    const source = [cc(1, 74, 20, 3)];
+    const sourceIndex = indexControllerEventSourcesByBeat(source, "cc74", 3);
+    expect(sourceIndex?.get(1_000_000)).toBe(0);
+    const failed = paintControllerEventPoints(source, "cc74", 3, [
+      { beat: 2, value: 90 },
+    ], {
+      maxEventCount: 2,
+      maxTouchedEventCount: 1,
+      alreadyTouchedEventIndices: new Set([0]),
+      sourceEventIndexByBeat: sourceIndex ?? undefined,
+    });
+    expect(failed).toBeNull();
+    expect(sourceIndex?.has(2_000_000)).toBe(false);
+    expect(source).toEqual([cc(1, 74, 20, 3)]);
+  });
+
+  it("paints pitch bend without changing its channel or trailing bytes", () => {
+    const original = pitchBend(1, 0, 2);
+    original.data.push(8);
+    const painted = paintControllerEventPoints([original], "pitchBend", 2, [
+      { beat: 1, value: 4096 },
+    ]);
+    expect(painted?.events).toEqual([{
+      beat: 1,
+      status: 0xe2,
+      data: [0, 96, 8],
+    }]);
   });
 
   it("keeps looped event groups inside the visible source loop window", () => {

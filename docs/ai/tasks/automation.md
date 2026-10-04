@@ -798,3 +798,30 @@ full UI suite passed 947 tests across 143 files, TypeScript and production
 build passed, and repository lint exited 0 with 12 existing warnings in
 unrelated files. `git diff --check` passed. No manual visual or hardware-device
 acceptance was performed.
+
+### Latest continuation — freehand raw MIDI controller painting (2026-10-04)
+
+In Events mode, Draw-tool pointer-down on empty controller-lane space creates
+the first event and begins a freehand gesture. Pointer moves interpolate
+controller values across snapped beats (or 1/32-beat spacing when snap is off).
+The renderer keeps affected events selected. Draw starting over an existing
+event still follows the existing move/edit path; Select behavior is unchanged.
+Pointer-up sends one reliable MIDI-region event update, so the stroke is one
+Core history edit; pointer-cancel removes the preview without committing.
+
+Per-segment work is capped at 256 samples and a gesture may touch no more than
+1,024 source events. A lane/channel/beat lookup is prepared once at gesture
+start and updated only after an accepted segment. Invalid values, malformed
+source indexes, event-count overflow and touched-event overflow fail closed
+without partially applying that segment. CC64–69 preserve their 0/127 switch
+encoding; pitch bend remains signed 14-bit. Extra event data and MIDI channel
+are retained. Loop crossings map to source beats and upsert repeated source
+points instead of growing duplicate points on every loop pass.
+
+Verification: focused controller/gesture tests passed 26/26; full UI Vitest
+passed 954 tests across 143 files; TypeScript and production build passed.
+Full repository lint exited 0 with 12 existing warnings outside this change.
+`git diff --check` passed. No hardware device, visual Electron run or frame-time
+profile was performed. Remaining controller-event work: curve tools, MIDI 2.0
+UMP authoring, and physical/manual acceptance. Keep automation points as their
+separate region-automation model.

@@ -1150,3 +1150,24 @@ and `git diff --check` passed. No hardware-device or manual visual acceptance
 was run. Remaining raw-event gaps are freehand painting, curve tools and MIDI
 2.0 UMP authoring. Commit this block in English and continue with the next open
 audit item. Do not push.
+
+### Latest continuation — freehand raw MIDI controller painting (2026-10-04)
+
+Draw-tool drags beginning on empty Piano Roll Events-lane space now create a
+bounded interpolated CC/pitch-bend stroke, while Select and hit-event movement
+retain their prior behavior. Snapped strokes sample on the current grid; with
+snap disabled they use 1/32-beat spacing. Source loop mapping prevents a stroke
+crossing a loop boundary from duplicating the same source event. One lane,
+channel and beat index is prepared per gesture and reused by pointer moves;
+each segment is capped at 256 samples and each gesture touches at most 1,024
+source events. Existing event channels and trailing bytes are preserved. The
+whole stroke goes through one reliable region update/undo entry; pointer cancel
+discards the local preview.
+
+Verification: focused controller/gesture tests pass 26/26; full UI Vitest
+passes 954/954 across 143 files; TypeScript and production UI build pass. Full
+lint exits 0 with 12 existing warnings outside the changed files;
+`git diff --check` passes. No manual Electron/device run or frame-time profile
+was done. Continue from the next open audit item: raw-event curve tools, MIDI
+2.0 UMP authoring, then remaining automation/plugin acceptance tasks. Commit in
+English; do not push.

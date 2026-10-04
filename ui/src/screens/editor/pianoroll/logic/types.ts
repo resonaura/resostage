@@ -111,6 +111,11 @@ export interface PianoRollMidiEventGesture {
   baseEvents: MidiClipEventRow[];
   sourceEventIndex: number;
   sourceEventIndices: number[];
+  /** Pre-indexed active-lane/channel beat lookup for bounded paint gestures. */
+  sourceEventIndexByBeat: Map<number, number> | null;
+  channel: number;
+  /** Draw-tool drags from empty space paint an interpolated controller ramp. */
+  painting: boolean;
   added: boolean;
   anchorBeat: number;
   anchorValue: number;

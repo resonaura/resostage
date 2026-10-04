@@ -1722,7 +1722,8 @@ cover pointer gestures, retries/rejections, cancellation, history boundary and
 pending region creation. At the time of this audit entry, multi-event editing
 was still open; the latest 2026-10-04 handoff continuation supersedes that
 item. Remaining gaps are UMP/MIDI 2.0 event authoring, freehand controller
-painting, physical-device acceptance, and manual visual acceptance. See
+painting (closed by the later 2026-10-04 continuation below), raw-event curve
+tools, physical-device acceptance, and manual visual acceptance. See
 `automation.md` for implementation detail and remaining edges.
 
 ### Latest performance follow-up — bounded controller scan allocation (2026-10-04)
@@ -1737,6 +1738,26 @@ The lane-picker follow-up also removed its own 16,384-event prefix copy:
 `collectPianoRollControllerNumbers()` preserves bounded lane discovery while
 scanning by index. This is a source-level allocation reduction, not a
 frame-time measurement.
+
+### Latest continuation — freehand raw MIDI controller painting (2026-10-04)
+
+Draw-tool drags that begin in empty space in a Piano Roll Events lane now paint
+an interpolated MIDI 1.0 CC or pitch-bend line. Sample positions follow the
+current snap; snap-off painting uses a deterministic 1/32-beat spacing. Each
+segment is capped at 256 samples and one gesture can touch at most 1,024 events.
+The active-lane/channel beat index is built once at pointer-down, not rescanned
+for every pointer move. Source events are upserted at source beats, so crossing
+a MIDI loop updates/reuses loop-source points rather than creating duplicate
+events. Channels and trailing event bytes are preserved. Pointer-up uses the
+existing single reliable MIDI-region update/history path; cancel discards the
+draft. Selection follows the points affected by the gesture.
+
+Focused controller/gesture tests passed 26/26; full UI Vitest passed 954 tests
+across 143 files; `tsc -b`, production UI build and repository lint passed.
+Lint reported 12 warnings in existing files; none were in files changed by
+this block. `git diff --check` passed. No manual Electron/device acceptance or
+frame-time profiling was performed. Remaining raw-event gaps are curve tools,
+MIDI 2.0 UMP authoring, and visual/physical-device acceptance.
 
 ### Latest continuation — multi-event raw MIDI editing (2026-10-04)
 

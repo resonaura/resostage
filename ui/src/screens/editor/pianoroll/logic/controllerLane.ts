@@ -15,7 +15,26 @@ const MAX_SOURCE_EVENTS = 16_384;
 const MAX_PROJECTED_EVENTS = 12_000;
 const MAX_LOOP_PASSES = 1_200;
 export const MAX_EDITABLE_CONTROLLER_EVENTS = MAX_SOURCE_EVENTS;
+export const MAX_CONTROLLER_PAINT_POINTS_PER_SEGMENT = 256;
+export const MAX_CONTROLLER_PAINT_EVENTS_PER_GESTURE = 1_024;
 const DISPLAY_BEAT_EPSILON = 1e-6;
+
+export interface PianoRollControllerPaintPoint {
+  beat: number;
+  value: number;
+}
+
+export interface PianoRollControllerPaintResult {
+  events: MidiClipEventRow[];
+  sourceEventIndices: number[];
+}
+
+export interface PianoRollControllerPaintOptions {
+  maxEventCount?: number;
+  maxTouchedEventCount?: number;
+  alreadyTouchedEventIndices?: ReadonlySet<number>;
+  sourceEventIndexByBeat?: Map<number, number>;
+}
 
 /** Keep newly drawn events inside the region's half-open visible time range. */
 export function clampControllerDisplayBeat(
@@ -174,6 +193,148 @@ export function moveControllerEvents(
     updated[index] = replacement;
   }
   return updated;
+}
+
+/** Sample a bounded, grid-aligned line between two pointer samples. */
+export function sampleControllerPaintSegment(
+  startBeat: number,
+  endBeat: number,
+  startValue: number,
+  endValue: number,
+  snap: number,
+): PianoRollControllerPaintPoint[] | null {
+  if (![startBeat, endBeat, startValue, endValue, snap].every(Number.isFinite)
+      || snap < 0)
+    return null;
+  const distance = Math.abs(endBeat - startBeat);
+  if (distance <= DISPLAY_BEAT_EPSILON) {
+    return startValue === endValue ? [] : [{ beat: endBeat, value: endValue }];
+  }
+
+  const minimumStep = snap > 0 ? snap : 0.125;
+  const idealSteps = Math.max(1, Math.ceil(distance / minimumStep));
+  const stride = minimumStep * Math.max(
+    1,
+    Math.ceil(idealSteps / MAX_CONTROLLER_PAINT_POINTS_PER_SEGMENT),
+  );
+  const direction = endBeat < startBeat ? -1 : 1;
+  const steps = Math.floor((distance - DISPLAY_BEAT_EPSILON) / stride);
+  const points: PianoRollControllerPaintPoint[] = [];
+  for (let index = 1; index <= steps; index += 1) {
+    const offset = Math.min(distance, index * stride);
+    const fraction = offset / distance;
+    points.push({
+      beat: startBeat + direction * offset,
+      value: startValue + (endValue - startValue) * fraction,
+    });
+  }
+  points.push({ beat: endBeat, value: endValue });
+  return points;
+}
+
+/** Build the per-gesture source index once, rather than scanning events per pointer move. */
+export function indexControllerEventSourcesByBeat(
+  events: MidiClipEventRow[],
+  lane: PianoRollBottomLane,
+  channel: number,
+): Map<number, number> | null {
+  if (events.length > MAX_EDITABLE_CONTROLLER_EVENTS
+      || !Number.isInteger(channel) || channel < 0 || channel > 15)
+    return null;
+  const pitchBend = lane === "pitchBend";
+  const controller = pitchBend ? -1 : Number(lane.slice(2));
+  if (!pitchBend && (!lane.startsWith("cc") || !Number.isInteger(controller)
+      || controller < 0 || controller > 127))
+    return null;
+
+  const sourceByBeat = new Map<number, number>();
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    const matchesLane = pitchBend
+      ? (event.status & 0xf0) === 0xe0 && event.data.length >= 2
+      : (event.status & 0xf0) === 0xb0 && event.data.length >= 2
+        && event.data[0] === controller;
+    if (matchesLane && (event.status & 0x0f) === channel && Number.isFinite(event.beat))
+      sourceByBeat.set(Math.round(event.beat / DISPLAY_BEAT_EPSILON), index);
+  }
+  return sourceByBeat;
+}
+
+/** Upsert one bounded freehand segment without changing unrelated MIDI events. */
+export function paintControllerEventPoints(
+  events: MidiClipEventRow[],
+  lane: PianoRollBottomLane,
+  channel: number,
+  points: PianoRollControllerPaintPoint[],
+  options: PianoRollControllerPaintOptions = {},
+): PianoRollControllerPaintResult | null {
+  const maxEventCount = options.maxEventCount ?? MAX_EDITABLE_CONTROLLER_EVENTS;
+  const maxTouchedEventCount = options.maxTouchedEventCount
+    ?? MAX_CONTROLLER_PAINT_EVENTS_PER_GESTURE;
+  if (events.length > MAX_EDITABLE_CONTROLLER_EVENTS || points.length === 0
+      || points.length > MAX_CONTROLLER_PAINT_POINTS_PER_SEGMENT
+      || !Number.isInteger(maxEventCount) || maxEventCount < events.length
+      || maxEventCount > MAX_EDITABLE_CONTROLLER_EVENTS
+      || !Number.isInteger(maxTouchedEventCount) || maxTouchedEventCount < 0
+      || !Number.isInteger(channel) || channel < 0 || channel > 15)
+    return null;
+
+  const pitchBend = lane === "pitchBend";
+  const controller = pitchBend ? -1 : Number(lane.slice(2));
+  if (!pitchBend && (!lane.startsWith("cc") || !Number.isInteger(controller)
+      || controller < 0 || controller > 127))
+    return null;
+
+  const sourceByBeat = options.sourceEventIndexByBeat
+    ?? indexControllerEventSourcesByBeat(events, lane, channel);
+  if (!sourceByBeat) return null;
+  const touchedIndices = new Set(options.alreadyTouchedEventIndices ?? []);
+  for (const index of touchedIndices) {
+    if (!Number.isInteger(index) || index < 0 || index >= events.length) return null;
+  }
+
+  const updated = [...events];
+  const paintedIndices = new Set<number>();
+  const stagedSourceByBeat = new Map<number, number>();
+  for (const point of points) {
+    if (!Number.isFinite(point.beat) || point.beat < 0 || !Number.isFinite(point.value))
+      return null;
+    const replacement = createControllerEvent(lane, point.beat, point.value, channel);
+    if (!replacement) return null;
+    const key = Math.round(point.beat / DISPLAY_BEAT_EPSILON);
+    const existingIndex = stagedSourceByBeat.get(key) ?? sourceByBeat.get(key);
+    if (existingIndex !== undefined) {
+      if (!Number.isInteger(existingIndex) || existingIndex < 0
+          || existingIndex >= updated.length)
+        return null;
+      const original = updated[existingIndex];
+      const matchesSource = pitchBend
+        ? (original.status & 0xf0) === 0xe0 && original.data.length >= 2
+        : (original.status & 0xf0) === 0xb0 && original.data.length >= 2
+          && original.data[0] === controller;
+      if (!matchesSource || (original.status & 0x0f) !== channel
+          || Math.abs(original.beat - point.beat) > DISPLAY_BEAT_EPSILON)
+        return null;
+      replacement.data = [...replacement.data, ...original.data.slice(replacement.data.length)];
+      updated[existingIndex] = replacement;
+      paintedIndices.add(existingIndex);
+      touchedIndices.add(existingIndex);
+      if (touchedIndices.size > maxTouchedEventCount) return null;
+      continue;
+    }
+    if (updated.length >= maxEventCount) return null;
+    const index = updated.length;
+    updated.push(replacement);
+    stagedSourceByBeat.set(key, index);
+    paintedIndices.add(index);
+    touchedIndices.add(index);
+    if (touchedIndices.size > maxTouchedEventCount) return null;
+  }
+
+  for (const [key, index] of stagedSourceByBeat)
+    sourceByBeat.set(key, index);
+
+  return { events: updated, sourceEventIndices: [...paintedIndices] };
 }
 
 interface SelectedEvent {

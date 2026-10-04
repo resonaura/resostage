@@ -19,7 +19,11 @@ import { controllerValueFromY } from "@/screens/editor/pianoroll/logic/canvasUti
 import {
   clampControllerDisplayBeat,
   editControllerEvent,
+  MAX_CONTROLLER_PAINT_EVENTS_PER_GESTURE,
+  MAX_EDITABLE_CONTROLLER_EVENTS,
   moveControllerEvents,
+  paintControllerEventPoints,
+  sampleControllerPaintSegment,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
 import {
   boundedNoteMove,
@@ -69,6 +73,7 @@ interface PianoRollPointerMoveHandlerOptions {
   setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
   setLocalEvents: (events: MidiClipEventRow[] | null) => void;
   onSelectionChange: (ids: Set<number>) => void;
+  onControllerEventSelectionChange: (indices: Set<number>) => void;
   onSeek?: (beats: number) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
@@ -104,6 +109,7 @@ export function createPianoRollPointerMoveHandler({
   setControllerPreview,
   setLocalEvents,
   onSelectionChange,
+  onControllerEventSelectionChange,
   onSeek,
   onRegionChange,
   onEventsChange,
@@ -201,6 +207,52 @@ export function createPianoRollPointerMoveHandler({
         y, gridBottom, height, bottomLane === "pitchBend",
       );
       if (gesture.lastBeat === displayBeat && gesture.lastValue === value) return;
+      if (gesture.painting) {
+        const sampled = sampleControllerPaintSegment(
+          gesture.lastBeat,
+          displayBeat,
+          gesture.lastValue,
+          value,
+          snap,
+        );
+        if (!sampled || sampled.length === 0) return;
+        const points = sampled.map((point) => ({
+          ...point,
+          beat: sourceBeatAt(clampControllerDisplayBeat(
+            point.beat, region.durationBeats, snap,
+          )),
+        }));
+        const previousEvents = gesture.baseEvents;
+        const painted = paintControllerEventPoints(
+          previousEvents,
+          bottomLane,
+          gesture.channel,
+          points,
+          {
+            maxEventCount: Math.min(
+              MAX_EDITABLE_CONTROLLER_EVENTS,
+              gesture.beforeEvents.length + MAX_CONTROLLER_PAINT_EVENTS_PER_GESTURE,
+            ),
+            maxTouchedEventCount: MAX_CONTROLLER_PAINT_EVENTS_PER_GESTURE,
+            alreadyTouchedEventIndices: new Set(gesture.sourceEventIndices),
+            sourceEventIndexByBeat: gesture.sourceEventIndexByBeat ?? undefined,
+          },
+        );
+        if (!painted) return;
+        gesture.sourceEventIndices = [...new Set([
+          ...gesture.sourceEventIndices,
+          ...painted.sourceEventIndices,
+        ])];
+        gesture.baseEvents = painted.events;
+        gesture.lastBeat = displayBeat;
+        gesture.lastValue = value;
+        // A segment was accepted; the pointer-up path performs the single full
+        // equality check before committing the one region-history transaction.
+        gesture.changed = true;
+        setLocalEvents(painted.events);
+        onControllerEventSelectionChange(new Set(gesture.sourceEventIndices));
+        return;
+      }
       const updated = gesture.sourceEventIndices.length > 1
         ? moveControllerEvents(
           gesture.baseEvents,

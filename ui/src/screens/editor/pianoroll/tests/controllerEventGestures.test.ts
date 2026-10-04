@@ -19,6 +19,9 @@ import type {
   PianoRollControllerGesture,
   PianoRollMidiEventGesture,
   PianoRollPendingAutomationCommit,
+  PianoRollBottomLane,
+  GridSnapValue,
+  PianoRollTool,
   PianoRollVelocityPaintState,
   PianoRollViewport,
 } from "@/screens/editor/pianoroll/logic/types";
@@ -48,7 +51,17 @@ function region(events: MidiClipEventRow[] = []): MidiRegionRow {
   };
 }
 
-function harness(source: MidiRegionRow) {
+function harness(
+  source: MidiRegionRow,
+  options: {
+    tool?: PianoRollTool;
+    bottomLane?: PianoRollBottomLane;
+    snap?: GridSnapValue;
+  } = {},
+) {
+  const tool = options.tool ?? "select";
+  const bottomLane = options.bottomLane ?? "cc74";
+  const snap = options.snap ?? 0.25;
   const capture = new Set<number>();
   const canvas = {
     style: { cursor: "" },
@@ -99,14 +112,14 @@ function harness(source: MidiRegionRow) {
     spatialIndex,
     viewport,
     region: source,
-    bottomLane: "cc74",
+    bottomLane,
     controllerLaneMode: "events",
     notesToRender: source.notes,
     selectedNoteIds: new Set(),
     selectedControllerEventIndices,
     onControllerEventSelectionChange,
-    tool: "select",
-    snap: 0.25,
+    tool,
+    snap,
     snapToScale: false,
     rootNote: 0,
     scaleMode: "chromatic",
@@ -139,11 +152,11 @@ function harness(source: MidiRegionRow) {
     spatialIndex,
     viewport,
     region: source,
-    bottomLane: "cc74",
+    bottomLane,
     controllerLaneMode: "events",
     notesToRender: source.notes,
-    tool: "select",
-    snap: 0.25,
+    tool,
+    snap,
     snapToScale: false,
     rootNote: 0,
     scaleMode: "chromatic",
@@ -155,6 +168,7 @@ function harness(source: MidiRegionRow) {
     setControllerPreview,
     setLocalEvents,
     onSelectionChange: noOp,
+    onControllerEventSelectionChange,
     onSeek: noOp,
     onRegionChange: noOp,
     onEventsChange,
@@ -176,7 +190,7 @@ function harness(source: MidiRegionRow) {
     notesToRender: source.notes,
     region: source,
     viewport,
-    bottomLane: "cc74",
+    bottomLane,
     controllerLaneMode: "events",
     spatialIndex,
     stopAutoScroll: noOp,
@@ -194,7 +208,7 @@ function harness(source: MidiRegionRow) {
   });
   return {
     pointerDown, pointerMove, pointerEnd, onEventsChange, localEventsRef, draggingRef,
-    selectedControllerEventIndices, onControllerEventSelectionChange,
+    midiEventGestureRef, selectedControllerEventIndices, onControllerEventSelectionChange,
   };
 }
 
@@ -237,6 +251,56 @@ describe("Piano Roll raw MIDI event gestures", () => {
 
     expect(h.onEventsChange).toHaveBeenCalledOnce();
     expect(h.onEventsChange.mock.calls[0][0][0].beat).toBe(3.75);
+  });
+
+  it("paints an interpolated snapped controller line as one region transaction", () => {
+    const h = harness(region(), { tool: "draw" });
+    const startY = controllerYFromValue(32, 310, 400, false);
+    const endY = controllerYFromValue(96, 310, 400, false);
+    h.pointerDown(pointer(214, startY));
+    expect(h.midiEventGestureRef.current?.painting).toBe(true);
+    h.pointerMove(pointer(374, endY));
+    h.pointerEnd.handlePointerUp(pointer(374, endY));
+
+    expect(h.onEventsChange).toHaveBeenCalledOnce();
+    const painted = h.onEventsChange.mock.calls[0][0] as MidiClipEventRow[];
+    expect(painted.map((event) => event.beat)).toEqual([
+      2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4,
+    ]);
+    expect(painted.every((event) => event.status === 0xb0 && event.data[0] === 74)).toBe(true);
+    expect(painted[0].data[1]).toBe(32);
+    expect(painted.at(-1)?.data[1]).toBe(96);
+    expect(h.selectedControllerEventIndices.size).toBe(painted.length);
+  });
+
+  it("maps a painted loop-wrap back to source beats without duplicate events", () => {
+    const source = region();
+    source.loop = true;
+    source.loopStartBeats = 2;
+    source.loopLengthBeats = 2;
+    source.clipOffsetBeats = 2;
+    const h = harness(source, { tool: "draw" });
+    h.pointerDown(pointer(134, controllerYFromValue(20, 310, 400, false)));
+    h.pointerMove(pointer(294, controllerYFromValue(100, 310, 400, false)));
+    h.pointerEnd.handlePointerUp(pointer(294, controllerYFromValue(100, 310, 400, false)));
+
+    expect(h.onEventsChange).toHaveBeenCalledOnce();
+    const painted = h.onEventsChange.mock.calls[0][0] as MidiClipEventRow[];
+    expect(painted).toHaveLength(8);
+    expect(painted.map((event) => event.beat).sort((left, right) => left - right))
+      .toEqual([2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75]);
+    expect(painted.every((event) => event.beat >= 2 && event.beat < 4)).toBe(true);
+  });
+
+  it("cancels a freehand controller paint without committing its draft", () => {
+    const h = harness(region(), { tool: "draw" });
+    h.pointerDown(pointer(214, controllerYFromValue(32, 310, 400, false)));
+    h.pointerMove(pointer(374, controllerYFromValue(96, 310, 400, false)));
+    expect(h.localEventsRef.current).toHaveLength(9);
+
+    h.pointerEnd.handlePointerCancel(pointer(374, 333));
+    expect(h.onEventsChange).not.toHaveBeenCalled();
+    expect(h.localEventsRef.current).toBeNull();
   });
 
   it("moves and changes the source event while preserving its channel", () => {
