@@ -45,8 +45,9 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   const reader = new ClipReader(bytes);
   if (reader.fourCC() + reader.fourCC() !== MAGIC) throw new Error("Not a MIDI 2.0 Clip File");
 
-  const packets: Array<{ words: number[]; ticks: number; order: number }> = [];
+  const packets: Array<{ words: number[]; ticks: number; inSequence: boolean }> = [];
   let ticks = 0;
+  let startTicks = 0;
   let clipEndTicks = 0;
   let tpq = 0;
   let started = false;
@@ -88,6 +89,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         if (precedingDcsDelta === null)
           throw new Error("MIDI 2.0 clip Start of Clip must have a preceding Delta Clockstamp");
         started = true;
+        startTicks = ticks;
         continue;
       }
       if (status === 0x21) {
@@ -102,7 +104,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     }
     if (packets.length >= MAX_EVENTS)
       throw new Error("MIDI 2.0 clip has too many UMP events");
-    packets.push({ words, ticks, order: packets.length });
+    packets.push({ words, ticks, inSequence: started });
   }
   if (!tpq) throw new Error("MIDI 2.0 clip is missing DCTPQ");
   if (!started || !ended) throw new Error("MIDI 2.0 clip is missing Start/End of Clip markers");
@@ -115,11 +117,12 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   let nextId = 1;
   let durationTicks = 0;
   for (const packet of packets) {
-    const { words, ticks: at } = packet;
-    durationTicks = Math.max(durationTicks, at);
+    const { words, ticks: at, inSequence } = packet;
+    const relativeTicks = inSequence ? Math.max(0, at - startTicks) : 0;
+    durationTicks = Math.max(durationTicks, relativeTicks);
     const word0 = words[0];
     const type = word0 >>> 28;
-    const beat = at / tpq;
+    const beat = relativeTicks / tpq;
     if (type === 0xd) {
       const statusBank = (word0 >>> 8) & 0xff;
       const status = word0 & 0xff;
@@ -135,6 +138,13 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         continue;
       }
     }
+    // Configuration-header packets precede the musical sequence. Preserve
+    // them at beat zero, but do not let their elapsed clock time offset notes
+    // or interpret configuration note messages as musical note pairs.
+    if (!inSequence) {
+      rawEvents.push({ beat: 0, words, wordCount: words.length });
+      continue;
+    }
     if (type === 4 || type === 2) {
       const group = type === 4 ? (word0 >>> 24) & 0xf : (word0 >>> 24) & 0xf;
       const status = (word0 >>> 20) & 0xf;
@@ -149,7 +159,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         const key = `${group}:${channel}:${pitch}`;
         if (status === 9 && eventVelocity > 0) {
           const queue = held.get(key) ?? [];
-          queue.push({ tick: at, velocity: eventVelocity, attributeType, attributeData, group, channel, pitch });
+          queue.push({ tick: relativeTicks, velocity: eventVelocity, attributeType, attributeData, group, channel, pitch });
           held.set(key, queue);
           continue;
         }
@@ -159,7 +169,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
           notes.push({
             id: nextId++, pitch, channel,
             startBeats: start.tick / tpq,
-            durationBeats: Math.max(1 / 64, (at - start.tick) / tpq),
+            durationBeats: Math.max(1 / 64, (relativeTicks - start.tick) / tpq),
             velocity: start.velocity / 65535,
             releaseVelocity: (status === 8 ? eventVelocity : 0) / 65535,
             probability: 1,
@@ -185,7 +195,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         attributeType: start.attributeType, attributeData: start.attributeData },
     });
   }
-  const durationBeats = Math.max(1, durationTicks / tpq, clipEndTicks / tpq,
+  const sequenceEndTicks = Math.max(0, clipEndTicks - startTicks);
+  const durationBeats = Math.max(1, durationTicks / tpq, sequenceEndTicks / tpq,
     ...notes.map((note) => note.startBeats + note.durationBeats));
   const track: ImportedMidiTrack = { name: "MIDI 2.0 Clip", notes, umpEvents: rawEvents, durationBeats };
   return { format: "midi2-clip", tracks: [track], tempoEvents, meterEvents, bpm: tempoEvents[0]?.bpm,

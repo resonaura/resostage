@@ -1368,3 +1368,18 @@ pre-existing warnings outside the change; `git diff --check` passed. Remaining
 codec work: independent profile/config, SysEx, Flex Data and broad UMP fixtures,
 plus cross-DAW round-trip acceptance. Continue with those and native UMP I/O;
 do not push.
+
+Latest follow-up — MIDI Clip sequence timing origin (2026-10-04): parser
+timestamps are now normalized to the accumulated DCS tick at Start of Clip.
+Timed pre-Start configuration is retained at beat zero; recognized tempo/meter
+Flex Data there is likewise applied at beat zero, and configuration packets
+cannot accidentally pair as musical notes. The project's schema does not yet
+preserve a separate configuration-header timeline. A fixture covers nonzero
+pre-roll, a setup Program Change, tempo Flex Data, a MIDI 2.0 note pair and
+sequence-relative duration. Focused parser tests passed 7/7; full UI passed
+1,025/1,025 across 151 files; TypeScript, production UI build, lint (12
+pre-existing unrelated warnings) and diff check passed. The source behavior
+follows MIDI Clip File Specification v1.0 sections 6–7. Independent profile,
+configuration, SysEx and broader Flex Data/UMP interoperability fixtures and
+native UMP input/output remain open. Do not claim full MIDI 2.0 compatibility;
+do not push.

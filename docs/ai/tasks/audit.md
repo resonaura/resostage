@@ -1966,3 +1966,24 @@ The framing assertions follow MIDI Clip File Specification v1.0, sections 3,
 Still open: an independently sourced fixture corpus covering profile/config
 messages, SysEx, Flex Data and wider UMP packet edge cases; cross-DAW round-trip
 acceptance; note-ID/note-off-attribute model limitations; and native UMP I/O.
+
+### Latest continuation — MIDI Clip sequence timing origin (2026-10-04)
+
+MIDI Clip File packet timestamps before Start of Clip are configuration-header
+timing, not musical sequence offsets. The parser now records the tick at Start
+and normalizes all sequence events and End duration against it. Configuration
+packets are retained at beat zero; recognized tempo/meter Flex Data before
+Start is interpreted at beat zero, and pre-Start note-shaped packets are not
+paired into Piano Roll notes. The project model still has no distinct
+configuration-header timeline, so exact setup-message timing/order is not
+round-tripped as a separate section.
+
+The regression uses nonzero configuration pre-roll, a setup Program Change,
+tempo Flex Data, and a MIDI 2.0 note pair. It verifies beat-zero configuration,
+the note's sequence-relative start/duration, and sequence-relative clip end.
+Focused MIDI Clip tests passed 7/7; full UI passed 1,025 tests across 151
+files; TypeScript/production build passed; lint exited 0 with 12 existing
+warnings outside changed files; `git diff --check` passed. Source rule follows
+MIDI Clip File Specification v1.0 sections 6–7; broader independent
+configuration/profile, SysEx and Flex Data interoperability fixtures remain
+open. Do not claim complete MIDI Clip or end-to-end MIDI 2.0 conformance.

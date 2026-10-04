@@ -29,6 +29,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   retained UMP events. Export enforces the same event cap while collecting
   output (including loop expansion), rather than after building an oversized
   intermediate list. Long DCS gaps are emitted with bounded DCS/NOOP resets.
+- MIDI Clip File musical event beats and duration are normalized to the
+  accumulated tick position at Start of Clip. Timed configuration-header
+  packets before Start are retained at beat zero (and tempo/meter Flex Data is
+  interpreted at beat zero), so setup pre-roll cannot shift notes. The current
+  project schema does not model a separate configuration-header timeline.
 - Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
   packets on MIDI regions; the current format 12 retains them. Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and
@@ -97,7 +102,8 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   does not interpret or promise playback for message types it does not
   implement. The original UMP stream's exact byte layout, utility packets,
   and ordering around normalized note events are not preserved as a raw file
-  blob.
+  blob. Configuration-header packet timing is intentionally flattened to beat
+  zero because the project model has no separate configuration-header section.
 - `.mid` remains inherently lossy for data without a MIDI 1.0 equivalent.
   The loss report is a safeguard, not a universal translator. MPE/vendor
   encodings are not synthesized automatically.

@@ -66,6 +66,29 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]);
   });
 
+  it("anchors musical timing at Start of Clip while preserving timed configuration at beat zero", () => {
+    const parsed = parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960),
+      dcs(0), [0xd010_0000, 50_000_000, 0, 0],
+      dcs(120), [0x20c0_0000],
+      dcs(120), start,
+      dcs(120), [0x4090_3c00, 0xffff_0000],
+      dcs(1_920), [0x4080_3c00, 0xffff_0000],
+      dcs(0), end,
+    ]));
+
+    expect(parsed.tempoEvents).toEqual([{ beat: 0, bpm: 120 }]);
+    expect(parsed.tracks[0].umpEvents).toEqual([
+      { beat: 0, words: [0x20c0_0000], wordCount: 1 },
+    ]);
+    expect(parsed.tracks[0].notes).toHaveLength(1);
+    expect(parsed.tracks[0].notes[0]).toMatchObject({
+      startBeats: 0.125,
+      durationBeats: 2,
+    });
+    expect(parsed.tracks[0].durationBeats).toBe(2.125);
+  });
+
   it("requires a single DCTPQ preceded by a zero-delta clockstamp", () => {
     const validFrame = [dcs(0), start, dcs(0), end];
     const invalid = [
