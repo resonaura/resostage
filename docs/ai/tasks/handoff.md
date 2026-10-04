@@ -1454,3 +1454,22 @@ RelWithDebInfo build and CTest (1/1 target); `git diff --check`. This does not
 finish MIDI 2.0 live UMP, MIDI-CI, SMF2 Container, or full plug-in/playback
 support. Continue from `docs/MIDI2_REMAINING_WORK.md`. The current note-edge
 implementation is isolated from future UMP endpoint work; do not push.
+
+Latest verified continuation — simultaneous MIDI Clip event order
+(2026-10-04): project format v15 stores original presentation indexes for MIDI
+2.0 note attack/release edges and opaque UMP sequence events. Indexes persist
+through Core JSON, telemetry and Piano Roll reconciliation. Export orders ties
+at final integer TPQ ticks, honors imported order, and falls back to deterministic
+Off-before-On for locally authored or loop-expanded events. Missing/invalid
+indexes become `-1` in both Core loads and v14-to-v15 migration. MIDI Clip tests
+18/18, migration 9/9, full UI 1,039/1,039 (151 files), TypeScript, production
+build, changed-file lint, Core RelWithDebInfo build, CTest 1/1, and diff check
+passed. Do not push.
+
+Next: continue file-codec conformance from `docs/MIDI2_REMAINING_WORK.md`.
+Preserve explicit limits: tempo/meter Flex Data is normalized into project maps
+and loses original packet interleaving; no independent profile/configuration
+reference corpus, broad SysEx/malformed-packet corpus, MIDI-CI, native UMP
+devices, SMF2 Container, or full plug-in UMP playback exists. Do not claim full
+MIDI 2.0 compatibility. Before continuing, inspect `git status` and recent
+history to see whether the just-validated block has been committed.

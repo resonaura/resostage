@@ -158,7 +158,8 @@ describe("Standard MIDI File", () => {
       songIndices: [0], tracks: [{ id: "t1", name: "UMP" }],
       fromProjectStart: true, expandLoops: true, format: "midi2",
     }));
-    expect(parsed.tracks[0].umpEvents).toContainEqual({ beat: 1.25, words: opaque, wordCount: 4 });
+    expect(parsed.tracks[0].umpEvents).toContainEqual({ beat: 1.25, words: opaque,
+      wordCount: 4, presentationOrder: 3 });
   });
 
   it("exports MIDI 2.0 loop wrap, clipped note ends, and mute state like the arrangement", () => {
@@ -190,7 +191,7 @@ describe("Standard MIDI File", () => {
       { pitch: 61, start: 5.5, end: 6 },
     ]);
     expect(parsed.tracks[0].umpEvents).toContainEqual({ beat: 3.5,
-      words: [0x20b20140], wordCount: 1 });
+      words: [0x20b20140], wordCount: 1, presentationOrder: 4 });
   });
 
   it("orders MIDI 2.0 note off before retrigger at the same tick", () => {

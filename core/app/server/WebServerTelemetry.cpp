@@ -469,6 +469,8 @@ std::string WebServer::buildStateJson(const char* view) const {
                         midi2.attributeData = n.midi2->attributeData;
                         midi2.releaseAttributeType = n.midi2->releaseAttributeType;
                         midi2.releaseAttributeData = n.midi2->releaseAttributeData;
+                        midi2.attackOrder = n.midi2->attackOrder;
+                        midi2.releaseOrder = n.midi2->releaseOrder;
                         wN.midi2 = midi2;
                     }
                     wMr.notes.push_back(std::move(wN));
@@ -491,6 +493,7 @@ std::string WebServer::buildStateJson(const char* view) const {
                     wEvent.wordCount = event.wordCount;
                     wEvent.configurationHeader = event.configurationHeader;
                     wEvent.profileConfigurationHeader = event.profileConfigurationHeader;
+                    wEvent.presentationOrder = event.presentationOrder;
                     wMr.umpEvents.push_back(std::move(wEvent));
                 }
                 wSong.midiRegions.push_back(std::move(wMr));

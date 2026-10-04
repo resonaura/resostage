@@ -564,6 +564,8 @@ struct WMidiNoteTelemetry {
         uint16_t attributeData = 0;
         int releaseAttributeType = 0;
         uint16_t releaseAttributeData = 0;
+        int32_t attackOrder = -1;
+        int32_t releaseOrder = -1;
     };
     std::optional<WMidi2Data> midi2;
 };
@@ -580,6 +582,7 @@ struct WMidiUmpEventTelemetry {
     int wordCount = 0;
     bool configurationHeader = false;
     bool profileConfigurationHeader = false;
+    int32_t presentationOrder = -1;
 };
 
 struct WMidiRegionTelemetry {

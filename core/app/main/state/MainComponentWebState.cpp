@@ -364,6 +364,8 @@ void MainComponent::publishWebState() {
                     midi2.attributeData = n.midi2->attributeData;
                     midi2.releaseAttributeType = n.midi2->releaseAttributeType;
                     midi2.releaseAttributeData = n.midi2->releaseAttributeData;
+                    midi2.attackOrder = n.midi2->attackOrder;
+                    midi2.releaseOrder = n.midi2->releaseOrder;
                     nr.midi2 = midi2;
                 }
                 mrr.notes.push_back(std::move(nr));
@@ -383,6 +385,9 @@ void MainComponent::publishWebState() {
                 rowEvent.beat = event.beat;
                 rowEvent.words = event.words;
                 rowEvent.wordCount = event.wordCount;
+                rowEvent.configurationHeader = event.configurationHeader;
+                rowEvent.profileConfigurationHeader = event.profileConfigurationHeader;
+                rowEvent.presentationOrder = event.presentationOrder;
                 mrr.umpEvents.push_back(std::move(rowEvent));
             }
             mrr.automationLanes = copyAutomationLanes(mr.automationLanes);

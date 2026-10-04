@@ -491,6 +491,8 @@ struct WMidiNote {
         uint16_t attributeData = 0;
         std::optional<int> releaseAttributeType;
         std::optional<uint16_t> releaseAttributeData;
+        int32_t attackOrder = -1;
+        int32_t releaseOrder = -1;
     };
     std::optional<WMidi2Data> midi2;
 };
@@ -507,6 +509,7 @@ struct WMidiUmpEvent {
     int wordCount = 0;
     bool configurationHeader = false;
     bool profileConfigurationHeader = false;
+    int32_t presentationOrder = -1;
 };
 
 struct WMidiRegion {
@@ -1039,6 +1042,8 @@ WProject toWire(const Project& p) {
                     midi2.attributeData = n.midi2->attributeData;
                     midi2.releaseAttributeType = n.midi2->releaseAttributeType;
                     midi2.releaseAttributeData = n.midi2->releaseAttributeData;
+                    midi2.attackOrder = normalizeMidiPresentationOrder(n.midi2->attackOrder);
+                    midi2.releaseOrder = normalizeMidiPresentationOrder(n.midi2->releaseOrder);
                     wn.midi2 = midi2;
                 }
                 wmr.notes.push_back(std::move(wn));
@@ -1060,6 +1065,7 @@ WProject toWire(const Project& p) {
                 we.wordCount = event.wordCount;
                 we.configurationHeader = event.configurationHeader;
                 we.profileConfigurationHeader = event.profileConfigurationHeader;
+                we.presentationOrder = normalizeMidiPresentationOrder(event.presentationOrder);
                 wmr.umpEvents.push_back(std::move(we));
             }
             for (const auto& al : mr.automationLanes)
@@ -1445,6 +1451,8 @@ Project fromWire(const WProject& w) {
                     midi2.releaseAttributeType = static_cast<uint8_t>(std::clamp(
                         n.midi2->releaseAttributeType.value_or(midi2.attributeType), 0, 255));
                     midi2.releaseAttributeData = n.midi2->releaseAttributeData.value_or(midi2.attributeData);
+                    midi2.attackOrder = normalizeMidiPresentationOrder(n.midi2->attackOrder);
+                    midi2.releaseOrder = normalizeMidiPresentationOrder(n.midi2->releaseOrder);
                     note.midi2 = midi2;
                 }
                 reg.notes.push_back(std::move(note));
@@ -1467,6 +1475,7 @@ Project fromWire(const WProject& w) {
                 event.wordCount = static_cast<uint8_t>(we.wordCount);
                 event.configurationHeader = we.configurationHeader || we.profileConfigurationHeader;
                 event.profileConfigurationHeader = we.profileConfigurationHeader;
+                event.presentationOrder = normalizeMidiPresentationOrder(we.presentationOrder);
                 reg.umpEvents.push_back(event);
             }
             for (const auto& wal : mr.automationLanes)

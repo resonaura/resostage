@@ -734,6 +734,8 @@ struct WebUiState {
                     uint16_t attributeData = 0;
                     int releaseAttributeType = 0;
                     uint16_t releaseAttributeData = 0;
+                    int32_t attackOrder = -1;
+                    int32_t releaseOrder = -1;
                 };
                 using MIDI2Data = Midi2Data;
                 std::optional<Midi2Data> midi2;
@@ -752,6 +754,7 @@ struct WebUiState {
                 int wordCount = 0;
                 bool configurationHeader = false;
                 bool profileConfigurationHeader = false;
+                int32_t presentationOrder = -1;
             };
             using UMPEvent = UmpEvent;
             std::vector<UmpEvent> umpEvents;

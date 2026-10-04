@@ -36,12 +36,28 @@ class ClipReader {
   fourCC(): string { return String.fromCharCode(this.byte(), this.byte(), this.byte(), this.byte()); }
 }
 
-interface ClipEvent { beat: number; words: number[]; priority: number; order: number }
+interface ClipEvent {
+  beat: number;
+  words: number[];
+  priority: number;
+  order: number;
+  sourceRegionOrder?: number;
+  sourcePresentationOrder?: number;
+}
 type ExportUmpEvent =
   | { configuration: true; profile: boolean; words: number[] }
-  | { configuration: false; profile: false; relative: number; words: number[] };
+  | { configuration: false; profile: false; relative: number; words: number[]; presentationOrder?: number };
 type ClipSequenceUmpEvent = Extract<ExportUmpEvent, { configuration: false }>;
-interface HeldNote { tick: number; velocity: number; attributeType: number; attributeData: number; group: number; channel: number; pitch: number }
+interface HeldNote {
+  tick: number;
+  velocity: number;
+  attributeType: number;
+  attributeData: number;
+  group: number;
+  channel: number;
+  pitch: number;
+  attackOrder: number;
+}
 
 /** Parse the published MIDI Clip File (.midi2) UMP stream format. */
 export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
@@ -55,6 +71,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     inSequence: boolean;
     inConfigurationHeader: boolean;
     inProfileConfigurationHeader: boolean;
+    presentationOrder: number;
   }> = [];
   let ticks = 0;
   let startTicks = 0;
@@ -133,7 +150,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     if (packets.length >= MAX_EVENTS)
       throw new Error("MIDI 2.0 clip has too many UMP events");
     packets.push({ words, ticks, inSequence: started,
-      inConfigurationHeader: hasDctpq && !started, inProfileConfigurationHeader });
+      inConfigurationHeader: hasDctpq && !started, inProfileConfigurationHeader,
+      presentationOrder: packets.length });
   }
   if (!tpq) throw new Error("MIDI 2.0 clip is missing DCTPQ");
   if (!started || !ended) throw new Error("MIDI 2.0 clip is missing Start/End of Clip markers");
@@ -151,7 +169,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   let lastConfigurationEventWasTempo = false;
   for (const packet of packets) {
     const { words, ticks: at, inSequence, inConfigurationHeader,
-      inProfileConfigurationHeader } = packet;
+      inProfileConfigurationHeader, presentationOrder } = packet;
     const relativeTicks = inSequence ? Math.max(0, at - startTicks) : 0;
     durationTicks = Math.max(durationTicks, relativeTicks);
     const word0 = words[0];
@@ -229,7 +247,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
           // pair releases FIFO; Attribute Type/Data are expressive payload,
           // never a note identifier.
           const queue = held.get(key) ?? [];
-          queue.push({ tick: relativeTicks, velocity: eventVelocity, attributeType, attributeData, group, channel, pitch });
+          queue.push({ tick: relativeTicks, velocity: eventVelocity, attributeType,
+            attributeData, group, channel, pitch, attackOrder: presentationOrder });
           held.set(key, queue);
           continue;
         }
@@ -249,6 +268,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
               attributeType: start.attributeType, attributeData: start.attributeData,
               releaseAttributeType: type === 4 ? attributeType : 0,
               releaseAttributeData: type === 4 ? attributeData : 0,
+              attackOrder: start.attackOrder,
+              releaseOrder: presentationOrder,
             },
           });
           if (!queue.length) held.delete(key);
@@ -256,7 +277,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         }
       }
     }
-    rawEvents.push({ beat, words, wordCount: words.length });
+    rawEvents.push({ beat, words, wordCount: words.length, presentationOrder });
   }
   for (const queue of held.values()) for (const start of queue) {
     notes.push({
@@ -265,7 +286,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
       velocity: start.velocity / 65535, releaseVelocity: 0, probability: 1,
       midi2: { group: start.group, velocity: start.velocity, releaseVelocity: 0,
         attributeType: start.attributeType, attributeData: start.attributeData,
-        releaseAttributeType: 0, releaseAttributeData: 0 },
+        releaseAttributeType: 0, releaseAttributeData: 0,
+        attackOrder: start.attackOrder, releaseOrder: -1 },
     });
   }
   const sequenceEndTicks = Math.max(0, clipEndTicks - startTicks);
@@ -298,7 +320,11 @@ function midi1VelocityToMidi2(value: number): number {
   return ((sevenBit << 9) | (repeated << 3) | (repeated >>> 3)) & 0xffff;
 }
 
-function notePackets(note: MidiNoteRow, group: number): Array<{ beat: number; words: number[] }> {
+function notePackets(note: MidiNoteRow, group: number): Array<{
+  beat: number;
+  words: number[];
+  presentationOrder?: number;
+}> {
   const midi2 = note.midi2;
   const noteGroup = Math.max(0, Math.min(15, midi2?.group ?? group));
   const channel = Math.max(0, Math.min(15, note.channel ?? 0));
@@ -314,9 +340,37 @@ function notePackets(note: MidiNoteRow, group: number): Array<{ beat: number; wo
   const offFirst = ((4 << 28) | (noteGroup << 24) | (8 << 20) | (channel << 16) | (pitch << 8) | releaseAttrType) >>> 0;
   const off = [offFirst, ((releaseVelocity << 16) | releaseAttrData) >>> 0];
   return [
-    { beat: note.startBeats, words: on },
-    { beat: note.startBeats + note.durationBeats, words: off },
+    { beat: note.startBeats, words: on,
+      ...(midi2?.attackOrder !== undefined ? { presentationOrder: midi2.attackOrder } : {}) },
+    { beat: note.startBeats + note.durationBeats, words: off,
+      ...(midi2?.releaseOrder !== undefined ? { presentationOrder: midi2.releaseOrder } : {}) },
   ];
+}
+
+function compareClipEvents(a: ClipEvent, b: ClipEvent): number {
+  // The writer serializes integer TPQ ticks. Compare on that same timeline so
+  // floating-point beat math cannot split events that quantize to one tick.
+  const tickDifference = Math.round(a.beat * TPQ) - Math.round(b.beat * TPQ);
+  if (tickDifference !== 0) return tickDifference;
+  const aPriorityEvent = a.priority < 0;
+  const bPriorityEvent = b.priority < 0;
+  if (aPriorityEvent || bPriorityEvent) {
+    if (aPriorityEvent !== bPriorityEvent) return aPriorityEvent ? -1 : 1;
+    return a.priority - b.priority || a.order - b.order;
+  }
+  const aHasSourceOrder = a.sourceRegionOrder !== undefined
+    && a.sourcePresentationOrder !== undefined;
+  const bHasSourceOrder = b.sourceRegionOrder !== undefined
+    && b.sourcePresentationOrder !== undefined;
+  if (aHasSourceOrder && bHasSourceOrder) {
+    return a.sourceRegionOrder! - b.sourceRegionOrder!
+      || a.sourcePresentationOrder! - b.sourcePresentationOrder!
+      || a.order - b.order;
+  }
+  if (aHasSourceOrder !== bHasSourceOrder) return aHasSourceOrder ? -1 : 1;
+  // Newly-authored events have no source packet index. Retain deterministic
+  // Off-before-On ordering for retriggers, including loop-expanded boundaries.
+  return a.priority - b.priority || a.order - b.order;
 }
 
 /** Write a single MIDI Clip File. Multiple DAW tracks are deliberately merged into its one UMP sequence. */
@@ -330,6 +384,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   const profileConfigurationPackets: Array<{ words: number[]; order: number }> = [];
   const receiverConfigurationPackets: Array<{ words: number[]; order: number }> = [];
   let order = 0;
+  let nextRegionOrder = 0;
   const appendEvent = (event: ClipEvent) => {
     if (!Number.isFinite(event.beat) || event.beat < 0)
       throw new Error("MIDI 2.0 clip contains an invalid event time");
@@ -337,11 +392,18 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
       throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
     events.push(event);
   };
-  const addNote = (note: MidiNoteRow, beat: number, durationBeats: number) => {
-    for (const [index, item] of notePackets({ ...note, startBeats: beat, durationBeats }, 0).entries())
-      appendEvent({ ...item, priority: index === 0 ? 2 : 0, order: order++ });
+  const addNote = (note: MidiNoteRow, beat: number, durationBeats: number,
+                   sourceRegionOrder: number, preserveSourceOrder: boolean) => {
+    for (const [index, item] of notePackets({ ...note, startBeats: beat, durationBeats }, 0).entries()) {
+      const sourcePresentationOrder = item.presentationOrder;
+      const hasSourceOrder = preserveSourceOrder && Number.isSafeInteger(sourcePresentationOrder)
+        && sourcePresentationOrder! >= 0 && sourcePresentationOrder! <= MAX_EVENTS;
+      appendEvent({ ...item, priority: index === 0 ? 2 : 0, order: order++,
+        ...(hasSourceOrder ? { sourceRegionOrder, sourcePresentationOrder } : {}) });
+    }
   };
   for (const track of tracks) for (const region of track.regions) {
+    const sourceRegionOrder = nextRegionOrder++;
     if (region.muted) continue;
     const loopLength = region.loopLengthBeats > 0 ? region.loopLengthBeats : region.durationBeats;
     const expandRegionLoop = options.expandLoops && region.loop && loopLength > 0;
@@ -381,7 +443,9 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
         return [{ configuration: true as const, profile: event.profileConfigurationHeader === true, words }];
       }
       if (relative === null) return [];
-      return [{ configuration: false as const, profile: false, relative, words }];
+      return [{ configuration: false as const, profile: false, relative, words,
+        ...(Number.isSafeInteger(event.presentationOrder) && event.presentationOrder! >= 0
+          && event.presentationOrder! <= MAX_EVENTS ? { presentationOrder: event.presentationOrder } : {}) }];
     });
     const sequenceUmpEvents = umpEvents.filter(
       (event): event is ClipSequenceUmpEvent => !event.configuration,
@@ -416,14 +480,18 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
           : note.durationBeats;
         addNote(note, Math.max(0, beat), Math.min(
           note.durationBeats, availableInLoop, region.durationBeats - relative,
-        ));
+        ), sourceRegionOrder, !expandRegionLoop);
       }
-      for (const { relative: sourceRelative, words } of sequenceUmpEvents) {
+      for (const event of sequenceUmpEvents) {
+        const { relative: sourceRelative, words } = event;
         const relative = sourceRelative + loopOffset;
         if (relative < 0 || relative >= region.durationBeats) continue;
         const beat = region.startBeats + relative - origin;
         if (beat >= -1e-9) {
-          appendEvent({ beat: Math.max(0, beat), words, priority: 1, order: order++ });
+          const hasSourceOrder = !expandRegionLoop && event.presentationOrder !== undefined;
+          appendEvent({ beat: Math.max(0, beat), words, priority: 1, order: order++,
+            ...(hasSourceOrder ? { sourceRegionOrder,
+              sourcePresentationOrder: event.presentationOrder } : {}) });
         }
       }
       for (const { relative: sourceRelative, words } of midiEvents) {
@@ -472,9 +540,9 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   if (!events.length) throw new Error("No MIDI events to export");
   if (events.length + profileConfigurationPackets.length + receiverConfigurationPackets.length > MAX_EVENTS)
     throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
-  // End an existing note before retriggering the same pitch at one tick,
-  // regardless of the order of notes in the project region.
-  events.sort((a, b) => a.beat - b.beat || a.priority - b.priority || a.order - b.order);
+  // Imported source ordering is honored first; the comparator applies the
+  // retrigger fallback to newly authored and loop-expanded events.
+  events.sort(compareClipEvents);
   profileConfigurationPackets.sort((a, b) => a.order - b.order);
   receiverConfigurationPackets.sort((a, b) => a.order - b.order);
 

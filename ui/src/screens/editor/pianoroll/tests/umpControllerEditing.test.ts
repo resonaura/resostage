@@ -203,6 +203,9 @@ describe("Piano Roll MIDI 2.0 controller editing", () => {
     expect(sameEditablePianoRollUmpEvents([first, second], [second, first])).toBe(true);
     expect(sameEditablePianoRollUmpEvents([first], [cc(1, 74, 0x1234_5679)])).toBe(false);
     expect(sameEditablePianoRollUmpEvents(
+      [{ ...first, presentationOrder: 4 }], [{ ...first, presentationOrder: 5 }],
+    )).toBe(false);
+    expect(sameEditablePianoRollUmpEvents(
       [{ ...first, configurationHeader: true }], [first],
     )).toBe(false);
     expect(sameEditablePianoRollUmpEvents(

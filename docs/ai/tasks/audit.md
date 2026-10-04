@@ -2030,6 +2030,31 @@ across 151 files, TypeScript and production UI build passed, lint passed with
 v13/Core tests were completed with the prior stage-A commit `4f99049e`. Keep
 independent profile/SysEx references open and do not push.
 
+### Latest continuation — simultaneous MIDI Clip event order (2026-10-04)
+
+Project format v15 retains the source packet index on MIDI 2.0 note attacks,
+note releases and opaque UMP sequence events. The index survives Core JSON
+save/load and telemetry; Piano Roll draft reconciliation includes it so an
+authoritative acknowledgement cannot silently erase provenance. MIDI Clip
+export compares events at the rounded final TPQ tick, then preserves imported
+source order for ties. New events and loop-expanded occurrences use the
+deterministic Off-before-On fallback; stale imported indices are not reused at
+cycle boundaries. Missing and out-of-range values normalize to `-1`, including
+direct Core loads and the v14-to-v15 migration.
+
+Tests cover mixed raw UMP/note-edge ordering, overlapping same-pitch attributes,
+loop-boundary retrigger ordering, project JSON round-trip/default/invalid
+values, and migration. MIDI Clip codec tests passed 18/18; migration tests
+9/9; the full UI passed 1,039/1,039 across 151 files; TypeScript, production
+build, changed-file lint, Core RelWithDebInfo build, CTest (1/1 target), and
+`git diff --check` passed.
+
+Explicit limits: ordering of Set Tempo/Set Time Signature Flex Data is still
+normalized into project maps rather than retaining original interleaving.
+Independent profile/configuration reference files, broader SysEx and malformed
+packet corpus, MIDI-CI, physical UMP I/O, SMF2 Container, and full UMP plug-in
+playback remain open. Do not call this full MIDI 2.0 compatibility.
+
 ### Latest continuation — MIDI 2.0 note-edge fidelity (2026-10-04)
 
 Project format v14 now stores separate MIDI 2.0 Note-On and Note-Off Attribute

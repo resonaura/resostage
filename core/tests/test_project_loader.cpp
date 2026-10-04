@@ -369,8 +369,12 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     midi2Note.midi2 = MidiNote::Midi2Data{3, 49152, 1234, 1, 0xBEEF};
     midi2Note.midi2->releaseAttributeType = 4;
     midi2Note.midi2->releaseAttributeData = 0xCAFE;
+    midi2Note.midi2->attackOrder = 17;
+    midi2Note.midi2->releaseOrder = 23;
     midiRegion.notes.push_back(midi2Note);
-    midiRegion.umpEvents.push_back(MidiUmpEvent{2.25, {0x40903C00u, 0xFFFF0000u, 0u, 0u}, 2});
+    MidiUmpEvent sequenceEvent{2.25, {0x40903C00u, 0xFFFF0000u, 0u, 0u}, 2};
+    sequenceEvent.presentationOrder = 31;
+    midiRegion.umpEvents.push_back(sequenceEvent);
     MidiUmpEvent profileSetup;
     profileSetup.beat = 0.0;
     profileSetup.words = {0x3000F07Eu, 0x0D220100u, 0u, 0u};
@@ -437,6 +441,8 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(restoredMidiRegion.notes[0].midi2->attributeData == 0xBEEF);
     CHECK(restoredMidiRegion.notes[0].midi2->releaseAttributeType == 4);
     CHECK(restoredMidiRegion.notes[0].midi2->releaseAttributeData == 0xCAFE);
+    CHECK(restoredMidiRegion.notes[0].midi2->attackOrder == 17);
+    CHECK(restoredMidiRegion.notes[0].midi2->releaseOrder == 23);
     REQUIRE(restoredMidiRegion.umpEvents.size() == 2);
     CHECK(restoredMidiRegion.umpEvents[0].beat == doctest::Approx(2.25));
     CHECK(restoredMidiRegion.umpEvents[0].wordCount == 2);
@@ -444,8 +450,10 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(restoredMidiRegion.umpEvents[0].words[1] == 0xFFFF0000u);
     CHECK(restoredMidiRegion.umpEvents[0].configurationHeader == false);
     CHECK(restoredMidiRegion.umpEvents[0].profileConfigurationHeader == false);
+    CHECK(restoredMidiRegion.umpEvents[0].presentationOrder == 31);
     CHECK(restoredMidiRegion.umpEvents[1].configurationHeader);
     CHECK(restoredMidiRegion.umpEvents[1].profileConfigurationHeader);
+    CHECK(restoredMidiRegion.umpEvents[1].presentationOrder == -1);
 
     std::remove(outPath.c_str());
 }
@@ -497,6 +505,91 @@ TEST_CASE("ProjectJson defaults missing v13 release attributes to Note-On attrib
     CHECK(restoredNote.midi2->attributeData == 0x1234);
     CHECK(restoredNote.midi2->releaseAttributeType == 3);
     CHECK(restoredNote.midi2->releaseAttributeData == 0x1234);
+}
+
+TEST_CASE("ProjectJson defaults missing or invalid v14 MIDI presentation order to unspecified") {
+    Project legacy;
+    legacy.format.version = 14;
+    SongDef song;
+    song.id = "meta::song:v14-midi-order";
+    MidiRegion region;
+    region.id = "midi-region-v14-order";
+    region.trackId = "audio::track:1";
+    MidiNote note;
+    note.id = 1;
+    note.midi2 = MidiNote::Midi2Data{2, 0x9234, 0x4567, 3, 0x1234};
+    region.notes.push_back(note);
+    MidiNote invalidOrderNote = note;
+    invalidOrderNote.id = 2;
+    invalidOrderNote.midi2->attackOrder = kMaximumMidiPresentationOrder + 1;
+    invalidOrderNote.midi2->releaseOrder = -2;
+    region.notes.push_back(invalidOrderNote);
+    MidiUmpEvent event;
+    event.beat = 0.5;
+    event.words[0] = 0x20B00140;
+    event.wordCount = 1;
+    region.umpEvents.push_back(event);
+    event.beat = 1.0;
+    event.presentationOrder = kMaximumMidiPresentationOrder + 1;
+    region.umpEvents.push_back(event);
+    song.midiRegions.push_back(region);
+    legacy.songs.push_back(song);
+
+    Project restored;
+    std::string error;
+    std::string json = serializeProjectJson(legacy);
+    for (const auto& field : {"attackOrder", "releaseOrder", "presentationOrder"}) {
+        const std::string key = "\"" + std::string(field) + "\":";
+        const auto start = json.find(key);
+        if (start == std::string::npos) continue;
+        const auto end = json.find_first_of(",}", start);
+        REQUIRE(end != std::string::npos);
+        if (json[end] == ',') json.erase(start, end - start + 1);
+        else {
+            const auto comma = json.rfind(',', start);
+            REQUIRE(comma != std::string::npos);
+            json.erase(comma, end - comma);
+        }
+    }
+    REQUIRE(parseProjectJson(json, restored, error));
+    REQUIRE(restored.songs.size() == 1);
+    REQUIRE(restored.songs[0].midiRegions.size() == 1);
+    const auto& restoredRegion = restored.songs[0].midiRegions[0];
+    REQUIRE(restoredRegion.notes.size() == 2);
+    REQUIRE(restoredRegion.notes[0].midi2.has_value());
+    CHECK(restoredRegion.notes[0].midi2->attackOrder == -1);
+    CHECK(restoredRegion.notes[0].midi2->releaseOrder == -1);
+    REQUIRE(restoredRegion.notes[1].midi2.has_value());
+    CHECK(restoredRegion.notes[1].midi2->attackOrder == -1);
+    CHECK(restoredRegion.notes[1].midi2->releaseOrder == -1);
+    REQUIRE(restoredRegion.umpEvents.size() == 2);
+    CHECK(restoredRegion.umpEvents[0].presentationOrder == -1);
+    CHECK(restoredRegion.umpEvents[1].presentationOrder == -1);
+
+    std::string malformedOrderJson = serializeProjectJson(legacy);
+    const auto replaceFirstOrder = [&malformedOrderJson](const char* field, const char* value) {
+        const std::string key = "\"" + std::string(field) + "\":";
+        const auto start = malformedOrderJson.find(key);
+        REQUIRE(start != std::string::npos);
+        const auto valueStart = start + key.size();
+        const auto end = malformedOrderJson.find_first_of(",}", valueStart);
+        REQUIRE(end != std::string::npos);
+        malformedOrderJson.replace(valueStart, end - valueStart, value);
+    };
+    replaceFirstOrder("attackOrder", "200001");
+    replaceFirstOrder("releaseOrder", "-2");
+    replaceFirstOrder("presentationOrder", "200001");
+    Project malformedOrderRestored;
+    REQUIRE(parseProjectJson(malformedOrderJson, malformedOrderRestored, error));
+    REQUIRE(malformedOrderRestored.songs.size() == 1);
+    REQUIRE(malformedOrderRestored.songs[0].midiRegions.size() == 1);
+    const auto& malformedRegion = malformedOrderRestored.songs[0].midiRegions[0];
+    REQUIRE(malformedRegion.notes.size() == 2);
+    REQUIRE(malformedRegion.notes[0].midi2.has_value());
+    CHECK(malformedRegion.notes[0].midi2->attackOrder == -1);
+    CHECK(malformedRegion.notes[0].midi2->releaseOrder == -1);
+    REQUIRE(malformedRegion.umpEvents.size() == 2);
+    CHECK(malformedRegion.umpEvents[0].presentationOrder == -1);
 }
 
 TEST_CASE("lighting data (fixtures, light tracks, light cues) round-trips through save/load") {

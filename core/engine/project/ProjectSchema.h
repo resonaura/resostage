@@ -33,7 +33,13 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 14;
+inline constexpr int kCurrentFormatVersion = 15;
+inline constexpr int32_t kMaximumMidiPresentationOrder = 200'000;
+inline constexpr int32_t normalizeMidiPresentationOrder(int32_t order) noexcept {
+    return order >= 0 && order <= kMaximumMidiPresentationOrder ? order : -1;
+}
+// Format 15 preserves source packet order for MIDI Clip note edges and opaque
+// UMP events. -1 means the event is locally authored or came from older data.
 // Format 14 stores independent Note-Off attribute fields. Version 13 note
 // records did not distinguish them, so missing release fields inherit Note-On.
 // Format 13 preserves whether a stored UMP packet belongs to the MIDI Clip
@@ -621,6 +627,8 @@ struct MidiNote {
         uint16_t attributeData = 0; // MIDI 2.0 Note-On Attribute Data.
         uint8_t releaseAttributeType = 0; // MIDI 2.0 Note-Off Attribute Type.
         uint16_t releaseAttributeData = 0; // MIDI 2.0 Note-Off Attribute Data.
+        int32_t attackOrder = -1; // MIDI Clip presentation order; -1 = unspecified.
+        int32_t releaseOrder = -1; // MIDI Clip presentation order; -1 = unspecified.
     };
     using MIDI2Data = Midi2Data;
     std::optional<Midi2Data> midi2; // Exact MIDI 2.0 note fields; absent for MIDI 1.0 notes.
@@ -644,6 +652,7 @@ struct MidiUmpEvent {
     uint8_t wordCount = 0; // 1, 2, 3, or 4 words according to UMP Message Type.
     bool configurationHeader = false;
     bool profileConfigurationHeader = false;
+    int32_t presentationOrder = -1; // MIDI Clip order among simultaneous packets.
 };
 
 // A MIDI region containing notes placed on a track. Ids are UUIDv7.

@@ -27,7 +27,7 @@
  * v11 adds the bounded per-song automation curve cache; v12 adds optional
  * per-plug-in external sidechain routing; v13 retains MIDI Clip receiver
  * configuration-section identity; v14 preserves independent MIDI 2.0
- * Note-Off attributes):
+ * Note-Off attributes; v15 retains MIDI Clip packet presentation order):
  *
  *   ids            "<ns>::<kind>:<n>"  audio::track:1, audio::send:2,
  *                                      audio::out:11, light::bar:1,
@@ -48,7 +48,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export const TARGET_FORMAT_VERSION = 14;
+export const TARGET_FORMAT_VERSION = 15;
 
 // Single on-disk project data file (new format) and the legacy file it replaced.
 const PROJECT_DATA_NAME = "project.rsnrasetmeta";
@@ -723,13 +723,35 @@ export function upgradeFormat12MidiClipHeaders(old) {
 /** Preserve independent MIDI 2.0 Note-Off attributes; v13 reused Note-On fields. */
 export function upgradeFormat13Midi2ReleaseAttributes(old) {
   const upgraded = structuredClone(old);
-  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  upgraded.format = { ...(upgraded.format ?? {}), version: 14 };
   for (const song of upgraded.songs ?? []) {
     for (const region of song.midiRegions ?? []) {
       for (const note of region.notes ?? []) {
         if (!note.midi2 || typeof note.midi2 !== "object" || Array.isArray(note.midi2)) continue;
         note.midi2.releaseAttributeType ??= note.midi2.attributeType ?? 0;
         note.midi2.releaseAttributeData ??= note.midi2.attributeData ?? 0;
+      }
+    }
+  }
+  return upgraded;
+}
+
+/** Preserve source order for simultaneous MIDI Clip note edges and UMP events. */
+export function upgradeFormat14MidiPresentationOrder(old) {
+  const upgraded = structuredClone(old);
+  upgraded.format = { ...(upgraded.format ?? {}), version: TARGET_FORMAT_VERSION };
+  const normalizeOrder = (value) => Number.isInteger(value) && value >= 0 && value <= 200_000
+    ? value : -1;
+  for (const song of upgraded.songs ?? []) {
+    for (const region of song.midiRegions ?? []) {
+      for (const note of region.notes ?? []) {
+        if (!note.midi2 || typeof note.midi2 !== "object" || Array.isArray(note.midi2)) continue;
+        note.midi2.attackOrder = normalizeOrder(note.midi2.attackOrder);
+        note.midi2.releaseOrder = normalizeOrder(note.midi2.releaseOrder);
+      }
+      for (const event of region.umpEvents ?? []) {
+        if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+        event.presentationOrder = normalizeOrder(event.presentationOrder);
       }
     }
   }
@@ -802,6 +824,8 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
       migrated = upgradeFormat12MidiClipHeaders(oldObj);
     } else if (!isLegacy && fromVersion === 13) {
       migrated = upgradeFormat13Midi2ReleaseAttributes(oldObj);
+    } else if (!isLegacy && fromVersion === 14) {
+      migrated = upgradeFormat14MidiPresentationOrder(oldObj);
     } else {
       migrated = upgradeFormat6PanLawData(migrateProjectObject(oldObj));
     }
@@ -810,6 +834,7 @@ if (process.argv[1] && process.argv[1].endsWith("migrate.mjs")) {
     if (fromVersion < 12) migrated = upgradeFormat11PluginSidechains(migrated);
     if (fromVersion < 13) migrated = upgradeFormat12MidiClipHeaders(migrated);
     if (fromVersion < 14) migrated = upgradeFormat13Midi2ReleaseAttributes(migrated);
+    if (fromVersion < 15) migrated = upgradeFormat14MidiPresentationOrder(migrated);
     fs.writeFileSync(outPath, `${JSON.stringify(migrated, null, 2)}\n`, "utf-8");
     if (isLegacy) fs.rmSync(jsonPath, { force: true });
     console.log(

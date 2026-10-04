@@ -34,7 +34,9 @@ export function sameEditableNotes(left: MidiNoteRow[], right: MidiNoteRow[]): bo
       && (actual.midi2.releaseAttributeType ?? actual.midi2.attributeType)
         === (note.midi2.releaseAttributeType ?? note.midi2.attributeType)
       && (actual.midi2.releaseAttributeData ?? actual.midi2.attributeData)
-        === (note.midi2.releaseAttributeData ?? note.midi2.attributeData);
+        === (note.midi2.releaseAttributeData ?? note.midi2.attributeData)
+      && (actual.midi2.attackOrder ?? -1) === (note.midi2.attackOrder ?? -1)
+      && (actual.midi2.releaseOrder ?? -1) === (note.midi2.releaseOrder ?? -1);
   });
 }
 

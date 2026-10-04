@@ -62,9 +62,9 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]));
 
     expect(parsed.tracks[0].umpEvents).toEqual([
-      { beat: 0.125, words: [0x10f8_0000], wordCount: 1 },
-      { beat: 0.125, words: [0x10fa_0000], wordCount: 1 },
-      { beat: 0.25, words: [0x10fc_0000], wordCount: 1 },
+      { beat: 0.125, words: [0x10f8_0000], wordCount: 1, presentationOrder: 0 },
+      { beat: 0.125, words: [0x10fa_0000], wordCount: 1, presentationOrder: 1 },
+      { beat: 0.25, words: [0x10fc_0000], wordCount: 1, presentationOrder: 2 },
     ]);
   });
 
@@ -149,7 +149,14 @@ describe("MIDI Clip File framing and resource bounds", () => {
       [{ name: "Independent attributes", regions: [{ ...region, notes: parsed.tracks[0].notes }] }],
       { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
     ));
-    expect(roundTrip.tracks[0].notes[0].midi2).toMatchObject(parsed.tracks[0].notes[0].midi2!);
+    expect(roundTrip.tracks[0].notes[0].midi2).toMatchObject({
+      velocity: parsed.tracks[0].notes[0].midi2!.velocity,
+      releaseVelocity: parsed.tracks[0].notes[0].midi2!.releaseVelocity,
+      attributeType: parsed.tracks[0].notes[0].midi2!.attributeType,
+      attributeData: parsed.tracks[0].notes[0].midi2!.attributeData,
+      releaseAttributeType: parsed.tracks[0].notes[0].midi2!.releaseAttributeType,
+      releaseAttributeData: parsed.tracks[0].notes[0].midi2!.releaseAttributeData,
+    });
   });
 
   it("keeps MIDI 2.0 zero-velocity Note On distinct from MIDI 1.0 zero-velocity Note Off", () => {
@@ -190,6 +197,55 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]);
   });
 
+  it("round-trips simultaneous raw UMP and note-edge presentation order", () => {
+    const parsed = parseMidiClipFile(framedClip([
+      dcs(0), [0x20b0_0140],
+      dcs(0), [0x4090_3c01, 0x8000_1111],
+      dcs(960), [0x4090_3c02, 0x9000_2222],
+      dcs(0), [0x4080_3c03, 0x7000_3333],
+      dcs(960), [0x4080_3c04, 0x6000_4444],
+    ]));
+    const sourceNotes = parsed.tracks[0].notes;
+    expect(parsed.tracks[0].umpEvents?.[0].presentationOrder)
+      .toBeLessThan(sourceNotes[0].midi2!.attackOrder!);
+    expect(sourceNotes[1].midi2!.attackOrder)
+      .toBeLessThan(sourceNotes[0].midi2!.releaseOrder!);
+
+    const roundTrip = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "Ordered sequence", regions: [{ ...region, notes: sourceNotes,
+        umpEvents: parsed.tracks[0].umpEvents }] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+    const notes = roundTrip.tracks[0].notes;
+    expect(roundTrip.tracks[0].umpEvents?.[0].presentationOrder)
+      .toBeLessThan(notes[0].midi2!.attackOrder!);
+    expect(notes[1].midi2!.attackOrder).toBeLessThan(notes[0].midi2!.releaseOrder!);
+    expect(notes.map(({ midi2 }) => [midi2?.attributeData, midi2?.releaseAttributeData]))
+      .toEqual([[0x1111, 0x3333], [0x2222, 0x4444]]);
+  });
+
+  it("keeps loop-expanded same-pitch retriggers Off-before-On despite stale source order", () => {
+    const looped: MidiRegionRow = {
+      ...region,
+      durationBeats: 2,
+      loop: true,
+      loopLengthBeats: 1,
+      notes: [{ ...note(1), durationBeats: 1, midi2: {
+        group: 0, velocity: 0x8000, releaseVelocity: 0x7000,
+        attributeType: 0, attributeData: 0x1111,
+        releaseAttributeType: 0, releaseAttributeData: 0x2222,
+        attackOrder: 10, releaseOrder: 20,
+      } }],
+    };
+    const parsed = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "Loop boundary", regions: [looped] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: true },
+    ));
+    expect(parsed.tracks[0].notes).toHaveLength(2);
+    expect(parsed.tracks[0].notes.map(({ startBeats, durationBeats }) => [startBeats, durationBeats]))
+      .toEqual([[0, 1], [1, 1]]);
+  });
+
   it("allows configuration tempo and meter to inherit DCTPQ's zero clockstamp", () => {
     const parsed = parseMidiClipFile(makeClip([
       dcs(0), dctpq(960), setTempo120, setMeter44,
@@ -215,7 +271,7 @@ describe("MIDI Clip File framing and resource bounds", () => {
       { beat: 0, words: profile, wordCount: 2,
         configurationHeader: true, profileConfigurationHeader: true },
       { beat: 0, words: receiverSetup, wordCount: 2, configurationHeader: true },
-      { beat: 1, words: [0x20c0_0000], wordCount: 1 },
+      { beat: 1, words: [0x20c0_0000], wordCount: 1, presentationOrder: 2 },
     ]);
 
     const regionWithSections: MidiRegionRow = {
@@ -226,7 +282,10 @@ describe("MIDI Clip File framing and resource bounds", () => {
       [{ name: "Header sections", regions: [regionWithSections] }],
       { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
     ));
-    expect(roundTrip.tracks[0].umpEvents).toEqual(imported.tracks[0].umpEvents);
+    expect(roundTrip.tracks[0].umpEvents?.map(({ presentationOrder: _order, ...event }) => event))
+      .toEqual(imported.tracks[0].umpEvents?.map(({ presentationOrder: _order, ...event }) => event));
+    expect(roundTrip.tracks[0].umpEvents?.[2].presentationOrder)
+      .toBeGreaterThan(roundTrip.tracks[0].umpEvents?.[1].presentationOrder ?? -1);
   });
 
   it("rejects non-profile events before DCTPQ and clockstamped profile prefixes", () => {

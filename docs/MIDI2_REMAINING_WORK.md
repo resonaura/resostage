@@ -47,8 +47,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   immediately follow that tempo. Multiple tempo changes in Clip Sequence Data
   remain supported.
 - Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
-  packets on MIDI regions; current format 14 retains them, optional MIDI Clip
-  configuration-section identity, and separate release attributes. Readable additive older
+  packets on MIDI regions; current format 15 retains them, optional MIDI Clip
+  configuration-section identity, separate release attributes, and source
+  presentation order for simultaneous note edges and opaque sequence UMP.
+  Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and
   project serialization carry these fields so unsupported UMP packets can
   survive a save/load and MIDI Clip File round-trip.
@@ -123,10 +125,12 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   edge case.
 - Unknown UMP packets are retained as packet words and timing, but ResoStage
   does not interpret or promise playback for message types it does not
-  implement. The original UMP stream's exact byte layout, utility packets,
-  and ordering around normalized note events are not preserved as a raw file
-  blob. Configuration-header section identity is persisted, but its elapsed
-  DCS timing is intentionally flattened to beat zero; profile-prefix SysEx7 is
+  implement. The original UMP stream's exact byte layout and utility packets
+  are not preserved as a raw file blob. Project v15 preserves source order for
+  simultaneous normalized note edges and opaque sequence packets; extracted
+  tempo/meter Flex Data is still normalized through project tempo/meter state.
+  Configuration-header section identity is persisted, but its elapsed DCS
+  timing is intentionally flattened to beat zero; profile-prefix SysEx7 is
   preserved structurally without MIDI-CI negotiation or semantic validation.
 - `.mid` remains inherently lossy for data without a MIDI 1.0 equivalent.
   The loss report is a safeguard, not a universal translator. MPE/vendor
@@ -253,3 +257,32 @@ paired FIFO; note attributes are not identity tokens. This does not complete
 platform UMP endpoints or general SMF2 Container support.
 The zero-velocity and note-edge rules are based on the official [UMP and MIDI
 2.0 Protocol Specification v1.1.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — simultaneous MIDI Clip event order (2026-10-04)
+
+Project format v15 retains the original packet index on MIDI 2.0 note attack
+and release edges (`midi2.attackOrder` / `midi2.releaseOrder`) and opaque UMP
+sequence events (`presentationOrder`). Import → project save/load → `.midi2`
+export now preserves the order of imported note and raw-UMP events that land on
+the same output tick, including same-pitch overlapping note retriggers. Export
+sorts using the final integer TPQ tick, avoiding `double` beat drift. When a
+region loop is expanded, copied occurrences deliberately use deterministic
+Note Off-before-Note On ordering rather than reusing stale source indexes.
+Newly authored events and projects predating v15 use the same fallback (`-1`
+means no source order). Migration defaults invalid or missing indexes outside
+0–200,000 to `-1`; direct Core reads use the same default.
+
+This preserves only note-edge and opaque UMP sequence ordering. Set Tempo and
+Set Time Signature Flex Data continue through the project's tempo/meter model,
+so their original packet interleaving is not retained. MIDI-CI, physical UMP
+endpoints, SMF2 Container, and complete plug-in UMP playback remain open.
+Validation for this block: MIDI Clip codec tests 18/18, migration tests 9/9,
+full UI tests 1,039/1,039 across 151 files, TypeScript, production build, and
+changed-file lint passed. Core RelWithDebInfo build and CTest passed (1/1 test
+target); project JSON coverage includes round-trip, missing legacy fields, and
+out-of-range order values. `git diff --check` passed. This does not establish
+full MIDI Clip conformance: source order for extracted tempo/meter Flex Data,
+independent profile/configuration references, SysEx interoperability, broad
+malformed-packet fixtures, MIDI-CI, native UMP endpoints, SMF2 Container and
+complete plug-in UMP playback remain open. See the task handoff/audit for exact
+next steps and commit status.

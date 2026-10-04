@@ -228,6 +228,9 @@ export function sameEditablePianoRollUmpEvents(
     const aProfile = a.profileConfigurationHeader === true ? 1 : 0;
     const bProfile = b.profileConfigurationHeader === true ? 1 : 0;
     if (aProfile !== bProfile) return aProfile - bProfile;
+    const aPresentationOrder = a.presentationOrder ?? -1;
+    const bPresentationOrder = b.presentationOrder ?? -1;
+    if (aPresentationOrder !== bPresentationOrder) return aPresentationOrder - bPresentationOrder;
     return 0;
   };
   const sortedLeft = [...left].sort(compare);
@@ -243,6 +246,7 @@ export function sameEditablePianoRollUmpEvents(
       && event.wordCount === actual.wordCount
       && (event.configurationHeader === true) === (actual.configurationHeader === true)
       && (event.profileConfigurationHeader === true) === (actual.profileConfigurationHeader === true)
+      && (event.presentationOrder ?? -1) === (actual.presentationOrder ?? -1)
       && eventWords.length === actualWords.length
       && eventWords.every((word, wordIndex) => word === actualWords[wordIndex]);
   });

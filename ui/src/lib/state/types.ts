@@ -358,6 +358,10 @@ export interface MidiNoteRow {
     attributeData: number;
     releaseAttributeType?: number;
     releaseAttributeData?: number;
+    /** Original MIDI Clip packet order for the Note On; absent for local/older notes. */
+    attackOrder?: number;
+    /** Original MIDI Clip packet order for the Note Off; absent for local/older notes. */
+    releaseOrder?: number;
   };
 }
 
@@ -377,6 +381,8 @@ export interface MidiUmpEventRow {
   configurationHeader?: boolean;
   /** Profile setup UMP; must precede DCTPQ and has no prepended DCS in MIDI Clip files. */
   profileConfigurationHeader?: boolean;
+  /** Original MIDI Clip packet order; absent for local/older events. */
+  presentationOrder?: number;
 }
 
 export type AutomationDomain = "strip" | "plugin" | "midiCC" | "lighting";

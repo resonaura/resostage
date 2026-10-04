@@ -17,6 +17,7 @@ import {
   upgradeFormat11PluginSidechains,
   upgradeFormat12MidiClipHeaders,
   upgradeFormat13Midi2ReleaseAttributes,
+  upgradeFormat14MidiPresentationOrder,
 } from "../../migrate.mjs";
 
 test("format 9 upgrade preserves canonical IDs, media and plug-in state", () => {
@@ -26,8 +27,8 @@ test("format 9 upgrade preserves canonical IDs, media and plug-in state", () => 
     songs: [{ regions: [{ source: { file: "Audio/audio.wav", videoFile: "Video/video.mp4" } }] }],
   };
   const upgraded = upgradeFormat9ClickSoloSafe(original);
-  assert.equal(TARGET_FORMAT_VERSION, 14);
-  assert.equal(upgraded.format.version, 14);
+  assert.equal(TARGET_FORMAT_VERSION, 15);
+  assert.equal(upgraded.format.version, 15);
   assert.equal(upgraded.click.soloSafe, true);
   assert.deepEqual(upgraded.tracks, original.tracks);
   assert.deepEqual(upgraded.songs, original.songs);
@@ -43,7 +44,7 @@ test("format 10 upgrade adds an empty automation cache without changing lanes", 
     }],
   };
   const upgraded = upgradeFormat10AutomationCurveCache(original);
-  assert.equal(upgraded.format.version, 14);
+  assert.equal(upgraded.format.version, 15);
   assert.deepEqual(upgraded.songs[0].automationLanes, original.songs[0].automationLanes);
   assert.deepEqual(upgraded.songs[0].automationCurveCache, original.songs[0].automationCurveCache);
   assert.deepEqual(upgradeFormat10AutomationCurveCache({ songs: [{}] }).songs[0].automationCurveCache, []);
@@ -61,7 +62,7 @@ test("format 11 upgrade defaults plugin sidechains to disconnected", () => {
     } }] }],
   };
   const upgraded = upgradeFormat11PluginSidechains(original);
-  assert.equal(upgraded.format.version, 14);
+  assert.equal(upgraded.format.version, 15);
   assert.equal(upgraded.main.plugins[0].sidechain, null);
   assert.equal(upgraded.click.plugins[0].sidechain, null);
   assert.equal(upgraded.sends[0].plugins[0].sidechain, null);
@@ -105,13 +106,42 @@ test("format 13 upgrade defaults separate MIDI 2.0 Note-Off attributes from Note
   };
   const upgraded = upgradeFormat13Midi2ReleaseAttributes(original);
   const [legacy, explicit, midi1] = upgraded.songs[0].midiRegions[0].notes;
-  assert.equal(upgraded.format.version, TARGET_FORMAT_VERSION);
+  assert.equal(upgraded.format.version, 14);
   assert.equal(legacy.midi2.releaseAttributeType, 1);
   assert.equal(legacy.midi2.releaseAttributeData, 0x1234);
   assert.equal(explicit.midi2.releaseAttributeType, 3);
   assert.equal(explicit.midi2.releaseAttributeData, 0x9abc);
   assert.equal(midi1.midi2, undefined);
   assert.equal(original.format.version, 13);
+});
+
+test("format 14 upgrade adds bounded MIDI Clip presentation-order fields", () => {
+  const original = {
+    format: { version: 14 },
+    songs: [{ midiRegions: [{
+      notes: [
+        { midi2: { attackOrder: 7, releaseOrder: 11 } },
+        { midi2: { attackOrder: -2, releaseOrder: 200_001 } },
+        { pitch: 64 },
+      ],
+      umpEvents: [
+        { beat: 0, words: [0x20b00140], wordCount: 1, presentationOrder: 13 },
+        { beat: 1, words: [0x20b00140], wordCount: 1, presentationOrder: 200_001 },
+        { beat: 2, words: [0x20b00140], wordCount: 1 },
+      ],
+    }] }],
+  };
+  const upgraded = upgradeFormat14MidiPresentationOrder(original);
+  const region = upgraded.songs[0].midiRegions[0];
+  assert.equal(upgraded.format.version, TARGET_FORMAT_VERSION);
+  assert.deepEqual(region.notes.map(({ midi2 }) => midi2), [
+    { attackOrder: 7, releaseOrder: 11 },
+    { attackOrder: -1, releaseOrder: -1 },
+    undefined,
+  ]);
+  assert.deepEqual(region.umpEvents.map(({ presentationOrder }) => presentationOrder), [13, -1, -1]);
+  assert.equal(original.format.version, 14);
+  assert.equal(original.songs[0].midiRegions[0].umpEvents[0].presentationOrder, 13);
 });
 
 test("the migration CLI upgrades a v13 project without losing MIDI 2.0 note data", (context) => {
@@ -138,6 +168,33 @@ test("the migration CLI upgrades a v13 project without losing MIDI 2.0 note data
   assert.equal(note.midi2.releaseVelocity, 0x4567);
   assert.equal(note.midi2.releaseAttributeType, note.midi2.attributeType);
   assert.equal(note.midi2.releaseAttributeData, note.midi2.attributeData);
+  assert.ok(fs.existsSync(`${projectPath}.bak`));
+});
+
+test("the migration CLI upgrades v14 presentation-order data without renumbering project content", (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "resostage-midi-order-migration-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const projectPath = path.join(directory, "project.rsnrasetmeta");
+  fs.writeFileSync(projectPath, `${JSON.stringify({
+    format: { version: 14 },
+    tracks: [{ id: "audio::track:1", name: "Keep identity" }],
+    songs: [{ midiRegions: [{ id: "stable-region-id", notes: [{ midi2: {
+      attributeType: 1, attributeData: 0x1234,
+    } }], umpEvents: [{ beat: 0, words: [0x20b00140], wordCount: 1 }] }] }],
+  })}\n`);
+
+  const migration = spawnSync(process.execPath, [
+    new URL("../../migrate.mjs", import.meta.url).pathname,
+    projectPath,
+  ], { encoding: "utf8" });
+  assert.equal(migration.status, 0, migration.stderr);
+  const migrated = JSON.parse(fs.readFileSync(projectPath, "utf8"));
+  assert.equal(migrated.format.version, TARGET_FORMAT_VERSION);
+  assert.equal(migrated.tracks[0].id, "audio::track:1");
+  assert.equal(migrated.songs[0].midiRegions[0].id, "stable-region-id");
+  assert.equal(migrated.songs[0].midiRegions[0].notes[0].midi2.attackOrder, -1);
+  assert.equal(migrated.songs[0].midiRegions[0].notes[0].midi2.releaseOrder, -1);
+  assert.equal(migrated.songs[0].midiRegions[0].umpEvents[0].presentationOrder, -1);
   assert.ok(fs.existsSync(`${projectPath}.bak`));
 });
 

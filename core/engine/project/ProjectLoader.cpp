@@ -762,6 +762,8 @@ bool ProjectLoader::reparseProject(std::string& error) {
         // cache; v11 -> v12 defaults plug-in sidechain routing to disconnected.
         // v13 -> v14 defaults separate MIDI 2.0 release attributes to the
         // corresponding attack attributes for older persisted notes.
+        // v14 -> v15 defaults MIDI Clip packet order to unspecified for older
+        // notes and UMP events that predate source-order persistence.
         // Promote only the private in-memory snapshot so opening a document
         // never rewrites its package.
         out.format.version = kCurrentFormatVersion;

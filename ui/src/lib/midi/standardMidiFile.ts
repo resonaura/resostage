@@ -26,6 +26,7 @@ export interface ImportedMidiTrack {
     wordCount: number;
     configurationHeader?: boolean;
     profileConfigurationHeader?: boolean;
+    presentationOrder?: number;
   }>;
   /** Format 2 stores an independent tempo and meter map per sequence. */
   tempoEvents?: Array<{ beat: number; bpm: number }>;

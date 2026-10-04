@@ -81,6 +81,10 @@ std::vector<MidiNote> parseMidiNotes(const glz::generic& doc) {
                 midi2.releaseAttributeData = static_cast<uint16_t>(std::clamp(value, 0, 65535));
             else
                 midi2.releaseAttributeData = midi2.attributeData;
+            if (getInt(noteVal["midi2"], "attackOrder", value))
+                midi2.attackOrder = normalizeMidiPresentationOrder(value);
+            if (getInt(noteVal["midi2"], "releaseOrder", value))
+                midi2.releaseOrder = normalizeMidiPresentationOrder(value);
             n.midi2 = midi2;
         }
         notes.push_back(n);
@@ -156,6 +160,9 @@ std::vector<MidiUmpEvent> parseMidiUmpEvents(const glz::generic& doc) {
         getBool(value, "configurationHeader", event.configurationHeader);
         getBool(value, "profileConfigurationHeader", event.profileConfigurationHeader);
         event.configurationHeader = event.configurationHeader || event.profileConfigurationHeader;
+        int presentationOrder = -1;
+        if (getInt(value, "presentationOrder", presentationOrder))
+            event.presentationOrder = normalizeMidiPresentationOrder(presentationOrder);
         events.push_back(event);
         totalWords += static_cast<size_t>(wordCount);
     }
