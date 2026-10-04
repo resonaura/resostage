@@ -308,12 +308,15 @@ device, remote Core or vendor plug-in playback was exercised.
   CC event markers and held spans for CC64–69, including channel state,
   trimmed-loop source mapping, and initial-held/missing-release cases. Arbitrary
   CC remains labeled by its number, not as Sustain. Piano Roll now offers
-  distinct lanes for CC64–69. Core live recording now captures
-  CC64–69 and publishes recent events plus still-held onset edges through the
-  bounded MIDI preview frame and `WLiveRecordingRegion`; mounted UI views merge
-  those IDs across latest-wins snapshots. The callback event history is capped
-  at 4,096 events per recording session and the shared preview frame at 512 CC
-  events, so overload/reattach completeness still needs explicit coverage.
+  distinct lanes for CC64–69 and dynamically includes raw CC found in the
+  selected region. Core live recording captures every MIDI CC (0–127), stores
+  at most 4,096 events per recording session, and publishes up to the latest 64
+  events per session / 512 events globally plus still-held pedal onset edges
+  through the bounded preview frame and `WLiveRecordingRegion`. Mounted UI
+  views merge those IDs across latest-wins snapshots and visibly distinguish
+  capture overflow (later CC changes were not recorded) from incomplete live
+  telemetry (the take may still contain the missing preview events). Session
+  status publication is bounded to 1,024 active MIDI recording sessions.
 - Render MIDI controller events (including sustain CC64 and other pedals) as a
   compact, non-obscuring overlay in both MIDI region previews and the Piano
   Roll/controller lane. Use explicit on/off state transitions, preserve event
@@ -334,8 +337,9 @@ device, remote Core or vendor plug-in playback was exercised.
   Switch state uses MIDI's off=0/on=nonzero rule. This only covers persisted
   regions; incomplete scans expose a display-limited hint and suppress held
   spans so a truncated release cannot imply a false pedal-down state. Live
-  capture currently supports CC64–69 only; do not imply every arbitrary CC is
-  recorded live or that the Piano Roll supports arbitrary CC lanes.
+  capture stores all MIDI CC numbers within a fixed 4,096-event/session limit;
+  a visible warning distinguishes actual capture overflow from a bounded live
+  telemetry gap. This does not imply unbounded or lossless capture.
 - Apple documents CC64 as sustain, its switch off/on values, and that the Piano
   Roll Automation/MIDI area can display region MIDI controller data; the Score
   Editor can render sustain pedal markings from CC64. Treat the overlay here as
@@ -602,30 +606,31 @@ vendor rebind and visual acceptance remain open.
   authoritative application, stable sample clock, no partial snapshots/stuck
   voices/helper restarts and no waits/allocations on the callback.
 
-## Live MIDI pedal recording preview — implementation in progress (2026-10-03)
+## Live MIDI controller recording preview — implemented block (2026-10-03)
 
-The callback now captures switch-pedal controllers CC64–69 using the existing
-fixed-size event storage. It also keeps each channel/controller's current held
-state and original onset so a long pedal hold remains visible after that edge
-falls out of the bounded latest-events preview. Captured events are still the
-source of truth and are committed to the MIDI region on stop; preview telemetry
-does not synthesize MIDI events.
+The callback captures every MIDI CC number (0–127), not only switch pedals,
+within the existing fixed 4,096-event buffer per recording session. Pedal
+onset tracking remains specialized to CC64–69. Captured events remain the
+source of truth and are committed to the MIDI region on stop; telemetry does
+not synthesize MIDI events. Reaching the storage limit sets a sticky
+session-local truncation bit without incrementing beyond capacity.
 
-The live preview `SeqLock` carries at most 512 controller events globally and
-at most 64 recent events per recording session, plus held onsets. Stable
-event IDs are deduplicated in the renderer across latest-wins state snapshots.
-The UI clips colored markers and held spans to the viewport. The callback path
-uses fixed arrays only and performs no allocation or lock acquisition.
+The live preview `SeqLock` carries at most 512 controller events globally,
+with at most the latest 64 per session plus held pedal onsets. It publishes
+bounded per-session event counts/overflow state for up to 1,024 sessions.
+Stable event IDs are merged across latest-wins snapshots. The UI draws raw CC
+markers using controller numbers and distinguishes capture loss (later events
+were not recorded) from an incomplete live view (the committed take may still
+contain events missing only from telemetry). The callback continues to use
+fixed arrays without allocation or lock acquisition.
 
-Current verification: focused React live-preview/controller tests passed 20/20;
-full UI suite passed 838 tests across 127 files; UI TypeScript, changed-file
-lint, and `git diff --check` passed. Native helper test passed 2 cases / 21
-assertions; `ResoStage` and `resostage_engine_tests` built and the full native
-suite passed 592 cases / 428,766 assertions. No physical MIDI recording test
-was run. The 4,096-event capture capacity and 512-event global preview
-capacity can truncate dense or many-track sessions. A live-preview truncation
-warning and arbitrary-CC live-preview lane remain open. Do not describe this
-bounded live view as lossless.
+Focused live-preview tests passed 16/16, including arbitrary CC and both warning
+states; the complete UI suite passed 903 tests across 138 files. TypeScript and
+production build passed; lint exited 0 with 12 pre-existing warnings in
+unrelated files. Core `ResoStage` and `resostage_engine_tests` built, and CTest
+passed 1/1. No physical MIDI device test has been run. Dense recording can
+still exhaust the intentional fixed capture limit; do not describe this as
+lossless.
 
 ## Piano Roll MIDI controller lanes — implemented subset (2026-10-03)
 
@@ -644,8 +649,10 @@ for ordinary projects), plots raw CC values as event stems, and shows 14-bit
 pitch bend around its bipolar center. Trim and MIDI-loop mapping share the
 region timing helpers. Raw MIDI events remain read-only; the existing editable
 region automation curve is separate and is not rewritten into raw event data.
-Direct creation/editing of raw CC and pedal events, plus arbitrary-CC live
-recording preview, remain open.
+Direct creation/editing of raw CC and pedal events remains open. Live capture
+and preview now include arbitrary CC with bounded event retention; verify the
+warning paths and take contents on an actual MIDI input device before claiming
+lossless hardware acceptance.
 
 The controller-lane implementation passed 14 focused tests; full UI passed 901
 tests across 138 files; TypeScript and production build passed. Lint exited 0

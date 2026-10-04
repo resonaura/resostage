@@ -988,6 +988,12 @@ export interface LiveRecordingRegion {
     /** Absolute song beat, matching the live MIDI-note preview coordinates. */
     beat: number;
   }>;
+  /** Captured CC event count; a live frame may carry only a bounded recent subset. */
+  midiControllerEventCount?: number;
+  /** True when the per-recording 4,096-event capture buffer was exhausted. */
+  midiControllerCaptureTruncated?: boolean;
+  /** True when the global bounded preview could not publish every active session. */
+  midiControllerPreviewSessionsTruncated?: boolean;
 }
 
 export interface LivePeakPair {

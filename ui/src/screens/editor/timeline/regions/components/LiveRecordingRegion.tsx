@@ -219,6 +219,17 @@ export function LiveRecordingRegion({
     midiControllerEvents,
     liveMidiDurationBeats,
   );
+  const capturedControllerEventCount = recording.midiControllerEventCount ?? 0;
+  const controllerCaptureTruncated = recording.midiControllerCaptureTruncated === true;
+  const controllerPreviewIncomplete = isMidi && (
+    recording.midiControllerPreviewSessionsTruncated === true
+    || capturedControllerEventCount > midiControllerHistoryRef.current.events.length
+  );
+  const controllerPreviewWarning = controllerCaptureTruncated
+    ? "MIDI controller capture reached its 4,096-event limit. Later controller changes were not recorded."
+    : controllerPreviewIncomplete
+      ? "MIDI controller live preview is incomplete because telemetry is bounded. The recording may still contain events not shown here."
+      : null;
 
   if (preview.widthPx <= 0) return null;
 
@@ -236,6 +247,16 @@ export function LiveRecordingRegion({
         boxShadow: "0 0 14px color-mix(in oklab, var(--rs-record) 35%, transparent), inset 0 2px 0 color-mix(in oklab, var(--rs-record) 60%, transparent)",
       }}
     >
+      {controllerPreviewWarning && (
+        <span
+          role="img"
+          aria-label={controllerPreviewWarning}
+          title={controllerPreviewWarning}
+          className="pointer-events-auto absolute right-1 top-1 z-10 flex size-4 items-center justify-center rounded-full border border-warning/50 bg-background/90 text-[10px] font-bold leading-none text-warning"
+        >
+          !
+        </span>
+      )}
       {isMidi ? (
         <div className="absolute inset-0 overflow-hidden">
           {midiNotes.map((note) => {

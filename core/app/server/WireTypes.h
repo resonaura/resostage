@@ -252,6 +252,9 @@ struct WLiveRecordingRegion {
         double beat = 0.0;
     };
     std::vector<MidiController> midiControllers;
+    uint32_t midiControllerEventCount = 0;
+    bool midiControllerCaptureTruncated = false;
+    bool midiControllerPreviewSessionsTruncated = false;
 };
 
 struct WPeakPair {

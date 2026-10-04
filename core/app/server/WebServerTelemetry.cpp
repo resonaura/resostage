@@ -185,6 +185,10 @@ std::string WebServer::buildStateJson(const char* view) const {
         wr.channelCount = reg.channelCount;
         wr.state = static_cast<uint8_t>(reg.state);
         wr.kind = static_cast<uint8_t>(reg.kind);
+        wr.midiControllerEventCount = reg.midiControllerEventCount;
+        wr.midiControllerCaptureTruncated = reg.midiControllerCaptureTruncated;
+        wr.midiControllerPreviewSessionsTruncated =
+            reg.midiControllerPreviewSessionsTruncated;
         wr.midiNotes.reserve(reg.midiNotes.size());
         for (const auto& note : reg.midiNotes) {
             wire::WLiveRecordingRegion::MidiNote wn;

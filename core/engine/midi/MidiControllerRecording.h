@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace resostage::midi_controller {
@@ -25,6 +26,17 @@ struct CapturedPedalState {
 
 [[nodiscard]] inline constexpr bool isPedalController(uint8_t controller) noexcept {
     return controller >= kFirstPedalController && controller <= kLastPedalController;
+}
+
+/** Reserve one fixed-storage MIDI CC slot and make saturation observable. */
+[[nodiscard]] inline bool reserveControllerEvent(
+    size_t& eventCount, size_t capacity, bool& truncated) noexcept {
+    if (eventCount >= capacity) {
+        truncated = true;
+        return false;
+    }
+    ++eventCount;
+    return true;
 }
 
 /**

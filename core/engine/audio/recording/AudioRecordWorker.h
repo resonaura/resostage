@@ -152,6 +152,9 @@ struct LiveRecordingRegionInfo {
     LiveRecordingKind kind = LiveRecordingKind::Audio;
     std::vector<LiveRecordingMidiNoteInfo> midiNotes;
     std::vector<LiveRecordingMidiControllerInfo> midiControllers;
+    uint32_t midiControllerEventCount = 0;
+    bool midiControllerCaptureTruncated = false;
+    bool midiControllerPreviewSessionsTruncated = false;
 };
 
 struct TrackAudioRecordSession {

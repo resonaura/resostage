@@ -95,7 +95,8 @@ not replace the separate editable automation curves. Projection scans at most
 files; TypeScript and production build passed; lint had 12 unrelated existing
 warnings and none in changed files; diff check passed. Direct raw CC editing,
 arbitrary-CC live recording preview and manual visual/device acceptance remain
-open. See `automation.md`; do not push.
+open at that point in history. The current status is superseded by the live
+recording block at the end of this file. See `automation.md`; do not push.
 
 Latest verified UI display block (see recent git history):
 Timeline and Mixer numeric fader-gain/pan labels use the shared
@@ -946,3 +947,18 @@ Repository lint exited 0 with 12 existing warnings in unrelated files; none of
 the changed files warned. `git diff --check` passed. Synthetic store coverage
 does not replace mounted Inspector/track-switch integration, remote Core
 reconnect, or device visual acceptance; those remain open.
+
+Latest implementation block — bounded all-CC live recording preview
+(2026-10-03): the audio callback now captures CC 0–127 in fixed storage capped
+at 4,096 events per recording session. CC64–69 retain their specialized held
+onset tracking. A fixed telemetry frame publishes session counts/overflow
+status for up to 1,024 sessions, at most 64 recent CC events per session and
+512 globally. The UI merges IDs across latest-wins snapshots, renders arbitrary
+CCs by number, and shows a distinct warning when events were actually lost at
+capture versus omitted only from bounded telemetry. MIDI take event data stays
+authoritative. Focused UI tests passed 16/16, full UI 903/903 across 138 files,
+TypeScript and production build passed, lint exited 0 with 12 unrelated
+pre-existing warnings, native `ResoStage` / test targets built and CTest passed
+1/1, and `git diff --check` passed. No physical MIDI-device capture was run.
+Direct MIDI controller event editing and device acceptance remain open. Commit
+this block in English; do not push.

@@ -42,3 +42,19 @@ TEST_CASE("MIDI recording pedal state keeps the original down edge") {
     CHECK(state.startSample == 768);
     CHECK(state.startEventIndex == 7);
 }
+
+TEST_CASE("MIDI controller event capture stays bounded and reports overflow") {
+    size_t eventCount = 0;
+    bool truncated = false;
+
+    CHECK(reserveControllerEvent(eventCount, 2, truncated));
+    CHECK(reserveControllerEvent(eventCount, 2, truncated));
+    CHECK(eventCount == 2);
+    CHECK_FALSE(truncated);
+
+    CHECK_FALSE(reserveControllerEvent(eventCount, 2, truncated));
+    CHECK(eventCount == 2);
+    CHECK(truncated);
+    CHECK_FALSE(reserveControllerEvent(eventCount, 2, truncated));
+    CHECK(eventCount == 2);
+}

@@ -117,6 +117,35 @@ describe("live recording region", () => {
     expect(heldSpans[1].title).toContain("CC 65 · Portamento");
   });
 
+  it("warns when bounded controller telemetry omits events from the live preview", async () => {
+    const midi: Recording = {
+      ...audioRecording,
+      kind: 1,
+      midiControllerEventCount: 3,
+      midiControllers: [{ id: 2, controller: 1, channel: 0, value: 96, beat: 2 }],
+    };
+    await render(midi, 56, { scrollLeft: 0, viewportWidth: 2000 });
+
+    expect(container.querySelector('[role="img"]')?.getAttribute("aria-label"))
+      .toContain("live preview is incomplete");
+    expect(container.querySelector('[role="img"]')?.textContent).toBe("!");
+    expect(container.querySelector('[title*="CC 1"]')).not.toBeNull();
+  });
+
+  it("distinguishes exhausted MIDI capture from a telemetry-only preview gap", async () => {
+    const midi: Recording = {
+      ...audioRecording,
+      kind: 1,
+      midiControllerEventCount: 4096,
+      midiControllerCaptureTruncated: true,
+      midiControllers: [{ id: 4095, controller: 1, channel: 0, value: 96, beat: 2 }],
+    };
+    await render(midi, 56, { scrollLeft: 0, viewportWidth: 2000 });
+
+    expect(container.querySelector('[role="img"]')?.getAttribute("aria-label"))
+      .toContain("Later controller changes were not recorded");
+  });
+
   it("retains the previous waveform while the record worker has not published a new bin", async () => {
     vi.useFakeTimers();
     await render(audioRecording);

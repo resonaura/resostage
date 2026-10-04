@@ -444,6 +444,15 @@ std::vector<LiveRecordingRegionInfo> AudioEngine::getLiveRecordingRegions() cons
         info.channelCount = 0;
         info.state = LiveRecordingState::Capturing;
         info.kind = LiveRecordingKind::Midi;
+        if (frame.generation == previewGeneration) {
+            info.midiControllerPreviewSessionsTruncated = frame.sessionsTruncated;
+            if (sessionIndex < LiveMidiPreviewFrame::kMaxSessions) {
+                info.midiControllerEventCount =
+                    frame.sessions[sessionIndex].controllerEventCount;
+                info.midiControllerCaptureTruncated =
+                    frame.sessions[sessionIndex].captureTruncated;
+            }
+        }
         midiRegions.push_back(std::move(info));
     }
     if (frame.generation == previewGeneration) {
@@ -568,11 +577,17 @@ void AudioEngine::clearActiveMidiNotes(uint64_t targetHostTimeNanos,
 void AudioEngine::publishLiveMidiPreview(double bpm, int64_t playheadSample) {
     LiveMidiPreviewFrame frame;
     frame.generation = liveMidiPreviewGeneration.load(std::memory_order_relaxed);
+    frame.sessionsTruncated = activeMidiRecordSessions.size() > LiveMidiPreviewFrame::kMaxSessions;
     const double safeRate = currentSampleRate > 0.0 ? currentSampleRate : 48000.0;
     const double safeBpm = bpm > 0.0 ? bpm : 120.0;
 
     for (size_t sessionIndex = 0; sessionIndex < activeMidiRecordSessions.size(); ++sessionIndex) {
         const auto& session = activeMidiRecordSessions[sessionIndex];
+        if (sessionIndex < LiveMidiPreviewFrame::kMaxSessions) {
+            auto& status = frame.sessions[sessionIndex];
+            status.controllerEventCount = static_cast<uint32_t>(session.recordedEventCount);
+            status.captureTruncated = session.recordedEventsTruncated;
+        }
         const size_t completedToCopy = std::min(
             session.recordedNoteCount,
             LiveMidiPreviewFrame::kMaxNotes - frame.noteCount);
@@ -611,8 +626,7 @@ void AudioEngine::publishLiveMidiPreview(double bpm, int64_t playheadSample) {
             const TrackMidiRecordSession::RecordedEvent& source,
             size_t eventIndex) {
             if (frame.controllerCount >= LiveMidiPreviewFrame::kMaxControllers
-                || source.dataLength < 2
-                || !midi_controller::isPedalController(source.data1))
+                || source.dataLength < 2)
                 return;
             auto& dest = frame.controllers[frame.controllerCount++];
             dest.sessionIndex = static_cast<uint16_t>(sessionIndex);
