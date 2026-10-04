@@ -2296,3 +2296,13 @@ passed 34/34; full UI passed 1,057/1,057 across 151 files; TypeScript/production
 build, changed-file lint and `git diff --check` passed. Reference: [UMP
 and MIDI 2.0 Protocol v1.1.1 §§3.2.1, 3.3.1 and 7.4]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — cover the complete UMP packet-width table (2026-10-04)
+
+A table-driven codec fixture now exercises all 16 UMP Message Types with their
+specified one-, two-, three-, or four-word packet sizes, including reserved
+types whose widths are preallocated. It checks raw packet words and widths
+through MIDI Clip import/export; it does not claim semantic support for
+reserved types. Focused MIDI Clip tests passed 35/35. Source: UMP and MIDI 2.0
+Protocol v1.1.1 Table 4. Continue validating semantic field bounds and file
+round-trip edge cases, not merely framing.

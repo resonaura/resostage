@@ -1642,3 +1642,9 @@ directions. Focused MIDI Clip 34/34; full UI 1,057/1,057 across 151 files;
 TypeScript/production build, lint and diff check passed. Source: UMP
 and MIDI 2.0 Protocol v1.1.1 §§3.2.1, 3.3.1 and 7.4. Continue with import / export
 fidelity and external fixtures; do not claim full interoperability.
+
+Latest test hardening — UMP packet sizes (2026-10-04): added import/export
+round-trip coverage for packet widths of all 16 UMP Message Types, including
+reserved types. Focused MIDI Clip tests 35/35. Source is UMP Protocol v1.1.1
+Table 4. This verifies framing only; unknown and reserved packet semantics
+remain opaque. Continue with field validation and independent fixtures.

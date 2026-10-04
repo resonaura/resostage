@@ -82,6 +82,30 @@ function note(id: number): MidiNoteRow {
 }
 
 describe("MIDI Clip File framing and resource bounds", () => {
+  it("reads and retains packet widths from the complete UMP Message Type table", () => {
+    const wordsPerType = [1, 1, 1, 2, 2, 4, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4];
+    const rawPackets = wordsPerType.map((wordCount, type) => {
+      const first = type === 0 ? 0x0010_0000
+        : type === 13 ? 0xd000_0002 : (type << 28) >>> 0;
+      return [first, ...Array(wordCount - 1).fill(0)];
+    });
+    const parsed = parseMidiClipFile(framedClip(
+      rawPackets.flatMap((packet) => [dcs(0), packet]),
+    ));
+
+    const expected = rawPackets.map((words, type) => ({ words, wordCount: wordsPerType[type] }));
+    expect(parsed.tracks[0].umpEvents?.map(({ words, wordCount }) => ({ words, wordCount })))
+      .toEqual(expected);
+
+    const roundTrip = parseMidiClipFile(writeMidiClipFile([{
+      name: "Every UMP width",
+      regions: [{ ...region, umpEvents: parsed.tracks[0].umpEvents }],
+    }], { bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false }));
+    expect(roundTrip.tracks[0].umpEvents?.map(({ words, wordCount }) => ({ words, wordCount })))
+      .toEqual(expected);
+  });
+
   it("applies shared DCS deltas cumulatively and preserves simultaneous presentation order", () => {
     const parsed = parseMidiClipFile(framedClip([
       dcs(120), [0x10f8_0000], [0x10fa_0000],

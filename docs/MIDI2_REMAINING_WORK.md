@@ -506,3 +506,13 @@ pair. A regression fixture exercises both directions. Focused MIDI Clip tests
 passed 34/34; full UI passed 1,057/1,057 across 151 files; TypeScript/production
 build, changed-file lint and `git diff --check` passed. Basis: [UMP and
 MIDI 2.0 Protocol v1.1.1 §§3.2.1, 3.3.1 and 7.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — cover the complete UMP packet-width table (2026-10-04)
+
+Added a table-driven MIDI Clip codec fixture covering all 16 UMP Message Type
+values, including the reserved types' preallocated packet widths. It verifies
+that every packet is parsed and emitted with its exact word count and payload;
+this protects raw opaque-event round-trip as future UMP types are added. The
+widths follow UMP Protocol v1.1.1 Table 4. Focused MIDI Clip tests passed
+35/35, including the all-type import/export round-trip. This is framing
+coverage, not semantic support for the currently reserved message types.
