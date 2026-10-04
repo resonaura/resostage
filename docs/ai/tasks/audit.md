@@ -2236,6 +2236,16 @@ MIDI Clip and SMF tests cover non-default values. Focused MIDI codec tests
 `ResoStage` target build passed. The loss item is resolved; off-grid timing
 recommendations and independent DAW fixtures remain open.
 
+### Latest continuation — require immediate DCS before MIDI Clip NOOP (2026-10-04)
+
+The parser accepted NOOP after a JR Utility packet because it checked for any
+earlier DCS, even though the file specification describes the DCS/Null reset
+as an adjacent pair. It now rejects a NOOP unless the immediately preceding
+packet is DCS; a malformed sequence fixture covers the stale-DCS case. Focused
+MIDI Clip tests 31/31; full UI 1,052/1,052 across 151 files; TypeScript/build,
+changed-file lint and `git diff --check` passed. Basis: [MIDI Clip File v1.0
+§3.2.2](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
+
 ### Latest continuation — reject lossy MIDI Clip Set Tempo clamping (2026-10-04)
 
 The writer previously clamped out-of-range BPM to the nearest representable

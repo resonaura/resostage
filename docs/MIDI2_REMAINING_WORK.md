@@ -445,3 +445,14 @@ Focused MIDI codec tests passed 53/53; full UI passed 1,052/1,052 across
 This closes the metadata-loss item, not the whole timing audit. The importer
 still preserves recommended off-grid tempo/meter events instead of rejecting
 them, and no independent DAW-generated MIDI Clip corpus is maintained.
+
+### Latest continuation — validate MIDI Clip DCS/NOOP adjacency (2026-10-04)
+
+The parser now requires a Null/NOOP timing-reset packet to immediately follow
+its Delta Clockstamp. It previously accepted a stale DCS across an intervening
+JR Utility packet, although MIDI Clip File v1.0 §3.2.2 specifies the reset pair
+as DCS followed by Null. A malformed sequence fixture covers the gap. Focused
+MIDI Clip tests passed 31/31; full UI passed 1,052/1,052 across 151 files;
+TypeScript/production build, changed-file lint and `git diff --check` passed.
+
+Source: [MIDI Clip File Specification v1.0 §3.2.2](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).

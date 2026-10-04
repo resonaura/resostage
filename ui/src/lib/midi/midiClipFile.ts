@@ -172,10 +172,11 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         immediatelyPrecededByDcs = false;
         continue;
       } else {
+        const hadPrecedingDcs = immediatelyPrecededByDcs;
         immediatelyPrecededByDcs = false;
         if (status === 0) {
-          if (!hasDctpq || activeDcsDelta === null)
-            throw new Error("MIDI 2.0 clip NOOP must follow DCTPQ and a Delta Clockstamp");
+          if (!hasDctpq || activeDcsDelta === null || !hadPrecedingDcs)
+            throw new Error("MIDI 2.0 clip NOOP must immediately follow a Delta Clockstamp");
           if ((first & 0x00ff_ffff) !== 0)
             throw new Error("MIDI 2.0 clip NOOP has nonzero reserved bits");
           // NOOP is a file-timing reset aid, not a retained sequence event.

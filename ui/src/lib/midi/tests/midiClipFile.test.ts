@@ -124,6 +124,8 @@ describe("MIDI Clip File framing and resource bounds", () => {
         message: /DCTPQ has nonzero reserved bits/ },
       { packets: [dcs(0), dctpq(960), dcs(0), start, dcs(0), [0x0000_0001], dcs(0), end],
         message: /NOOP has nonzero reserved bits/ },
+      { packets: [dcs(0), dctpq(960), dcs(0), start, dcs(0), [0x0010_0001], [0], dcs(0), end],
+        message: /NOOP must immediately follow a Delta Clockstamp/ },
       { packets: [dcs(0), dctpq(960), dcs(0), start, dcs(0), [0x0021_5678], dcs(0), end],
         message: /JR timing message has nonzero reserved bits/ },
     ];

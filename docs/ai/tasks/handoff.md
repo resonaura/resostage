@@ -1599,3 +1599,13 @@ docs/MIDI2_REMAINING_WORK.md describe the additive persisted field. Remaining:
 validate timing recommendations carefully and seek independent MIDI Clip
 fixtures; do not claim complete interoperability. Continue with one tested,
 English-committed block at a time; do not push.
+
+Latest continuation — MIDI Clip DCS/NOOP adjacency (2026-10-04): malformed
+NOOP reset packets are now rejected unless immediately preceded by DCS, as
+required by MIDI Clip File v1.0 §3.2.2. This prevents a stale DCS from being
+reused across an intervening Utility event. Focused MIDI Clip 31/31; full UI
+1,052/1,052 across 151 files; TypeScript/build, changed-file lint and
+`git diff --check` passed. Source: [MIDI Clip File v1.0 §3.2.2]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
+Continue auditing protocol edge cases and independent DAW fixtures. Commit
+verified blocks separately in English; do not push.
