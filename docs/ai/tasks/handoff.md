@@ -1997,3 +1997,10 @@ aggregate. Focused batch tests 5/5, full UI 1,133/1,133 across 154 files,
 TypeScript/build/lint passed. Next, continue the SMF/MIDI Clip conformance
 audit with evidence-backed fixes; do not assume track flattening or documented
 live UMP limitations are resolved.
+
+Another export fix: `midiExportOriginBeats` now ignores muted regions when
+“from first region” is selected. Standard `.mid`, `.midi2`, and MIDI 1.0 raw
+event conversion share this origin, so notes, events, and effective initial
+tempo agree. Full UI 1,135/1,135, production build and lint pass. Continue the
+SMF/MIDI Clip audit, especially real multi-track import expectations and
+independent reference fixtures; no broad MIDI compatibility claim follows.

@@ -67,3 +67,17 @@ export function midiRegionNotePlaybackDuration(
     (region.loopStartBeats ?? 0) + region.loopLengthBeats - sourceStartBeats,
   ));
 }
+
+/** Find the first exported arrangement region, ignoring regions omitted as muted. */
+export function midiExportOriginBeats(
+  tracks: ReadonlyArray<{ regions: ReadonlyArray<MidiRegionRow> }>,
+  fromProjectStart: boolean,
+): number {
+  if (fromProjectStart) return 0;
+  let earliest = Infinity;
+  for (const track of tracks) for (const region of track.regions) {
+    if (region.muted || !Number.isFinite(region.startBeats)) continue;
+    earliest = Math.min(earliest, region.startBeats);
+  }
+  return Number.isFinite(earliest) ? earliest : 0;
+}

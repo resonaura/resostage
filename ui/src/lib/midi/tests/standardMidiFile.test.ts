@@ -1275,6 +1275,33 @@ describe("Standard MIDI File", () => {
     expect(parsed.tracks[1].notes[0].startBeats).toBe(0.5);
   });
 
+  it.each(["midi1", "midi2"] as const)(
+    "does not let a muted earlier region shift the %s export origin",
+    (format) => {
+      const song: SongRow = {
+        name: "Muted pre-roll", bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: 8,
+        click: false, clickBusId: "", clickSends: [], regions: [], events: [],
+        midiRegions: [
+          { ...region, id: "muted", startBeats: 0, muted: true },
+          { ...region, id: "active", startBeats: 8, muted: false },
+        ],
+        tempoPoints: [
+          { beat: 0, bpm: 120, timeSeconds: 0, curve: 0 },
+          { beat: 4, bpm: 90, timeSeconds: 2, curve: 0 },
+        ],
+      };
+      const parsed = parseStandardMidiFile(writeSongsMidiFile([song], {
+        songIndices: [0], tracks: [{ id: "t1", name: "Piano" }],
+        fromProjectStart: false, expandLoops: false, format,
+      }));
+      const noteTrack = parsed.tracks.find((track) => track.notes.length);
+
+      expect(noteTrack?.notes.map((note) => note.startBeats)).toEqual([0.5]);
+      expect(parsed.tempoEvents[0].beat).toBe(0);
+      expect(parsed.tempoEvents[0].bpm).toBeCloseTo(90, 3);
+    },
+  );
+
   it("expands looped notes only when requested", () => {
     const looped = { ...region, startBeats: 0, durationBeats: 8, loop: true };
     const options = { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true };

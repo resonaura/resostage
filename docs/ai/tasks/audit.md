@@ -2671,3 +2671,11 @@ without double-counting Format 0/1 track mirrors. Focused batch tests 5/5; full
 UI 1,133/1,133 across 154 files; TypeScript/production build and changed-file
 oxlint pass. Continue investigating concrete SMF/MIDI Clip interoperability
 gaps before broad feature expansion.
+
+Latest export-origin audit (2026-10-04): muted MIDI regions were skipped while
+writing output but were still included when computing the origin for
+“from first region,” producing avoidable leading silence and a tempo-map
+origin mismatch. A shared helper now ignores muted regions in Standard MIDI,
+MIDI Clip, and MIDI 1.0-to-UMP projection. Both formats have regression tests.
+Full UI 1,135/1,135 across 154 files; production build, lint, and diff check
+pass. Continue reviewing export option semantics and the remaining codec gaps.

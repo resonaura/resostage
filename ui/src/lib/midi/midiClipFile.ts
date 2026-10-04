@@ -6,7 +6,11 @@
 
 import type { MidiNoteRow } from "@/lib/state/types";
 import type { ImportedMidiFile, ImportedMidiTrack, MidiExportOptions, MidiExportTrack } from "@/lib/midi/standardMidiFile";
-import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";
+import {
+  midiExportOriginBeats,
+  midiRegionContainsLoopSourceBeat,
+  midiRegionLoopOccurrence,
+} from "@/lib/midi/midiRegionTiming";
 import {
   assertNoMidiClipPropertyExchange,
   validateMidiClipReceiverConfigurationPackets,
@@ -821,10 +825,7 @@ export function midi1RegionsToUmps(
   tracks: ReadonlyArray<MidiExportTrack>,
   options: Pick<MidiExportOptions, "fromProjectStart" | "expandLoops">,
 ): Midi1ClipEventConversion {
-  const earliest = tracks.reduce((minimum, track) => track.regions.reduce(
-    (value, region) => Math.min(value, region.startBeats), minimum,
-  ), Infinity);
-  const origin = options.fromProjectStart || !Number.isFinite(earliest) ? 0 : earliest;
+  const origin = midiExportOriginBeats(tracks, options.fromProjectStart);
   const scheduled: ScheduledMidi1Event[] = [];
   let regionOrder = 0;
   let exceededEventLimit = false;
@@ -932,10 +933,7 @@ function compareClipEvents(a: ClipEvent, b: ClipEvent): number {
 /** Write a single MIDI Clip File. Multiple DAW tracks are deliberately merged into its one UMP sequence. */
 export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExportOptions): Uint8Array {
   if (!tracks.length) throw new Error("Select at least one MIDI track");
-  const earliest = tracks.reduce((minimum, track) => track.regions.reduce(
-    (value, region) => Math.min(value, region.startBeats), minimum,
-  ), Infinity);
-  const origin = options.fromProjectStart || !Number.isFinite(earliest) ? 0 : earliest;
+  const origin = midiExportOriginBeats(tracks, options.fromProjectStart);
   const events: ClipEvent[] = [];
   const profileConfigurationPackets: Array<{ words: number[]; order: number }> = [];
   const receiverConfigurationPackets: Array<{ words: number[]; order: number }> = [];

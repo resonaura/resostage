@@ -836,6 +836,17 @@ consume substantial parsed memory without reaching the prior note/event/UMP
 counter. Focused batch tests: 5/5; full UI: 1,133/1,133 across 154 files;
 TypeScript/production build, changed-file oxlint, and diff check pass.
 
+### Latest continuation — ignore muted regions when choosing MIDI export origin (2026-10-04)
+
+The “from first region” `.mid` and `.midi2` exports now select their origin
+from the first unmuted region. Previously a muted region was omitted from the
+file payload but could still shift every exported note and the initial tempo
+and meter. The shared origin helper is also used while projecting MIDI 1.0
+events into a MIDI Clip, keeping raw events and notes aligned. Regressions cover
+both formats and verify effective tempo at the shifted origin. Full UI tests
+pass 1,135/1,135 across 154 files; production build, changed-file oxlint, and
+diff check pass.
+
 ### Latest continuation — isolate selected MIDI sequence timing (2026-10-04)
 
 When importing with the project-tempo update choice, the initial BPM and meter

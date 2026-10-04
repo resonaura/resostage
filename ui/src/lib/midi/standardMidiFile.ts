@@ -11,7 +11,11 @@ import {
   parseMidiClipFile,
   writeMidiClipFile,
 } from "@/lib/midi/midiClipFile";
-import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";
+import {
+  midiExportOriginBeats,
+  midiRegionContainsLoopSourceBeat,
+  midiRegionLoopOccurrence,
+} from "@/lib/midi/midiRegionTiming";
 import { songBeatsAtSeconds, songSecondsAtBeat } from "@/lib/midi/tempoMap";
 
 export { songBeatsAtSeconds, songSecondsAtBeat } from "@/lib/midi/tempoMap";
@@ -922,10 +926,7 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
     target.push(event);
   };
   const rawEventBytesByIdentity = new WeakMap<object, SmfByteSequence>();
-  const earliest = tracks.reduce((minimum, track) => track.regions.reduce(
-    (value, region) => Math.min(value, region.startBeats), minimum,
-  ), Infinity);
-  const origin = options.fromProjectStart || !Number.isFinite(earliest) ? 0 : earliest;
+  const origin = midiExportOriginBeats(tracks, options.fromProjectStart);
   const metaEvents: Array<{ tick: number; order: number; bytes: number[] }> = [];
   const rawTempo = [...(options.tempoEvents ?? [{ beat: 0, bpm: options.bpm }])]
     .sort((a, b) => a.beat - b.beat);
