@@ -25,9 +25,10 @@ interface Midi2ControllerLaneDescriptor {
   controller: number;
 }
 
-interface SelectedUmpControllerEvent {
+export interface PianoRollUmpControllerPoint {
   beat: number;
   value: number;
+  rawValue: number;
   group: number;
   channel: number;
   sourceEventIndex: number;
@@ -63,8 +64,8 @@ function decodeEvent(
   event: MidiUmpEventRow,
   index: number,
   lane: Midi2ControllerLaneDescriptor,
-): SelectedUmpControllerEvent | null {
-  if (event.wordCount !== 2 || event.words.length < 2
+): PianoRollUmpControllerPoint | null {
+  if (!event || !Array.isArray(event.words) || event.wordCount !== 2 || event.words.length < 2
       || !Number.isFinite(event.beat) || event.beat < 0)
     return null;
   const header = event.words[0];
@@ -87,10 +88,21 @@ function decodeEvent(
   return {
     beat: event.beat,
     value,
+    rawValue: value32,
     group: (header >>> 24) & 0xf,
     channel: (header >>> 16) & 0xf,
     sourceEventIndex: index,
   };
+}
+
+/** Decode one recognized UMP point for an exact Piano Roll controller lane. */
+export function decodePianoRollUmpControllerPoint(
+  event: MidiUmpEventRow,
+  sourceEventIndex: number,
+  lane: PianoRollBottomLane,
+): PianoRollUmpControllerPoint | null {
+  const descriptor = describeLane(lane);
+  return descriptor ? decodeEvent(event, sourceEventIndex, descriptor) : null;
 }
 
 /** Discover bounded group/channel choices for one selected MIDI 2.0 lane. */
@@ -203,7 +215,7 @@ export function buildPianoRollUmpControllerProjection(
   const source = region.umpEvents ?? [];
   const sourceCount = Math.min(source.length, MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS);
   result.truncated = source.length > sourceCount;
-  const selected: SelectedUmpControllerEvent[] = [];
+  const selected: PianoRollUmpControllerPoint[] = [];
   for (let index = 0; index < sourceCount; index += 1) {
     const decoded = decodeEvent(source[index], index, descriptor);
     if (decoded && (groupFilter === null || decoded.group === groupFilter)
@@ -214,7 +226,7 @@ export function buildPianoRollUmpControllerProjection(
   const repeatLength = region.loop && region.loopLengthBeats > BEAT_EPSILON
     ? region.loopLengthBeats
     : 0;
-  const append = (event: SelectedUmpControllerEvent, beat: number): boolean => {
+  const append = (event: PianoRollUmpControllerPoint, beat: number): boolean => {
     if (beat < Math.max(0, minBeat) || beat > maxBeat || beat >= region.durationBeats)
       return false;
     if (result.events.length >= MAX_PROJECTED_EVENTS) {

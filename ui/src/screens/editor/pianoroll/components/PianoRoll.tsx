@@ -28,6 +28,11 @@ import {
   isPianoRollUmpControllerLane,
 } from "@/screens/editor/pianoroll/logic/umpControllerLane";
 import { removePianoRollUmpControllerEvents } from "@/screens/editor/pianoroll/logic/umpControllerEditing";
+import {
+  shapeUmpControllerSelection,
+  smoothUmpControllerSelection,
+  umpControllerTransformAvailability,
+} from "@/screens/editor/pianoroll/logic/umpControllerTransforms";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
 import { usePianoRollControllerEventSelection } from "@/screens/editor/pianoroll/hooks/usePianoRollControllerEventSelection";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
@@ -399,9 +404,9 @@ export function PianoRoll({
     setSelectedControllerEventIndices,
     handleDeleteSelected: handleDeleteMidi1Events,
     handleSelectAll: handleSelectMidi1All,
-    canShapeSelectedControllerEvents,
-    handleSetSelectedCurve,
-    handleSmoothSelectedEvents,
+    canShapeSelectedControllerEvents: canShapeMidi1Events,
+    handleSetSelectedCurve: handleSetSelectedMidi1Curve,
+    handleSmoothSelectedEvents: handleSmoothSelectedMidi1Events,
   } = usePianoRollControllerEventSelection({
     regionId: region.id,
     resetKey,
@@ -416,6 +421,57 @@ export function PianoRoll({
     getEditableNotes,
     deleteSelectedNotes: handleDeleteSelectedNotes,
   });
+  const umpTransformAvailability = useMemo(() => (
+    onUmpEventsChange && isPianoRollUmpControllerLane(bottomLane)
+      ? umpControllerTransformAvailability(
+        editableUmpEvents,
+        [...selectedUmpControllerEventIndices],
+        bottomLane,
+        umpGroupFilter,
+        umpChannelFilter,
+      )
+      : { curve: false, smooth: false }
+  ), [onUmpEventsChange, bottomLane, editableUmpEvents, selectedUmpControllerEventIndices,
+    umpGroupFilter, umpChannelFilter]);
+  const isUmpControllerLane = isPianoRollUmpControllerLane(bottomLane);
+  const canShapeSelectedControllerEvents = isUmpControllerLane
+    ? umpTransformAvailability.curve
+    : canShapeMidi1Events;
+  const handleSetSelectedCurve = useCallback((curve: number) => {
+    if (isUmpControllerLane) {
+      if (!onUmpEventsChange) return;
+      const next = shapeUmpControllerSelection(
+        editableUmpEvents,
+        [...selectedUmpControllerEventIndices],
+        bottomLane,
+        curve,
+        umpGroupFilter,
+        umpChannelFilter,
+      );
+      if (next) commitUmpEvents(next);
+      return;
+    }
+    handleSetSelectedMidi1Curve(curve);
+  }, [isUmpControllerLane, onUmpEventsChange, editableUmpEvents,
+    selectedUmpControllerEventIndices, bottomLane, umpGroupFilter, umpChannelFilter,
+    commitUmpEvents, handleSetSelectedMidi1Curve]);
+  const handleSmoothSelectedEvents = useCallback(() => {
+    if (isUmpControllerLane) {
+      if (!onUmpEventsChange) return;
+      const next = smoothUmpControllerSelection(
+        editableUmpEvents,
+        [...selectedUmpControllerEventIndices],
+        bottomLane,
+        umpGroupFilter,
+        umpChannelFilter,
+      );
+      if (next) commitUmpEvents(next);
+      return;
+    }
+    handleSmoothSelectedMidi1Events();
+  }, [isUmpControllerLane, onUmpEventsChange, editableUmpEvents,
+    selectedUmpControllerEventIndices, bottomLane, umpGroupFilter, umpChannelFilter,
+    commitUmpEvents, handleSmoothSelectedMidi1Events]);
   useEffect(() => subscribeHistoryBoundary(() => {
     setSelectedControllerEventIndices(new Set());
     setSelectedUmpControllerEventIndices(new Set());

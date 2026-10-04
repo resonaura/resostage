@@ -905,3 +905,23 @@ across 146 files; TypeScript, staged production build, lint and `git diff
 --check` passed. The 12 lint warnings are existing and outside changed files.
 No manual visual or device acceptance was done. UMP curve/smoothing, marquee,
 cut/copy, codec conformance and native UMP transport remain open.
+
+### Piano Roll selected UMP controller curves and smoothing (2026-10-04)
+
+The existing controller-transform toolbar now also operates on selected
+MIDI 2.0 UMP CC/Pitch Bend points. It keeps the typed MIDI 1.0 `events` and UMP
+`umpEvents` collections separate, validates selection against the active
+Group/Channel filters, and shapes/smooths independently per UMP Group and
+Channel. Curves use the shared Timeline evaluator; smoothing uses two
+time-weighted passes. Both retain fixed endpoints and apply to raw unsigned
+32-bit values without reducing precision to the lane's visual range. They
+preserve source beats, packet headers, trailing words, unselected packets and
+opaque UMP records. Binary CC64–69 pedals are excluded. Successful edits use
+the reliable UMP draft and exact region history route. Invalid/stale selection,
+oversized input and no-op edits do not submit a mutation.
+
+Focused UMP-transform and packet-edit tests passed 18/18; the full UI suite
+passed 999 tests across 147 files; TypeScript and production UI build passed.
+Lint exited 0 with 12 existing warnings in unrelated files, and
+`git diff --check` passed. No manual visual/device acceptance or performance
+profile was run. UMP range marquee and raw event cut/copy remain open.

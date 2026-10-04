@@ -1295,3 +1295,22 @@ bounded UMP curve/smoothing transforms, then assess marquee and clipboard
 semantics, codec conformance fixtures and native UMP transport. See
 `docs/MIDI2_REMAINING_WORK.md`; end-to-end MIDI 2.0 compatibility is still not
 implemented. Do not push.
+
+### Latest continuation — UMP controller curves and smoothing (2026-10-04)
+
+Direct Piano Roll UMP CC/Pitch Bend selections now have bounded curve and
+smoothing transforms. The implementation is separate from MIDI 1.0 event
+rewrites, scopes/validates source indexes through the active lane and
+Group/Channel filters, and processes each UMP Group+Channel independently.
+Values remain exact unsigned 32-bit words; endpoints, beat positions, headers,
+trailing words, unselected events and opaque packets are preserved. Binary pedal
+CC64–69 are not transformable. Edits commit through the existing reliable UMP
+region draft/history path.
+
+Focused transform/edit tests passed 18/18; full UI Vitest passed 999 tests in
+147 files; `tsc -b`, production UI build, repository lint and `git diff
+--check` passed. Lint has 12 unrelated existing warnings. No manual display,
+hardware or frame-profile acceptance was done. Next open items: bounded
+selection marquee and raw-event cut/copy with exact packet retention/history,
+then fill codec conformance gaps and continue native UMP I/O. Do not claim
+end-to-end MIDI 2.0 support and do not push.

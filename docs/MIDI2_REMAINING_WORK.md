@@ -93,9 +93,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay
   opaque. Group/channel filters scope the preview and canvas gestures. Direct
-  editing supports point creation, move/value editing, multi-selection and
-  deletion, but does not yet provide UMP curve/smoothing transforms, marquee
-  selection, or raw event cut/copy. The semantic event dialog remains available
+  editing supports point creation, move/value editing, multi-selection,
+  deletion, curve shaping and smoothing. Continuous transforms preserve the
+  full unsigned 32-bit data word, endpoints, event timing and opaque packets;
+  binary pedal CC64–69 are excluded. Range marquee selection and raw event
+  cut/copy are not implemented. The semantic event dialog remains available
   for exact field entry.
 - The importer has focused unit coverage but no maintained conformance corpus
   from other DAWs and no broad cross-application round-trip certification.
@@ -124,11 +126,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
    justify it.
 2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor,
    group/channel preview filters, and direct point gestures for recognized
-   CC/Pitch Bend packets are implemented. Next add bounded curve/smoothing
-   transforms with exact-word and packet-preservation tests, then consider
-   marquee and clipboard actions only if they can retain packet identity and
-   history semantics. Keep MIDI 1.0 `events` and UMP `umpEvents` separate and
-   use the exact MIDI-region history/acknowledgement path.
+   CC/Pitch Bend packets, plus bounded curve/smoothing transforms, are
+   implemented. Next assess marquee and clipboard actions only if they can
+   retain packet identity and history semantics. Keep MIDI 1.0 `events` and UMP
+   `umpEvents` separate and use the exact MIDI-region history/acknowledgement
+   path.
 3. **Finish MIDI 1.0 interoperability:** maintain Format 0/1/2 fixtures,
    validate SMPTE timing and tempo/meter maps against independent files, and
    improve the `.mid` loss report so every supported conversion and every

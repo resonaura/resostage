@@ -1883,3 +1883,25 @@ changed files. No manual Electron visual or native UMP-device acceptance was
 performed. Remaining: UMP curve/smoothing transforms, range marquee and raw
 event cut/copy, codec conformance fixtures, native UMP endpoint transport and
 physical/manual acceptance. This does not establish end-to-end MIDI 2.0 support.
+
+### Latest continuation — Piano Roll UMP curves and smoothing (2026-10-04)
+
+The recognized MIDI 2.0 CC/Pitch Bend lanes now expose the same bounded curve
+and smoothing actions as raw MIDI 1.0 controller events. Selection is validated
+against the active lane and Group/Channel filters, then grouped independently
+by UMP Group and MIDI Channel. Curve shaping evaluates each interior point
+against its group's fixed endpoint values using the shared Timeline curve law;
+smoothing uses two time-weighted passes and preserves endpoints. Both operate
+on the complete unsigned 32-bit data word, retain beat/header/trailing words,
+and leave unselected and opaque packets untouched. CC64–69 are excluded as
+binary pedal controls. Successful changes use the reliable UMP collection
+draft and existing exact MIDI-region history mutation, not the MIDI 1.0 event
+path. Invalid, stale-filter, duplicate, oversized and no-op inputs fail closed.
+
+Focused UMP-transform and packet-edit tests passed 18/18; full UI Vitest passed
+999 tests across 147 files; `tsc -b`, production UI build, lint and
+`git diff --check` passed. Lint still reports 12 existing warnings outside the
+changed files. No manual visual, physical-device or frame-time acceptance was
+performed. Remaining UMP editor work includes range marquee and raw event
+cut/copy; codec conformance, native UMP transport and end-to-end MIDI 2.0
+compatibility remain open.
