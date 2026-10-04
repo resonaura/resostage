@@ -311,6 +311,75 @@ describe("pluginChains", () => {
       }),
     });
   });
+
+  it("sets and disconnects a sidechain through the exact project editor transaction", async () => {
+    let requestId = 0;
+    let revision = 40;
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockImplementation(async (path) => {
+      if (path === "/api/v1/plugins/slot/sidechain") {
+        requestId += 1;
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            accepted: true,
+            requestId,
+            stateSessionId: "Core",
+            projectEpoch: 0,
+          }),
+        } as unknown as Response;
+      }
+      revision += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          stateSessionId: "Core",
+          projectEpoch: 0,
+          stateRevision: revision,
+          playbackProjectEpoch: 1,
+          playbackProjectRevision: revision,
+          editorCommandResults: [{
+            requestId,
+            applied: true,
+            projectEpoch: 0,
+            projectRevision: revision,
+            applicationDomain: "audio",
+            playbackApplied: true,
+            playbackProjectEpoch: 1,
+            playbackRevision: revision,
+          }],
+        }),
+      } as unknown as Response;
+    });
+
+    const route = {
+      sourceStripId: "audio::track:kick",
+      inputBusIndex: 2,
+      channelMode: "mono-sum" as const,
+    };
+    await pluginChains.setSidechain("audio::track:bass", "slot_comp", route);
+    await pluginChains.setSidechain("audio::track:bass", "slot_comp", null);
+
+    expect(fetchSpy).toHaveBeenNthCalledWith(1, "/api/v1/plugins/slot/sidechain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stripId: "audio::track:bass",
+        slotId: "slot_comp",
+        sidechain: route,
+      }),
+    });
+    expect(fetchSpy).toHaveBeenNthCalledWith(3, "/api/v1/plugins/slot/sidechain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stripId: "audio::track:bass",
+        slotId: "slot_comp",
+        sidechain: null,
+      }),
+    });
+  });
 });
 
 describe("atomic automation edits", () => {

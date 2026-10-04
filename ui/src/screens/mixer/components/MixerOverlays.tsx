@@ -76,6 +76,8 @@ export function MixerOverlays({
                   ?.plugins ??
                 [])
           }
+          tracks={state.tracks}
+          busses={state.busses}
           onClose={onClosePlugins}
         />
       )}

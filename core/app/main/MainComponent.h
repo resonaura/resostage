@@ -195,6 +195,7 @@ private:
     void pluginSlotReplace(const std::string& json);
     void pluginSlotRemove(const std::string& json);
     void pluginSlotMove(const std::string& json);
+    void pluginSlotSetSidechain(const std::string& json);
     void pluginSlotBypass(const std::string& json);
     bool pluginSlotBypassForTarget(const std::string& stripId,
                                    const std::string& slotId,

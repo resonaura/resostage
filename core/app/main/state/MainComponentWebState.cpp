@@ -92,6 +92,12 @@ void MainComponent::publishWebState() {
             row.bypassed = slot.bypassed;
             row.hasState = slot.stateResource.has_value();
             row.keepAwake = slot.keepAwake;
+            if (slot.sidechain) {
+                row.sidechain = WebUiState::PluginSlotRow::SidechainRoute{
+                    slot.sidechain->sourceStripId,
+                    slot.sidechain->inputBusIndex,
+                    sidechainChannelModeToString(slot.sidechain->channelMode)};
+            }
             if (activeBank != nullptr) {
                 row.powerState = pluginPowerStateToString(
                     activeBank->getStripSlotPowerState(stripId, slot.id));

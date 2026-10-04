@@ -302,6 +302,8 @@ export function EditorInspector({
           stripId={pluginTarget.stripId}
           stripName={pluginTarget.stripName}
           track={selectedTrack?.id === pluginTarget.stripId ? selectedTrack : undefined}
+          tracks={state.tracks}
+          busses={state.busses}
           songIndex={Math.max(0, state.songIndex)}
           song={state.songs[Math.max(0, state.songIndex)]}
           pluginValueIdentity={`${state.stateSessionId ?? ""}:${state.projectEpoch ?? ""}:${state.pluginLoading?.generation ?? 0}`}

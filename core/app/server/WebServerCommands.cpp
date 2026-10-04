@@ -235,6 +235,7 @@ bool isProjectScopedCommand(WebCommandKind kind) {
         WebCommandKind::BuilderMIDIRegionRemove, WebCommandKind::BuilderMIDIRegionUpdate,
         WebCommandKind::PluginSlotAdd, WebCommandKind::PluginSlotReplace,
         WebCommandKind::PluginSlotRemove, WebCommandKind::PluginSlotMove,
+        WebCommandKind::PluginSlotSidechain,
         WebCommandKind::PluginSlotBypass, WebCommandKind::PluginSlotRetry,
         WebCommandKind::PluginPresetSave, WebCommandKind::PluginPresetLoad,
         WebCommandKind::PluginSlotOpenEditor, WebCommandKind::PluginSlotKeepAwake,
@@ -283,6 +284,7 @@ bool isTransactionalEditorCommand(WebCommandKind kind) {
         // acknowledgements; retry/editor/park/unpark are lifecycle commands.
         WebCommandKind::PluginSlotAdd, WebCommandKind::PluginSlotReplace,
         WebCommandKind::PluginSlotRemove, WebCommandKind::PluginSlotMove,
+        WebCommandKind::PluginSlotSidechain,
         WebCommandKind::BuilderAutomationLaneAdd, WebCommandKind::BuilderAutomationLaneRemove,
         WebCommandKind::BuilderAutomationLaneUpdate, WebCommandKind::BuilderAutomationPointAdd,
         WebCommandKind::BuilderAutomationPointRemove, WebCommandKind::BuilderAutomationPointsReplace,
@@ -502,6 +504,8 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::PluginSlotRemove, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/move") == 0) {
         cmd = {WebCommandKind::PluginSlotMove, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/sidechain") == 0) {
+        cmd = {WebCommandKind::PluginSlotSidechain, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/bypass") == 0) {
         cmd = {WebCommandKind::PluginSlotBypass, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/retry") == 0) {

@@ -126,6 +126,7 @@ enum class WebCommandKind : uint8_t {
     PluginSlotReplace,
     PluginSlotRemove,
     PluginSlotMove,
+    PluginSlotSidechain,
     PluginSlotBypass,
     PluginSlotRetry,
     PluginPresetSave,
@@ -392,6 +393,12 @@ struct WebUiState {
         std::string powerState = "active";
         std::string loadState = "loading";
         std::string loadError;
+        struct SidechainRoute {
+            std::string sourceStripId;
+            uint32_t inputBusIndex = 0;
+            std::string channelMode = "automatic";
+        };
+        std::optional<SidechainRoute> sidechain;
         // Shared by every slot in one isolated strip helper; changes only
         // when that helper process is replaced, enabling restart diagnostics.
         uint64_t hostGeneration = 0;

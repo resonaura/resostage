@@ -116,8 +116,9 @@ use the high-water mark only when talking to an older Core that omits the exact
 result field. If a result ages out of the ring, the action is unconfirmed, not
 inferred from a later request. A no-op Undo/Redo must never be reported as
 applied merely because a later request succeeded.
-Audio- and MIDI-region add/update/remove, plus automation lane/point
-transactions, receive a request ID and a bounded 256-entry exact result in the
+Audio- and MIDI-region add/update/remove, automation lane/point transactions,
+and plug-in chain add/replace/remove/move/sidechain-route transactions receive
+a request ID and a bounded 256-entry exact result in the
 resulting state snapshot. The result separates `applied` (project-history
 mutation) from `playbackApplied` (the immutable graph published for the same
 project epoch includes at least that history revision). The HTTP project epoch
@@ -131,6 +132,16 @@ it blindly; the renderer refreshes authoritative project state and surfaces
 the audio/project revision mismatch. This is detection and recovery guidance,
 not rollback or full atomic UI/project/audio state. Other project mutation
 families and best-effort controls still do not have exact per-request outcomes.
+Plug-in sidechain route edits are accepted only for a loaded effect slot and
+an auxiliary bus explicitly reported by that exact `(stripId, slotId)` host
+instance. Core validates the proposed edge against the combined ordinary and
+sidechain DAG before changing history; missing sources, unsupported buses,
+self-feedback, graph cycles, and per-strip feed-limit violations reject without
+mutation. Explicit JSON `sidechain: null` disconnects; an omitted route field
+is invalid and must never be interpreted as a disconnect. A sidechain bus-layout
+change can require re-preparing the destination chain. The audio callback must
+continue with the last-good graph and must never wait for helper startup or
+reconfiguration.
 Lighting configuration, fixture, light-track, and cue edits also receive exact
 request outcomes. Their `applicationDomain` is `lighting`, and
 `lightingApplied` confirms that Core synchronously replaced LightEngine's

@@ -6,12 +6,15 @@
 
 #include "MainComponent.h"
 
+#include "audio/graph/MixGraph.h"
 #include "platform/PlatformShellMode.h"
 #include "plugins/PluginPaths.h"
+#include "plugins/PluginHostProtocol.h"
 #include "plugins/PluginPresetStore.h"
 #include "plugins/PluginProcessorBank.h"
 #include "project/Uuid.h"
 #include "server/BuilderJson.h"
+#include "server/WireTypes.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -248,6 +251,19 @@ size_t projectPluginCount(const Project& project) {
     return count;
 }
 
+std::string graphStripIdForProjectStrip(const Project& project,
+                                        const std::string& stripId) {
+    if (stripId == "audio::main" || stripId == "audio::click")
+        return stripId;
+    for (const auto& track : project.tracks)
+        if (track.id == stripId || track.effectiveStripId() == stripId)
+            return track.effectiveStripId();
+    for (const auto& send : project.sends)
+        if (send.id == stripId)
+            return send.id;
+    return {};
+}
+
 bool parseSlotTarget(const std::string& json, glz::generic& doc,
                      std::string& stripId, std::string& slotId) {
     return builder_json::parseJson(json, doc)
@@ -430,6 +446,140 @@ void MainComponent::pluginSlotMove(const std::string& json) {
                   std::move(moving));
     engine.projectHistoryCommitEdit();
     engine.notifyPluginChainsChanged();
+    publishWebState();
+}
+
+void MainComponent::pluginSlotSetSidechain(const std::string& json) {
+    glz::generic document;
+    wire::WPluginSidechainUpdatePayload request;
+    if (!builder_json::parseJson(json, document) || !document.is_object()
+        || !document.contains("sidechain")
+        || glz::read_json(request, json)
+        || request.stripId.empty() || request.slotId.empty()) {
+        setStatus("Could not update sidechain: invalid request");
+        return;
+    }
+
+    Project& project = engine.project();
+    auto* chain = pluginChainFor(project, request.stripId);
+    if (chain == nullptr) {
+        setStatus("Could not update sidechain: destination strip no longer exists");
+        return;
+    }
+    const auto slot = std::find_if(chain->begin(), chain->end(),
+        [&request](const PluginSlot& candidate) {
+            return candidate.id == request.slotId;
+        });
+    if (slot == chain->end() || slot->plugin.instrument
+        || slot->plugin.identifier.empty()) {
+        setStatus("Could not update sidechain: destination effect slot is unavailable");
+        return;
+    }
+    if (!request.sidechain && !slot->sidechain) {
+        setStatus("Plug-in sidechain is already disconnected");
+        return;
+    }
+
+    std::optional<PluginSidechainRoute> next;
+    if (request.sidechain) {
+        const auto& route = *request.sidechain;
+        if (route.sourceStripId.empty()
+            || route.inputBusIndex == 0
+            || route.inputBusIndex > plugin_host::kMaximumSidechainInputBusIndex
+            || (route.channelMode != "automatic"
+                && route.channelMode != "mono-sum"
+                && route.channelMode != "left"
+                && route.channelMode != "right")) {
+            setStatus("Could not update sidechain: invalid source, input bus, or channel mode");
+            return;
+        }
+
+        if (!engine.hasCurrentPluginProcessorBank()) {
+            setStatus("Could not update sidechain: plug-in host is not ready");
+            return;
+        }
+        const auto bank = engine.activePluginProcessorBank();
+        if (bank == nullptr) {
+            setStatus("Could not update sidechain: plug-in host is unavailable");
+            return;
+        }
+        const std::string loadState = bank->getStripSlotLoadState(
+            request.stripId, request.slotId);
+        if (loadState != "loaded") {
+            setStatus(loadState == "loading"
+                ? "Could not update sidechain: wait for this plug-in to finish loading"
+                : "Could not update sidechain: plug-in is " + loadState);
+            return;
+        }
+        const auto buses = bank->sidechainBusesForSlot(
+            request.stripId, request.slotId);
+        const auto bus = std::find_if(buses.begin(), buses.end(),
+            [&route](const PluginProcessorBank::SidechainBusInfo& candidate) {
+                return candidate.busIndex == route.inputBusIndex
+                    && candidate.channelCount > 0;
+            });
+        if (bus == buses.end()) {
+            const bool truncated = bank->sidechainBusMetadataTruncated(
+                request.stripId, request.slotId);
+            setStatus(truncated
+                ? "Could not validate sidechain: plug-in bus catalog is truncated; reload the plug-in host"
+                : "Could not update sidechain: this plug-in does not expose the selected auxiliary input bus");
+            return;
+        }
+        next = PluginSidechainRoute{route.sourceStripId,
+            route.inputBusIndex,
+            sidechainChannelModeFromString(route.channelMode)};
+        if (slot->sidechain
+            && slot->sidechain->sourceStripId == next->sourceStripId
+            && slot->sidechain->inputBusIndex == next->inputBusIndex
+            && slot->sidechain->channelMode == next->channelMode) {
+            setStatus("Plug-in sidechain is already set to this route");
+            return;
+        }
+
+        const auto destinationGraphId = graphStripIdForProjectStrip(
+            project, request.stripId);
+        if (destinationGraphId.empty()) {
+            setStatus("Could not update sidechain: destination is absent from the audio graph");
+            return;
+        }
+
+        // Validate against the full ordinary + sidechain dependency graph
+        // before creating a history edit. Move the original value aside so
+        // every failure path can restore it without allocating.
+        auto stagedOriginal = std::move(slot->sidechain);
+        bool accepted = false;
+        try {
+            slot->sidechain = next;
+            const MixGraph candidate = buildMixGraph(project, OutputLaneConfig{});
+            accepted = std::any_of(candidate.sidechainEdges.begin(),
+                candidate.sidechainEdges.end(), [&](const MixSidechainEdge& edge) {
+                    return edge.pluginSlotId == request.slotId
+                        && edge.inputBusIndex == route.inputBusIndex
+                        && edge.to < candidate.strips.size()
+                        && edge.from < candidate.strips.size()
+                        && candidate.strips[edge.to].id == destinationGraphId
+                        && candidate.strips[edge.from].id == route.sourceStripId;
+                });
+        } catch (...) {
+            slot->sidechain = std::move(stagedOriginal);
+            setStatus("Could not validate sidechain: audio graph preparation failed");
+            return;
+        }
+        slot->sidechain = std::move(stagedOriginal);
+        if (!accepted) {
+            setStatus("Could not update sidechain: source is missing, would create feedback, or the destination has reached its sidechain limit");
+            return;
+        }
+    }
+
+    engine.projectHistoryBeginEdit("", request.sidechain
+        ? "Set Plug-in Sidechain" : "Disconnect Plug-in Sidechain");
+    slot->sidechain = std::move(next);
+    engine.projectHistoryCommitEdit();
+    engine.notifyPluginChainsChanged();
+    setStatus(request.sidechain ? "Plug-in sidechain updated"
+                                : "Plug-in sidechain disconnected");
     publishWebState();
 }
 

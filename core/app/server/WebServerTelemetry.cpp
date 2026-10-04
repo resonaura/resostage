@@ -36,6 +36,12 @@ WPluginSlotTelemetry pluginSlotToWire(const WebUiState::PluginSlotRow& slot) {
     wire.loadState = slot.loadState;
     wire.loadError = slot.loadError;
     wire.hostGeneration = slot.hostGeneration;
+    if (slot.sidechain) {
+        wire.sidechain = WPluginSlotTelemetry::SidechainRoute{
+            slot.sidechain->sourceStripId,
+            slot.sidechain->inputBusIndex,
+            slot.sidechain->channelMode};
+    }
     return wire;
 }
 

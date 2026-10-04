@@ -323,6 +323,18 @@ struct WPluginSlotTelemetry {
     std::string loadState = "loading";
     std::string loadError;
     uint64_t hostGeneration = 0;
+    struct SidechainRoute {
+        std::string sourceStripId;
+        uint32_t inputBusIndex = 0;
+        std::string channelMode = "automatic";
+    };
+    std::optional<SidechainRoute> sidechain;
+};
+
+struct WPluginSidechainUpdatePayload {
+    std::string stripId;
+    std::string slotId;
+    std::optional<WPluginSlotTelemetry::SidechainRoute> sidechain;
 };
 
 struct WPluginPresetRow {

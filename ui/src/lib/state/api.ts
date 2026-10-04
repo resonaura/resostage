@@ -23,6 +23,7 @@ import type {
   LivePeakChunkResponse,
   PeaksResponse,
   PluginParameterList,
+  PluginSidechainRoute,
   PluginParameterValues,
   WebUiState,
 } from "@/lib/state/types";
@@ -892,6 +893,8 @@ export const pluginChains = {
         ? { stripId, slotId, toIndex, delta }
         : { stripId, slotId, toIndex },
     ),
+  setSidechain: (stripId: string, slotId: string, sidechain: PluginSidechainRoute | null) =>
+    postEditorMutation("/api/v1/plugins/slot/sidechain", { stripId, slotId, sidechain }),
   setBypassed: (stripId: string, slotId: string, bypassed: boolean) =>
     post("/api/v1/plugins/slot/bypass", { stripId, slotId, bypassed }),
   retry: (stripId: string, slotId: string) =>

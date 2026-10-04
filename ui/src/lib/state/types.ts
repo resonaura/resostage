@@ -97,6 +97,16 @@ export interface PluginSlotRow {
   loadError?: string;
   /** Live isolated helper identity; unchanged chains keep this across retries. */
   hostGeneration?: number;
+  /** Persisted processor input route; absent on older Core versions. */
+  sidechain?: PluginSidechainRoute | null;
+}
+
+export type PluginSidechainChannelMode = "automatic" | "mono-sum" | "left" | "right";
+
+export interface PluginSidechainRoute {
+  sourceStripId: string;
+  inputBusIndex: number;
+  channelMode: PluginSidechainChannelMode;
 }
 
 /** Immutable names/identities plus the helper's latest normalized value snapshot. */

@@ -445,6 +445,9 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::PluginSlotReplace: pluginSlotReplace(cmd.json); break;
             case WebCommandKind::PluginSlotRemove: pluginSlotRemove(cmd.json); break;
             case WebCommandKind::PluginSlotMove: pluginSlotMove(cmd.json); break;
+            case WebCommandKind::PluginSlotSidechain:
+                pluginSlotSetSidechain(cmd.json);
+                break;
             case WebCommandKind::PluginSlotBypass: pluginSlotBypass(cmd.json); break;
             case WebCommandKind::PluginSlotRetry: pluginSlotRetry(cmd.json); break;
             case WebCommandKind::PluginPresetSave: pluginPresetSave(cmd.json); break;

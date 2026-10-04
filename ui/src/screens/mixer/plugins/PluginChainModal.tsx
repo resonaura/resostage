@@ -20,9 +20,10 @@ import {
   pluginChains,
   type PluginCatalogResponse,
 } from "@/lib/state/api";
-import type { PluginSlotRow, SongRow, TrackRow } from "@/lib/state/types";
+import type { BusRow, PluginSlotRow, SongRow, TrackRow } from "@/lib/state/types";
 import { Alert, Button, Modal } from "@/components/ui";
 import { PluginAutomationPanel } from "@/screens/mixer/plugins/components/PluginAutomationPanel";
+import { PluginSidechainControls } from "@/screens/mixer/plugins/components/PluginSidechainControls";
 import {
   deduplicatePlugins,
   displayFormat,
@@ -34,6 +35,8 @@ export function PluginChainModal({
   stripName,
   slots,
   track,
+  tracks,
+  busses,
   song,
   songIndex = 0,
   pluginValueIdentity,
@@ -44,6 +47,8 @@ export function PluginChainModal({
   stripName: string;
   slots: PluginSlotRow[];
   track?: TrackRow;
+  tracks: TrackRow[];
+  busses: BusRow[];
   song?: SongRow;
   songIndex?: number;
   pluginValueIdentity: string;
@@ -159,34 +164,34 @@ export function PluginChainModal({
                     {effects.map((slot, index) => {
                       const missing = !knownIds.has(slot.pluginId);
                       return (
-                        <div
-                          key={slot.id}
-                          draggable
-                          onDragStart={(event) => {
-                            setDraggedSlotId(slot.id);
-                            event.dataTransfer.effectAllowed = "move";
-                            event.dataTransfer.setData("text/plain", slot.id);
-                          }}
-                          onDragOver={(event) => {
-                            if (!draggedSlotId || draggedSlotId === slot.id) return;
-                            event.preventDefault();
-                            event.dataTransfer.dropEffect = "move";
-                          }}
-                          onDrop={(event) => {
-                            event.preventDefault();
-                            const sourceId = draggedSlotId;
-                            setDraggedSlotId(null);
-                            if (!sourceId || sourceId === slot.id) return;
-                            // Slot zero is the generator on instrument tracks.
-                            void pluginChains.move(stripId, sourceId, index + (instrument ? 1 : 0));
-                          }}
-                          onDragEnd={() => setDraggedSlotId(null)}
-                          className={`flex items-center gap-2 rounded-lg border p-2.5 ${
-                            slot.bypassed
-                              ? "border-default/20 bg-default/5 opacity-60"
-                              : "border-foreground/55 bg-foreground/12"
-                          }`}
-                        >
+                        <div key={slot.id} className="rounded-lg">
+                          <div
+                            draggable
+                            onDragStart={(event) => {
+                              setDraggedSlotId(slot.id);
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", slot.id);
+                            }}
+                            onDragOver={(event) => {
+                              if (!draggedSlotId || draggedSlotId === slot.id) return;
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              const sourceId = draggedSlotId;
+                              setDraggedSlotId(null);
+                              if (!sourceId || sourceId === slot.id) return;
+                              // Slot zero is the generator on instrument tracks.
+                              void pluginChains.move(stripId, sourceId, index + (instrument ? 1 : 0));
+                            }}
+                            onDragEnd={() => setDraggedSlotId(null)}
+                            className={`flex items-center gap-2 rounded-lg border p-2.5 ${
+                              slot.bypassed
+                                ? "border-default/20 bg-default/5 opacity-60"
+                                : "border-foreground/55 bg-foreground/12"
+                            }`}
+                          >
                           <span className="w-5 shrink-0 text-center font-mono text-[10px] text-foreground/35">
                             {index + 1}
                           </span>
@@ -300,6 +305,14 @@ export function PluginChainModal({
                               <Trash2 size={14} />
                             </Button>
                           </div>
+                          </div>
+                          <PluginSidechainControls
+                            stripId={stripId}
+                            destinationStripId={track?.stripId || stripId}
+                            slot={slot}
+                            tracks={tracks}
+                            busses={busses}
+                          />
                         </div>
                       );
                     })}

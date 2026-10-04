@@ -1640,9 +1640,9 @@ lint, optimized Core/helper build, native CTest 1/1, and diff check passed.
 The plugin-presets, sidechain-model/audio and UI-visualization blocks have
 separate commits (`48817310`, `4e124bb7`, `491335ca`, and `3ed580f2`).
 
-Still open before claiming sidechain complete: slot-aware PDC (ordinary send
-PDC does not align a plugin sidechain), undoable UI route authoring with exact
-graph publication results,
+At this point route authoring and real vendor acceptance were still open. The
+route-authoring portion is implemented in the later follow-up below. Remaining
+items are slot-aware PDC (ordinary send PDC does not align a plug-in sidechain),
 real AU/VST3 sidechain fixtures, active-playback edits, bypass/fault behavior,
 and acoustic live/offline parity. No hardware or real sidechain-capable plugin
 was exercised. Preserve the last-good graph and unchanged healthy helpers on
@@ -1661,8 +1661,35 @@ native CTest passed; changed-file lint and diff check passed. The existing
 macOS AU-host fixture exercises the empty-or-populated metadata contract, but
 no known sidechain-capable vendor fixture has been tested.
 
-Still open: exact undoable sidechain route authoring/graph-publication results,
-slot-aware PDC, capability validation in the UI, real AU/VST3 sidechain signal
-tests, active-playback edits, and acoustic live/offline parity. A loading,
-failed, stale-generation or truncated catalog is inconclusive about bus
-support. Preserve unchanged healthy helpers and transport during route changes.
+A loading, failed, stale-generation or truncated catalog is inconclusive about
+bus support. Exact route authoring, graph-publication results and basic UI
+capability validation are now implemented in the follow-up below; preserve
+unchanged healthy helpers and transport during route changes.
+
+### Follow-up — undoable hosted sidechain route authoring (2026-10-03)
+
+`POST /api/v1/plugins/slot/sidechain` is a project-epoch-fenced editor
+transaction. It publishes the saved route on every plugin slot, validates that
+the exact effect instance is loaded and exposes the requested auxiliary bus,
+then asks the existing `MixGraph` builder to validate the combined ordinary
+and sidechain DAG before beginning project history. Missing sources, unsupported
+buses, self-feedback/cycles and feed-limit failures leave history untouched.
+Only an explicit JSON `sidechain: null` disconnects; an omitted field is
+rejected. Successful set/disconnect participates in Undo/Redo and reports the
+matching playback graph revision through the exact result ring.
+
+The plugin-chain modal now exposes sidechain controls for each effect, sourcing
+rendered audio/instrument tracks and project buses while excluding MIDI-only,
+direct-output, self and duplicate sources. It loads bus capability metadata
+for the exact `(stripId, slotId)` and host generation, blocks unconfirmed or
+unsupported selections, preserves/displays an unavailable saved route, and
+still allows disconnect when a plugin is failed or missing. Route edits are
+not optimistically marked as saved.
+
+Focused route/source/API tests pass; the full UI suite has 920 tests passing,
+native CTest passes 1/1, optimized Core/helper build, TypeScript, changed-file
+lint and production UI build pass. Still open:
+slot-aware PDC, real sidechain-capable AU/VST3 fixtures, active-playback
+acceptance, bypass/helper-failure behavior, and acoustic live/offline parity.
+Do not claim real plug-in sound-path acceptance without a known capable plugin
+and captured audio-level evidence.
