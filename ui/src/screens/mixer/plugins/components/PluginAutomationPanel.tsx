@@ -27,6 +27,8 @@ type PluginParameterCatalog = {
   identity: string;
   state: "idle" | "loading" | "loaded" | "missing" | "failed";
   truncated: boolean;
+  ambiguousParameterCount: number;
+  missingParameterIdCount: number;
   parameters: PluginParameter[];
 };
 
@@ -66,6 +68,8 @@ export function PluginAutomationPanel({
     identity: "",
     state: "idle",
     truncated: false,
+    ambiguousParameterCount: 0,
+    missingParameterIdCount: 0,
     parameters: [],
   });
   const [automationParameterId, setAutomationParameterId] = useState<string | null>(null);
@@ -83,7 +87,14 @@ export function PluginAutomationPanel({
   const automationSlotLoadState = automationSlot?.loadState ?? "";
   const currentParameterCatalog = parameterCatalog.identity === automationSlotIdentity
     ? parameterCatalog
-    : { identity: automationSlotIdentity, state: "loading" as const, truncated: false, parameters: [] };
+    : {
+      identity: automationSlotIdentity,
+      state: "loading" as const,
+      truncated: false,
+      ambiguousParameterCount: 0,
+      missingParameterIdCount: 0,
+      parameters: [],
+    };
   const automationParameters = currentParameterCatalog.parameters;
 
   useEffect(() => {
@@ -98,6 +109,8 @@ export function PluginAutomationPanel({
         identity: automationSlotIdentity,
         state: "idle",
         truncated: false,
+        ambiguousParameterCount: 0,
+        missingParameterIdCount: 0,
         parameters: [],
       });
       setAutomationParameterId(null);
@@ -109,6 +122,8 @@ export function PluginAutomationPanel({
       identity: automationSlotIdentity,
       state: "loading",
       truncated: false,
+      ambiguousParameterCount: 0,
+      missingParameterIdCount: 0,
       parameters: [],
     });
     setAutomationParameterId(null);
@@ -123,6 +138,8 @@ export function PluginAutomationPanel({
             identity: automationSlotIdentity,
             state: "failed",
             truncated: false,
+            ambiguousParameterCount: 0,
+            missingParameterIdCount: 0,
             parameters: [],
           });
           setAutomationError("Plug-in identity changed while reading parameters.");
@@ -133,6 +150,8 @@ export function PluginAutomationPanel({
             identity: automationSlotIdentity,
             state: "loading",
             truncated: false,
+            ambiguousParameterCount: 0,
+            missingParameterIdCount: 0,
             parameters: [],
           });
           setAutomationError(response.loadError);
@@ -145,18 +164,44 @@ export function PluginAutomationPanel({
             identity: automationSlotIdentity,
             state: response.loadState,
             truncated: false,
+            ambiguousParameterCount: 0,
+            missingParameterIdCount: 0,
             parameters: [],
           });
           setAutomationError(response.loadError);
           return;
         }
+        // Vendor IDs are opaque identities, so count exact IDs across the
+        // complete descriptor table before offering any new automation lane.
+        // Duplicate or absent IDs cannot safely survive parameter reordering.
+        const parameterIdCounts = new Map<string, number>();
+        for (const parameter of response.parameters) {
+          if (parameter.parameterId.trim().length === 0) continue;
+          parameterIdCounts.set(
+            parameter.parameterId,
+            (parameterIdCounts.get(parameter.parameterId) ?? 0) + 1,
+          );
+        }
         const automatableParameters = response.parameters.filter(
-          (parameter) => parameter.automatable === true,
+          (parameter) => parameter.automatable === true
+            && parameter.parameterId.trim().length > 0
+            && parameterIdCounts.get(parameter.parameterId) === 1,
         );
+        const ambiguousParameterCount = response.parameters.filter(
+          (parameter) => parameter.automatable === true
+            && parameter.parameterId.trim().length > 0
+            && (parameterIdCounts.get(parameter.parameterId) ?? 0) > 1,
+        ).length;
+        const missingParameterIdCount = response.parameters.filter(
+          (parameter) => parameter.automatable === true
+            && parameter.parameterId.trim().length === 0,
+        ).length;
         setParameterCatalog({
           identity: automationSlotIdentity,
           state: "loaded",
           truncated: response.truncated,
+          ambiguousParameterCount,
+          missingParameterIdCount,
           parameters: automatableParameters,
         });
         setAutomationParameterId(automatableParameters[0]?.parameterId ?? null);
@@ -166,6 +211,8 @@ export function PluginAutomationPanel({
             identity: automationSlotIdentity,
             state: "failed",
             truncated: false,
+            ambiguousParameterCount: 0,
+            missingParameterIdCount: 0,
             parameters: [],
           });
           setAutomationError(reason instanceof Error ? reason.message : "Could not read plug-in parameters");
@@ -255,7 +302,7 @@ export function PluginAutomationPanel({
         ) : currentParameterCatalog.state === "failed" || currentParameterCatalog.state === "missing" ? (
           <p className="text-xs text-foreground/45">{automationError || "Could not read plug-in parameters."}</p>
         ) : automationParameters.length === 0 ? (
-          <p className="text-xs text-foreground/45">This plug-in exposes no automatable parameters.</p>
+          <p className="text-xs text-foreground/45">This plug-in exposes no automatable parameters with unique stable identities.</p>
         ) : (
           <div className="min-h-0 max-h-40 overflow-y-auto rounded-lg border border-default/25 bg-surface">
             {filteredAutomationParameters.map((parameter) => (
@@ -299,7 +346,17 @@ export function PluginAutomationPanel({
         )}
         {unboundAutomationLaneCount > 0 && (
           <p role="status" className="text-[10px] leading-relaxed text-warning">
-            {unboundAutomationLaneCount} saved automation {unboundAutomationLaneCount === 1 ? "lane references" : "lanes reference"} a parameter not exposed by this plug-in. The data is preserved; rebind it in the Timeline.
+            {unboundAutomationLaneCount} saved automation {unboundAutomationLaneCount === 1 ? "lane references" : "lanes reference"} a parameter that is missing, ambiguous, or no longer automatable on this plug-in. The data is preserved; rebind it in the Timeline.
+          </p>
+        )}
+        {currentParameterCatalog.ambiguousParameterCount > 0 && (
+          <p role="status" className="text-[10px] leading-relaxed text-warning">
+            {currentParameterCatalog.ambiguousParameterCount} automatable plug-in {currentParameterCatalog.ambiguousParameterCount === 1 ? "parameter has" : "parameters have"} duplicate stable IDs and {currentParameterCatalog.ambiguousParameterCount === 1 ? "was" : "were"} omitted to prevent binding automation to the wrong control.
+          </p>
+        )}
+        {currentParameterCatalog.missingParameterIdCount > 0 && (
+          <p role="status" className="text-[10px] leading-relaxed text-warning">
+            {currentParameterCatalog.missingParameterIdCount} automatable plug-in {currentParameterCatalog.missingParameterIdCount === 1 ? "parameter has" : "parameters have"} no stable ID and {currentParameterCatalog.missingParameterIdCount === 1 ? "was" : "were"} omitted from new automation targets.
           </p>
         )}
         {unscopedLegacyLaneCount > 0 && (

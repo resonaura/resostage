@@ -739,6 +739,11 @@ Preserve these rules:
   ambiguous, must not be applied to either chain, and must remain visible for
   explicit recovery. New lane creation and rebind must persist an exact strip
   and validate the loaded, automatable parameter on that pair.
+  Duplicate or empty vendor parameter IDs within one descriptor table are
+  ambiguous and must not be offered as new automation targets. Core live and
+  offline binding must fail closed rather than select the first duplicate;
+  saved lanes remain intact and visibly unbound after complete metadata is
+  available.
   Plug-in load/error/power telemetry, bypass, keep-awake, park and unpark
   controls also use exact `(stripId, slotId)` identity. A legacy slot-only
   accessor may act only when the slot ID resolves to one bank node; ambiguity

@@ -38,6 +38,15 @@ TEST_CASE("Plug-in parameter binding: vendor identity survives reordered indices
     CHECK(resolvePluginParameterBinding(bindings, "") == -1);
 }
 
+TEST_CASE("Plug-in parameter binding rejects duplicate vendor identities") {
+    std::vector<PluginParameterBinding> bindings{
+        {"id:ambiguous", 2}, {"id:ambiguous", 9}, {"id:unique", 4},
+    };
+
+    CHECK(resolvePluginParameterBinding(bindings, "id:ambiguous") == -1);
+    CHECK(resolvePluginParameterBinding(bindings, "id:unique") == 4);
+}
+
 TEST_CASE("Automation editing: full replacements validate before mutation") {
     glz::generic document;
     std::vector<AutomationPoint> points{{99.0, 0.25f, 0.0f}};

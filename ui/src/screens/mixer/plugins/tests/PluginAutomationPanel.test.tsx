@@ -159,6 +159,110 @@ describe("PluginAutomationPanel parameter identity", () => {
     expect(parameterValues).toHaveBeenCalledWith("track-a", "slot-a");
   });
 
+  it("omits automatable parameters with duplicate or missing stable IDs", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [
+      {
+        index: 1,
+        parameterId: "id:duplicate",
+        name: "Duplicate A",
+        label: "",
+        defaultValue: 0.2,
+        currentValue: 0.2,
+        steps: 0,
+        automatable: true,
+      },
+      {
+        index: 2,
+        parameterId: "id:duplicate",
+        name: "Duplicate B",
+        label: "",
+        defaultValue: 0.3,
+        currentValue: 0.3,
+        steps: 0,
+        automatable: true,
+      },
+      {
+        index: 3,
+        parameterId: "",
+        name: "No stable ID",
+        label: "",
+        defaultValue: 0.4,
+        currentValue: 0.4,
+        steps: 0,
+        automatable: true,
+      },
+      {
+        index: 4,
+        parameterId: "id:unique",
+        name: "Unique parameter",
+        label: "",
+        defaultValue: 0.5,
+        currentValue: 0.5,
+        steps: 0,
+        automatable: true,
+      },
+    ]));
+    parameterValues.mockResolvedValue(parameterValueList("slot-a", 4));
+
+    await act(async () => root.render(render()));
+
+    expect(container.textContent).toContain("Unique parameter");
+    expect(container.textContent).not.toContain("Duplicate A");
+    expect(container.textContent).not.toContain("Duplicate B");
+    expect(container.textContent).not.toContain("No stable ID");
+    expect(container.textContent).toContain("2 automatable plug-in parameters have duplicate stable IDs");
+    expect(container.textContent).toContain("1 automatable plug-in parameter has no stable ID");
+
+    const addLane = [...container.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Add lane"));
+    expect(addLane).toBeDefined();
+    await act(async () => addLane!.click());
+    expect(automationLaneAdd).toHaveBeenCalledWith(expect.objectContaining({
+      parameterId: "id:unique",
+    }));
+  });
+
+  it("keeps a saved lane with an ambiguous vendor ID unbound", async () => {
+    parameters.mockResolvedValue(parameterList("slot-a", [
+      {
+        index: 1,
+        parameterId: "id:ambiguous",
+        name: "Duplicate A",
+        label: "",
+        defaultValue: 0.2,
+        currentValue: 0.2,
+        steps: 0,
+        automatable: true,
+      },
+      {
+        index: 2,
+        parameterId: "id:ambiguous",
+        name: "Duplicate B",
+        label: "",
+        defaultValue: 0.3,
+        currentValue: 0.3,
+        steps: 0,
+        automatable: true,
+      },
+    ]));
+    const songWithAmbiguousLane = {
+      automationLanes: [{
+        id: "lane-ambiguous",
+        target: {
+          domain: "plugin",
+          stripId: "track-a",
+          entityId: "slot-a",
+          parameterId: "id:ambiguous",
+        },
+      }],
+    } as unknown as SongRow;
+
+    await act(async () => root.render(render("session:1:1", true, songWithAmbiguousLane)));
+
+    expect(container.textContent).toContain("1 saved automation lane references a parameter that is missing, ambiguous");
+    expect(container.textContent).not.toContain("Remove");
+  });
+
   it("creates a plug-in automation lane with the exact strip, slot and vendor parameter identity", async () => {
     parameters.mockResolvedValue(parameterList("slot-a", [{
       index: 2,
@@ -274,7 +378,7 @@ describe("PluginAutomationPanel parameter identity", () => {
 
     await act(async () => root.render(render("session:1:1", true, songWithUnboundLane)));
 
-    expect(container.textContent).toContain("1 saved automation lane references a parameter not exposed");
+    expect(container.textContent).toContain("1 saved automation lane references a parameter that is missing, ambiguous");
     expect(container.textContent).toContain("rebind it in the Timeline");
   });
 

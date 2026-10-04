@@ -32,8 +32,17 @@ inline int resolvePluginParameterBinding(std::span<const PluginParameterBinding>
             [](const PluginParameterBinding& binding, std::string_view key) {
                 return binding.id < key;
             });
-        return found != bindings.end() && found->id == id
-            ? static_cast<int>(found->index) : -1;
+        if (found == bindings.end() || found->id != id)
+            return -1;
+
+        // Some third-party processors publish duplicate vendor IDs. Choosing
+        // the first sorted match would silently automate whichever duplicate
+        // happened to precede the other; ambiguous IDs must remain unbound.
+        const auto offset = static_cast<size_t>(found - bindings.begin());
+        if ((offset > 0 && bindings[offset - 1].id == id)
+            || (offset + 1 < bindings.size() && bindings[offset + 1].id == id))
+            return -1;
+        return static_cast<int>(found->index);
     }
     if (id.starts_with("param:")) id.remove_prefix(6);
     if (id.empty()) return -1;

@@ -994,3 +994,13 @@ view-filtered state does not clear data. Focused peak/identity tests passed
 22/22, full UI 911/911 across 138 files, TypeScript, production build,
 changed-file lint and diff check passed. Remote reconnect and mounted visual
 acceptance remain open; see `performance.md`. Do not push.
+
+Latest verified automation safety block (2026-10-03): duplicate vendor
+parameter IDs now fail closed in Core's prepared binding lookup. The
+Plugin Automation picker omits missing or duplicate stable IDs, explains the
+omission, and preserves saved ambiguous lanes as unbound; it never silently
+reattaches them to a different control. Focused UI passed 13/13, full UI
+913/913 across 138 files, TypeScript/production build/lint passed (12 existing
+unrelated lint warnings), native CTest passed 1/1, and diff check passed. This
+is not real AU/VST3 metadata-churn acceptance. Continue from the remaining
+items in `audit.md`, `automation.md` and `performance.md`. Do not push.

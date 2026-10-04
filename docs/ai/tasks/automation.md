@@ -712,3 +712,26 @@ Focused Plugin Automation panel tests passed 11/11; the full UI suite passed
 `git diff --check` passed. This validates UI identity and warning behavior, not
 real AU/VST3 parameter churn or Core Undo/Redo/save/reopen. Those remain open,
 as do full Touch/Latch/Write and remote/device acceptance above.
+
+## Fail closed on duplicate or absent vendor parameter IDs (2026-10-03)
+
+Core's sorted live parameter-binding table now rejects a vendor `id:` target
+when the same ID appears more than once. It returns unbound rather than
+automating the first sorted descriptor, whose index could refer to a different
+control. This remains a bounded lookup over the already-prepared table and
+adds no callback allocation or vendor-object access.
+
+The Mixer/Inspector Plugin Automation picker counts exact stable IDs across
+the complete descriptor response. It omits automatable descriptors whose ID
+is duplicated or empty, and displays a warning for each category. New lanes
+can only be created from a uniquely identified parameter. Existing saved lanes
+remain untouched; after complete, non-truncated metadata, a lane targeting a
+duplicate/absent ID is surfaced as unbound instead of being attached to a
+different control. Truncated metadata remains inconclusive.
+
+Verification on 2026-10-03: focused panel tests passed 13/13; full UI Vitest
+passed 913/913 across 138 files; TypeScript and production UI build passed;
+full UI lint exited 0 with 12 pre-existing warnings in unrelated files.
+`resostage_engine_tests` rebuilt and CTest passed 1/1. `git diff --check`
+passed. No real AU/VST3 plug-in with duplicate IDs was exercised, so this is
+source/native-test verified, not vendor acceptance.

@@ -1591,3 +1591,16 @@ Focused peak/identity tests passed 22/22; full UI passed 911/911 across 138
 files; TypeScript, production build, changed-file lint and diff check passed.
 Remote Core reconnect and mounted multi-surface acceptance remain open; see
 `performance.md`.
+
+### Latest continuation — ambiguous plug-in parameter identity (2026-10-03)
+
+Core automation binding now rejects duplicate vendor parameter IDs rather than
+silently selecting the first sorted descriptor. The Plugin Automation panel
+excludes missing/duplicate IDs from new lane targets, warns with counts, and
+keeps previously saved ambiguous lanes intact but unbound after complete
+metadata. Truncated metadata does not prove absence. Focused panel tests passed
+13/13; full UI passed 913/913 across 138 files; TypeScript, production build,
+full UI lint and `git diff --check` passed (lint has 12 existing warnings in
+unrelated files); native engine build and CTest passed 1/1. No physical vendor
+plug-in fixture was run. Continue with `automation.md` and `performance.md`;
+do not claim real AU/VST3 metadata-churn acceptance.
