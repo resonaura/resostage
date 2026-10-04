@@ -32,15 +32,22 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - MIDI Clip File musical event beats and duration are normalized to the
   accumulated tick position at Start of Clip. Timed configuration-header
   packets before Start are retained at beat zero (and tempo/meter Flex Data is
-  interpreted at beat zero), so setup pre-roll cannot shift notes. The current
-  project schema does not model a separate configuration-header timeline.
+  interpreted at beat zero), so setup pre-roll cannot shift notes. Project
+  format v13 persists whether opaque UMP events belong to the receiver
+  configuration header, and whether an unclockstamped SysEx7 packet belongs to
+  its profile prefix. Export restores profile packets before DCTPQ and receiver
+  setup packets between DCTPQ and Start; configuration is emitted once per
+  contributing region and is never loop-expanded or trim-shifted. The parser
+  structurally accepts only SysEx7 UMP packets as a potential profile prefix;
+  it does not decode MIDI-CI Profile transactions.
 - Configuration-header Set Tempo and Set Time Signature messages are checked
   separately from sequence events: each is limited to one; configuration tempo
   must be the first event after DCTPQ, and configuration time signature must
   immediately follow that tempo. Multiple tempo changes in Clip Sequence Data
   remain supported.
 - Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
-  packets on MIDI regions; the current format 12 retains them. Readable additive older
+  packets on MIDI regions; current format 13 retains them and their optional
+  MIDI Clip configuration-section identity. Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and
   project serialization carry these fields so unsupported UMP packets can
   survive a save/load and MIDI Clip File round-trip.
@@ -107,8 +114,9 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   does not interpret or promise playback for message types it does not
   implement. The original UMP stream's exact byte layout, utility packets,
   and ordering around normalized note events are not preserved as a raw file
-  blob. Configuration-header packet timing is intentionally flattened to beat
-  zero because the project model has no separate configuration-header section.
+  blob. Configuration-header section identity is persisted, but its elapsed
+  DCS timing is intentionally flattened to beat zero; profile-prefix SysEx7 is
+  preserved structurally without MIDI-CI negotiation or semantic validation.
 - `.mid` remains inherently lossy for data without a MIDI 1.0 equivalent.
   The loss report is a safeguard, not a universal translator. MPE/vendor
   encodings are not synthesized automatically.
@@ -189,3 +197,21 @@ fixtures and round-trips; documented lossy MIDI 1.0 export; platform UMP live
 input/output; a defined fallback when any endpoint is MIDI 1.0-only; and an
 explicitly documented plug-in capability boundary. SMF2 Container support is
 a separate capability and must be named separately.
+
+### Latest continuation — MIDI Clip configuration-section round-trip (2026-10-04)
+
+Project format v13 now retains the section identity of opaque receiver-
+configuration UMP packets and the unclockstamped SysEx7 prefix. Import/export
+keeps the profile prefix before DCTPQ and other setup packets after DCTPQ but
+before Start. Configuration setup is emitted once for each contributing
+region, outside region trim and loop expansion. Piano Roll CC/Pitch Bend
+discovery and editing ignore these packets and equality checks treat absent
+optional flags as the default false value. Parser framing validates profile
+prefix clocking, the DCTPQ zero clockstamp, and configuration tempo/meter's
+permitted zero-clockstamp inheritance. This preserves section placement only:
+elapsed configuration pre-roll still flattens to beat zero, and no MIDI-CI
+Profile payload is decoded or negotiated. Focused codec/editor tests passed
+50/50; the full UI suite passed 1,033/1,033 across 151 files; TypeScript and
+production UI build passed. Lint passed with 12 existing warnings outside this
+change, and `git diff --check` passed. Do not infer broad SysEx or profile
+interoperability.

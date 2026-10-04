@@ -20,7 +20,13 @@ export interface ImportedMidiTrack {
   name: string;
   notes: MidiNoteRow[];
   events?: Array<{ beat: number; status: number; data: number[] }>;
-  umpEvents?: Array<{ beat: number; words: number[]; wordCount: number }>;
+  umpEvents?: Array<{
+    beat: number;
+    words: number[];
+    wordCount: number;
+    configurationHeader?: boolean;
+    profileConfigurationHeader?: boolean;
+  }>;
   /** Format 2 stores an independent tempo and meter map per sequence. */
   tempoEvents?: Array<{ beat: number; bpm: number }>;
   meterEvents?: Array<{ beat: number; numerator: number; denominator: number }>;

@@ -83,7 +83,7 @@ describe("MIDI Clip File framing and resource bounds", () => {
     expect(parsed.tempoEvents).toEqual([{ beat: 0, bpm: 120 }]);
     expect(parsed.meterEvents).toEqual([{ beat: 0, numerator: 4, denominator: 4 }]);
     expect(parsed.tracks[0].umpEvents).toEqual([
-      { beat: 0, words: [0x20c0_0000], wordCount: 1 },
+      { beat: 0, words: [0x20c0_0000], wordCount: 1, configurationHeader: true },
     ]);
     expect(parsed.tracks[0].notes).toHaveLength(1);
     expect(parsed.tracks[0].notes[0]).toMatchObject({
@@ -105,6 +105,8 @@ describe("MIDI Clip File framing and resource bounds", () => {
       { packets: [...prefix, dcs(0), setTempo120, dcs(0), [0x20c0_0000], dcs(0), setMeter44,
         dcs(0), start, dcs(0), end],
         message: /must immediately follow Set Tempo/ },
+      { packets: [...prefix, dcs(1), setTempo120, dcs(0), start, dcs(0), end],
+        message: /must use a zero Delta Clockstamp/ },
       { packets: [dcs(0), setTempo120, dcs(0), dctpq(960), dcs(0), start, dcs(0), end],
         message: /must follow DCTPQ/ },
       { packets: [...prefix, dcs(0), [0x20c0_0000], dcs(0), setTempo120, dcs(0), start, dcs(0), end],
@@ -125,6 +127,55 @@ describe("MIDI Clip File framing and resource bounds", () => {
       { beat: 0, bpm: 120 },
       { beat: 1, bpm: 60 },
     ]);
+  });
+
+  it("allows configuration tempo and meter to inherit DCTPQ's zero clockstamp", () => {
+    const parsed = parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960), setTempo120, setMeter44,
+      dcs(0), start, dcs(0), end,
+    ]));
+    expect(parsed.tempoEvents).toEqual([{ beat: 0, bpm: 120 }]);
+    expect(parsed.meterEvents).toEqual([{ beat: 0, numerator: 4, denominator: 4 }]);
+  });
+
+  it("preserves profile and receiver configuration sections across MIDI Clip export", () => {
+    const profile = [0x3016_f07e, 0x7f0d_2201];
+    const receiverSetup = [0x40c0_0000, 0x0001_0000];
+    const imported = parseMidiClipFile(makeClip([
+      profile,
+      dcs(0), dctpq(960),
+      dcs(0), receiverSetup,
+      dcs(0), start,
+      dcs(960), [0x20c0_0000],
+      dcs(0), end,
+    ]));
+
+    expect(imported.tracks[0].umpEvents).toEqual([
+      { beat: 0, words: profile, wordCount: 2,
+        configurationHeader: true, profileConfigurationHeader: true },
+      { beat: 0, words: receiverSetup, wordCount: 2, configurationHeader: true },
+      { beat: 1, words: [0x20c0_0000], wordCount: 1 },
+    ]);
+
+    const regionWithSections: MidiRegionRow = {
+      ...region,
+      umpEvents: imported.tracks[0].umpEvents,
+    };
+    const roundTrip = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "Header sections", regions: [regionWithSections] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+    expect(roundTrip.tracks[0].umpEvents).toEqual(imported.tracks[0].umpEvents);
+  });
+
+  it("rejects non-profile events before DCTPQ and clockstamped profile prefixes", () => {
+    const profile = [0x3016_f07e, 0x7f0d_2201];
+    expect(() => parseMidiClipFile(makeClip([
+      [0x20c0_0000], dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
+    ]))).toThrow(/Only MIDI Clip profile configuration may precede DCTPQ/);
+    expect(() => parseMidiClipFile(makeClip([
+      dcs(0), profile, dcs(0), dctpq(960), dcs(0), start, dcs(0), end,
+    ]))).toThrow(/must not have a Delta Clockstamp/);
   });
 
   it("requires a single DCTPQ preceded by a zero-delta clockstamp", () => {
@@ -181,6 +232,25 @@ describe("MIDI Clip File framing and resource bounds", () => {
     };
 
     expect(() => writeMidiClipFile([{ name: "Dense", regions: [source] }], {
+      bpm: 120,
+      numerator: 4,
+      denominator: 4,
+      fromProjectStart: true,
+      expandLoops: true,
+    })).toThrow(/200,000 event export limit/);
+  });
+
+  it("counts configuration packets toward the bounded export event total", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      durationBeats: 100_000,
+      loop: true,
+      loopLengthBeats: 1,
+      notes: [note(1)],
+      umpEvents: [{ beat: 0, words: [0x20c0_0000], wordCount: 1, configurationHeader: true }],
+    };
+
+    expect(() => writeMidiClipFile([{ name: "Bounded setup", regions: [source] }], {
       bpm: 120,
       numerator: 4,
       denominator: 4,

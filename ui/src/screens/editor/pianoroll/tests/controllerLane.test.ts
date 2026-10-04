@@ -99,6 +99,7 @@ describe("Piano Roll raw MIDI controller lanes", () => {
   it("discovers only supported MIDI 2.0 UMP controller lanes", () => {
     const events = [
       umpCc(0, 74, 0x8000_0000, 2, 3),
+      { ...umpCc(0.5, 99, 0x9000_0000), configurationHeader: true },
       umpCc(1, 6, 0x4000_0000), // Reserved for compound RPN/NRPN messages.
       { ...umpCc(2, 11, 0x8000_0000), words: [0x20b0000b, 0x8000_0000] },
       { ...umpCc(3, 12, 0x8000_0000), words: [0x40b10c01, 0x8000_0000] },
@@ -125,6 +126,16 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     expect(buildPianoRollUmpControllerProjection(midiRegion, "umpPitchBend", 0, 8).events)
       .toEqual([{ beat: 2, value: 0, channel: 4, sourceEventIndex: 1 }]);
     expect(midiRegion.umpEvents).toEqual(source);
+  });
+
+  it("does not expose configuration-header CC or Pitch Bend packets as Piano Roll lanes", () => {
+    const setupCc = { ...umpCc(0, 74, 0x8000_0000), configurationHeader: true };
+    const setupBend = { ...umpPitchBend(0, 0x8000_0000), configurationHeader: true };
+    expect(collectPianoRollUmpControllerNumbers([setupCc])).toEqual(new Set());
+    expect(hasPianoRollUmpPitchBend([setupBend])).toBe(false);
+    expect(buildPianoRollUmpControllerProjection(
+      region({ umpEvents: [setupCc, setupBend] }), "umpCc74", 0, 8,
+    ).events).toEqual([]);
   });
 
   it("discovers and filters MIDI 2.0 controller preview by group and channel", () => {

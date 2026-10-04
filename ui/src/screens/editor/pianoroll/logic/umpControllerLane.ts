@@ -65,7 +65,8 @@ function decodeEvent(
   index: number,
   lane: Midi2ControllerLaneDescriptor,
 ): PianoRollUmpControllerPoint | null {
-  if (!event || !Array.isArray(event.words) || event.wordCount !== 2 || event.words.length < 2
+  if (!event || event.configurationHeader === true || event.profileConfigurationHeader === true
+      || !Array.isArray(event.words) || event.wordCount !== 2 || event.words.length < 2
       || !Number.isFinite(event.beat) || event.beat < 0)
     return null;
   const header = event.words[0];
@@ -160,7 +161,8 @@ export function collectPianoRollUmpControllerNumbers(
   const eventCount = Math.min(events.length, MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS);
   for (let index = 0; index < eventCount; index += 1) {
     const event = events[index];
-    if (!event || event.wordCount !== 2 || event.words.length < 2
+    if (!event || event.configurationHeader === true || event.profileConfigurationHeader === true
+        || event.wordCount !== 2 || event.words.length < 2
         || !Number.isFinite(event.beat) || event.beat < 0
         || !Number.isInteger(event.words[1]) || event.words[1] < 0
         || event.words[1] > 0xffff_ffff)
@@ -181,7 +183,8 @@ export function hasPianoRollUmpPitchBend(events: MidiUmpEventRow[]): boolean {
   const eventCount = Math.min(events.length, MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS);
   for (let index = 0; index < eventCount; index += 1) {
     const event = events[index];
-    if (!event || event.wordCount !== 2 || event.words.length < 2
+    if (!event || event.configurationHeader === true || event.profileConfigurationHeader === true
+        || event.wordCount !== 2 || event.words.length < 2
         || !Number.isFinite(event.beat) || event.beat < 0
         || !Number.isInteger(event.words[0]) || event.words[0] < 0
         || event.words[0] > 0xffff_ffff

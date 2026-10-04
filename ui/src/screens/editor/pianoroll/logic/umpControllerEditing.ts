@@ -47,7 +47,8 @@ function isUint32(value: number): boolean {
 }
 
 function decodeKind(event: MidiUmpEventRow): PianoRollUmpControllerKind | null {
-  if (event.wordCount !== 2 || !Array.isArray(event.words) || event.words.length < 2
+  if (event.configurationHeader === true || event.profileConfigurationHeader === true
+      || event.wordCount !== 2 || !Array.isArray(event.words) || event.words.length < 2
       || !Number.isFinite(event.beat) || event.beat < 0
       || !isUint32(event.words[0]) || !isUint32(event.words[1]))
     return null;
@@ -221,6 +222,12 @@ export function sameEditablePianoRollUmpEvents(
     for (let index = 0; index < aWords.length; index += 1) {
       if (aWords[index] !== bWords[index]) return aWords[index] - bWords[index];
     }
+    const aConfiguration = a.configurationHeader === true ? 1 : 0;
+    const bConfiguration = b.configurationHeader === true ? 1 : 0;
+    if (aConfiguration !== bConfiguration) return aConfiguration - bConfiguration;
+    const aProfile = a.profileConfigurationHeader === true ? 1 : 0;
+    const bProfile = b.profileConfigurationHeader === true ? 1 : 0;
+    if (aProfile !== bProfile) return aProfile - bProfile;
     return 0;
   };
   const sortedLeft = [...left].sort(compare);
@@ -234,6 +241,8 @@ export function sameEditablePianoRollUmpEvents(
         && Math.abs(event.beat - actual.beat) < 1e-6);
     return beatMatches
       && event.wordCount === actual.wordCount
+      && (event.configurationHeader === true) === (actual.configurationHeader === true)
+      && (event.profileConfigurationHeader === true) === (actual.profileConfigurationHeader === true)
       && eventWords.length === actualWords.length
       && eventWords.every((word, wordIndex) => word === actualWords[wordIndex]);
   });

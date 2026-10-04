@@ -1397,3 +1397,34 @@ lint (12 existing unrelated warnings) and diff check passed. Rules are from
 MIDI Clip File Specification v1.0 sections 6.1.1–6.1.2. This is structural
 validation, not MIDI-CI profile or SysEx interoperability. See
 `docs/MIDI2_REMAINING_WORK.md`; do not push.
+
+Latest continuation — MIDI Clip configuration-section round-trip (2026-10-04):
+the current worktree contains the verified uncommitted stage-B changes; stage A
+was committed separately as `4f99049e`. Project v13 persists config-vs-sequence
+UMP identity. Parser/exporter preserve profile prefix before DCTPQ and receiver
+setup after DCTPQ/before Start; config is not trim-shifted or loop-expanded.
+Profile data is only structurally treated as unclockstamped SysEx7, not decoded
+or negotiated. Piano Roll controller lanes/editing exclude config-only CC/Pitch
+Bend. DCS remains shared across following packets; config tempo/meter may
+inherit DCTPQ's zero stamp or use a new zero stamp. The config packets share the
+200,000-event export cap with sequence data. Focused tests passed 50/50; the
+full UI passed 1,033/1,033 across 151 files. TypeScript/production build and
+diff check passed; lint has 12 unrelated existing warnings. Commit this
+verified block in English after reviewing the diff; do not push. See
+`docs/MIDI2_REMAINING_WORK.md` and the
+official [MIDI Clip File Specification v1.0](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
+
+Latest continuation — MIDI Clip configuration-section round-trip (2026-10-04):
+the current worktree contains the verified uncommitted stage-B changes; stage A
+was committed separately as `4f99049e`. Project v13 persists config-vs-sequence
+UMP identity. Parser/exporter preserve profile prefix before DCTPQ and receiver
+setup after DCTPQ/before Start; config is not trim-shifted or loop-expanded.
+Profile data is only structurally treated as unclockstamped SysEx7, not decoded
+or negotiated. Piano Roll controller lanes/editing exclude config-only CC/Pitch
+Bend. DCS remains shared across following packets; config tempo/meter may
+inherit DCTPQ's zero stamp or use a new zero stamp. Focused tests passed 49/49,
+full UI 1,032/1,032, TypeScript, production build and diff checks passed; lint
+has 12 pre-existing warnings outside this work. Commit this verified block in
+English after reviewing the diff; do not push. See
+`docs/MIDI2_REMAINING_WORK.md` and the official
+[MIDI Clip File Specification v1.0](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).

@@ -2009,3 +2009,43 @@ MIDI-CI profile or SysEx interoperability from these structural checks.
 Verification completed: UI TypeScript/production build passed; repository lint
 exited 0 with 12 existing warnings outside changed files; `git diff --check`
 passed. No third-party profile/configuration or SysEx fixtures were available.
+
+### Latest continuation — MIDI Clip configuration-section round-trip (2026-10-04)
+
+Project format v13 now persists whether opaque UMP events are receiver
+configuration or ordinary sequence data, plus whether an unclockstamped
+SysEx7 packet belongs to the profile prefix. Import/export restores the profile
+prefix before DCTPQ and receiver setup after DCTPQ/before Start. Configuration
+events retain source order and are not trim-shifted or loop-expanded. Piano
+Roll CC/Pitch Bend discovery/editing excludes these packets; optional false and
+absent flags compare equal in draft reconciliation.
+
+The parser preserves shared DCS semantics: one DCS may time multiple following
+UMP packets. Configuration tempo/meter may inherit DCTPQ's preceding zero DCS
+or use another zero DCS; nonzero timing is rejected. This block does not decode
+or negotiate MIDI-CI Profile payloads and still flattens elapsed config timing
+to beat zero. Focused codec/editor tests passed 50/50, full UI passed 1,033/1,033
+across 151 files, TypeScript and production UI build passed, lint passed with
+12 existing unrelated warnings, and `git diff --check` passed. Native schema
+v13/Core tests were completed with the prior stage-A commit `4f99049e`. Keep
+independent profile/SysEx references open and do not push.
+
+### Latest continuation — MIDI Clip configuration-section round-trip (2026-10-04)
+
+Project format v13 now persists whether opaque UMP events are receiver
+configuration or ordinary sequence data, plus whether an unclockstamped
+SysEx7 packet belongs to the profile prefix. Import/export restores the profile
+prefix before DCTPQ and receiver setup after DCTPQ/before Start. Configuration
+events retain source order and are not trim-shifted or loop-expanded. Piano
+Roll CC/Pitch Bend discovery/editing excludes these packets; optional false and
+absent flags compare equal in draft reconciliation.
+
+The parser preserves shared DCS semantics: one DCS may time multiple following
+UMP packets. Configuration tempo/meter may inherit DCTPQ's preceding zero DCS
+or use another zero DCS; nonzero timing is rejected. This block does not decode
+or negotiate MIDI-CI Profile payloads and still flattens elapsed config timing
+to beat zero. Focused codec/editor tests passed 49/49, full UI passed 1,032/1,032
+across 151 files, TypeScript and production UI build passed, lint passed with
+12 existing unrelated warnings, and `git diff --check` passed. Native schema
+v13/Core tests were completed with the prior stage-A commit `4f99049e`. Keep
+independent profile/SysEx references open and do not push.

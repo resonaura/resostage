@@ -50,6 +50,7 @@ describe("Piano Roll MIDI 2.0 controller editing", () => {
       cc(3, 6, 0x8000_0000),
       { ...cc(4, 11, 3), words: [0x20b00b00, 3] },
       { ...cc(5, 12, 3), words: [0x40b10c01, 3] },
+      { ...cc(6, 74, 5), configurationHeader: true },
     ];
     const rows = readPianoRollUmpControllerDraft(events);
     expect(rows).toEqual([
@@ -73,6 +74,15 @@ describe("Piano Roll MIDI 2.0 controller editing", () => {
     expect(updated?.[0].words).toEqual(original.words);
     expect(updated?.[1]).toBe(reserved);
     expect(updated?.[2]).toBe(unknown);
+  });
+
+  it("keeps MIDI Clip configuration packets opaque to Piano Roll controller editing", () => {
+    const setup = { ...cc(0, 74, 0x1234_5678), configurationHeader: true };
+    const source = [setup, cc(1, 74, 0x8765_4321)];
+    const rows = readPianoRollUmpControllerDraft(source);
+    expect(rows.map((row) => row.sourceIndex)).toEqual([1]);
+    const edited = applyPianoRollUmpControllerDraft(source, [{ ...rows[0], value: 0xfedc_ba98 }]);
+    expect(edited).toEqual([setup, { ...source[1], words: [source[1].words[0], 0xfedc_ba98] }]);
   });
 
   it("changes only selected packet header fields and its 32-bit value word", () => {
@@ -192,5 +202,11 @@ describe("Piano Roll MIDI 2.0 controller editing", () => {
     const second = pitchBend(2, 0x8765_4321);
     expect(sameEditablePianoRollUmpEvents([first, second], [second, first])).toBe(true);
     expect(sameEditablePianoRollUmpEvents([first], [cc(1, 74, 0x1234_5679)])).toBe(false);
+    expect(sameEditablePianoRollUmpEvents(
+      [{ ...first, configurationHeader: true }], [first],
+    )).toBe(false);
+    expect(sameEditablePianoRollUmpEvents(
+      [first], [{ ...first, configurationHeader: false, profileConfigurationHeader: false }],
+    )).toBe(true);
   });
 });

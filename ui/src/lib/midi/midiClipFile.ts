@@ -37,6 +37,10 @@ class ClipReader {
 }
 
 interface ClipEvent { beat: number; words: number[]; priority: number; order: number }
+type ExportUmpEvent =
+  | { configuration: true; profile: boolean; words: number[] }
+  | { configuration: false; profile: false; relative: number; words: number[] };
+type ClipSequenceUmpEvent = Extract<ExportUmpEvent, { configuration: false }>;
 interface HeldNote { tick: number; velocity: number; attributeType: number; attributeData: number; group: number; channel: number; pitch: number }
 
 /** Parse the published MIDI Clip File (.midi2) UMP stream format. */
@@ -50,6 +54,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     ticks: number;
     inSequence: boolean;
     inConfigurationHeader: boolean;
+    inProfileConfigurationHeader: boolean;
   }> = [];
   let ticks = 0;
   let startTicks = 0;
@@ -59,7 +64,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   let started = false;
   let ended = false;
   let packetCount = 0;
-  let lastDcsDelta: number | null = null;
+  let activeDcsDelta: number | null = null;
+  let immediatelyPrecededByDcs = false;
   while (reader.offset < bytes.length) {
     // DCS packets are not retained as musical events, but still count toward
     // parsing work. Allow one delta-control packet per retained event plus
@@ -72,23 +78,24 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     if (type === 0) {
       const status = (first >>> 20) & 0xf;
       if (status === 4) {
-        lastDcsDelta = first & MAX_DELTA;
-        ticks += lastDcsDelta;
+        activeDcsDelta = first & MAX_DELTA;
+        ticks += activeDcsDelta;
+        immediatelyPrecededByDcs = true;
       } else if (status === 3) {
         if (started) throw new Error("MIDI 2.0 clip DCTPQ must precede Start of Clip");
         if (tpq !== 0) throw new Error("MIDI 2.0 clip contains more than one DCTPQ");
-        if (lastDcsDelta !== 0)
+        if (!immediatelyPrecededByDcs || activeDcsDelta !== 0)
           throw new Error("MIDI 2.0 clip DCTPQ must follow a zero Delta Clockstamp");
         const value = first & 0xffff;
         if (value === 0) throw new Error("MIDI 2.0 clip has an invalid zero DCTPQ");
         tpq = value;
         hasDctpq = true;
-        lastDcsDelta = null;
-      } else lastDcsDelta = null;
+        immediatelyPrecededByDcs = false;
+      } else immediatelyPrecededByDcs = false;
       continue;
     }
-    const precedingDcsDelta = lastDcsDelta;
-    lastDcsDelta = null;
+    const precedingDcsDelta = immediatelyPrecededByDcs ? activeDcsDelta : null;
+    immediatelyPrecededByDcs = false;
     if (type === 0xf) {
       const status = (first >>> 16) & 0x3ff;
       if (status === 0x20) {
@@ -109,10 +116,24 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         break;
       }
     }
+    const inProfileConfigurationHeader = !hasDctpq && !started && type === 3;
+    const flexStatusBank = (first >>> 8) & 0xff;
+    const flexStatus = first & 0xff;
+    const preDctpqTempoOrMeter = type === 0xd && words.length === 4
+      && flexStatusBank === 0 && (flexStatus === 0 || flexStatus === 1);
+    const configurationTempoOrMeter = hasDctpq && !started && preDctpqTempoOrMeter;
+    if (!hasDctpq && !started && !inProfileConfigurationHeader && !preDctpqTempoOrMeter)
+      throw new Error("Only MIDI Clip profile configuration may precede DCTPQ");
+    if (inProfileConfigurationHeader && precedingDcsDelta !== null)
+      throw new Error("MIDI 2.0 clip profile configuration packets must not have a Delta Clockstamp");
+    if (configurationTempoOrMeter && activeDcsDelta !== 0)
+      throw new Error("MIDI 2.0 clip configuration tempo and meter must use a zero Delta Clockstamp");
+    if (!inProfileConfigurationHeader && !configurationTempoOrMeter && activeDcsDelta === null)
+      throw new Error("MIDI 2.0 clip UMP events must have a preceding Delta Clockstamp");
     if (packets.length >= MAX_EVENTS)
       throw new Error("MIDI 2.0 clip has too many UMP events");
     packets.push({ words, ticks, inSequence: started,
-      inConfigurationHeader: hasDctpq && !started });
+      inConfigurationHeader: hasDctpq && !started, inProfileConfigurationHeader });
   }
   if (!tpq) throw new Error("MIDI 2.0 clip is missing DCTPQ");
   if (!started || !ended) throw new Error("MIDI 2.0 clip is missing Start/End of Clip markers");
@@ -129,7 +150,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   let configurationMeterSeen = false;
   let lastConfigurationEventWasTempo = false;
   for (const packet of packets) {
-    const { words, ticks: at, inSequence, inConfigurationHeader } = packet;
+    const { words, ticks: at, inSequence, inConfigurationHeader,
+      inProfileConfigurationHeader } = packet;
     const relativeTicks = inSequence ? Math.max(0, at - startTicks) : 0;
     durationTicks = Math.max(durationTicks, relativeTicks);
     const word0 = words[0];
@@ -180,7 +202,10 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     // them at beat zero, but do not let their elapsed clock time offset notes
     // or interpret configuration note messages as musical note pairs.
     if (!inSequence) {
-      rawEvents.push({ beat: 0, words, wordCount: words.length });
+      rawEvents.push({ beat: 0, words, wordCount: words.length,
+        ...(inConfigurationHeader ? { configurationHeader: true } : {}),
+        ...(inProfileConfigurationHeader
+          ? { configurationHeader: true, profileConfigurationHeader: true } : {}) });
       continue;
     }
     if (type === 4 || type === 2) {
@@ -289,11 +314,13 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   ), Infinity);
   const origin = options.fromProjectStart || !Number.isFinite(earliest) ? 0 : earliest;
   const events: ClipEvent[] = [];
+  const profileConfigurationPackets: Array<{ words: number[]; order: number }> = [];
+  const receiverConfigurationPackets: Array<{ words: number[]; order: number }> = [];
   let order = 0;
   const appendEvent = (event: ClipEvent) => {
     if (!Number.isFinite(event.beat) || event.beat < 0)
       throw new Error("MIDI 2.0 clip contains an invalid event time");
-    if (events.length >= MAX_EVENTS)
+    if (events.length + profileConfigurationPackets.length + receiverConfigurationPackets.length >= MAX_EVENTS)
       throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
     events.push(event);
   };
@@ -318,9 +345,14 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
       const relative = firstRelativeBeat(note.startBeats);
       return relative === null ? [] : [{ note, relative }];
     });
-    const umpEvents = (region.umpEvents ?? []).flatMap((event) => {
+    const umpEvents = (region.umpEvents ?? []).flatMap<ExportUmpEvent>((event) => {
+      if (!Number.isFinite(event.beat) || event.beat < 0)
+        throw new Error("A stored UMP event has an invalid event time");
+      const isConfiguration = event.configurationHeader === true
+        || event.profileConfigurationHeader === true;
+      if (event.profileConfigurationHeader === true && event.configurationHeader !== true)
+        throw new Error("A MIDI Clip profile packet must also be a configuration-header packet");
       const relative = firstRelativeBeat(event.beat);
-      if (relative === null) return [];
       const wordCount = event.wordCount;
       const words = Array.isArray(event.words) ? event.words.slice(0, wordCount) : [];
       if (wordCount < 1 || wordCount > 4 || words.length !== wordCount
@@ -328,15 +360,34 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
         throw new Error("A stored UMP event is malformed");
       const expectedWords = packetWords(words[0] >>> 28);
       if (expectedWords !== wordCount) throw new Error("A stored UMP event has an invalid packet length");
-      return [{ relative, words }];
+      if (event.profileConfigurationHeader === true && (words[0] >>> 28) !== 3)
+        throw new Error("A MIDI Clip profile configuration packet must use SysEx7 UMP");
+      if (isConfiguration) {
+        // Configuration belongs to the file header, not the region timeline:
+        // it is emitted once and is never loop-expanded or trim-shifted.
+        return [{ configuration: true as const, profile: event.profileConfigurationHeader === true, words }];
+      }
+      if (relative === null) return [];
+      return [{ configuration: false as const, profile: false, relative, words }];
     });
+    const sequenceUmpEvents = umpEvents.filter(
+      (event): event is ClipSequenceUmpEvent => !event.configuration,
+    );
+    const configurationEvents = umpEvents.filter((event) => event.configuration);
     const midiEvents = (region.events ?? []).flatMap((event) => {
       const relative = firstRelativeBeat(event.beat);
       if (relative === null) return [];
       const words = midi1EventToUmp(event.status, event.data);
       return words ? [{ relative, words }] : [];
     });
-    if (!notes.length && !umpEvents.length && !midiEvents.length) continue;
+    if (!notes.length && !sequenceUmpEvents.length && !midiEvents.length) continue;
+
+    for (const event of configurationEvents) {
+      const destination = event.profile ? profileConfigurationPackets : receiverConfigurationPackets;
+      if (events.length + profileConfigurationPackets.length + receiverConfigurationPackets.length >= MAX_EVENTS)
+        throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
+      destination.push({ words: event.words, order: order++ });
+    }
 
     const loops = expandRegionLoop
       ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength)) : 1;
@@ -354,7 +405,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
           note.durationBeats, availableInLoop, region.durationBeats - relative,
         ));
       }
-      for (const { relative: sourceRelative, words } of umpEvents) {
+      for (const { relative: sourceRelative, words } of sequenceUmpEvents) {
         const relative = sourceRelative + loopOffset;
         if (relative < 0 || relative >= region.durationBeats) continue;
         const beat = region.startBeats + relative - origin;
@@ -406,14 +457,23 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     appendEvent({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], priority: -1, order: order++ });
   }
   if (!events.length) throw new Error("No MIDI events to export");
-  if (events.length > MAX_EVENTS) throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
+  if (events.length + profileConfigurationPackets.length + receiverConfigurationPackets.length > MAX_EVENTS)
+    throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
   // End an existing note before retriggering the same pitch at one tick,
   // regardless of the order of notes in the project region.
   events.sort((a, b) => a.beat - b.beat || a.priority - b.priority || a.order - b.order);
+  profileConfigurationPackets.sort((a, b) => a.order - b.order);
+  receiverConfigurationPackets.sort((a, b) => a.order - b.order);
 
   const bytes = [...Array.from(MAGIC).map((letter) => letter.charCodeAt(0))];
+  for (const packet of profileConfigurationPackets)
+    for (const word of packet.words) appendWord(bytes, word >>> 0);
   appendWord(bytes, dcs(0));
   appendWord(bytes, 0x00300000 | TPQ);
+  for (const packet of receiverConfigurationPackets) {
+    appendWord(bytes, dcs(0));
+    for (const word of packet.words) appendWord(bytes, word >>> 0);
+  }
   appendWord(bytes, dcs(0));
   appendWord(bytes, 0xf0200000); // UMP Stream: Start of Clip (complete, 128-bit packet)
   appendWord(bytes, 0);
