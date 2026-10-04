@@ -100,11 +100,10 @@ TEST_CASE("buildMixGraph: every mixer row becomes a strip, master included") {
     CHECK(g.find("audio::out:1") != MixGraph::kNoStrip);
 }
 
-TEST_CASE("buildMixGraph: strips are ordered sources -> busses -> lanes") {
+TEST_CASE("buildMixGraph: strips are topologically ordered with output lanes last") {
     const MixGraph g = buildMixGraph(makeProject(), outputs16());
-    CHECK(g.find("audio::track:1") < g.firstBusStrip);
-    CHECK(g.find("audio::click") < g.firstBusStrip);
-    CHECK(g.find("audio::send:1") >= g.firstBusStrip);
+    CHECK(g.find("audio::track:1") < g.find("audio::send:1"));
+    CHECK(g.find("audio::click") < g.find("audio::send:1"));
     CHECK(g.find("audio::send:1") < g.firstLaneStrip);
     CHECK(g.find("audio::main") < g.firstLaneStrip);
     CHECK(g.find("audio::out:1") >= g.firstLaneStrip);
@@ -118,6 +117,61 @@ TEST_CASE("buildMixGraph: every edge runs forward, so one sweep resolves the gra
     // ...and they are grouped by destination for the render cursor.
     for (size_t i = 1; i < g.edges.size(); ++i)
         CHECK(g.edges[i - 1].to <= g.edges[i].to);
+}
+
+TEST_CASE("buildMixGraph keeps sidechain edges distinct and orders a later source first") {
+    Project project = makeProject();
+    PluginSlot compressor;
+    compressor.id = "slot:compressor";
+    compressor.plugin.identifier = "VST3:vendor:compressor";
+    compressor.plugin.name = "Compressor";
+    compressor.sidechain = PluginSidechainRoute{
+        "audio::track:2", 1, SidechainChannelMode::MonoSum};
+    project.tracks[0].plugins.push_back(compressor);
+
+    const MixGraph graph = buildMixGraph(project, outputs16());
+    REQUIRE(graph.sidechainEdges.size() == 1);
+    const auto& edge = graph.sidechainEdges.front();
+    CHECK(edge.from == graph.find("audio::track:2"));
+    CHECK(edge.to == graph.find("audio::track:1"));
+    CHECK(edge.pluginSlotIndex == 0);
+    CHECK(edge.inputBusIndex == 1);
+    CHECK(edge.channelMode == SidechainChannelMode::MonoSum);
+    CHECK(edge.from < edge.to);
+    CHECK(hasEdge(graph, "audio::track:1", "audio::main"));
+    CHECK_FALSE(hasEdge(graph, "audio::track:2", "audio::track:1"));
+    for (const MixEdge& ordinary : graph.edges)
+        CHECK(ordinary.from < ordinary.to);
+}
+
+TEST_CASE("buildMixGraph rejects sidechain self-feedback and cycles") {
+    Project project = makeProject();
+    PluginSlot first;
+    first.id = "slot:first";
+    first.plugin.identifier = "VST3:vendor:first";
+    first.sidechain = PluginSidechainRoute{
+        "audio::track:2", 1, SidechainChannelMode::Automatic};
+    project.tracks[0].plugins.push_back(first);
+    PluginSlot second;
+    second.id = "slot:second";
+    second.plugin.identifier = "VST3:vendor:second";
+    second.sidechain = PluginSidechainRoute{
+        "audio::track:1", 1, SidechainChannelMode::Automatic};
+    project.tracks[1].plugins.push_back(second);
+
+    const MixGraph graph = buildMixGraph(project, outputs16());
+    REQUIRE(graph.sidechainEdges.size() == 1);
+    CHECK(graph.sidechainEdges.front().from == graph.find("audio::track:2"));
+    CHECK(graph.sidechainEdges.front().to == graph.find("audio::track:1"));
+
+    project.tracks[1].plugins[0].sidechain.reset();
+    project.tracks[0].plugins[0].sidechain->sourceStripId = "audio::track:1";
+    const MixGraph selfFeedback = buildMixGraph(project, outputs16());
+    CHECK(selfFeedback.sidechainEdges.empty());
+
+    project.tracks[0].plugins[0].sidechain->sourceStripId = "audio::main";
+    const MixGraph mainFeedback = buildMixGraph(project, outputs16());
+    CHECK(mainFeedback.sidechainEdges.empty());
 }
 
 TEST_CASE("buildMixGraph: master owns its physical channels as two mono lanes") {
@@ -511,6 +565,32 @@ TEST_CASE("buildMixGraph: processor layout key ignores controls but tracks inser
     p.tracks.push_back(TrackDef{});
     p.tracks.back().id = "audio::track:3";
     CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != firstStateResource);
+}
+
+TEST_CASE("buildMixGraph keys sidechain source order and plugin bus layout") {
+    Project project = makeProject();
+    PluginSlot effect;
+    effect.id = "slot:compressor";
+    effect.plugin.identifier = "VST3:vendor:compressor";
+    effect.sidechain = PluginSidechainRoute{
+        "audio::track:2", 1, SidechainChannelMode::Automatic};
+    project.tracks[0].plugins.push_back(effect);
+    const MixGraph initial = buildMixGraph(project, outputs16());
+
+    project.tracks[0].plugins[0].sidechain->sourceStripId = "audio::click";
+    const MixGraph changedSource = buildMixGraph(project, outputs16());
+    CHECK(changedSource.processorLayoutKey != initial.processorLayoutKey);
+    CHECK(changedSource.routingLayoutKey != initial.routingLayoutKey);
+
+    project.tracks[0].plugins[0].sidechain->sourceStripId = "audio::send:1";
+    const MixGraph reorderedSource = buildMixGraph(project, outputs16());
+    CHECK(reorderedSource.processorLayoutKey != initial.processorLayoutKey);
+    CHECK(reorderedSource.routingLayoutKey != initial.routingLayoutKey);
+
+    project.tracks[0].plugins[0].sidechain->inputBusIndex = 2;
+    const MixGraph changedBus = buildMixGraph(project, outputs16());
+    CHECK(changedBus.processorLayoutKey != reorderedSource.processorLayoutKey);
+    CHECK(changedBus.routingLayoutKey != reorderedSource.routingLayoutKey);
 }
 
 // ── Flat route ids (engine/project/RouteId.h) ───────────────────────────────

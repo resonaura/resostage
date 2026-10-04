@@ -145,6 +145,21 @@ struct MixEdge {
     bool active = true;
 };
 
+// A sidechain is a separate processor input, never another contribution to
+// the destination strip's normal pre-insert mix. The graph builder admits only
+// stable source/destination identities and keeps these edges acyclic with the
+// ordinary signal routes.
+struct MixSidechainEdge {
+    uint32_t from = 0;
+    uint32_t to = 0;
+    uint32_t pluginSlotIndex = 0;
+    uint32_t inputBusIndex = 1;
+    SidechainChannelMode channelMode = SidechainChannelMode::Automatic;
+    // Sidechains use the source's post-fader signal and therefore respect its
+    // resolved mute/solo audibility. The callback never re-derives that rule.
+    bool active = true;
+};
+
 // The device side of the graph -- everything buildMixGraph needs to know
 // about the sound card, with no JUCE types involved.
 struct OutputLaneConfig {
@@ -160,6 +175,7 @@ struct OutputLaneConfig {
 struct MixGraph {
     std::vector<MixStrip> strips;
     std::vector<MixEdge> edges;
+    std::vector<MixSidechainEdge> sidechainEdges;
 
     // Prepared strip-index bindings and owned envelope data share this
     // publication's retirement lifetime, never mutable project vectors.
@@ -202,8 +218,8 @@ struct MixGraph {
     // recreating stateful vendor processors.
     uint64_t latencyLayoutKey = 0;
 
-    // Section boundaries in `strips` (sources < busses < lanes).
-    uint32_t firstBusStrip = 0;
+    // Output lanes are kept after every processor-capable strip. Other strips
+    // are topologically ordered so sidechain sources can precede their plugin.
     uint32_t firstLaneStrip = 0;
 
     std::unordered_map<std::string, uint32_t> indexById;

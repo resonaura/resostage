@@ -992,7 +992,7 @@ parameters (`track_gain:`, `track_pan:`, `track_arm:`, `track_monitor:`, `master
 ## 10. Project model and persistence
 
 The schema lives in `core/engine/project/ProjectSchema.h`. Current on-disk
-format version is `11`. A `.rsnraset` is normally a directory package containing
+format version is `12`. A `.rsnraset` is normally a directory package containing
 `project.rsnrasetmeta`, audio resources, and derived caches; legacy ZIP
 packages and `project.json` still have compatibility paths.
 
@@ -1016,7 +1016,12 @@ Key ownership rules:
   slot persists a catalog identifier plus fallback vendor/name metadata;
   opaque vendor state lives in a separate package resource referenced by
   `stateResource`, never as base64 in the metadata JSON. Missing effects must
-  degrade to explicit pass-through, not make a project unloadable.
+  degrade to explicit pass-through, not make a project unloadable. Per-plugin
+  presets are device-local opaque vendor states; selecting one binds its bytes
+  to the exact `(stripId, slotId)` and project Save packages those bytes so the
+  project remains portable. A slot may also persist a stable sidechain source,
+  auxiliary input bus index, and channel mode. Sidechain feeds are distinct
+  from ordinary strip mix inputs, and their dependency edges must stay acyclic.
 - The message thread may mutate `ProjectLoader::project()`. Workers receive a
   snapshot or other explicitly published state; they must not retain a mutable
   project reference across threads.
@@ -1041,7 +1046,9 @@ track-lane target rebinding; v10 and earlier default it to empty. Cache bounds
 are 128 entries and 65,536 points per song with deterministic oldest-first
 eviction. Rebind and curve restore are one project-history transaction. Saving
 v10 click solo-safe false and v11 cached automation must survive subsequent
-reopen.
+reopen. v12 adds optional per-plugin sidechain routes; older projects default
+all slots to disconnected, and a sidechain source/bus binding must survive
+serialization, migration and reopen without being treated as an ordinary send.
 MIDI regions keep source note
 coordinates; `clipOffsetBeats` identifies the current source phase, while
 `loopStartBeats` and `loopLengthBeats` bound the loop source window. Trimming

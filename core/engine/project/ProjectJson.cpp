@@ -174,12 +174,19 @@ struct WPluginReference {
     bool instrument = false;
 };
 
+struct WPluginSidechainRoute {
+    std::string sourceStripId;
+    uint32_t inputBusIndex = 1;
+    std::string channelMode = "automatic";
+};
+
 struct WPluginSlot {
     std::string id;
     WPluginReference plugin;
     bool bypassed = false;
     std::optional<std::string> stateResource;
     bool keepAwake = false;
+    std::optional<WPluginSidechainRoute> sidechain;
 };
 
 struct WClick {
@@ -665,6 +672,12 @@ WPluginSlot toWirePluginSlot(const PluginSlot& slot) {
     wire.bypassed = slot.bypassed;
     wire.stateResource = slot.stateResource;
     wire.keepAwake = slot.keepAwake;
+    if (slot.sidechain.has_value()) {
+        wire.sidechain = WPluginSidechainRoute{
+            slot.sidechain->sourceStripId,
+            slot.sidechain->inputBusIndex,
+            sidechainChannelModeToString(slot.sidechain->channelMode)};
+    }
     return wire;
 }
 
@@ -680,6 +693,12 @@ PluginSlot fromWirePluginSlot(const WPluginSlot& wire) {
     slot.bypassed = wire.bypassed;
     slot.stateResource = wire.stateResource;
     slot.keepAwake = wire.keepAwake;
+    if (wire.sidechain.has_value()) {
+        slot.sidechain = PluginSidechainRoute{
+            wire.sidechain->sourceStripId,
+            wire.sidechain->inputBusIndex,
+            sidechainChannelModeFromString(wire.sidechain->channelMode)};
+    }
     return slot;
 }
 

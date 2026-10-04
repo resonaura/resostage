@@ -33,7 +33,9 @@ namespace resostage {
 //     because they're created and destroyed constantly while editing, so a
 //     dense counter would collide across copy/paste and undo.
 // Optional strings are std::optional and serialize as JSON null, never "".
-inline constexpr int kCurrentFormatVersion = 11;
+inline constexpr int kCurrentFormatVersion = 12;
+// Format 12 adds an optional external sidechain source and auxiliary input bus
+// binding to each plug-in slot. Missing bindings remain disconnected.
 // Format 11 stores bounded, project-persisted automation curves detached while
 // an automation lane is rebound to another parameter. Older projects
 // start with an empty curve cache.
@@ -166,6 +168,39 @@ struct PluginReference {
     bool instrument = false;
 };
 
+enum class SidechainChannelMode : uint8_t {
+    Automatic = 0,
+    MonoSum = 1,
+    Left = 2,
+    Right = 3,
+};
+
+inline std::string sidechainChannelModeToString(SidechainChannelMode mode) {
+    switch (mode) {
+        case SidechainChannelMode::MonoSum: return "mono-sum";
+        case SidechainChannelMode::Left: return "left";
+        case SidechainChannelMode::Right: return "right";
+        case SidechainChannelMode::Automatic:
+        default: return "automatic";
+    }
+}
+
+inline SidechainChannelMode sidechainChannelModeFromString(
+    const std::string& value) {
+    if (value == "mono-sum") return SidechainChannelMode::MonoSum;
+    if (value == "left") return SidechainChannelMode::Left;
+    if (value == "right") return SidechainChannelMode::Right;
+    return SidechainChannelMode::Automatic;
+}
+
+struct PluginSidechainRoute {
+    std::string sourceStripId;
+    // Zero-based plug-in input bus index. Bus 0 is the main input and is not a
+    // valid sidechain target; auxiliary inputs therefore start at index 1.
+    uint32_t inputBusIndex = 1;
+    SidechainChannelMode channelMode = SidechainChannelMode::Automatic;
+};
+
 // One ordered insert in a strip's pre-fader chain. Opaque vendor state is a
 // separate package resource (normally Plugins/<slot-id>.state), never base64
 // inside project.rsnrasetmeta. A missing effect degrades to pass-through.
@@ -175,6 +210,9 @@ struct PluginSlot {
     bool bypassed = false;
     std::optional<std::string> stateResource;
     bool keepAwake = false; // Exclude from power management / auto-suspension
+    // Optional external signal into a non-main plug-in input bus. The source
+    // is a stable strip ID; it is not an ordinary audio send or strip input.
+    std::optional<PluginSidechainRoute> sidechain;
 };
 
 // The project-global metronome. Same shape as a track (gain/pan/mute/solo/

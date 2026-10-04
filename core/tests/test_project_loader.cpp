@@ -380,6 +380,8 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     slot.plugin.instrument = true;
     slot.bypassed = true;
     slot.stateResource = "Plugins/019fd93b-3662-7f5b-8162-45f5ecad9811.state";
+    slot.sidechain = PluginSidechainRoute{
+        "audio::track:2", 3, SidechainChannelMode::Right};
     loader.project().tracks[0].plugins.push_back(slot);
 
     const std::string outPath =
@@ -405,6 +407,10 @@ TEST_CASE("serializeProjectJson round-trips through ProjectLoader") {
     CHECK(restoredSlot.plugin.instrument);
     CHECK(restoredSlot.bypassed);
     CHECK(restoredSlot.stateResource == slot.stateResource);
+    REQUIRE(restoredSlot.sidechain.has_value());
+    CHECK(restoredSlot.sidechain->sourceStripId == "audio::track:2");
+    CHECK(restoredSlot.sidechain->inputBusIndex == 3);
+    CHECK(restoredSlot.sidechain->channelMode == SidechainChannelMode::Right);
     // Events preserved
     REQUIRE(p.songs[0].events.size() == 4);
     REQUIRE(p.songs[0].events[2].httpUrl.has_value());

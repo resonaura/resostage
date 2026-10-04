@@ -140,3 +140,34 @@ production-build results are recorded in the latest audit/handoff entry. This
 bounds the optimizer's crossing work, not React Flow's O(E) rendering, and
 does not prove dense-graph visual legibility or manual interaction quality.
 Sidechain ports/edges and real plugin-input routing remain unimplemented.
+
+## Sidechain model and graph foundation (2026-10-03)
+
+Project format v12 now persists an optional sidechain route on each plug-in
+slot: stable source strip ID, auxiliary input bus index and automatic/mono-sum/
+left/right channel mode. The current schema allows one source per slot; future
+multi-source summing requires an explicit schema and bounded graph design. The
+format-v11-to-v12 migration defaults every slot to disconnected. `MixGraph`
+exposes typed `MixSidechainEdge` values separately
+from ordinary audio routes, rejects missing/self/instrument/invalid-bus
+references from the render graph, rejects sidechain feedback cycles against
+both ordinary routing and previously accepted sidechain dependencies, and
+publishes source mute/solo audibility with each edge. The processor-capable
+strips are stably topologically ordered; output lanes remain
+last. The processor-layout key includes graph indices and the selected plugin
+bus layout. A source edit that changes topological order must rebind the
+index-based processor table; unchanged vendor chains should still be reused by
+stable identity rather than relaunched. That helper-generation behavior still
+needs a dedicated integration regression during realtime wiring.
+
+Serialization, format migration and graph tests pass (3 migration tests; 21
+graph tests/141 assertions). CTest passes 1/1, and the two real-macOS-AU
+editor-window integration cases pass on a focused rerun (2/2, 78 assertions).
+One earlier direct full-binary run transiently failed their editor open/close
+requests after the helpers were ready and had rendered audio; this remains a
+flaky observation to watch, not a sidechain regression or a resolved diagnosis.
+This is only the persisted-model/graph-preparation milestone: the renderer does
+not yet feed those edges to plug-in auxiliary buses, and no UI authoring,
+shared-memory transport, bus capability discovery, sidechain visualization,
+offline parity or real AU/VST validation is implemented. Do not describe the
+feature as available until those stages and the acceptance tests above pass.

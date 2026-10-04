@@ -759,8 +759,9 @@ bool ProjectLoader::reparseProject(std::string& error) {
         // defaults the per-track pan law to its legacy curve. These are additive.
         // v7 -> v8 defaults trimmed MIDI loop windows; v8 -> v9 defaults
         // optional video sources; v10 -> v11 defaults the automation curve
-        // cache. Promote only the private in-memory snapshot so opening a
-        // document never rewrites its package.
+        // cache; v11 -> v12 defaults plug-in sidechain routing to disconnected.
+        // Promote only the private in-memory snapshot so opening a document
+        // never rewrites its package.
         out.format.version = kCurrentFormatVersion;
         return true;
     };

@@ -9,6 +9,8 @@
 #include "MixMath.h"
 
 #include <algorithm>
+#include <functional>
+#include <queue>
 #include <string_view>
 
 namespace resostage {
@@ -53,36 +55,36 @@ void hashSlots(uint64_t& hash, const std::vector<PluginSlot>& slots) {
         hashByte(hash, slot.stateResource.has_value() ? 1u : 0u);
         if (slot.stateResource.has_value())
             hashBytes(hash, *slot.stateResource);
+        hashByte(hash, slot.sidechain.has_value() ? 1u : 0u);
+        if (slot.sidechain.has_value()) {
+            hashU32(hash, slot.sidechain->inputBusIndex);
+        }
     }
 }
 
 uint64_t processorLayoutKey(const Project& project, const MixGraph& graph) {
     uint64_t hash = kFnvOffset;
-    for (const auto& strip : graph.strips) {
-        // Output lanes are always after every processable strip. Device
-        // hot-plug/channel-map changes cannot invalidate the processor table.
-        if (strip.kind == StripKind::OutputLane)
-            continue;
-        hashBytes(hash, strip.id);
-        hashByte(hash, static_cast<uint8_t>(strip.kind));
-        switch (strip.kind) {
-            case StripKind::Track:
-                if (strip.projectIndex < project.tracks.size())
-                    hashSlots(hash, project.tracks[strip.projectIndex].plugins);
-                break;
-            case StripKind::Click:
-                hashSlots(hash, project.click.plugins);
-                break;
-            case StripKind::Send:
-                if (strip.projectIndex < project.sends.size())
-                    hashSlots(hash, project.sends[strip.projectIndex].plugins);
-                break;
-            case StripKind::Main:
-                hashSlots(hash, project.main.plugins);
-                break;
-            case StripKind::OutputLane: break;
-        }
-    }
+    // Processor tables are indexed by the published graph, but changing only
+    // a sidechain source may topologically reorder strips. Hash each chain in
+    // stable project order and include its current graph index: a route edit
+    // that changes order must rebuild the lightweight processor table, while
+    // PluginProcessorBank may still reuse each unchanged chain/helper by ID.
+    // The input-bus index remains in hashSlots because it changes the
+    // processor's prepared bus layout.
+    const auto hashChain = [&hash](const MixGraph& graph, const std::string& id,
+                                   StripKind kind,
+                                   const std::vector<PluginSlot>& slots) {
+        hashBytes(hash, id);
+        hashByte(hash, static_cast<uint8_t>(kind));
+        hashU32(hash, graph.find(id));
+        hashSlots(hash, slots);
+    };
+    for (const auto& track : project.tracks)
+        hashChain(graph, track.id, StripKind::Track, track.plugins);
+    hashChain(graph, "audio::click", StripKind::Click, project.click.plugins);
+    for (const auto& send : project.sends)
+        hashChain(graph, send.id, StripKind::Send, send.plugins);
+    hashChain(graph, "audio::main", StripKind::Main, project.main.plugins);
     return hash;
 }
 
@@ -99,7 +101,134 @@ uint64_t routingLayoutKey(const MixGraph& graph) {
         hashByte(hash, static_cast<uint8_t>(edge.tap));
         hashByte(hash, static_cast<uint8_t>(edge.sourceChannel));
     }
+    for (const auto& edge : graph.sidechainEdges) {
+        hashU32(hash, edge.from);
+        hashU32(hash, edge.to);
+        hashU32(hash, edge.pluginSlotIndex);
+        hashU32(hash, edge.inputBusIndex);
+        hashByte(hash, static_cast<uint8_t>(edge.channelMode));
+    }
     return hash;
+}
+
+const std::vector<PluginSlot>* pluginSlotsForStrip(
+    const Project& project, const MixStrip& strip) {
+    switch (strip.kind) {
+        case StripKind::Track:
+            return strip.projectIndex < project.tracks.size()
+                ? &project.tracks[strip.projectIndex].plugins : nullptr;
+        case StripKind::Click:
+            return &project.click.plugins;
+        case StripKind::Send:
+            return strip.projectIndex < project.sends.size()
+                ? &project.sends[strip.projectIndex].plugins : nullptr;
+        case StripKind::Main:
+            return &project.main.plugins;
+        case StripKind::OutputLane:
+            return nullptr;
+    }
+    return nullptr;
+}
+
+bool hasPath(const std::vector<std::vector<uint32_t>>& adjacency,
+             uint32_t start, uint32_t target) {
+    if (start >= adjacency.size() || target >= adjacency.size())
+        return false;
+    std::vector<uint8_t> visited(adjacency.size(), 0);
+    std::vector<uint32_t> pending{start};
+    visited[start] = 1;
+    while (!pending.empty()) {
+        const uint32_t current = pending.back();
+        pending.pop_back();
+        if (current == target)
+            return true;
+        for (const uint32_t next : adjacency[current]) {
+            if (next >= adjacency.size() || visited[next] != 0)
+                continue;
+            visited[next] = 1;
+            pending.push_back(next);
+        }
+    }
+    return false;
+}
+
+void orderStripsTopologically(MixGraph& graph, uint32_t processableCount) {
+    if (graph.sidechainEdges.empty()
+        || std::all_of(graph.sidechainEdges.begin(), graph.sidechainEdges.end(),
+                       [](const MixSidechainEdge& edge) {
+                           return edge.from < edge.to;
+                       }))
+        return;
+    const size_t count = graph.strips.size();
+    std::vector<std::vector<uint32_t>> adjacency(processableCount);
+    std::vector<uint32_t> indegree(processableCount, 0);
+    const auto addDependency = [&adjacency, &indegree, processableCount](
+                                  uint32_t from, uint32_t to) {
+        if (from >= processableCount || to >= processableCount)
+            return;
+        adjacency[from].push_back(to);
+        ++indegree[to];
+    };
+    for (const auto& edge : graph.edges)
+        addDependency(edge.from, edge.to);
+    for (const auto& edge : graph.sidechainEdges)
+        addDependency(edge.from, edge.to);
+
+    // The original strip order is the stable tie-breaker. Projects without
+    // sidechains therefore retain their exact historical processing order.
+    std::priority_queue<uint32_t, std::vector<uint32_t>, std::greater<>> ready;
+    for (uint32_t index = 0; index < processableCount; ++index)
+        if (indegree[index] == 0)
+            ready.push(index);
+
+    std::vector<uint32_t> oldOrder;
+    oldOrder.reserve(count);
+    while (!ready.empty()) {
+        const uint32_t current = ready.top();
+        ready.pop();
+        oldOrder.push_back(current);
+        for (const uint32_t next : adjacency[current])
+            if (--indegree[next] == 0)
+                ready.push(next);
+    }
+    if (oldOrder.size() != processableCount)
+        return; // Defensive: invalid cycles never replace the last-safe order.
+    for (uint32_t index = processableCount; index < count; ++index)
+        oldOrder.push_back(index);
+
+    std::vector<uint32_t> remap(count, MixGraph::kNoStrip);
+    std::vector<MixStrip> reordered;
+    reordered.reserve(count);
+    for (uint32_t next = 0; next < oldOrder.size(); ++next) {
+        const uint32_t old = oldOrder[next];
+        remap[old] = next;
+        reordered.push_back(std::move(graph.strips[old]));
+    }
+    graph.strips = std::move(reordered);
+    graph.indexById.clear();
+    graph.indexById.reserve(graph.strips.size());
+    for (uint32_t index = 0; index < graph.strips.size(); ++index)
+        graph.indexById.emplace(graph.strips[index].id, index);
+    for (auto& edge : graph.edges) {
+        edge.from = remap[edge.from];
+        edge.to = remap[edge.to];
+    }
+    std::stable_sort(graph.edges.begin(), graph.edges.end(),
+                     [](const MixEdge& left, const MixEdge& right) {
+                         return left.to < right.to;
+                     });
+    for (auto& edge : graph.sidechainEdges) {
+        edge.from = remap[edge.from];
+        edge.to = remap[edge.to];
+    }
+    std::stable_sort(graph.sidechainEdges.begin(), graph.sidechainEdges.end(),
+                     [](const MixSidechainEdge& left,
+                        const MixSidechainEdge& right) {
+                         if (left.to != right.to)
+                             return left.to < right.to;
+                         return left.pluginSlotIndex < right.pluginSlotIndex;
+                     });
+    graph.firstLaneStrip = processableCount;
 }
 
 uint64_t latencyLayoutKey(const MixGraph& graph, uint64_t processorKey) {
@@ -277,7 +406,6 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
     }();
 
     // ── Busses: sends, then main ────────────────────────────────────────────
-    graph.firstBusStrip = static_cast<uint32_t>(graph.strips.size());
 
     for (uint32_t i = 0; i < project.sends.size(); ++i) {
         const SendBus& send = project.sends[i];
@@ -455,7 +583,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
     // to happen, and the schema has no way to express it.
     for (uint32_t i = 0; i < project.sends.size(); ++i) {
         const SendBus& send = project.sends[i];
-        const uint32_t from = graph.firstBusStrip + i;
+        const uint32_t from = graph.find(send.id);
         switch (send.output.type) {
             case OutputType::Main:
                 addEdge(from, mainStrip, 1.0f, SendTap::PostPan, /*sourceChannel=*/-1);
@@ -477,10 +605,49 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
     // never fold into anything else.
     addExtOutEdges(mainStrip, project.main.output.target, 1.0f, SendTap::PostPan);
 
-    // Group edges by destination so the render pass can walk strips and edges
-    // together in one forward sweep. Legal because the strip ordering above
-    // guarantees `from < to` for every edge -- sources come before busses,
-    // busses before lanes, and nothing routes backwards.
+    // Collect external plug-in inputs separately from the ordinary mix edges.
+    // Invalid or stale project references are omitted from the realtime graph;
+    // command-side validation reports the reason to the editor before commit.
+    const uint32_t processableStripCount = graph.firstLaneStrip;
+    std::vector<std::vector<uint32_t>> dependencyGraph(processableStripCount);
+    for (const auto& edge : graph.edges)
+        if (edge.from < processableStripCount && edge.to < processableStripCount)
+            dependencyGraph[edge.from].push_back(edge.to);
+
+    constexpr uint32_t kMaximumSidechainInputBusIndex = 32;
+    for (uint32_t destination = 0; destination < processableStripCount;
+         ++destination) {
+        const auto* slots = pluginSlotsForStrip(project, graph.strips[destination]);
+        if (slots == nullptr)
+            continue;
+        const size_t slotCount = std::min<size_t>(slots->size(), 128);
+        for (uint32_t slotIndex = 0; slotIndex < slotCount; ++slotIndex) {
+            const PluginSlot& slot = (*slots)[slotIndex];
+            if (!slot.sidechain.has_value() || slot.plugin.instrument
+                || slot.plugin.identifier.empty()
+                || slot.sidechain->sourceStripId.empty()
+                || slot.sidechain->inputBusIndex == 0
+                || slot.sidechain->inputBusIndex > kMaximumSidechainInputBusIndex)
+                continue;
+            const uint32_t source = graph.find(slot.sidechain->sourceStripId);
+            if (source >= processableStripCount || source == destination
+                || hasPath(dependencyGraph, destination, source))
+                continue;
+
+            graph.sidechainEdges.push_back({
+                source, destination, slotIndex, slot.sidechain->inputBusIndex,
+                slot.sidechain->channelMode, graph.strips[source].audible});
+            dependencyGraph[source].push_back(destination);
+        }
+    }
+
+    // Both ordinary routes and sidechain routes form one dependency DAG for
+    // processing order. Audio contributions remain distinct: sidechain edges
+    // are never accumulated into the destination strip's normal pre buffer.
+    orderStripsTopologically(graph, processableStripCount);
+
+    // Group ordinary edges by destination so the render pass can walk strips
+    // and edges together in one forward sweep.
     std::stable_sort(graph.edges.begin(), graph.edges.end(),
                      [](const MixEdge& a, const MixEdge& b) { return a.to < b.to; });
 
