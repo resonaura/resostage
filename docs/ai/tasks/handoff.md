@@ -1862,3 +1862,12 @@ MIDI Clip tests passed 36/36; full UI passed 1,105/1,105 across 151 files;
 TypeScript, production build, changed-file oxlint, and `git diff --check`
 passed. See MIDI-CI v1.2 and MIDI Clip File v1.0, linked in
 `docs/MIDI2_REMAINING_WORK.md`.
+
+Latest verified SMF parser fix (2026-10-04): System Common/Real-Time data
+cannot cross the current `MTrk` declared boundary. Regression: malformed F1
+with its data byte omitted before a second valid track rejects instead of
+consuming the second chunk's first byte. Focused Standard MIDI tests: 70/70;
+full UI: 1,106/1,106 across 151 files; TypeScript, production build,
+changed-file oxlint and diff check passed. Review and commit this isolated
+block in English without pushing, then continue checking malformed chunk and
+event boundary behavior.

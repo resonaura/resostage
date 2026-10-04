@@ -2536,3 +2536,11 @@ broadcast MUIDs, and nonzero v1.2+ channel counts for Group/Function Block
 destinations. Focused MIDI Clip tests passed 36/36; full UI passed 1,105/1,105
 across 151 files; TypeScript, production build, changed-file oxlint, and
 `git diff --check` passed. Basis: MIDI-CI v1.2 and MIDI Clip File v1.0.
+
+Latest SMF parser boundary audit (2026-10-04): System Common/Real-Time event
+data now must remain inside the current declared `MTrk` chunk. A truncated
+F1/F2/F3 event previously could borrow bytes from the next chunk; a two-track
+fixture now rejects that malformed input. Focused Standard MIDI tests passed
+70/70; full UI passed 1,106/1,106 across 151 files; TypeScript, production
+build, changed-file oxlint and `git diff --check` passed. This is a bounded
+parser hardening fix, not a compatibility relaxation.

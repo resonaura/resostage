@@ -240,6 +240,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
             : status === 0xf6 || status >= 0xf8 ? 0 : -1;
         if (systemDataLength < 0) throw new Error(`Unsupported MIDI system event 0x${status.toString(16)}`);
         const data = Array.from(reader.take(systemDataLength));
+        if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
         if (data.some((byte) => byte > 0x7f))
           throw new Error("MIDI system event data bytes must be 7-bit values");
         events.push({ beat: musicalPosition(tick), status, data });

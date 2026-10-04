@@ -722,3 +722,15 @@ values. Focused MIDI Clip tests passed 36/36; full UI passed 1,105/1,105 across
 151 files; TypeScript, production build, changed-file oxlint, and
 `git diff --check` passed. References: [MIDI-CI v1.2 §§5.2–5.4, 7.8](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-101-UM_v1-2_MIDI-CI_Specification.pdf)
 and [MIDI Clip File v1.0 §6.2](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
+
+### Latest continuation — enforce SMF track bounds for System messages (2026-10-04)
+
+Standard MIDI import now verifies that System Common/Real-Time message data
+ends within its declared `MTrk` chunk. Previously, a truncated F1/F2/F3 event
+could consume bytes from the next chunk and be accepted as fabricated event
+data. A two-track regression proves the following chunk header is not used to
+complete the earlier event. Focused Standard MIDI tests passed 70/70; full UI
+passed 1,106/1,106 across 151 files; TypeScript, production build,
+changed-file oxlint, and `git diff --check` passed. Continue the codec audit
+with malformed chunk-boundary fixtures; do not broaden this into accepting
+truncated events.

@@ -116,6 +116,32 @@ describe("Standard MIDI File", () => {
     expect(() => parseStandardMidiFile(file)).toThrow(/Truncated MIDI chunk/);
   });
 
+  it("does not read truncated system-event data from the next track chunk", () => {
+    const firstTrackBody = [0, 0xf1];
+    const firstTrack = [
+      0x4d, 0x54, 0x72, 0x6b,
+      0, 0, 0, firstTrackBody.length,
+      ...firstTrackBody,
+    ];
+    const secondTrackBody = [
+      0, 0x90, 60, 100,
+      0x60, 0x80, 60, 0,
+      0, 0xff, 0x2f, 0,
+    ];
+    const secondTrack = [
+      0x4d, 0x54, 0x72, 0x6b,
+      0, 0, 0, secondTrackBody.length,
+      ...secondTrackBody,
+    ];
+    const file = Uint8Array.from([
+      0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 2, 1, 0xe0,
+      ...firstTrack,
+      ...secondTrack,
+    ]);
+
+    expect(() => parseStandardMidiFile(file)).toThrow(/MIDI event exceeds track chunk/);
+  });
+
   it("folds MIDI 1.0 CC 88 into one-shot 14-bit note-edge velocities", () => {
     const parsed = parseStandardMidiFile(smfWithTrackEvents([
       0, 0xb0, 88, 25,
