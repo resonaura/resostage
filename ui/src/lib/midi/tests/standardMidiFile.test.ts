@@ -232,6 +232,37 @@ describe("Standard MIDI File", () => {
     expect(analyzeMidi1ExportLoss([{ name: "Controls", regions: [source] }]).unsupportedUmpEvents).toBe(1);
   });
 
+  it("exports representable MIDI Clip setup at SMF track start outside trim and loop expansion", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      clipOffsetBeats: 4,
+      loop: true,
+      loopStartBeats: 4,
+      loopLengthBeats: 2,
+      notes: [{ ...region.notes[0], startBeats: 4, durationBeats: 1 }],
+      umpEvents: [
+        { beat: 0, words: [0x20c00500], wordCount: 1, configurationHeader: true },
+        { beat: 0, words: [0x3016_f07e, 0x7f0d_2201], wordCount: 2,
+          configurationHeader: true, profileConfigurationHeader: true },
+        { beat: 4, words: [0x20c00700], wordCount: 1 },
+      ],
+    };
+    const tracks = [{ name: "Configured", regions: [source] }];
+    const parsed = parseStandardMidiFile(writeStandardMidiFile(tracks, {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: true,
+    }));
+
+    expect(parsed.tracks[1].events?.filter((event) => event.status === 0xc0)).toEqual([
+      { beat: 0, status: 0xc0, data: [5] },
+      { beat: 0, status: 0xc0, data: [7] },
+      { beat: 2, status: 0xc0, data: [7] },
+    ]);
+    expect(parsed.tracks[1].notes).toHaveLength(2);
+    expect(analyzeMidi1ExportLoss(tracks).unsupportedUmpEvents).toBe(1);
+  });
+
   it("reports MIDI 2.0 note and opaque UMP losses before legacy export", () => {
     const source: MidiRegionRow = {
       ...region,

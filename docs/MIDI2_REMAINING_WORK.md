@@ -57,7 +57,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - MIDI Clip export is explicit. `.mid` remains the default; `.midi2` must be
   selected by the user. When exporting `.mid`, the dialog reports known
   MIDI 2.0 note/group/attribute/velocity and unsupported-UMP losses and asks
-  for confirmation.
+  for confirmation. Representable MIDI Clip receiver-configuration Channel
+  Voice packets are emitted at the beginning of the Standard MIDI File track,
+  independent of region trim/loop; unsupported profile-prefix SysEx7 remains
+  listed as a lossy event.
 - Exporting a subset from a nonzero timeline origin carries the effective
   tempo and meter at that origin into beat zero of the exported clip.
 - MIDI Clip export follows region mute, trim and loop placement. At an exact
@@ -215,3 +218,16 @@ Profile payload is decoded or negotiated. Focused codec/editor tests passed
 production UI build passed. Lint passed with 12 existing warnings outside this
 change, and `git diff --check` passed. Do not infer broad SysEx or profile
 interoperability.
+
+### Latest continuation — MIDI 1.0 export of configuration setup (2026-10-04)
+
+When exporting `.mid`, representable MIDI Clip receiver-configuration UMP
+Channel Voice messages are converted to SMF track-start events. They ignore
+region trim and loop expansion because SMF has no separate receiver setup
+section. Unrepresentable profile-prefix SysEx7 is omitted from the SMF payload
+and remains counted by the existing unsupported-UMP loss report. A regression
+covers a trimmed, looped region with setup Program Change, sequence Program
+Change and notes. Focused Standard MIDI/MIDI Clip tests passed 35/35; full UI
+passed 1,034/1,034 across 151 files; TypeScript and production UI build passed;
+lint passed with 12 existing unrelated warnings; diff check passed. This does
+not add full MIDI 2.0-to-1.0 conversion for unsupported UMP packet kinds.

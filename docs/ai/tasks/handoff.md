@@ -1428,3 +1428,13 @@ has 12 pre-existing warnings outside this work. Commit this verified block in
 English after reviewing the diff; do not push. See
 `docs/MIDI2_REMAINING_WORK.md` and the official
 [MIDI Clip File Specification v1.0](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).
+
+Latest follow-up — MIDI 1.0 export of configuration setup (2026-10-04): a
+separate uncommitted block changes `writeStandardMidiFile`: representable UMP
+receiver-configuration Channel Voice packets are emitted at track beat zero,
+not repeated through a MIDI region's trim/loop. Profile SysEx7 remains
+unsupported and counted by the MIDI 1.0 export loss report. Test fixture
+round-trips setup/sequence Program Changes from a trimmed loop region. Focused
+tests 35/35, full UI 1,034/1,034, TypeScript/build and diff check pass; lint has
+12 unrelated existing warnings. Commit in English, do not push, and continue
+MIDI codec conformance work without claiming complete MIDI 2.0 support.

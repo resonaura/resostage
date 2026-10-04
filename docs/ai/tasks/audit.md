@@ -2030,6 +2030,17 @@ across 151 files, TypeScript and production UI build passed, lint passed with
 v13/Core tests were completed with the prior stage-A commit `4f99049e`. Keep
 independent profile/SysEx references open and do not push.
 
+### Latest continuation — MIDI 1.0 export of configuration setup (2026-10-04)
+
+Standard MIDI File export now converts representable MIDI Clip receiver setup
+Channel Voice packets into track-start events, outside region trim and loop
+expansion. Unsupported profile-prefix SysEx7 stays excluded and is counted by
+the existing loss report. Regression covers setup and sequence Program Changes
+in a trimmed loop region. Focused Standard MIDI/MIDI Clip tests passed 35/35,
+full UI passed 1,034/1,034 across 151 files, TypeScript and production build
+passed, lint passed with 12 unrelated existing warnings, and diff check passed.
+This is not a general UMP-to-MIDI 1.0 translator.
+
 ### Latest continuation — MIDI Clip configuration-section round-trip (2026-10-04)
 
 Project format v13 now persists whether opaque UMP events are receiver

@@ -493,6 +493,20 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
         }
       }
       for (const event of region.umpEvents ?? []) {
+        const isConfiguration = event.configurationHeader === true
+          || event.profileConfigurationHeader === true;
+        if (isConfiguration) {
+          const converted = umpEventToMidi1(event.words, event.wordCount);
+          if (converted) {
+            events.push({ tick: 0, order: -2, bytes: [converted.status, ...converted.data] });
+            totalEvents++;
+            if (events.length > MAX_EVENTS || totalEvents > 400_000)
+              throw new Error("MIDI export exceeds event limit");
+          }
+          // SMF has no distinct receiver-configuration section. Representable
+          // setup messages become track-start events and are not region-looped.
+          continue;
+        }
         const repeats = options.expandLoops && region.loop && loopLength > 0
           ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength))
           : 1;
