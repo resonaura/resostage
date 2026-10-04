@@ -57,8 +57,11 @@ export function ImportMidiDialog({
         const batch: Array<{ file: File; midi: ImportedMidiFile }> = [];
         let totalContentItems = 0;
         for (const file of files) {
+          if (cancelled) return;
           if (file.size > 32 * 1024 * 1024) throw new Error(`${file.name}: MIDI file exceeds 32 MiB`);
-          const midi = parseStandardMidiFile(new Uint8Array(await file.arrayBuffer()));
+          const data = await file.arrayBuffer();
+          if (cancelled) return;
+          const midi = parseStandardMidiFile(new Uint8Array(data));
           totalContentItems += countMidiContentItems(midi);
           assertMidiBatchContentItemLimit(totalContentItems);
           batch.push({ file, midi });

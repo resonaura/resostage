@@ -824,5 +824,6 @@ retained notes, MIDI 1.0 events, and opaque UMP events at 200,000 items, the
 same ceiling as a single input file. This prevents a permitted 128-file batch
 from multiplying per-file limits into unbounded retained project state. Focused
 batch/SMF tests passed 79/79; full UI passed 1,118/1,118 across 152 files;
-TypeScript, production build, changed-file oxlint, and `git diff --check`
-passed.
+closing or replacing the dialog stops further file reads/parsing after the
+current `arrayBuffer()` operation settles. TypeScript, production build,
+changed-file oxlint, and `git diff --check` passed.

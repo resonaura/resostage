@@ -2607,6 +2607,8 @@ Latest MIDI batch-import resource audit (2026-10-04): input files are parsed
 sequentially and aggregate retained notes/events/UMP rows are capped at
 200,000 across a batch (matching one file's retained-item budget), rather than
 allowing up to 128 independent file caps to accumulate. Focused import-batch
-and SMF tests: 79/79; full UI: 1,118/1,118 across 152 files; TypeScript,
-production build, changed-file oxlint and `git diff --check` passed. Review
-batch failure semantics and collection payload sizing in follow-up work.
+and SMF tests: 79/79; full UI: 1,118/1,118 across 152 files. Cancellation
+stops parsing additional files after the current `arrayBuffer()` resolves.
+TypeScript, production build, changed-file oxlint and `git diff --check`
+passed. Review batch failure semantics and collection payload sizing in
+follow-up work.

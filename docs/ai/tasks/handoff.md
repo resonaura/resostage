@@ -1932,7 +1932,8 @@ Latest verified MIDI import stability change (2026-10-04): the import dialog
 reads/parses files sequentially and rejects a batch whose retained notes,
 MIDI 1.0 events, and opaque UMP events exceed 200,000 total rows. This keeps
 multi-file imports within one bounded parsed-content budget. Import batch/SMF
-tests: 79/79; full UI: 1,118/1,118 across 152 files; TypeScript, production
-build, changed-file oxlint and `git diff --check` passed. Commit separately in
-English without pushing, then continue checking transaction behavior and MIDI
-file conformance.
+tests: 79/79; full UI: 1,118/1,118 across 152 files. If the dialog closes or
+the file selection changes, no more files are read/parsed after an in-flight
+`arrayBuffer()` settles. TypeScript, production build, changed-file oxlint and
+`git diff --check` passed. Commit separately in English without pushing, then
+continue checking transaction behavior and MIDI file conformance.
