@@ -1504,3 +1504,18 @@ and `git diff --check` passed. Standards: [MIDI Clip File v1.0 §7.2]
 and UMP SysEx7 v1.1.1. No live MIDI-CI negotiation is implemented. Commit
 this block in English, do not push, then continue codec gaps in
 `docs/MIDI2_REMAINING_WORK.md`; do not claim complete MIDI 2.0 compatibility.
+
+Latest continuation — preserve MIDI Clip JR Utility packets (2026-10-04):
+the parser no longer silently discards JR Clock and JR Timestamp. It retains
+their exact UMP words and presentation order as opaque configuration/sequence
+events, and MIDI Clip export round-trips them. NOOP is validated and consumed
+as the DCS long-gap reset aid; known Utility reserved bits in DCS/DCTPQ/NOOP/JR
+messages are validated. JR sender-clock timing is not mapped to the project
+timeline and is not applied during playback. Focused MIDI Clip tests passed
+24/24; full UI passed 1,045/1,045 across 151 files; TypeScript, production
+build, changed-file lint, and `git diff --check` passed. Official basis:
+[UMP & MIDI 2.0 Protocol v1.1.1 §§2.1.3 and 7.2–7.2.3]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Review and commit in English, do not push, then continue specific MIDI Clip
+conformance gaps. Keep JR support described as opaque file preservation, not
+complete live MIDI 2.0 support.

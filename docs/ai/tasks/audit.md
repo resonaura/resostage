@@ -2137,3 +2137,20 @@ tests 22/22, full UI 1,043/1,043 (151 files), TypeScript, build and changed-file
 lint passed. Sources: [MIDI Clip File v1.0 §7.2](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf),
 [MIDI-CI Property Exchange v1.1 §§1.7, 3.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-103-UM_v1-1_Common_Rules_for_MIDI-CI_Property_Exchange.pdf),
 and UMP SysEx7 v1.1.1. No live MIDI-CI negotiation is implemented.
+
+### Latest continuation — preserve MIDI Clip JR Utility packets (2026-10-04)
+
+The MIDI Clip parser previously discarded all Message Type 0 Utility packets
+after DCS/DCTPQ, including JR Clock and JR Timestamp. It now retains JR timing
+packets as ordered opaque UMP events in configuration and sequence data. The
+project timeline remains DCS-based; JR sender-clock time is not interpreted or
+used for live scheduling. NOOP is validated and consumed as the DCS long-gap
+reset aid. The parser rejects nonzero Utility Group reserved bits and invalid
+reserved fields for DCTPQ, NOOP, JR Clock, and JR Timestamp. Writer round-trip
+coverage verifies JR words/order, and malformed fixtures cover each defined
+reserved field. Focused MIDI Clip tests passed 24/24; full UI passed 1,045/1,045
+across 151 files; TypeScript/production build and changed-file lint passed;
+`git diff --check` passed. Rules follow [UMP & MIDI 2.0 Protocol v1.1.1
+§§2.1.3 and 7.2–7.2.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+This preserves data only, not JR-clock playback semantics. Do not claim full
+MIDI 2.0 compatibility or push.

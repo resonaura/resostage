@@ -25,6 +25,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   and release velocity, and independent Note-On and Note-Off Attribute
   Type/Data pairs. MIDI 2.0 Note On with zero velocity remains Note On; the
   MIDI 1.0 UMP zero-velocity Note On convention is treated as Note Off.
+- JR Clock and JR Timestamp Utility UMPs are retained as ordered opaque events
+  through project and MIDI Clip round-trips. ResoStage does not interpret JR
+  sender-clock time or use it as the project timeline; MIDI Clip DCS remains
+  the file's timing authority. NOOP reset packets are consumed as framing, and
+  reserved bits are checked for DCS, DCTPQ, NOOP, and JR timing messages.
 - MIDI Clip File parsing requires one DCTPQ with its preceding zero DCS,
   clockstamped Start/End markers, no bytes after End, and at most 200,000
   retained UMP events. Export enforces the same event cap while collecting
@@ -125,9 +130,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   edge case.
 - Unknown UMP packets are retained as packet words and timing, but ResoStage
   does not interpret or promise playback for message types it does not
-  implement. The original UMP stream's exact byte layout and utility packets
-  are not preserved as a raw file blob. Project v15 preserves source order for
-  simultaneous normalized note edges and opaque sequence packets; extracted
+  implement. The original UMP stream's exact byte layout is not preserved as a
+  raw file blob. JR Clock/Timestamp are retained opaquely; their sender-clock
+  domain is not mapped to project time or playback scheduling. Project v15
+  preserves source order for simultaneous normalized note edges and opaque
+  sequence packets; extracted
   tempo/meter Flex Data is still normalized through project tempo/meter state.
   Configuration-header section identity is persisted, but its elapsed DCS
   timing is intentionally flattened to beat zero. Before DCTPQ, only complete
@@ -325,3 +332,21 @@ which excludes Property Exchange messages from sequence data;
 [MIDI-CI Property Exchange v1.1 §§1.7 and 3.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-103-UM_v1-1_Common_Rules_for_MIDI-CI_Property_Exchange.pdf)
 defines the message prefix and Sub-ID range. Validation results are recorded
 in the task audit and handoff below.
+
+### Latest continuation — preserve MIDI Clip JR Utility packets (2026-10-04)
+
+The MIDI Clip parser previously dropped every Message Type 0 Utility packet
+after handling DCS/DCTPQ, silently losing JR Clock and JR Timestamp data.
+Sequence/configuration JR timing packets now survive as opaque UMP events with
+their original order and are emitted again by MIDI Clip export. The application
+does not interpret their sender-clock domain or replace the clip's DCS/project
+timeline with JR timing. NOOP remains a non-musical DCS reset aid and is
+consumed. Reserved Group bits are rejected on Utility packets; reserved DCTPQ,
+NOOP, and JR timing bits are validated. Tests cover JR import/export fidelity
+and each malformed reserved-field case.
+
+The rules follow [UMP & MIDI 2.0 Protocol v1.1.1 §§2.1.3 and 7.2–7.2.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Focused MIDI Clip tests passed 24/24; the full UI passed 1,045/1,045 across
+151 files; TypeScript/production build and changed-file lint passed.
+`git diff --check` passed. This is opaque file preservation, not live JR timestamp
+scheduling or complete MIDI 2.0 interoperability.

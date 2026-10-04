@@ -95,6 +95,43 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]);
   });
 
+  it("preserves JR Clock and JR Timestamp Utility packets through MIDI Clip round-trip", () => {
+    const jrClock = [0x0010_1234];
+    const jrTimestamp = [0x0020_5678];
+    const parsed = parseMidiClipFile(framedClip([
+      dcs(0), jrClock,
+      dcs(0), jrTimestamp,
+      dcs(0), [0x4090_3c00, 0xffff_0000],
+      dcs(960), [0x4080_3c00, 0xffff_0000],
+    ]));
+
+    expect(parsed.tracks[0].umpEvents?.map(({ words }) => words))
+      .toEqual([jrClock, jrTimestamp]);
+    const roundTrip = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "JR Utility", regions: [{ ...region, notes: parsed.tracks[0].notes,
+        umpEvents: parsed.tracks[0].umpEvents }] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+    expect(roundTrip.tracks[0].umpEvents?.map(({ words }) => words))
+      .toEqual([jrClock, jrTimestamp]);
+  });
+
+  it("rejects nonzero reserved fields in recognized MIDI Clip Utility packets", () => {
+    const invalid = [
+      { packets: [[0x0140_0000], dctpq(960), dcs(0), start, dcs(0), end],
+        message: /Utility UMP has nonzero reserved Group bits/ },
+      { packets: [dcs(0), [0x0031_03c0], dcs(0), start, dcs(0), end],
+        message: /DCTPQ has nonzero reserved bits/ },
+      { packets: [dcs(0), dctpq(960), dcs(0), start, dcs(0), [0x0000_0001], dcs(0), end],
+        message: /NOOP has nonzero reserved bits/ },
+      { packets: [dcs(0), dctpq(960), dcs(0), start, dcs(0), [0x0021_5678], dcs(0), end],
+        message: /JR timing message has nonzero reserved bits/ },
+    ];
+
+    for (const fixture of invalid)
+      expect(() => parseMidiClipFile(makeClip(fixture.packets))).toThrow(fixture.message);
+  });
+
   it("anchors musical timing at Start of Clip while preserving timed configuration at beat zero", () => {
     const parsed = parseMidiClipFile(makeClip([
       dcs(0), dctpq(960),

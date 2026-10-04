@@ -98,13 +98,19 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     for (let index = 1; index < packetWords(type); index++) words.push(reader.word());
     if (type === 0) {
       const status = (first >>> 20) & 0xf;
+      if ((first & 0x0f00_0000) !== 0)
+        throw new Error("MIDI 2.0 clip Utility UMP has nonzero reserved Group bits");
       if (status === 4) {
+        // Message Type 0x0 is groupless; its former Group nibble is reserved.
         activeDcsDelta = first & MAX_DELTA;
         ticks += activeDcsDelta;
         immediatelyPrecededByDcs = true;
+        continue;
       } else if (status === 3) {
         if (started) throw new Error("MIDI 2.0 clip DCTPQ must precede Start of Clip");
         if (tpq !== 0) throw new Error("MIDI 2.0 clip contains more than one DCTPQ");
+        if ((first & 0x000f_0000) !== 0)
+          throw new Error("MIDI 2.0 clip DCTPQ has nonzero reserved bits");
         if (!immediatelyPrecededByDcs || activeDcsDelta !== 0)
           throw new Error("MIDI 2.0 clip DCTPQ must follow a zero Delta Clockstamp");
         const value = first & 0xffff;
@@ -112,8 +118,23 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         tpq = value;
         hasDctpq = true;
         immediatelyPrecededByDcs = false;
-      } else immediatelyPrecededByDcs = false;
-      continue;
+        continue;
+      } else {
+        immediatelyPrecededByDcs = false;
+        if (status === 0) {
+          if (!hasDctpq || activeDcsDelta === null)
+            throw new Error("MIDI 2.0 clip NOOP must follow DCTPQ and a Delta Clockstamp");
+          if ((first & 0x00ff_ffff) !== 0)
+            throw new Error("MIDI 2.0 clip NOOP has nonzero reserved bits");
+          // NOOP is a file-timing reset aid, not a retained sequence event.
+          continue;
+        }
+        if ((status === 1 || status === 2) && (first & 0x000f_0000) !== 0)
+          throw new Error("MIDI 2.0 clip JR timing message has nonzero reserved bits");
+        // JR Clock/Timestamp and unknown Utility packets are opaque timeline
+        // events. Keep their words and presentation order instead of silently
+        // discarding UMP data the project model can preserve.
+      }
     }
     const precedingDcsDelta = immediatelyPrecededByDcs ? activeDcsDelta : null;
     immediatelyPrecededByDcs = false;
