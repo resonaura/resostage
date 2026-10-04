@@ -2522,6 +2522,9 @@ production build, changed-file oxlint and `git diff --check` passed.
 
 Follow-up parser validation applies 7-bit data checks to imported F1/F2/F3
 System Common events, matching the writer and Channel Voice parser. Do not
-apply this to SysEx/F7 escape payloads. Focused tests passed 67/67; full UI
-passed 1,102/1,102 across 151 files; TypeScript, production build,
-changed-file oxlint, and `git diff --check` passed.
+apply this to SysEx/F7 escape payloads. The parser also skips unknown chunks
+before/between declared MTrk chunks by their length, and rejects truncated
+unknown chunks. It does not scan unknown payload bytes for embedded FourCCs.
+Focused tests passed 69/69; full UI passed 1,104/1,104 across 151 files;
+TypeScript, production build, changed-file oxlint, and `git diff --check`
+passed. See the MIDI Association Standard MIDI Files specification.

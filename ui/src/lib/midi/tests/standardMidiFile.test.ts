@@ -87,6 +87,35 @@ describe("Standard MIDI File", () => {
     });
   });
 
+  it("skips unknown chunks before and between declared track chunks", () => {
+    const trackChunk = (pitch: number) => [
+      0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 12,
+      0, 0x90, pitch, 100,
+      0x60, 0x80, pitch, 0,
+      0, 0xff, 0x2f, 0,
+    ];
+    const alienChunk = [0x58, 0x54, 0x52, 0x41, 0, 0, 0, 4, 0x4d, 0x54, 0x72, 0x6b];
+    const file = Uint8Array.from([
+      0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 2, 1, 0xe0,
+      ...alienChunk,
+      ...trackChunk(60),
+      ...alienChunk,
+      ...trackChunk(61),
+    ]);
+
+    const parsed = parseStandardMidiFile(file);
+    expect(parsed.tracks.map((track) => track.notes[0]?.pitch)).toEqual([60, 61]);
+  });
+
+  it("rejects an unknown chunk whose declared payload is truncated", () => {
+    const file = Uint8Array.from([
+      0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 1, 0xe0,
+      0x58, 0x54, 0x52, 0x41, 0, 0, 0, 4, 0x01,
+    ]);
+
+    expect(() => parseStandardMidiFile(file)).toThrow(/Truncated MIDI chunk/);
+  });
+
   it("folds MIDI 1.0 CC 88 into one-shot 14-bit note-edge velocities", () => {
     const parsed = parseStandardMidiFile(smfWithTrackEvents([
       0, 0xb0, 88, 25,

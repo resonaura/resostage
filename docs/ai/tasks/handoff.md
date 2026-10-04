@@ -1846,6 +1846,9 @@ the interoperability audit from `docs/MIDI2_REMAINING_WORK.md`.
 Follow-up closes an import-validation mismatch: malformed System Common F1/F2/F3
 events with 8-bit data bytes are rejected just like invalid Channel Voice data.
 SysEx and F7 escape payloads intentionally retain their existing handling.
-Focused Standard MIDI tests passed 67/67; full UI passed 1,102/1,102 across
-151 files; TypeScript, production build, changed-file oxlint, and
-`git diff --check` passed.
+The parser also skips unknown chunks before/between declared tracks by their
+length and rejects truncated unknown chunks. It does not scan their payloads
+for embedded `MTrk` signatures. Focused Standard MIDI tests passed 69/69; full
+UI passed 1,104/1,104 across 151 files; TypeScript, production build,
+changed-file oxlint, and `git diff --check` passed. This follows the
+MIDI Association Standard MIDI Files specification.

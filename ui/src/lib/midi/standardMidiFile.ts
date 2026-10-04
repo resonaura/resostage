@@ -137,8 +137,23 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
   let nextId = 1;
   let totalEventCount = 0;
   for (let trackIndex = 0; trackIndex < count; trackIndex++) {
-    if (reader.fourCC() !== "MTrk") throw new Error("Missing MIDI track chunk");
-    const trackLength = reader.uint32();
+    let trackLength: number | undefined;
+    while (trackLength === undefined) {
+      const chunkType = reader.fourCC();
+      const chunkLength = reader.uint32();
+      const chunkEnd = reader.offset + chunkLength;
+      if (chunkEnd > bytes.length) {
+        throw new Error(chunkType === "MTrk" ? "Truncated MIDI track" : "Truncated MIDI chunk");
+      }
+      if (chunkType === "MTrk") {
+        trackLength = chunkLength;
+      } else {
+        // Unknown chunk types are forward-compatible metadata, not track data.
+        // Skip exactly their declared payload so embedded FourCC-like bytes
+        // can never be mistaken for another chunk header.
+        reader.offset = chunkEnd;
+      }
+    }
     const trackEnd = reader.offset + trackLength;
     if (trackEnd > bytes.length) throw new Error("Truncated MIDI track");
     let tick = 0;

@@ -701,6 +701,12 @@ The importer now applies its existing 7-bit data-byte validation to System
 Common messages as well as Channel Voice messages. This closes a mismatch where
 malformed F1/F2/F3 payloads could enter project state even though export
 rejected the same data. SysEx and F7 escape payload handling remains unchanged.
-Focused Standard MIDI tests passed 67/67; full UI passed 1,102/1,102 across
+
+The importer also skips unknown chunks before/between declared MTrk chunks using
+their declared length, so a FourCC-like byte sequence inside unknown payload
+data is never treated as a track. Truncated unknown chunks reject cleanly. This
+follows the forward-compatible chunk rule in the MIDI Association [Standard
+MIDI Files specification](https://midi.org/standard-midi-files-specification).
+Focused Standard MIDI tests passed 69/69; full UI passed 1,104/1,104 across
 151 files; TypeScript, production build, changed-file oxlint, and
 `git diff --check` passed.
