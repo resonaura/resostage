@@ -17,6 +17,7 @@ import { PianoRollZoomControl } from "@/screens/editor/pianoroll/components/Pian
 import { PianoRollOptions } from "@/screens/editor/pianoroll/toolbar/components/PianoRollOptions";
 import { PianoRollTransforms } from "@/screens/editor/pianoroll/toolbar/components/PianoRollTransforms";
 import { PianoRollControllerEventTransforms } from "@/screens/editor/pianoroll/toolbar/components/PianoRollControllerEventTransforms";
+import { isPianoRollUmpControllerLane } from "@/screens/editor/pianoroll/logic/umpControllerLane";
 import { PIANO_ROLL_LANE_OPTIONS, PIANO_ROLL_SNAP_OPTIONS } from "@/screens/editor/pianoroll/toolbar/logic/options";
 import type { PianoRollToolbarProps } from "@/screens/editor/pianoroll/toolbar/logic/types";
 import type { GridSnapValue, PianoRollBottomLane, PianoRollControllerLaneMode, PianoRollTool } from "@/screens/editor/pianoroll/logic/types";
@@ -35,6 +36,8 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
   const controllerSelectionCount = props.selectedControllerEventCount ?? 0;
   const allSelectionEmpty = selectionEmpty && controllerSelectionCount === 0;
   const snapEnabled = props.snapEnabled ?? props.snap > 0;
+  const umpPreviewLane = props.bottomLane !== undefined
+    && isPianoRollUmpControllerLane(props.bottomLane);
 
   return (
     <div className="z-20 flex shrink-0 flex-wrap items-center gap-2 border-b border-default/30 bg-background-secondary px-3 py-1.5 select-none">
@@ -148,7 +151,7 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
               value={props.bottomLane ?? "velocity"}
               onChange={(value) => props.onBottomLaneChange?.(value as PianoRollBottomLane)}
               startContent={<SlidersHorizontal size={13} />} className="w-36" />
-            {props.bottomLane !== "velocity" && props.onControllerLaneModeChange && (
+            {props.bottomLane !== "velocity" && !umpPreviewLane && props.onControllerLaneModeChange && (
               <ToggleButtonGroup size="sm" aria-label="MIDI lane editing mode"
                 selectionMode="single" disallowEmptySelection
                 selectedKeys={[props.controllerLaneMode ?? "events"]}

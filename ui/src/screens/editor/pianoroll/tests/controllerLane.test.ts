@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import type { MidiRegionRow } from "@/lib/state/types";
+import type { MidiRegionRow, MidiUmpEventRow } from "@/lib/state/types";
 import {
   buildPianoRollControllerProjection,
   clampControllerDisplayBeat,
@@ -27,6 +27,11 @@ import {
   smoothControllerEventSelection,
 } from "@/screens/editor/pianoroll/logic/controllerEventTransforms";
 import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
+import {
+  buildPianoRollUmpControllerProjection,
+  collectPianoRollUmpControllerNumbers,
+  hasPianoRollUmpPitchBend,
+} from "@/screens/editor/pianoroll/logic/umpControllerLane";
 
 function region(overrides: Partial<MidiRegionRow> = {}): MidiRegionRow {
   return {
@@ -56,6 +61,23 @@ function pitchBend(beat: number, value: number, channel = 0) {
   };
 }
 
+function umpCc(beat: number, controller: number, value: number, group = 0, channel = 0): MidiUmpEventRow {
+  return {
+    beat,
+    wordCount: 2,
+    words: [((0x4 << 28) | (group << 24) | (0x0b << 20)
+      | (channel << 16) | (controller << 8)) >>> 0, value >>> 0],
+  };
+}
+
+function umpPitchBend(beat: number, value: number, group = 0, channel = 0): MidiUmpEventRow {
+  return {
+    beat,
+    wordCount: 2,
+    words: [((0x4 << 28) | (group << 24) | (0x0e << 20) | (channel << 16)) >>> 0, value >>> 0],
+  };
+}
+
 describe("Piano Roll raw MIDI controller lanes", () => {
   it("keeps snapped controller events inside the region's half-open range", () => {
     expect(clampControllerDisplayBeat(8, 8, 0.25)).toBe(7.75);
@@ -71,6 +93,37 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     expect(ids).not.toContain("cc-1");
     expect(ids).not.toContain("cc128");
     expect(options.find((option) => option.id === "cc74")?.label).toBe("CC 74");
+  });
+
+  it("discovers only supported MIDI 2.0 UMP controller lanes", () => {
+    const events = [
+      umpCc(0, 74, 0x8000_0000, 2, 3),
+      umpCc(1, 6, 0x4000_0000), // Reserved for compound RPN/NRPN messages.
+      { ...umpCc(2, 11, 0x8000_0000), words: [0x20b0000b, 0x8000_0000] },
+      { ...umpCc(3, 12, 0x8000_0000), words: [0x40b10c01, 0x8000_0000] },
+      umpPitchBend(4, 0x8000_0000),
+    ];
+    const copySource = vi.spyOn(events, "slice");
+
+    expect(collectPianoRollUmpControllerNumbers(events)).toEqual(new Set([74]));
+    expect(hasPianoRollUmpPitchBend(events)).toBe(true);
+    expect(copySource).not.toHaveBeenCalled();
+    const options = pianoRollLaneOptions([], "velocity", [74], true);
+    expect(options.map((option) => option.id)).toContain("umpCc74");
+    expect(options.map((option) => option.id)).toContain("umpPitchBend");
+  });
+
+  it("previews MIDI 2.0 32-bit CC and pitch bend without changing their UMP words", () => {
+    const ccEvent = umpCc(5, 74, 0x8000_0000, 3, 2);
+    const bendEvent = umpPitchBend(6, 0x8000_0000, 1, 4);
+    const source = [ccEvent, bendEvent];
+    const midiRegion = region({ clipOffsetBeats: 4, umpEvents: source });
+
+    expect(buildPianoRollUmpControllerProjection(midiRegion, "umpCc74", 0, 8).events)
+      .toEqual([{ beat: 1, value: 64, channel: 2, sourceEventIndex: 0 }]);
+    expect(buildPianoRollUmpControllerProjection(midiRegion, "umpPitchBend", 0, 8).events)
+      .toEqual([{ beat: 2, value: 0, channel: 4, sourceEventIndex: 1 }]);
+    expect(midiRegion.umpEvents).toEqual(source);
   });
 
   it("projects selected CC values in trimmed region-local time and preserves channel", () => {

@@ -24,6 +24,7 @@ import {
   indexControllerEventSourcesByBeat,
   MAX_EDITABLE_CONTROLLER_EVENTS,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
+import { isPianoRollUmpControllerLane } from "@/screens/editor/pianoroll/logic/umpControllerLane";
 import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import {
@@ -203,6 +204,10 @@ export function createPianoRollPointerDownHandler({
           initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
         };
       } else if (controllerLaneMode === "events") {
+        if (isPianoRollUmpControllerLane(bottomLane)) {
+          canvas.releasePointerCapture(e.pointerId);
+          return;
+        }
         if (!onEventsChange || x < viewport.keyWidth) {
           canvas.releasePointerCapture(e.pointerId);
           return;
@@ -323,7 +328,7 @@ export function createPianoRollPointerDownHandler({
           startPitch: 0,
           initialNotesSnapshot: new Map(region.notes.map((note) => [note.id, note])),
         };
-      } else if (onRegionChange) {
+      } else if (onRegionChange && !isPianoRollUmpControllerLane(bottomLane)) {
         const beat = Math.max(0, snapBeat(sourceBeatAt(xToBeat(x))));
         const isPB = bottomLane === "pitchBend";
         const val = controllerValueFromY(y, gridBottom, height, isPB);

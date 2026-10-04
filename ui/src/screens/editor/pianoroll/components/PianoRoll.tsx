@@ -20,6 +20,11 @@ import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/o
 import {
   collectPianoRollControllerNumbers,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
+import {
+  collectPianoRollUmpControllerNumbers,
+  hasPianoRollUmpPitchBend,
+  isPianoRollUmpControllerLane,
+} from "@/screens/editor/pianoroll/logic/umpControllerLane";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
 import { usePianoRollControllerEventSelection } from "@/screens/editor/pianoroll/hooks/usePianoRollControllerEventSelection";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
@@ -116,8 +121,10 @@ export function PianoRoll({
     return pianoRollLaneOptions(
       collectPianoRollControllerNumbers(regionEvents),
       bottomLane,
+      collectPianoRollUmpControllerNumbers(region.umpEvents ?? []),
+      hasPianoRollUmpPitchBend(region.umpEvents ?? []),
     );
-  }, [regionEvents, bottomLane]);
+  }, [regionEvents, region.umpEvents, bottomLane]);
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
   useEffect(() => subscribeHistoryBoundary(() => {
     setLoopLengthDraft(null);
@@ -313,6 +320,7 @@ export function PianoRoll({
   } = noteActions;
 
   const hasEditableControllerLane = bottomLane !== "velocity"
+    && !isPianoRollUmpControllerLane(bottomLane)
     && controllerLaneMode === "events" && Boolean(onEventsChange);
   const {
     selectedControllerEventIndices,
@@ -457,7 +465,10 @@ export function PianoRoll({
         onSplitAtPlayhead={handleSplitAtPlayhead}
         bottomLane={bottomLane}
         bottomLaneOptions={bottomLaneOptions}
-        onBottomLaneChange={setBottomLane}
+        onBottomLaneChange={(lane) => {
+          setBottomLane(lane);
+          if (isPianoRollUmpControllerLane(lane)) setControllerLaneMode("events");
+        }}
         controllerLaneMode={controllerLaneMode}
         onControllerLaneModeChange={setControllerLaneMode}
         pixelsPerBeat={viewport.pixelsPerBeat}

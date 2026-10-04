@@ -13,6 +13,10 @@ import type { PianoRollBottomLane, PianoRollControllerLaneMode, PianoRollViewpor
 import type { PianoRollNoteView, PianoRollRenderTheme } from "@/screens/editor/pianoroll/logic/render/types";
 import { buildPianoRollControllerProjection } from "@/screens/editor/pianoroll/logic/controllerLane";
 import { buildPianoRollPedalProjection } from "@/screens/editor/pianoroll/logic/pedalLane";
+import {
+  buildPianoRollUmpControllerProjection,
+  isPianoRollUmpControllerLane,
+} from "@/screens/editor/pianoroll/logic/umpControllerLane";
 
 interface PianoRollBottomLaneOptions {
   context: CanvasRenderingContext2D;
@@ -115,6 +119,9 @@ export function drawPianoRollBottomLane({
     cc69: "CC 69 · HOLD 2",
     pitchBend: "CHANNEL PITCH BEND",
   };
+  if (bottomLane === "umpPitchBend") laneLabels.umpPitchBend = "MIDI 2.0 · PITCH BEND (32-BIT)";
+  else if (bottomLane.startsWith("umpCc"))
+    laneLabels[bottomLane] = `MIDI 2.0 · CC ${bottomLane.slice(5)} (32-BIT)`;
   const title = laneLabels[bottomLane]
     || (bottomLane.startsWith("cc")
       ? `CC ${bottomLane.slice(2)} · MIDI EVENTS`
@@ -124,7 +131,7 @@ export function drawPianoRollBottomLane({
   ctx.font = "9px sans-serif";
   ctx.fillText(title, 8, laneY + 14);
 
-  const isPB = bottomLane === "pitchBend";
+  const isPB = bottomLane === "pitchBend" || bottomLane === "umpPitchBend";
   const topY = laneY + 18;
   const botY = height - 6;
   const midY = (topY + botY) / 2;
@@ -260,10 +267,11 @@ export function drawPianoRollBottomLane({
   const isPedal = bottomLane.startsWith("cc")
     && pedalController >= 64 && pedalController <= 69;
   if (controllerLaneMode === "events" && !isPedal
-      && (bottomLane === "pitchBend" || bottomLane.startsWith("cc"))) {
-    const projection = buildPianoRollControllerProjection(
-      region, bottomLane, minBeat, maxBeat,
-    );
+      && (bottomLane === "pitchBend" || bottomLane.startsWith("cc")
+        || isPianoRollUmpControllerLane(bottomLane))) {
+    const projection = isPianoRollUmpControllerLane(bottomLane)
+      ? buildPianoRollUmpControllerProjection(region, bottomLane, minBeat, maxBeat)
+      : buildPianoRollControllerProjection(region, bottomLane, minBeat, maxBeat);
     if (projection.events.length > 0) {
       const baselineY = controllerYFromValue(0, gridBottom, height, isPB);
       ctx.save();

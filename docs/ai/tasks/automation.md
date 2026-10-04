@@ -844,3 +844,14 @@ full lint exited 0 with 12 existing unrelated warnings. `git diff --check`
 passed. No physical-device or manual visual acceptance was run. MIDI 2.0 UMP
 authoring remains open; raw-event cut/copy and range marquee are separate
 unimplemented editing affordances.
+
+### Piano Roll MIDI 2.0 controller preview (2026-10-04)
+
+Recognized MIDI 2.0 Channel Voice CC and channel Pitch Bend UMP events now have
+separate, discoverable Piano Roll preview lanes. They use region trim/loop
+projection and visually scale packet values to the existing controller lane's
+display range, while preserving the stored 32-bit words. The lanes are
+read-only for now: no MIDI 1.0 draft, MIDI 1.0 automation curve, or reconstructed
+packet is sent when the user clicks them. Reserved compound CCs and unknown UMP
+types remain opaque. Exact packet editing and group-aware authoring are still
+open work, not a completed MIDI 2.0 editor.

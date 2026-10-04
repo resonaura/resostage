@@ -42,6 +42,8 @@ const COMMON_CONTROLLER_IDS = new Set(
 export function pianoRollLaneOptions(
   controllerNumbers: Iterable<number>,
   selectedLane: string,
+  umpControllerNumbers: Iterable<number> = [],
+  hasUmpPitchBend = false,
 ): readonly SelectOption[] {
   const customIds = new Set<string>();
   for (const controller of controllerNumbers) {
@@ -54,15 +56,41 @@ export function pianoRollLaneOptions(
       && !COMMON_CONTROLLER_IDS.has(selectedLane))
     customIds.add(selectedLane);
 
-  if (customIds.size === 0) return PIANO_ROLL_LANE_OPTIONS;
+  const umpIds = new Set<number>();
+  for (const controller of umpControllerNumbers) {
+    if (Number.isInteger(controller) && controller >= 0 && controller <= 127)
+      umpIds.add(controller);
+  }
+  const selectedUmpMatch = /^umpCc(\d{1,3})$/.exec(selectedLane);
+  if (selectedUmpMatch) {
+    const controller = Number(selectedUmpMatch[1]);
+    if (controller <= 127) umpIds.add(controller);
+  }
+  const includeUmpPitchBend = hasUmpPitchBend || selectedLane === "umpPitchBend";
+
+  if (customIds.size === 0 && umpIds.size === 0 && !includeUmpPitchBend)
+    return PIANO_ROLL_LANE_OPTIONS;
   const customOptions = [...customIds]
     .sort((left, right) => Number(left.slice(2)) - Number(right.slice(2)))
     .map((id) => ({ id, label: `CC ${id.slice(2)}`, section: "Other MIDI Controllers" }));
   const pitchBendIndex = PIANO_ROLL_LANE_OPTIONS.findIndex((option) => option.id === "pitchBend");
+  const umpOptions: SelectOption[] = [
+    ...[...umpIds].sort((left, right) => left - right).map((controller) => ({
+      id: `umpCc${controller}`,
+      label: `MIDI 2.0 CC ${controller} · Preview`,
+      section: "MIDI 2.0 UMP",
+    })),
+    ...(includeUmpPitchBend ? [{
+      id: "umpPitchBend",
+      label: "MIDI 2.0 Pitch Bend · Preview",
+      section: "MIDI 2.0 UMP",
+    }] : []),
+  ];
   return [
     ...PIANO_ROLL_LANE_OPTIONS.slice(0, pitchBendIndex),
     ...customOptions,
     ...PIANO_ROLL_LANE_OPTIONS.slice(pitchBendIndex),
+    ...umpOptions,
   ];
 }
 

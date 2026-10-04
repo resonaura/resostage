@@ -25,7 +25,7 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   and release velocity, and the note attribute fields represented in the
   current project schema.
 - Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
-  packets on MIDI regions; the current format 10 retains them. Readable additive older
+  packets on MIDI regions; the current format 12 retains them. Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and
   project serialization carry these fields so unsupported UMP packets can
   survive a save/load and MIDI Clip File round-trip.
@@ -46,6 +46,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   attacks/releases and channel controls to the current MIDI 1.0 JUCE plug-in
   bridge. Note velocity uses the stored 16-bit value for the downconversion;
   the project retains the original UMP/16-bit data for editing and export.
+- Piano Roll can discover and preview recognized MIDI 2.0 Channel Voice CC and
+  channel Pitch Bend packets in separate UMP lanes. The visual lane scales the
+  32-bit packet value to the existing 7-bit/14-bit display range only; stored
+  packet words are not changed. This is preview-only, not yet UMP authoring.
 
 ## Known limitations
 
@@ -69,6 +73,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - `.mid` remains inherently lossy for data without a MIDI 1.0 equivalent.
   The loss report is a safeguard, not a universal translator. MPE/vendor
   encodings are not synthesized automatically.
+- Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
+  Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
+  fallback semantics. Reserved compound CCs and unsupported packet kinds stay
+  opaque. UMP lanes are read-only; editing, group-aware filtering and exact
+  32-bit gesture authoring remain open.
 - The importer has focused unit coverage but no maintained conformance corpus
   from other DAWs and no broad cross-application round-trip certification.
 
@@ -94,23 +103,29 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
    Specify exact handling for note-off attributes and overlapping same-pitch
    notes; extend the project note model only where round-trip requirements
    justify it.
-2. **Finish MIDI 1.0 interoperability:** maintain Format 0/1/2 fixtures,
+2. **Finish Piano Roll MIDI 2.0 UMP authoring:** add bounded editing for the
+   recognized controller messages without modifying packet type, group,
+   channel, reserved bits or unrelated UMP data. Preserve full 32-bit values
+   when moving in time, make value changes explicit, and keep unknown/reserved
+   packets lossless and read-only. Route edits through the exact MIDI-region
+   history/acknowledgement path.
+3. **Finish MIDI 1.0 interoperability:** maintain Format 0/1/2 fixtures,
    validate SMPTE timing and tempo/meter maps against independent files, and
    improve the `.mid` loss report so every supported conversion and every
    dropped event category is explicit.
-3. **Implement UMP live transport per platform:** enumerate/select UMP
+4. **Implement UMP live transport per platform:** enumerate/select UMP
    endpoints, receive/send bounded UMP packets with timestamps, preserve
    groups, and keep OS callbacks separate from the audio callback. Add
    platform-specific device tests and explicit MIDI 1.0 fallback behavior.
-4. **Extend the translation layer:** retain the implemented deterministic
+5. **Extend the translation layer:** retain the implemented deterministic
    note-velocity and representable channel-control adaptation for MIDI 1.0-only
    instruments. Define policy for remaining high-resolution and per-note data;
    report or reject what has no mapping instead of inventing a vendor encoding.
-5. **Add plug-in interoperability only against verified format APIs:** JUCE's
+6. **Add plug-in interoperability only against verified format APIs:** JUCE's
    MIDI 1.0 `MidiBuffer` bridge is not native UMP. Verify AU/VST3/CLAP support
    and host API versions before adding native delivery; otherwise expose the
    supported subset and use the same explicit adaptation layer.
-6. **Evaluate SMF2 Container separately:** add it only when the published
+7. **Evaluate SMF2 Container separately:** add it only when the published
    specification and practical interoperability justify support. Keep it a
    separate extension/format option from both `.mid` and `.midi2`.
 

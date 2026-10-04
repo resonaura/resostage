@@ -1796,3 +1796,20 @@ Repository lint exited 0 with 12 existing warnings outside changed files;
 `git diff --check` passed. No manual visual, hardware or performance-profile
 acceptance was performed. Remaining Piano Roll MIDI 2.0 UMP authoring and
 manual/device acceptance are open; continue with the next item in `handoff.md`.
+
+### Latest continuation — MIDI 2.0 UMP controller preview (2026-10-04)
+
+The Piano Roll lane picker now discovers well-formed MIDI 2.0 Channel Voice
+Control Change and channel Pitch Bend packets stored in `umpEvents`. Separate
+MIDI 2.0 lanes render them through the current trim/loop projection and display
+their 32-bit values using the existing 7-bit/14-bit visual range. This display
+scaling is not written back: the source packet words remain unchanged. Reserved
+compound CCs, MIDI 1.0 UMP packets and unknown UMP types are not mislabelled as
+ordinary MIDI 2.0 CCs; the lane is deliberately read-only until exact-UMP edit
+transactions exist.
+
+Focused controller/UMP preview tests passed; full UI Vitest passed 961 tests
+across 143 files; TypeScript and production build passed. Repository lint exited
+0 with 12 existing unrelated warnings; `git diff --check` passed. This does not
+verify preview appearance on a physical display or UMP output to native MIDI
+2.0 endpoints, which remain unsupported.

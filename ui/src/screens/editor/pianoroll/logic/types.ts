@@ -19,7 +19,9 @@ export type PianoRollBottomLane =
   | "cc68" // Legato Footswitch
   | "cc69" // Hold 2
   | `cc${number}` // Other raw MIDI controllers present in this region
-  | "pitchBend";
+  | "pitchBend"
+  | `umpCc${number}` // MIDI 2.0 Channel Voice CC carried as a lossless UMP packet
+  | "umpPitchBend";
 
 export type PianoRollControllerLaneMode = "events" | "automation";
 

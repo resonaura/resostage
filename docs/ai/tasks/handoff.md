@@ -1199,3 +1199,32 @@ lossless, bounded authoring interaction that is compatible with imported event
 round-trip; do not flatten 32-bit MIDI 2.0 values into MIDI 1.0 controls. Then
 continue remaining automation/plugin acceptance listed in `audit.md`. Commit
 verified blocks in English and do not push.
+
+### Latest continuation — Piano Roll MIDI 2.0 controller preview (2026-10-04)
+
+Piano Roll now lists and previews well-formed MIDI 2.0 Channel Voice CC and
+channel Pitch Bend UMP packets in distinct bottom lanes. The bounded projector
+uses the region's source window/loop mapping and retains the exact source event
+index; displayed 7-bit/14-bit values are read-only approximations of each
+32-bit packet value. The actual `umpEvents` words remain lossless. Reserved
+compound CC numbers and unknown or malformed packets are excluded from these
+lanes; pointer interaction is explicitly blocked so it cannot accidentally
+route a MIDI 1.0 edit or automation curve into a MIDI 2.0 region.
+
+Current project schema is format 12; `docs/MIDI2_REMAINING_WORK.md` had an
+outdated format-10 statement and now reflects format 12 and the new preview
+scope. Focused preview/controller tests passed; full UI Vitest 961/961 across
+143 files; TypeScript and production UI build passed; repository lint exited 0
+with 12 existing warnings outside this change; `git diff --check` passed. No
+manual visual or native UMP-device acceptance was run.
+
+Next implement bounded editing of only the recognized MIDI 2.0 CC and channel
+Pitch Bend UMP messages. Keep MIDI 1.0 `events` and MIDI 2.0 `umpEvents` as
+separate collections and use a separately fenced region-content draft that
+retains full packet words until an authoritative Core echo. Time-only movement
+must preserve the 32-bit value, group, channel and reserved bits exactly; an
+explicit value gesture may alter only the proper 32-bit value word. Do not
+edit reserved compound CCs, flatten to MIDI 1.0, or claim native MIDI 2.0 live
+endpoint support: Core's current JUCE/external bridge performs its documented
+legacy translation. Continue with focused logic, history/rejection and loop
+tests, then full UI verification and the remaining UMP/device acceptance.
