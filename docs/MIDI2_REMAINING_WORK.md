@@ -895,3 +895,16 @@ multi-region import atomic or add compensating rollback.
 Validation: focused dialog tests 5/5; full UI suite 1,130/1,130 across 154
 files; production UI build, changed-file oxlint, and `git diff --check` passed.
 Core targets and admission tests remain verified by the previous entry.
+
+### Latest continuation — preserve multi-song MIDI export boundaries (2026-10-04)
+
+When concatenating songs, the MIDI exporter now places each following song
+after the later of the stored song end and every MIDI/audio/event endpoint.
+MIDI-region endpoints are converted through that song's tempo map before
+comparison, and missing `endSeconds` no longer causes MIDI-only songs to use a
+short fallback offset. This prevents valid MIDI content from overlapping the
+next song when a saved end marker is absent or stale. Regression tests cover
+both cases and verify region-note and tempo-map boundaries. Full UI tests pass
+1,132/1,132 across 154 files; production build, changed-file oxlint, and
+`git diff --check` pass. Continue auditing SMF/MIDI Clip selection, timing, and
+loss-report behavior; this does not add SMF2 Container support.

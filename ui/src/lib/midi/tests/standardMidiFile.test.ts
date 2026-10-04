@@ -1467,6 +1467,29 @@ describe("Standard MIDI File", () => {
     expect(parsed.tracks[1].notes.map((note) => note.startBeats)).toEqual([0.5, 4.5]);
   });
 
+  it.each([undefined, 2])(
+    "keeps concatenated songs after MIDI content when the stored song end is %s seconds",
+    (endSeconds) => {
+      const makeSong = (name: string, midi: MidiRegionRow, end?: number): SongRow => ({
+        name, bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: end,
+        click: false, clickBusId: "", clickSends: [], regions: [], events: [],
+        midiRegions: [midi],
+      });
+      const songA = makeSong("Long MIDI tail", {
+        ...region, startBeats: 4, durationBeats: 4,
+      }, endSeconds);
+      const songB = makeSong("Following song", { ...region, startBeats: 0 }, 2);
+
+      const parsed = parseStandardMidiFile(writeSongsMidiFile([songA, songB], {
+        songIndices: [0, 1], tracks: [{ id: "t1", name: "Piano" }],
+        fromProjectStart: true, expandLoops: false,
+      }));
+
+      expect(parsed.tempoEvents.map((event) => event.beat)).toEqual([0, 8]);
+      expect(parsed.tracks[1].notes.map((note) => note.startBeats)).toEqual([4.5, 8.5]);
+    },
+  );
+
   it("shares MIDI Clip RPN state across concatenated song boundaries", () => {
     const makeSong = (name: string, midi: MidiRegionRow): SongRow => ({
       name, bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: 2,

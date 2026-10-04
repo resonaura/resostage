@@ -2652,3 +2652,13 @@ remains retryable. Focused recovery tests pass 5/5; full UI 1,130/1,130 across
 154 files, production build, changed-file oxlint, and diff check pass. Earlier
 Core verification: admission 4/4, filtered Core suite 619/619, app/test targets
 built; one headless macOS DLS editor GUI case fails in the unfiltered suite.
+
+Latest MIDI export audit (2026-10-04): multi-song concatenation now derives
+each boundary from the maximum of stored song length and its MIDI/audio/event
+content endpoints. MIDI regions are converted through the song tempo map.
+Previously a missing or stale-short `endSeconds` could put later MIDI regions
+and tempo changes on top of content in the preceding song. Regressions cover
+both missing and stale-short lengths. Full UI tests pass 1,132/1,132 across
+154 files; production build, changed-file oxlint, and diff check pass. Continue
+the SMF/MIDI Clip interoperability audit; do not imply this resolves the open
+SMF2 Container or hardware MIDI 2.0 gaps.

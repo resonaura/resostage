@@ -1248,12 +1248,22 @@ export interface MidiSongTrackSelection {
 }
 
 function midiSongDurationBeats(song: SongRow): number {
-  const durationSeconds = song.endSeconds && song.endSeconds > 0
-    ? song.endSeconds
-    : Math.max(1, ...song.midiRegions?.map((region) =>
-      songSecondsAtBeat(song, region.startBeats + region.durationBeats)) ?? [0],
-    ...(song.regions ?? []).map((region) => region.startSeconds + region.durationSeconds),
-    ...song.events.map((event) => event.timeSeconds));
+  // Treat song end as a minimum, not an override: a stale/short end marker
+  // must not make later songs overlap content that is still present in this
+  // song. MIDI regions are in beat space, so convert their ends through the
+  // song's own tempo map before comparing them to audio/event endpoints.
+  let durationSeconds = Math.max(1, Number.isFinite(song.endSeconds) ? song.endSeconds ?? 0 : 0);
+  for (const region of song.midiRegions ?? []) {
+    const regionEnd = songSecondsAtBeat(song, region.startBeats + region.durationBeats);
+    if (Number.isFinite(regionEnd)) durationSeconds = Math.max(durationSeconds, regionEnd);
+  }
+  for (const region of song.regions ?? []) {
+    const regionEnd = region.startSeconds + region.durationSeconds;
+    if (Number.isFinite(regionEnd)) durationSeconds = Math.max(durationSeconds, regionEnd);
+  }
+  for (const event of song.events ?? []) {
+    if (Number.isFinite(event.timeSeconds)) durationSeconds = Math.max(durationSeconds, event.timeSeconds);
+  }
   return songBeatsAtSeconds(song, durationSeconds);
 }
 

@@ -1979,3 +1979,13 @@ changed-file oxlint and diff check passed. This is truthful recovery UI, not
 transactional batch import: do not claim rollback or all-or-nothing behavior.
 Commit this recovery block separately in English and without pushing, then
 continue the SMF/MIDI Clip import/export audit.
+
+Follow-up MIDI export block (2026-10-04): `midiSongDurationBeats` now accounts
+for MIDI-region ends even when `endSeconds` is absent, and uses the maximum of
+that endpoint and the stored song end, audio-region ends, and song events.
+This keeps multi-song note and tempo-map placement from overlapping earlier
+content when the length marker is stale or missing. Tests cover both cases;
+full UI tests pass 1,132/1,132 across 154 files, production build and lint
+pass. Continue reviewing the remaining MIDI codec boundaries and loss
+report/export selection. Do not claim SMF2 Container, generic MIDI 2.0 device
+I/O, or complete hardware compatibility.
