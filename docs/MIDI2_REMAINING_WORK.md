@@ -305,6 +305,23 @@ Profile Off in the prefix, rejecting incomplete framing on import/export, and
 rejecting timestamped profile packets. The format rules follow MIDI Clip File
 v1.0 sections 6 and 7 and MIDI-CI v1.2 section 7.8; the wire encoding follows
 UMP SysEx7 rules in UMP & MIDI 2.0 Protocol v1.1.1. Validation passed: codec
-tests 21/21, full UI 1,042/1,042 across 151 files, TypeScript, production UI
+tests 22/22, full UI 1,043/1,043 across 151 files, TypeScript, production UI
 build, changed-file lint, migration tests 9/9, Core test target build/CTest
 (1/1), and `git diff --check`.
+
+### Latest continuation — reject MIDI-CI Property Exchange in sequence data (2026-10-04)
+
+MIDI Clip sequence import and export now reject MIDI-CI Property Exchange
+SysEx7 messages (Universal SysEx + MIDI-CI Sub-ID #1 + Property Exchange
+Sub-ID #2 `0x30`–`0x3F`) as required by the file format. Detection carries a
+bounded prefix across UMP Start/Continue/End fragments by Group. Ordinary
+non-MIDI-CI SysEx7 remains allowed. Sequence SysEx7 structure also rejects a
+continuation without a Start, overlapping same-Group starts, and unfinished
+messages; count, 7-bit data and reserved-byte padding are validated. Profile
+Set Profile On remains accepted only in the unclockstamped pre-DCTPQ prefix.
+
+The rule follows [MIDI Clip File v1.0 §7.2](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf),
+which excludes Property Exchange messages from sequence data;
+[MIDI-CI Property Exchange v1.1 §§1.7 and 3.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-103-UM_v1-1_Common_Rules_for_MIDI-CI_Property_Exchange.pdf)
+defines the message prefix and Sub-ID range. Validation results are recorded
+in the task audit and handoff below.

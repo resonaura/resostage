@@ -4,22 +4,23 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
+// MIDI Clip-specific MIDI-CI validation for the profile prefix and sequence.
 const MAX_SET_PROFILE_ON_BYTES = 18;
 
-interface ProfileMessageState {
+interface SysEx7MessageState {
   byteCount: number;
   prefix: number[];
 }
 
 function sysEx7Payload(words: number[]): { group: number; status: number; bytes: number[] } {
   if (words.length !== 2 || (words[0] >>> 28) !== 3)
-    throw new Error("A MIDI Clip profile packet must use a two-word SysEx7 UMP");
+    throw new Error("A MIDI Clip SysEx7 packet must contain two UMP words");
 
   const first = words[0] >>> 0;
   const status = (first >>> 20) & 0xf;
   const count = (first >>> 16) & 0xf;
   if (status > 3 || count > 6)
-    throw new Error("A MIDI Clip profile packet has an invalid SysEx7 status or byte count");
+    throw new Error("A MIDI Clip SysEx7 packet has an invalid status or byte count");
 
   const second = words[1] >>> 0;
   const paddedBytes = [
@@ -32,20 +33,20 @@ function sysEx7Payload(words: number[]): { group: number; status: number; bytes:
   ];
   if (paddedBytes.slice(0, count).some((byte) => byte > 0x7f)
       || paddedBytes.slice(count).some((byte) => byte !== 0))
-    throw new Error("A MIDI Clip profile packet has invalid SysEx7 data or nonzero padding");
+    throw new Error("A MIDI Clip SysEx7 packet has invalid data or nonzero padding");
 
   return { group: (first >>> 24) & 0xf, status,
     bytes: paddedBytes.slice(0, count) };
 }
 
-function appendPayload(state: ProfileMessageState, bytes: number[]): void {
+function appendPayload(state: SysEx7MessageState, bytes: number[]): void {
   state.byteCount += bytes.length;
   const remainingPrefixBytes = MAX_SET_PROFILE_ON_BYTES - state.prefix.length;
   if (remainingPrefixBytes > 0)
     state.prefix.push(...bytes.slice(0, remainingPrefixBytes));
 }
 
-function validateSetProfileOn(state: ProfileMessageState): void {
+function validateSetProfileOn(state: SysEx7MessageState): void {
   const prefix = state.prefix;
   const validDestination = prefix[1] <= 0x0f || prefix[1] === 0x7e || prefix[1] === 0x7f;
   if (state.byteCount < MAX_SET_PROFILE_ON_BYTES
@@ -60,7 +61,7 @@ function validateSetProfileOn(state: ProfileMessageState): void {
 
 /** Validate and preserve the UMP packets in the profile prefix before DCTPQ. */
 export function validateMidiClipProfilePackets(packets: number[][]): void {
-  const active = new Map<number, ProfileMessageState>();
+  const active = new Map<number, SysEx7MessageState>();
 
   for (const words of packets) {
     const { group, status, bytes } = sysEx7Payload(words);
@@ -95,4 +96,54 @@ export function validateMidiClipProfilePackets(packets: number[][]): void {
 
   if (active.size > 0)
     throw new Error("MIDI Clip profile data contains an incomplete SysEx7 message");
+}
+
+function isPropertyExchangePrefix(prefix: number[]): boolean {
+  return prefix.length >= 4
+    && prefix[0] === 0x7e
+    && prefix[2] === 0x0d
+    && prefix[3] >= 0x30
+    && prefix[3] <= 0x3f;
+}
+
+/** Reject MIDI-CI Property Exchange SysEx7 messages from sequence data. */
+export function assertNoMidiClipPropertyExchange(sequencePackets: number[][]): void {
+  const active = new Map<number, SysEx7MessageState>();
+
+  for (const words of sequencePackets) {
+    if ((words[0] >>> 28) !== 3) continue;
+    const { group, status, bytes } = sysEx7Payload(words);
+    const current = active.get(group);
+
+    if (status === 0) {
+      if (current)
+        throw new Error("MIDI Clip sequence has a complete SysEx7 packet before its previous message ended");
+      const complete = { byteCount: 0, prefix: [] as number[] };
+      appendPayload(complete, bytes);
+      if (isPropertyExchangePrefix(complete.prefix))
+        throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
+      continue;
+    }
+
+    if (status === 1) {
+      if (current)
+        throw new Error("MIDI Clip sequence has a SysEx7 start before its previous message ended");
+      const started = { byteCount: 0, prefix: [] as number[] };
+      appendPayload(started, bytes);
+      if (isPropertyExchangePrefix(started.prefix))
+        throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
+      active.set(group, started);
+      continue;
+    }
+
+    if (!current)
+      throw new Error("MIDI Clip sequence has a SysEx7 continuation without a matching start");
+    appendPayload(current, bytes);
+    if (isPropertyExchangePrefix(current.prefix))
+      throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
+    if (status === 3) active.delete(group);
+  }
+
+  if (active.size > 0)
+    throw new Error("MIDI Clip sequence contains an incomplete SysEx7 message");
 }

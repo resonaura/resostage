@@ -1480,9 +1480,27 @@ only when they form complete, group-consistent SysEx7 messages identifying
 MIDI-CI Set Profile On. Payload bytes remain opaque, with no negotiation or
 semantic profile decoding. The fixture spans Start/Continue/End and verifies
 round-trip; rejects Profile Off, incomplete SysEx, and timestamped prefix
-packets, and preserves profile-only regions. Focused codec tests: 21/21; full
-UI: 1,042/1,042 across 151 files; TypeScript, production build, changed-file
+packets, and preserves profile-only regions. Focused codec tests: 22/22; full
+UI: 1,043/1,043 across 151 files; TypeScript, production build, changed-file
 lint, migration tests 9/9, Core test target build, CTest 1/1, and diff check
 passed. Standards references: MIDI Clip File v1.0 §§6–7, MIDI-CI v1.2 §7.8,
 and UMP & MIDI 2.0 Protocol v1.1.1 SysEx7 format. Do not claim full MIDI 2.0
 conformance or push. Inspect `git status`/history before the next block.
+
+Latest continuation — MIDI-CI Property Exchange sequence exclusion
+(2026-10-04): MIDI Clip sequence import and export now reject MIDI-CI Property
+Exchange SysEx7 messages per MIDI Clip File v1.0 §7.2. Detection carries the
+four-byte discriminator across Start/Continue/End packets within a Group;
+ordinary SysEx7 remains accepted. Sequence framing validates packet length,
+status, 7-bit payload, reserved padding, matching starts/ends, and completion.
+The shared validator is in `ui/src/lib/midi/midiClipProfile.ts` and runs on
+parsed sequence UMP and final writer events. Focused codec tests passed 22/22;
+full UI passed 1,043/1,043 across 151 files; TypeScript, production build,
+changed-file lint, migration tests 9/9, Core test target build, CTest (1/1),
+and `git diff --check` passed. Standards: [MIDI Clip File v1.0 §7.2]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf),
+[MIDI-CI Property Exchange v1.1 §§1.7, 3.1]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-103-UM_v1-1_Common_Rules_for_MIDI-CI_Property_Exchange.pdf),
+and UMP SysEx7 v1.1.1. No live MIDI-CI negotiation is implemented. Commit
+this block in English, do not push, then continue codec gaps in
+`docs/MIDI2_REMAINING_WORK.md`; do not claim complete MIDI 2.0 compatibility.

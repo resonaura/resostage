@@ -45,6 +45,14 @@ function setProfileOnPackets(group = 0): number[][] {
   ];
 }
 
+function propertyExchangePackets(group = 0): number[][] {
+  return [
+    sysex7Packet(group, 1, [0x7e, 0x7f]),
+    sysex7Packet(group, 2, [0x0d, 0x34]),
+    sysex7Packet(group, 3, [0x01, 1, 2, 3, 4, 5]),
+  ];
+}
+
 function framedClip(sequence: number[][]): Uint8Array {
   return makeClip([dcs(0), dctpq(960), dcs(0), start, ...sequence, dcs(0), end]);
 }
@@ -351,6 +359,35 @@ describe("MIDI Clip File framing and resource bounds", () => {
 
     expect(parsed.tracks[0].umpEvents).toEqual(profile.map((words) => ({ beat: 0,
       words, wordCount: 2, configurationHeader: true, profileConfigurationHeader: true })));
+  });
+
+  it("rejects MIDI-CI Property Exchange split across sequence SysEx7 packets", () => {
+    const propertyExchange = propertyExchangePackets();
+    expect(() => parseMidiClipFile(framedClip(propertyExchange)))
+      .toThrow(/Property Exchange messages are not allowed in MIDI Clip Sequence Data/);
+
+    const ordinarySysEx = [
+      sysex7Packet(1, 1, [0x41, 0x01]),
+      sysex7Packet(1, 3, [0x02, 0x03]),
+    ];
+    expect(parseMidiClipFile(framedClip(ordinarySysEx)).tracks[0].umpEvents)
+      .toHaveLength(ordinarySysEx.length);
+
+    expect(() => parseMidiClipFile(framedClip([
+      sysex7Packet(0, 2, [0x41]),
+    ]))).toThrow(/continuation without a matching start/);
+    expect(() => parseMidiClipFile(framedClip([
+      sysex7Packet(0, 1, [0x41]),
+    ]))).toThrow(/incomplete SysEx7 message/);
+
+    const invalidRegion: MidiRegionRow = {
+      ...region,
+      umpEvents: propertyExchange.map((words) => ({ beat: 0, words, wordCount: 2 })),
+    };
+    expect(() => writeMidiClipFile(
+      [{ name: "Property Exchange", regions: [invalidRegion] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    )).toThrow(/Property Exchange messages are not allowed in MIDI Clip Sequence Data/);
   });
 
   it("rejects non-profile events before DCTPQ and clockstamped profile prefixes", () => {
