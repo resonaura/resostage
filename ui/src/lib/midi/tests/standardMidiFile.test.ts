@@ -10,6 +10,7 @@ import {
   analyzeMidi2ExportLoss,
   adaptMidiTracksToSongTempo,
   countMidi2TimeSignatureClickIntervalLoss,
+  midiTempoDiffersFromSong,
   midiExportTracksForSongs,
   midiSecondsAtBeat,
   parseStandardMidiFile,
@@ -49,6 +50,16 @@ const region: MidiRegionRow = {
 };
 
 describe("Standard MIDI File", () => {
+  it("detects a different tempo beginning at beat zero", () => {
+    const song = {
+      name: "Song", bpm: 120, mode: "auto" as const, tsNum: 4, tsDen: 4,
+      events: [], tempoPoints: [], signaturePoints: [], midiRegions: [], regions: [],
+    } as unknown as SongRow;
+
+    expect(midiTempoDiffersFromSong([{ beat: 0, bpm: 90 }], song)).toBe(true);
+    expect(midiTempoDiffersFromSong([{ beat: 0, bpm: 120 }], song)).toBe(false);
+  });
+
   it("uses the SMF default tempo and converts imported timing into a destination tempo", () => {
     expect(midiSecondsAtBeat([], 4)).toBe(2);
     expect(midiSecondsAtBeat([{ beat: 0, bpm: 60 }], 4)).toBe(4);

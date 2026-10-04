@@ -1190,9 +1190,24 @@ export function midiTempoDiffersFromSong(
   song: SongRow,
 ): boolean {
   const candidates = new Set<number>([0]);
-  for (const event of tempoEvents) if (event.beat >= 0) candidates.add(event.beat);
-  for (const point of song.tempoPoints ?? []) if (point.beat >= 0) candidates.add(point.beat);
-  for (const beat of candidates) {
+  for (const event of tempoEvents)
+    if (Number.isFinite(event.beat) && event.beat >= 0) candidates.add(event.beat);
+  for (const point of song.tempoPoints ?? [])
+    if (Number.isFinite(point.beat) && point.beat >= 0) candidates.add(point.beat);
+
+  // Comparing only at map boundaries misses a different tempo at beat zero:
+  // both maps have elapsed exactly zero seconds there. Probe inside every
+  // constant/ramp segment and one beat after the final boundary as well.
+  const boundaries = [...candidates].sort((a, b) => a - b);
+  const probes = new Set(boundaries);
+  for (let index = 0; index + 1 < boundaries.length; index++) {
+    const start = boundaries[index];
+    const end = boundaries[index + 1];
+    if (end > start) probes.add(start + (end - start) / 2);
+  }
+  probes.add((boundaries.at(-1) ?? 0) + 1);
+
+  for (const beat of probes) {
     const importedSeconds = midiSecondsAtBeat(tempoEvents, beat);
     const projectSeconds = songSecondsAtBeat(song, beat);
     if (Math.abs(importedSeconds - projectSeconds) > 0.01) return true;

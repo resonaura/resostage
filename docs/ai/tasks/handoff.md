@@ -1945,4 +1945,11 @@ another Format 2 sequence's value; later map events stay at their source beat.
 This also handles late first timing events in Format 0/1. The legacy song
 meter fields are now derived from the same initial meter map for old consumers.
 Focused import timing/batch/SMF tests: 82/82; production build and changed-file
-oxlint passed. Commit in English without pushing, then continue the MIDI audit.
+oxlint passed. A dialog regression test then exposed beat-zero tempo mismatch
+detection incorrectly comparing only cumulative time at boundaries; see the
+latest audit entry. Verify and commit that fix before continuing the MIDI audit.
+That verification is complete: the import dialog resets its tempo decision on
+reopen, parsing no longer depends on track focus, and the tempo mismatch check
+now detects beat-zero changes. Focused MIDI tests: 84/84; full UI: 1,123/1,123
+across 154 files; production build and changed-file oxlint passed. Commit this
+block in English without pushing, then continue auditing batch payload bounds.

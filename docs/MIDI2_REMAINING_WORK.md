@@ -839,3 +839,15 @@ time-signature fields are updated from the same beat-zero meter so existing
 timeline/grid consumers agree with the imported signature map. Focused timing,
 batch, and SMF tests passed 82/82 with the legacy-field consistency change;
 TypeScript, production build, changed-file oxlint, and `git diff --check` passed.
+
+### Latest continuation — detect beat-zero tempo mismatches (2026-10-04)
+
+Tempo mismatch detection now probes inside map segments and one beat beyond the
+last timing boundary. Checking only beat-zero's elapsed seconds incorrectly
+treated a MIDI file starting at 90 BPM as matching a 120 BPM song because both
+maps equal zero seconds at beat zero. A dialog-level regression test covers
+the warning and reset of the tempo choice across reopening. The dialog now
+resets the choice for each new open/import session and changing track focus no
+longer reparses all files. Focused MIDI tests passed 84/84; full UI passed
+1,123/1,123 across 154 files; production build, changed-file oxlint, and
+`git diff --check` passed.

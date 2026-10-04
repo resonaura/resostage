@@ -43,11 +43,16 @@ export function ImportMidiDialog({
 
   useEffect(() => {
     if (!open) return;
+    setTrackId(target?.trackId ?? midiTracks.find((track) => track.id === state.activeTrackId)?.id ?? midiTracks[0]?.id ?? "");
+  }, [open, target?.trackId, midiTracks, state.activeTrackId]);
+
+  useEffect(() => {
+    if (!open) return;
     setParsed(null);
     setFailure("");
     setProgress("");
+    setChoice("keep-beats");
     setSequenceIndex(0);
-    setTrackId(target?.trackId ?? midiTracks.find((track) => track.id === state.activeTrackId)?.id ?? midiTracks[0]?.id ?? "");
     let cancelled = false;
     void (async () => {
       try {
@@ -77,7 +82,7 @@ export function ImportMidiDialog({
       }
     })();
     return () => { cancelled = true; };
-  }, [open, files, target?.trackId, midiTracks, state.activeTrackId]);
+  }, [open, files]);
 
   const format2File = parsed?.length === 1 && parsed[0].midi.format === 2 ? parsed[0] : undefined;
   const selectedSequence = format2File?.midi.tracks[Math.min(sequenceIndex, format2File.midi.tracks.length - 1)];

@@ -2625,3 +2625,12 @@ signature because timeline/grid consumers still read them. The importer now
 updates both legacy values from the normalized beat-zero signature; focused
 tests (82/82), production build, changed-file oxlint and `git diff --check`
 pass.
+
+Additional import bug found by the dialog regression: the tempo mismatch check
+compared only elapsed seconds at boundaries, so any initial tempo differed at
+beat zero but did not change elapsed time at that same point. It now probes
+inside intervals and after the final boundary; verify the new 90-vs-120 BPM
+dialog test and rerun the suite. Import dialog session initialization is now
+separate from parsing so track-focus changes do not restart parsing; tempo
+choice resets on each open. Focused MIDI: 84/84; full UI: 1,123/1,123 across
+154 files; production build, oxlint, and diff checks passed.
