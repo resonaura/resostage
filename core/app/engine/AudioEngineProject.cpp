@@ -10,11 +10,11 @@
 
 #include "AudioEngine.h"
 #include "AudioEngineInternal.h"
+#include "plugins/PluginPresetStore.h"
 
 #include "audio/peaks/PeakCache.h"
 
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
 #include <cstdio>
 #include <memory>
@@ -32,74 +32,192 @@ namespace resostage {
 
 namespace {
 
-using PluginStateReferences = std::vector<std::pair<std::string, std::string>>;
+struct PluginStateReference {
+    std::string stripId;
+    std::string slotId;
+    std::string resource;
+};
+using PluginStateReferences = std::vector<PluginStateReference>;
+constexpr uint64_t kMaximumPluginStatePackageBytes = 256ull * 1024ull * 1024ull;
 
-PluginSlot* findPluginSlot(Project& project, const std::string& slotId) {
+PluginSlot* findPluginSlot(Project& project, const std::string& stripId,
+                           const std::string& slotId) {
     const auto findIn = [&slotId](std::vector<PluginSlot>& slots) -> PluginSlot* {
         const auto it = std::find_if(slots.begin(), slots.end(),
             [&slotId](const PluginSlot& slot) { return slot.id == slotId; });
         return it == slots.end() ? nullptr : &*it;
     };
-    if (auto* slot = findIn(project.main.plugins)) return slot;
-    if (auto* slot = findIn(project.click.plugins)) return slot;
+    if (stripId == "audio::main")
+        return findIn(project.main.plugins);
+    if (stripId == "audio::click")
+        return findIn(project.click.plugins);
     for (auto& track : project.tracks)
-        if (auto* slot = findIn(track.plugins)) return slot;
+        if (track.id == stripId)
+            return findIn(track.plugins);
     for (auto& send : project.sends)
-        if (auto* slot = findIn(send.plugins)) return slot;
+        if (send.id == stripId)
+            return findIn(send.plugins);
     return nullptr;
 }
 
-std::string pluginStateResourceFor(const PluginSlot& slot) {
-    // Slot IDs are UUIDv7 today. Keep the fallback path portable for older
-    // projects that may contain punctuation not accepted in Windows names.
-    std::string filename = slot.id;
-    bool sanitized = false;
-    for (char& c : filename) {
-        const auto uc = static_cast<unsigned char>(c);
-        if (!std::isalnum(uc) && c != '-' && c != '_') {
-            c = '_';
-            sanitized = true;
+uint64_t stableResourceHash(const std::string& value) noexcept {
+    uint64_t hash = 1469598103934665603ull;
+    for (const char character : value) {
+        hash ^= static_cast<unsigned char>(character);
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+std::string safePluginResourceComponent(const std::string& value) {
+    if (value.empty())
+        return "unnamed";
+    std::string component;
+    component.reserve(96);
+    bool changed = false;
+    for (const char character : value) {
+        const auto byte = static_cast<unsigned char>(character);
+        const bool safe = (byte >= 'a' && byte <= 'z')
+            || (byte >= 'A' && byte <= 'Z')
+            || (byte >= '0' && byte <= '9') || character == '-' || character == '_';
+        if (safe && component.size() < 80)
+            component.push_back(character);
+        else {
+            if (!safe || component.size() >= 80)
+                changed = true;
+            if (component.size() >= 80)
+                break;
+            component.push_back('_');
         }
     }
-    if (filename.empty())
-        filename = "unnamed";
-    if (sanitized) {
-        uint64_t hash = 1469598103934665603ull;
-        for (const char raw : slot.id) {
-            const auto c = static_cast<unsigned char>(raw);
-            hash ^= c;
-            hash *= 1099511628211ull;
-        }
-        filename += "_" + std::to_string(hash);
+    if (component.empty())
+        component = "unnamed";
+    if (changed) {
+        constexpr char hex[] = "0123456789abcdef";
+        const uint64_t hash = stableResourceHash(value);
+        component.push_back('_');
+        for (int index = 15; index >= 0; --index)
+            component.push_back(hex[(hash >> (index * 4)) & 0x0fu]);
     }
-    return "Plugins/" + filename + ".state";
+    return component;
+}
+
+std::string pluginStateResourceFor(const PluginSlot& slot,
+                                   const std::string& stripId) {
+    if (slot.stateResource.has_value()) {
+        const auto presetId = PluginPresetStore::presetIdForProjectResource(
+            stripId, slot.id, *slot.stateResource);
+        if (presetId.has_value())
+            return *slot.stateResource;
+    }
+    return "Plugins/" + safePluginResourceComponent(stripId) + "_"
+        + safePluginResourceComponent(slot.id) + ".state";
 }
 
 PluginStateReferences appendPluginStateFiles(
     Project& project, std::vector<ProjectLoader::ExtraFile>& extras,
-    PluginProcessorBank::StateSnapshot&& state) {
+    PluginProcessorBank::StateSnapshot&& state,
+    const ProjectLoader* resources, std::string& error) {
+    error.clear();
     for (const auto& warning : state.warnings)
         std::fprintf(stderr, "[PluginState] %s\n", warning.c_str());
 
     PluginStateReferences references;
     references.reserve(state.blobs.size());
+    uint64_t packagedPluginStateBytes = 0;
     for (auto& blob : state.blobs) {
-        auto* slot = findPluginSlot(project, blob.slotId);
-        if (slot == nullptr)
+        auto* slot = findPluginSlot(project, blob.stripId, blob.slotId);
+        if (slot == nullptr || blob.stateResource != slot->stateResource)
             continue;
-        const std::string resource = pluginStateResourceFor(*slot);
+        const auto presetId = blob.stateResource.has_value()
+            ? PluginPresetStore::presetIdForProjectResource(blob.stripId, blob.slotId,
+                                                            *blob.stateResource)
+            : std::nullopt;
+        if (presetId.has_value() && blob.data.empty())
+            continue;
+        if (blob.data.size() > kMaximumPluginStatePackageBytes
+                - packagedPluginStateBytes) {
+            error = "Plug-in state snapshots exceed the 256 MiB project package limit";
+            return references;
+        }
+        packagedPluginStateBytes += blob.data.size();
+        const std::string resource = pluginStateResourceFor(*slot, blob.stripId);
         slot->stateResource = resource;
         extras.push_back({resource, std::move(blob.data)});
-        references.emplace_back(blob.slotId, resource);
+        references.push_back({blob.stripId, blob.slotId, resource});
     }
+
+    // Applying a user preset first changes the project's state-resource
+    // reference and then asynchronously prepares a replacement processor
+    // bank. Save may be requested before that bank is ready, in which case
+    // snapshotStates() cannot return the new plug-in bytes yet. Package the
+    // exact referenced library blob as a fallback so an immediate Save/Save
+    // As is portable and does not depend on this device's preset library.
+    const auto appendPresetFallback = [&extras, &error, &packagedPluginStateBytes,
+                                       resources](
+        const std::string& stripId,
+        const std::vector<PluginSlot>& slots) {
+        for (const auto& slot : slots) {
+            if (!slot.stateResource.has_value())
+                continue;
+            const auto presetId = PluginPresetStore::presetIdForProjectResource(
+                stripId, slot.id, *slot.stateResource);
+            if (!presetId.has_value())
+                continue;
+            const bool alreadyPackaged = std::any_of(
+                extras.begin(), extras.end(), [&slot](const ProjectLoader::ExtraFile& file) {
+                    return file.archivePath == *slot.stateResource;
+                });
+            if (alreadyPackaged)
+                continue;
+
+            PluginPresetData preset;
+            std::string resourceError;
+            if (resources == nullptr
+                || !resources->extractFile(*slot.stateResource, preset.state,
+                                           resourceError,
+                                           PluginPresetStore::kMaximumStateBytes)
+                || preset.state.empty()) {
+                if (!PluginPresetStore::load(PluginPresetStore::userPresetRoot(),
+                                             slot.plugin.identifier, *presetId,
+                                             preset, error)) {
+                    error = "Could not package selected preset for plug-in "
+                        + slot.plugin.name + ": " + error;
+                    return false;
+                }
+            }
+            if (preset.state.empty()) {
+                error = "Could not package selected preset for plug-in "
+                    + slot.plugin.name + ": preset state is empty";
+                return false;
+            }
+            if (preset.state.size() > kMaximumPluginStatePackageBytes
+                    - packagedPluginStateBytes) {
+                error = "Plug-in state snapshots exceed the 256 MiB project package limit";
+                return false;
+            }
+            packagedPluginStateBytes += preset.state.size();
+            extras.push_back({*slot.stateResource, std::move(preset.state)});
+        }
+        return true;
+    };
+    if (!appendPresetFallback("audio::main", project.main.plugins)
+        || !appendPresetFallback("audio::click", project.click.plugins))
+        return references;
+    for (const auto& track : project.tracks)
+        if (!appendPresetFallback(track.id, track.plugins))
+            return references;
+    for (const auto& send : project.sends)
+        if (!appendPresetFallback(send.id, send.plugins))
+            return references;
     return references;
 }
 
 void applyPluginStateReferences(Project& project,
                                 const PluginStateReferences& references) {
-    for (const auto& [slotId, resource] : references)
-        if (auto* slot = findPluginSlot(project, slotId))
-            slot->stateResource = resource;
+    for (const auto& reference : references)
+        if (auto* slot = findPluginSlot(project, reference.stripId, reference.slotId))
+            slot->stateResource = reference.resource;
 }
 
 PluginProcessorBank::StateSnapshot capturePluginStatesOffThread(
@@ -420,7 +538,9 @@ bool AudioEngine::saveProject(const std::string& path, std::string& error) {
     Project snapshot = loader.project();
     auto saveExtras = pendingPeakCacheExtras;
     const auto pluginStateReferences = appendPluginStateFiles(
-        snapshot, saveExtras, std::move(capturedPluginState));
+        snapshot, saveExtras, std::move(capturedPluginState), &loader, error);
+    if (!error.empty())
+        return false;
     std::string sourcePath = loader.archivePath();
     [[maybe_unused]] const bool isContainer = loader.isDirectoryContainer();
 #if JUCE_WINDOWS
@@ -644,14 +764,19 @@ void AudioEngine::saveProjectAsync(const std::string& path,
                               oldDraftPath, songToRestore, wasPlaying, playThroughOk,
                               pluginBank, onComplete]() mutable {
         std::string error;
-        auto pluginStateReferences = appendPluginStateFiles(
-            snapshot, extras,
-            pluginBank != nullptr
-                ? pluginBank->snapshotStates()
-                : PluginProcessorBank::StateSnapshot{});
-        bool wrote = false;
         ProjectLoader source;
-        if (sourcePath.empty() || source.open(sourcePath, error))
+        const bool sourceReady = sourcePath.empty() || source.open(sourcePath, error);
+        PluginStateReferences pluginStateReferences;
+        if (sourceReady) {
+            pluginStateReferences = appendPluginStateFiles(
+                snapshot, extras,
+                pluginBank != nullptr
+                    ? pluginBank->snapshotStates()
+                    : PluginProcessorBank::StateSnapshot{},
+                source.isOpen() ? &source : nullptr, error);
+        }
+        bool wrote = false;
+        if (error.empty() && sourceReady)
             wrote = source.saveAsWithExtras(tempOut, extras, error, &snapshot);
 
         juce::MessageManager::callAsync([this, wrote, error, path, tempOut, sourcePath, saveProjectEpoch, promotingDraft,

@@ -769,6 +769,18 @@ export interface PluginCatalogEntry {
   isNew: boolean;
 }
 
+export interface PluginPresetEntry {
+  id: string;
+  name: string;
+  stateBytes: number;
+}
+
+export interface PluginPresetList {
+  pluginId: string;
+  presets: PluginPresetEntry[];
+  error: string;
+}
+
 export interface PluginCatalogResponse {
   scan: {
     state:
@@ -823,6 +835,28 @@ export const pluginCatalog = {
 };
 
 export const pluginChains = {
+  presets: async (pluginId: string): Promise<PluginPresetList> => {
+    const response = await apiFetch(
+      `/api/v1/plugins/slot/presets?pluginId=${encodeURIComponent(pluginId)}`,
+    );
+    if (!response.ok) throw new Error(await response.text());
+    const result = await response.json() as PluginPresetList;
+    if (result.pluginId !== pluginId)
+      throw new Error("Core returned presets for a different plug-in");
+    return result;
+  },
+  savePreset: async (stripId: string, slotId: string, name: string) => {
+    const accepted = await postProjectCommand(
+      "/api/v1/plugins/slot/preset/save", { stripId, slotId, name },
+    );
+    if (!accepted) throw new Error("Core did not accept the plug-in preset save request");
+  },
+  loadPreset: async (stripId: string, slotId: string, presetId: string) => {
+    const accepted = await postProjectCommand(
+      "/api/v1/plugins/slot/preset/load", { stripId, slotId, presetId },
+    );
+    if (!accepted) throw new Error("Core did not accept the plug-in preset load request");
+  },
   parameters: async (stripOrSlotId: string, scopedSlotId?: string): Promise<PluginParameterList> => {
     const slotId = scopedSlotId ?? stripOrSlotId;
     const stripQuery = scopedSlotId === undefined

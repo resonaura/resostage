@@ -12,6 +12,7 @@
 #include "platform/ThermalState.h"
 #include "platform/TrayIcon.h"
 #include "plugins/PluginPaths.h"
+#include "plugins/PluginPresetStore.h"
 #include "plugins/PluginProcessorBank.h"
 #include "project/ProjectJson.h"
 #include "project/RouteId.h"
@@ -28,6 +29,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <cstdlib>
 #include <optional>
 #include <vector>
@@ -323,6 +325,23 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
     webServer.setPluginCatalogProvider([this] {
         return pluginCatalog.snapshotJson();
     });
+    webServer.setPluginPresetsProvider([](const std::string& pluginIdentifier) {
+        wire::WPluginPresetList response;
+        response.pluginId = pluginIdentifier;
+        std::vector<PluginPresetInfo> presets;
+        std::string error;
+        const auto root = PluginPresetStore::userPresetRoot();
+        if (!PluginPresetStore::list(root, pluginIdentifier, presets, error)) {
+            response.error = std::move(error);
+        } else {
+            response.presets.reserve(presets.size());
+            for (const auto& preset : presets)
+                response.presets.push_back({preset.id, preset.name, preset.stateBytes});
+        }
+        std::string json;
+        (void)glz::write_json(response, json);
+        return json;
+    });
     webServer.setPluginParametersProvider([this](const std::string& stripId,
                                                  const std::string& slotId) {
         wire::WPluginParameterList response;
@@ -449,6 +468,8 @@ MainComponent::~MainComponent() {
     cancelAudioRender.store(true, std::memory_order_release);
     if (audioRenderThread.joinable())
         audioRenderThread.join();
+    if (pluginPresetThread.joinable())
+        pluginPresetThread.join();
     // In electron mode the shell is our on-screen window -- kill it first so
     // quitting ResoStage never strands a visible shell with no backend.
     terminateElectronShell();

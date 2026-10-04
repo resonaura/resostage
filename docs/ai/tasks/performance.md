@@ -132,12 +132,21 @@ open.
   `git diff --check` passed. No real duplicate-ID AU/VST fixture or audible
   vendor test was run; the reported writetest reload/reopen behavior remains
   open.
-- Remaining: define and implement per-plugin preset save/load. Decide whether
-  each operation changes a slot's project state or writes a user preset
-  library before choosing persistence. Validate identity, byte size, format
-  and restore result; atomic save, duplicate names, missing plugin, failed
-  restore, undo, project clone, and concurrent Save/Render need explicit
-  behavior. Never capture vendor state on the audio callback.
+- Implemented 2026-10-03: per-plugin preset libraries store opaque vendor
+  state under the exact catalog identifier, with bounded/versioned files,
+  checksums, atomic publication, strict UTF-8/name/id validation, duplicate
+  name rejection, symlink/regular-file checks and bounded listing/loading.
+  Presets are available from both instrument and effect slot context menus.
+  Loading changes only the exact `(stripId, slotId)` project resource through
+  the normal undoable project-edit path; processor-chain identity includes the
+  resource so unchanged strips remain reusable. Project Save/Save As packages
+  the selected preset bytes into the project container, including the race
+  where Save occurs before the new processor bank has finished loading. State
+  capture stays off the audio callback. Preset-store tests pass 4/4 cases and
+  39 assertions; full Core CTest passes 1/1, full UI passes 916/916, TypeScript
+  and Core/helper builds pass, and `git diff --check` is clean. Real vendor AU/
+  VST restore/audibility, cross-platform filesystem behavior and explicit UI
+  recovery after a vendor rejects state still require integration testing.
 - Add real sidechain routing through track/bus source selection to a compatible
   plugin auxiliary input bus, across project schema, graph construction,
   plug-in host shared-memory ABI, AU/VST3 bus activation, offline render, save/

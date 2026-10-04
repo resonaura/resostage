@@ -227,9 +227,13 @@ bool PluginHostRuntime::captureStateFiles(std::string& error) {
 #endif
 
     const auto& slots = projectLoader.project().tracks.front().plugins;
+    const auto& hostStripId = projectLoader.project().tracks.front().id;
     for (const auto& blob : snapshot.blobs) {
         const auto found = std::find_if(slots.begin(), slots.end(),
-            [&blob](const PluginSlot& slot) { return slot.id == blob.slotId; });
+            [&blob, &hostStripId](const PluginSlot& slot) {
+                return blob.stripId == hostStripId
+                    && slot.id == blob.slotId;
+            });
         if (found == slots.end())
             continue;
         const size_t slotIndex = static_cast<size_t>(found - slots.begin());

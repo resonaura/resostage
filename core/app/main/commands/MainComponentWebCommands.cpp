@@ -447,6 +447,8 @@ void MainComponent::drainWebCommands() {
             case WebCommandKind::PluginSlotMove: pluginSlotMove(cmd.json); break;
             case WebCommandKind::PluginSlotBypass: pluginSlotBypass(cmd.json); break;
             case WebCommandKind::PluginSlotRetry: pluginSlotRetry(cmd.json); break;
+            case WebCommandKind::PluginPresetSave: pluginPresetSave(cmd.json); break;
+            case WebCommandKind::PluginPresetLoad: pluginPresetLoad(cmd.json); break;
             case WebCommandKind::PluginLoadDecision: {
                 wire::WPluginLoadDecisionPayload p;
                 if (glz::read_json(p, cmd.json)

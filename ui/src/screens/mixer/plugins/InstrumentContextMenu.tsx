@@ -26,6 +26,7 @@ export function InstrumentContextMenu({
   catalog,
   position,
   onClose,
+  onPresets,
 }: {
   trackId: string;
   isInstrument: boolean;
@@ -34,6 +35,7 @@ export function InstrumentContextMenu({
   catalog: PluginCatalogEntry[];
   position: { x: number; y: number } | null;
   onClose: () => void;
+  onPresets?: () => void;
 }) {
   const instrumentGroups = useMemo(
     () => (isInstrument ? groupInstruments(catalog) : []),
@@ -59,6 +61,17 @@ export function InstrumentContextMenu({
           >
             Open {name}
           </ContextMenuItem>
+          {onPresets && (
+            <ContextMenuItem
+              onClick={() => {
+                onPresets();
+                onClose();
+              }}
+            >
+              Presets…
+            </ContextMenuItem>
+          )}
+          {onPresets && <ContextMenuDivider />}
           {(slot.loadState === "failed" || slot.loadState === "missing") && (
             <ContextMenuItem
               onClick={() => {

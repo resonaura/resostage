@@ -10,8 +10,10 @@ import { getTrackLiveLevel } from "@/lib/audio/liveLevels";
 import {
   outputSendsToClickRows,
   sourceOutputBusId,
+  type PluginSlotRow,
 } from "@/lib/state/types";
 import { InstrumentContextMenu } from "@/screens/mixer/plugins/InstrumentContextMenu";
+import { PluginPresetDialog } from "@/screens/mixer/plugins/components/PluginPresetDialog";
 import { resolveTrackPolarity, toggleTrackPolarity } from "@/screens/mixer/logic/polarity";
 import { ChannelStrip } from "@/screens/mixer/strips/ChannelStrip";
 import { colorForIndex } from "@/screens/mixer/logic/constants";
@@ -92,6 +94,7 @@ function TrackStripInner({
     x: number;
     y: number;
   } | null>(null);
+  const [presetSlot, setPresetSlot] = useState<PluginSlotRow | null>(null);
   const inputOptions = getTrackInputOptions({
     isMono,
     inputChannelNames: settings?.inputChannelNames,
@@ -239,7 +242,18 @@ function TrackStripInner({
         catalog={pluginCatalog}
         position={instrumentMenu}
         onClose={() => setInstrumentMenu(null)}
+        onPresets={instrumentSlot ? () => setPresetSlot(instrumentSlot) : undefined}
       />
+      {presetSlot && (
+        <PluginPresetDialog
+          open
+          stripId={t.id}
+          slotId={presetSlot.id}
+          pluginId={presetSlot.pluginId}
+          pluginName={presetSlot.name || "Unknown instrument"}
+          onClose={() => setPresetSlot(null)}
+        />
+      )}
     </>
   );
 }

@@ -48,6 +48,10 @@
                           std::function<void(bool success, std::string error)> onComplete);
 
     const std::string& projectPath() const { return loader.archivePath(); }
+    /** Volatile fence used by asynchronous project-scoped UI work. */
+    uint64_t projectIdentityEpoch() const noexcept {
+        return projectEpoch.load(std::memory_order_acquire);
+    }
 
     bool hasAutosave(std::string& outTimestamp) const { return loader.hasAutosave(outTimestamp); }
 

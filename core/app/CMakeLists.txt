@@ -110,6 +110,7 @@ target_sources(ResoStage PRIVATE
   platform/ThermalStateGeneric.cpp
   platform/TrayIcon.cpp
   plugins/PluginCatalogService.cpp
+  plugins/PluginPresetStore.cpp
   plugins/PluginProcessorBank.cpp
   plugins/PluginHostSharedMemory.cpp
   plugins/PluginHostProcess.cpp
@@ -327,6 +328,7 @@ target_sources(resostage_plugin_host PRIVATE
   plugins/PluginHostSharedMemory.cpp
   plugins/PluginHostRuntime.cpp
   plugins/PluginProcessorBank.cpp
+  plugins/PluginPresetStore.cpp
 )
 target_compile_features(resostage_plugin_host PRIVATE cxx_std_23)
 target_include_directories(resostage_plugin_host PRIVATE

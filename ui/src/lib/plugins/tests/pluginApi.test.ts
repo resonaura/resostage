@@ -102,6 +102,55 @@ describe("pluginCatalog", () => {
       body: JSON.stringify({ pluginId: "au:aufx:dely:appl", enabled: false }),
     });
   });
+
+  it("lists and applies per-plugin presets using stable plugin and slot IDs", async () => {
+    const mockPresets = {
+      pluginId: "VST3:vendor.synth",
+      presets: [{ id: "0123456789abcdef0123456789abcdef", name: "Warm Pad", stateBytes: 2048 }],
+      error: "",
+    };
+    const fetchSpy = vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "{}",
+      json: async () => mockPresets,
+    } as unknown as Response);
+
+    await expect(pluginChains.presets("VST3:vendor.synth")).resolves.toEqual(mockPresets);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/v1/plugins/slot/presets?pluginId=VST3%3Avendor.synth",
+    );
+
+    await pluginChains.savePreset("audio::track:1", "slot_1", "Warm Pad");
+    expect(fetchSpy).toHaveBeenCalledWith("/api/v1/plugins/slot/preset/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stripId: "audio::track:1", slotId: "slot_1", name: "Warm Pad" }),
+    });
+
+    await pluginChains.loadPreset("audio::track:1", "slot_1", mockPresets.presets[0].id);
+    expect(fetchSpy).toHaveBeenCalledWith("/api/v1/plugins/slot/preset/load", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        stripId: "audio::track:1",
+        slotId: "slot_1",
+        presetId: mockPresets.presets[0].id,
+      }),
+    });
+  });
+
+  it("surfaces a rejected preset mutation instead of treating it as successful", async () => {
+    vi.spyOn(backend, "apiFetch").mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => "Core command queue is full",
+    } as unknown as Response);
+
+    await expect(pluginChains.loadPreset(
+      "audio::track:1", "slot_1", "0123456789abcdef0123456789abcdef",
+    )).rejects.toThrow("Core did not accept the plug-in preset load request");
+  });
 });
 
 describe("pluginChains", () => {

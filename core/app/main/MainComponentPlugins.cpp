@@ -7,10 +7,14 @@
 #include "MainComponent.h"
 
 #include "platform/PlatformShellMode.h"
+#include "plugins/PluginPaths.h"
+#include "plugins/PluginPresetStore.h"
+#include "plugins/PluginProcessorBank.h"
 #include "project/Uuid.h"
 #include "server/BuilderJson.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <functional>
 
 namespace resostage {
@@ -625,6 +629,201 @@ void MainComponent::pluginSlotOpenEditor(const std::string& json) {
         std::move(editor), std::move(onCloseRequested), slot->bypassed,
         std::move(onBypassRequested)));
     setStatus("Opened plug-in editor: " + juce::String(slot->plugin.name));
+}
+
+void MainComponent::pluginPresetSave(const std::string& json) {
+    glz::generic doc;
+    std::string stripId;
+    std::string slotId;
+    std::string name;
+    if (!parseSlotTarget(json, doc, stripId, slotId)
+        || !builder_json::getString(doc, "name", name)) {
+        setStatus("Could not save plug-in preset: invalid request");
+        return;
+    }
+    auto* chain = pluginChainFor(engine.project(), stripId);
+    if (chain == nullptr) {
+        setStatus("Could not save plug-in preset: strip no longer exists");
+        return;
+    }
+    const auto slot = std::find_if(chain->begin(), chain->end(),
+        [&slotId](const PluginSlot& candidate) { return candidate.id == slotId; });
+    if (slot == chain->end()) {
+        setStatus("Could not save plug-in preset: slot no longer exists");
+        return;
+    }
+    auto bank = engine.activePluginProcessorBank();
+    if (!engine.hasCurrentPluginProcessorBank() || bank == nullptr
+        || bank->getStripSlotLoadState(stripId, slotId) != "loaded") {
+        setStatus("Plug-in must finish loading before saving a preset");
+        return;
+    }
+    bool expectedIdle = false;
+    if (!pluginPresetBusy.compare_exchange_strong(expectedIdle, true,
+            std::memory_order_acq_rel)) {
+        setStatus("Another plug-in preset operation is already running");
+        return;
+    }
+    if (pluginPresetThread.joinable())
+        pluginPresetThread.join();
+
+    const std::string pluginIdentifier = slot->plugin.identifier;
+    const std::string pluginName = slot->plugin.name;
+    const auto expectedStateResource = slot->stateResource;
+    const auto root = PluginPresetStore::userPresetRoot();
+    juce::Component::SafePointer<MainComponent> safe(this);
+    auto* busyFlag = &pluginPresetBusy;
+    try {
+        pluginPresetThread = std::thread(
+            [safe, presetBank = std::move(bank), stripId, slotId, pluginIdentifier,
+             pluginName, name, root, expectedStateResource, busyFlag]() mutable {
+                std::string saveError;
+                PluginPresetInfo saved;
+                auto snapshot = presetBank->snapshotStates(stripId);
+                const auto blob = std::find_if(snapshot.blobs.begin(), snapshot.blobs.end(),
+                    [&stripId, &slotId, &expectedStateResource](
+                        const PluginProcessorBank::StateBlob& state) {
+                        return state.stripId == stripId && state.slotId == slotId
+                            && state.stateResource == expectedStateResource;
+                    });
+                bool succeeded = blob != snapshot.blobs.end()
+                    && PluginPresetStore::save(root, pluginIdentifier, name,
+                                               blob->data, saved, saveError);
+                if (!succeeded && saveError.empty()) {
+                    const auto targetWarning = std::find_if(
+                        snapshot.warnings.begin(), snapshot.warnings.end(),
+                        [&slotId](const std::string& warning) {
+                            return warning.find(slotId) != std::string::npos;
+                        });
+                    saveError = targetWarning != snapshot.warnings.end()
+                        ? *targetWarning
+                        : "Plug-in did not provide a state snapshot";
+                }
+                busyFlag->store(false, std::memory_order_release);
+                juce::MessageManager::callAsync(
+                    [safe, succeeded, resultError = std::move(saveError),
+                     pluginName, presetName = name]() mutable {
+                        if (safe == nullptr)
+                            return;
+                        safe->setStatus(succeeded
+                            ? "Saved preset “" + juce::String(presetName) + "” for "
+                                + juce::String(pluginName)
+                            : "Could not save plug-in preset: " + juce::String(resultError));
+                        safe->publishWebState();
+                    });
+            });
+    } catch (...) {
+        pluginPresetBusy.store(false, std::memory_order_release);
+        setStatus("Could not start plug-in preset save");
+    }
+}
+
+void MainComponent::pluginPresetLoad(const std::string& json) {
+    glz::generic doc;
+    std::string stripId;
+    std::string slotId;
+    std::string presetId;
+    if (!parseSlotTarget(json, doc, stripId, slotId)
+        || !builder_json::getString(doc, "presetId", presetId)
+        || !PluginPresetStore::validPresetId(presetId)) {
+        setStatus("Could not load plug-in preset: invalid request");
+        return;
+    }
+    auto* chain = pluginChainFor(engine.project(), stripId);
+    if (chain == nullptr) {
+        setStatus("Could not load plug-in preset: strip no longer exists");
+        return;
+    }
+    const auto slot = std::find_if(chain->begin(), chain->end(),
+        [&slotId](const PluginSlot& candidate) { return candidate.id == slotId; });
+    if (slot == chain->end()) {
+        setStatus("Could not load plug-in preset: slot no longer exists");
+        return;
+    }
+    const std::string pluginIdentifier = slot->plugin.identifier;
+    const std::string pluginName = slot->plugin.name;
+    const uint64_t expectedProjectEpoch = engine.projectIdentityEpoch();
+    const auto root = PluginPresetStore::userPresetRoot();
+    bool expectedIdle = false;
+    if (!pluginPresetBusy.compare_exchange_strong(expectedIdle, true,
+            std::memory_order_acq_rel)) {
+        setStatus("Another plug-in preset operation is already running");
+        return;
+    }
+    if (pluginPresetThread.joinable())
+        pluginPresetThread.join();
+
+    juce::Component::SafePointer<MainComponent> safe(this);
+    auto* busyFlag = &pluginPresetBusy;
+    try {
+        pluginPresetThread = std::thread(
+            [safe, root, pluginIdentifier, pluginName, stripId, slotId,
+             presetId, expectedProjectEpoch, busyFlag]() mutable {
+                PluginPresetData preset;
+                std::string loadError;
+                const bool loaded = PluginPresetStore::load(
+                    root, pluginIdentifier, presetId, preset, loadError);
+                const std::string presetName = preset.info.name;
+                preset.state.clear();
+                busyFlag->store(false, std::memory_order_release);
+                juce::MessageManager::callAsync(
+                    [safe, loaded, resultError = std::move(loadError),
+                     presetName, pluginIdentifier,
+                     pluginName, stripId, slotId, presetId,
+                     expectedProjectEpoch]() mutable {
+                        if (safe == nullptr)
+                            return;
+                        if (!loaded) {
+                            safe->setStatus("Could not load plug-in preset: "
+                                + juce::String(resultError));
+                            return;
+                        }
+                        if (safe->engine.projectIdentityEpoch() != expectedProjectEpoch) {
+                            safe->setStatus("Project changed before the preset could be applied");
+                            return;
+                        }
+                        auto* currentChain = pluginChainFor(
+                            safe->engine.project(), stripId);
+                        if (currentChain == nullptr) {
+                            safe->setStatus("Could not load plug-in preset: strip no longer exists");
+                            return;
+                        }
+                        const auto currentSlot = std::find_if(
+                            currentChain->begin(), currentChain->end(),
+                            [&slotId](const PluginSlot& candidate) {
+                                return candidate.id == slotId;
+                            });
+                        if (currentSlot == currentChain->end()
+                            || currentSlot->plugin.identifier != pluginIdentifier) {
+                            safe->setStatus("Could not load plug-in preset: plug-in slot changed");
+                            return;
+                        }
+                        const std::string resource =
+                            PluginPresetStore::projectResourceForSlot(
+                                stripId, slotId, presetId);
+                        if (resource.empty()) {
+                            safe->setStatus("Could not load plug-in preset: unsafe slot identity");
+                            return;
+                        }
+                        if (currentSlot->stateResource == resource) {
+                            safe->setStatus("Preset is already selected for "
+                                + juce::String(pluginName));
+                            return;
+                        }
+                        safe->engine.projectHistoryBeginEdit(
+                            "", "Load plug-in preset: " + presetName);
+                        currentSlot->stateResource = resource;
+                        safe->engine.projectHistoryCommitEdit();
+                        safe->engine.notifyPluginChainsChanged();
+                        safe->setStatus("Loading preset “" + juce::String(presetName)
+                            + "” for " + juce::String(pluginName));
+                        safe->publishWebState();
+                    });
+            });
+    } catch (...) {
+        pluginPresetBusy.store(false, std::memory_order_release);
+        setStatus("Could not start plug-in preset load");
+    }
 }
 
 void MainComponent::closePluginEditor(const std::string& stripId,

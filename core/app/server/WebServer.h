@@ -128,6 +128,8 @@ enum class WebCommandKind : uint8_t {
     PluginSlotMove,
     PluginSlotBypass,
     PluginSlotRetry,
+    PluginPresetSave,
+    PluginPresetLoad,
     PluginLoadDecision,
     PluginSlotOpenEditor,
     PluginSlotKeepAwake,
@@ -1294,6 +1296,11 @@ public:
     void setPluginParameterValuesProvider(PluginParameterValuesProvider provider) {
         pluginParameterValuesProvider = std::move(provider);
     }
+    using PluginPresetsProvider = std::function<std::string(
+        const std::string& pluginIdentifier)>;
+    void setPluginPresetsProvider(PluginPresetsProvider provider) {
+        pluginPresetsProvider = std::move(provider);
+    }
 
     using LivePeaksProvider = std::function<std::vector<PeakPair16>(const std::string& trackId, size_t level, size_t first, size_t count)>;
     void setLivePeaksProvider(LivePeaksProvider provider) {
@@ -1408,6 +1415,7 @@ private:
     int servePluginCatalog(struct lws* wsi);
     int servePluginParameters(struct lws* wsi, const char* queryArgs);
     int servePluginParameterValues(struct lws* wsi, const char* queryArgs);
+    int servePluginPresets(struct lws* wsi, const char* queryArgs);
     int servePeaks(struct lws* wsi);
     int serveAllPeaks(struct lws* wsi);
     int serveWaveformRaw(struct lws* wsi, const char* queryArgs);
@@ -1524,6 +1532,7 @@ private:
     PluginCatalogProvider pluginCatalogProvider;
     PluginParametersProvider pluginParametersProvider;
     PluginParameterValuesProvider pluginParameterValuesProvider;
+    PluginPresetsProvider pluginPresetsProvider;
     LivePeaksProvider livePeaksProvider;
 
     std::unique_ptr<juce::DatagramSocket> udpSocket_;

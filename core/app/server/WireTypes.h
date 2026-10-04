@@ -325,6 +325,18 @@ struct WPluginSlotTelemetry {
     uint64_t hostGeneration = 0;
 };
 
+struct WPluginPresetRow {
+    std::string id;
+    std::string name;
+    uint64_t stateBytes = 0;
+};
+
+struct WPluginPresetList {
+    std::string pluginId;
+    std::vector<WPluginPresetRow> presets;
+    std::string error;
+};
+
 struct WPluginParameterInfo {
     uint32_t index = 0;
     std::string name;

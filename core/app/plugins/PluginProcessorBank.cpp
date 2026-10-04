@@ -8,6 +8,7 @@
 #include "PluginHostProcess.h"
 #include "PluginMIDIBuffer.h"
 #include "PluginPaths.h"
+#include "PluginPresetStore.h"
 #include "PluginRetryScope.h"
 #include "project/ProjectSchema.h"
 #include "plugins/PluginHostProtocol.h"
@@ -20,6 +21,7 @@
 #include <charconv>
 #include <climits>
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <new>
 #include <stdexcept>
@@ -38,6 +40,48 @@ constexpr size_t kMaximumStateBytesPerSlot = 64 * 1024 * 1024;
 constexpr size_t kMaximumStateBytesPerBank = 256 * 1024 * 1024;
 constexpr size_t kMaximumIsolatedChains = 32;
 std::atomic<uint64_t> nextPluginHostGeneration{1};
+
+bool stateBlobMatchesSlot(const PluginProcessorBank::StateBlob& state,
+                          const std::string& stripId,
+                          const PluginSlot& slot) noexcept {
+    return state.stripId == stripId
+        && state.slotId == slot.id
+        && (!state.stateResource.has_value()
+            || state.stateResource == slot.stateResource);
+}
+
+bool extractPluginSlotState(const ProjectLoader* resources,
+                            const std::string& stripId,
+                            const PluginSlot& slot,
+                            std::vector<uint8_t>& state,
+                            std::string& error) {
+    state.clear();
+    if (!slot.stateResource.has_value())
+        return true;
+    std::string projectError;
+    if (resources != nullptr
+        && resources->extractFile(*slot.stateResource, state, projectError,
+                                  PluginPresetStore::kMaximumStateBytes))
+        return true;
+
+    const auto presetId = PluginPresetStore::presetIdForProjectResource(
+        stripId, slot.id, *slot.stateResource);
+    if (presetId.has_value()) {
+        PluginPresetData preset;
+        const auto root = PluginPresetStore::userPresetRoot();
+        if (PluginPresetStore::load(root, slot.plugin.identifier,
+                                    *presetId, preset, error)) {
+            state = std::move(preset.state);
+            return true;
+        }
+        error = "Could not restore plug-in preset " + *presetId + ": " + error;
+        return false;
+    }
+    error = projectError.empty()
+        ? "Project plug-in-state resource is unavailable"
+        : "Could not restore saved state: " + projectError;
+    return false;
+}
 
 std::string pluginParameterId(const juce::AudioProcessorParameter& parameter,
                                uint32_t index) {
@@ -139,23 +183,25 @@ bool createPrivateHostSnapshot(
         // Preserve the source reference before replacing it with the snapshot's
         // private resource path. Resetting it first silently skipped project
         // state restoration and made isolated AU/VST instances open defaults.
+        const PluginSlot sourceSlot = slot;
         const auto sourceStateResource = slot.stateResource;
         slot.stateResource.reset();
         const PluginProcessorBank::StateBlob* transient = nullptr;
         if (transientStates != nullptr) {
-            const auto found = std::find_if(transientStates->begin(), transientStates->end(),
-                [&slot](const PluginProcessorBank::StateBlob& state) {
-                    return state.slotId == slot.id;
+            const auto found = std::find_if(
+                transientStates->begin(), transientStates->end(),
+                [&sourceSlot, &strip](const PluginProcessorBank::StateBlob& state) {
+                    return stateBlobMatchesSlot(state, strip.id, sourceSlot);
                 });
             if (found != transientStates->end()) transient = &*found;
         }
         std::vector<uint8_t> state;
         if (transient != nullptr) {
             state = transient->data;
-        } else if (resources != nullptr && sourceStateResource.has_value()) {
+        } else if (sourceStateResource.has_value()) {
             std::string stateError;
-            if (!resources->extractFile(*sourceStateResource, state, stateError,
-                                        kMaximumStateBytesPerSlot)) {
+            if (!extractPluginSlotState(resources, strip.id, sourceSlot,
+                                        state, stateError)) {
                 error = "Could not restore saved state for plug-in "
                     + slot.plugin.name + ": " + stateError;
                 projectDirectory.deleteRecursively();
@@ -307,6 +353,7 @@ struct PluginProcessorBank::Node {
 
     std::string slotId;
     std::string pluginIdentifier;
+    std::optional<std::string> stateResource;
     std::unique_ptr<juce::AudioPluginInstance> instance;
     std::vector<PluginParameterBinding> parameterBindings;
     bool bindingsPrepared = false;
@@ -495,7 +542,9 @@ PluginProcessorBank::StateSnapshot PluginProcessorBank::snapshotStates(
                     continue;
                 }
                 StateBlob blob;
+                blob.stripId = chain->stripId;
                 blob.slotId = node->slotId;
+                blob.stateResource = node->stateResource;
                 blob.data.resize(static_cast<size_t>(fileBytes));
                 if (fileBytes > 0
                     && stream->read(blob.data.data(), static_cast<int>(fileBytes))
@@ -563,7 +612,9 @@ PluginProcessorBank::StateSnapshot PluginProcessorBank::snapshotStates(
                 }
             }
             StateBlob blob;
+            blob.stripId = chain->stripId;
             blob.slotId = node->slotId;
+            blob.stateResource = node->stateResource;
             if (bytes > 0) {
                 const auto* begin = static_cast<const uint8_t*>(state.getData());
                 blob.data.assign(begin, begin + bytes);
@@ -1033,7 +1084,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                         identical = identical && node != nullptr
                             && node->slotId == slot.id
                             && node->pluginIdentifier == slot.plugin.identifier
-                            && node->instrument == slot.plugin.instrument;
+                            && node->instrument == slot.plugin.instrument
+                            && node->stateResource == slot.stateResource;
                     }
                     if (identical) {
                         retainedChain = candidate.get();
@@ -1104,7 +1156,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                             && !node->faulted.load(std::memory_order_acquire)
                             && node->slotId == slot.id
                             && node->pluginIdentifier == slot.plugin.identifier
-                            && node->instrument == slot.plugin.instrument;
+                            && node->instrument == slot.plugin.instrument
+                            && node->stateResource == slot.stateResource;
                     }
                     if (identical) {
                         reusableChain = candidate.get();
@@ -1174,6 +1227,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                                 const auto& oldNode = old.nodes[index];
                                 if (oldNode == nullptr)
                                     continue;
+                                if (index >= slots->size()
+                                    || oldNode->stateResource != (*slots)[index].stateResource)
+                                    continue;
                                 const auto file = directory.getChildFile(
                                     "slot-" + juce::String(static_cast<juce::int64>(index))
                                     + ".state");
@@ -1188,7 +1244,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                                 if (stream == nullptr)
                                     continue;
                                 StateBlob blob;
+                                blob.stripId = old.stripId;
                                 blob.slotId = oldNode->slotId;
+                                blob.stateResource = oldNode->stateResource;
                                 blob.data.resize(static_cast<size_t>(bytes));
                                 if (bytes > 0
                                     && stream->read(blob.data.data(),
@@ -1206,6 +1264,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                     auto node = std::make_shared<Node>(slot.plugin.instrument);
                     node->slotId = slot.id;
                     node->pluginIdentifier = slot.plugin.identifier;
+                    node->stateResource = slot.stateResource;
                     node->bypassed.store(slot.bypassed, std::memory_order_relaxed);
                     node->loadState = "loading";
                     PluginPowerFlags flags;
@@ -1345,7 +1404,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                             return candidate != nullptr
                                 && candidate->slotId == slot.id
                                 && candidate->pluginIdentifier == slot.plugin.identifier
-                                && candidate->instrument == slot.plugin.instrument;
+                                && candidate->instrument == slot.plugin.instrument
+                                && candidate->stateResource == slot.stateResource;
                         });
                     if (previous != previousChain->nodes.end()) {
                         reusableNode = *previous;
@@ -1397,6 +1457,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             auto node = std::make_shared<Node>(slot.plugin.instrument);
             node->slotId = slot.id;
             node->pluginIdentifier = slot.plugin.identifier;
+            node->stateResource = slot.stateResource;
             node->bypassed.store(slot.bypassed, std::memory_order_relaxed);
             PluginPowerFlags pflags;
             pflags.keepAwake = slot.keepAwake;
@@ -1442,18 +1503,20 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 if (transientStates != nullptr) {
                     const auto saved = std::find_if(
                         transientStates->begin(), transientStates->end(),
-                        [&slot](const StateBlob& state) { return state.slotId == slot.id; });
+                        [&slot, &chain](const StateBlob& state) {
+                            return stateBlobMatchesSlot(state, chain->stripId, slot);
+                        });
                     if (saved != transientStates->end()) transientState = &*saved;
                 }
                 if (transientState != nullptr) {
                     node->instance->setStateInformation(
                         transientState->data.data(),
                         static_cast<int>(transientState->data.size()));
-                } else if (resources != nullptr && slot.stateResource.has_value()) {
+                } else if (slot.stateResource.has_value()) {
                     std::vector<uint8_t> state;
                     std::string stateError;
-                    if (resources->extractFile(*slot.stateResource, state, stateError,
-                                               kMaximumStateBytesPerSlot)) {
+                    if (extractPluginSlotState(resources, chain->stripId,
+                                               slot, state, stateError)) {
                         if (state.size() <= kMaximumStateBytesPerSlot
                             && loadedStateBytes + state.size() <= kMaximumStateBytesPerBank) {
                             node->instance->setStateInformation(
@@ -1463,7 +1526,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                             result.warnings.push_back("Plug-in state limit exceeded: " + slot.plugin.name);
                         }
                     } else {
-                        result.warnings.push_back("Missing plug-in state: " + slot.plugin.name);
+                        result.warnings.push_back("Missing plug-in state for "
+                            + slot.plugin.name + ": " + stateError);
                     }
                 }
                 const int reportedLatency =

@@ -205,6 +205,8 @@ private:
     void pluginSlotPark(const std::string& json);
     void pluginSlotUnpark(const std::string& json);
     void pluginSlotOpenEditor(const std::string& json);
+    void pluginPresetSave(const std::string& json);
+    void pluginPresetLoad(const std::string& json);
     void closePluginEditor(const std::string& stripId,
                            const std::string& slotId);
     void closeAllPluginEditors();
@@ -416,6 +418,8 @@ private:
     std::thread audioRenderThread;
     std::atomic<bool> audioRenderRunning{false};
     std::atomic<bool> cancelAudioRender{false};
+    std::thread pluginPresetThread;
+    std::atomic<bool> pluginPresetBusy{false};
 
     // Message-thread FIFO for commands accepted while an import/save owns the
     // document. In-order draining keeps multi-file track-add/upload batches

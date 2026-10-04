@@ -400,6 +400,17 @@ int WebServer::servePluginParameterValues(struct lws* wsi, const char* queryArgs
                              json.c_str(), json.size());
 }
 
+int WebServer::servePluginPresets(struct lws* wsi, const char* queryArgs) {
+    const std::string pluginId = queryParam(queryArgs, "pluginId");
+    if (pluginId.empty() || pluginId.size() > 2048)
+        return writeJsonError(wsi, HTTP_STATUS_BAD_REQUEST, "invalid pluginId");
+    const std::string json = pluginPresetsProvider
+        ? pluginPresetsProvider(pluginId)
+        : "{\"pluginId\":\"\",\"presets\":[],\"error\":\"Plug-in preset service is unavailable\"}";
+    return writeHTTPResponse(wsi, HTTP_STATUS_OK, "application/json",
+                             json.data(), json.size());
+}
+
 int WebServer::serveExportDownload(struct lws* wsi) {
     std::string path, name;
     bool ready = false;

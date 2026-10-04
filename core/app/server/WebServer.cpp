@@ -423,6 +423,11 @@ int resosetHttpCallback(struct lws* wsi, int reason, void* user, void* in, size_
                         lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
                         return server->servePluginParameterValues(wsi, argsBuf);
                     }
+                    if (std::strcmp(uri, "/api/v1/plugins/slot/presets") == 0) {
+                        char argsBuf[4096] = "";
+                        lws_hdr_copy(wsi, argsBuf, sizeof(argsBuf), WSI_TOKEN_HTTP_URI_ARGS);
+                        return server->servePluginPresets(wsi, argsBuf);
+                    }
                     if (std::strcmp(uri, "/api/v1/player/peaks") == 0)
                         return server->servePeaks(wsi);
                     if (std::strcmp(uri, "/api/v1/player/peaks-all") == 0)

@@ -236,6 +236,7 @@ bool isProjectScopedCommand(WebCommandKind kind) {
         WebCommandKind::PluginSlotAdd, WebCommandKind::PluginSlotReplace,
         WebCommandKind::PluginSlotRemove, WebCommandKind::PluginSlotMove,
         WebCommandKind::PluginSlotBypass, WebCommandKind::PluginSlotRetry,
+        WebCommandKind::PluginPresetSave, WebCommandKind::PluginPresetLoad,
         WebCommandKind::PluginSlotOpenEditor, WebCommandKind::PluginSlotKeepAwake,
         WebCommandKind::PluginSlotPark, WebCommandKind::PluginSlotUnpark,
         WebCommandKind::BuilderAutomationLaneAdd, WebCommandKind::BuilderAutomationLaneRemove,
@@ -505,6 +506,10 @@ bool WebServer::handleHttpApi(struct lws* wsi, const char* path, const char* met
         cmd = {WebCommandKind::PluginSlotBypass, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/slot/retry") == 0) {
         cmd = {WebCommandKind::PluginSlotRetry, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/preset/save") == 0) {
+        cmd = {WebCommandKind::PluginPresetSave, 0, 0.0, "", std::string(body, bodyLen)};
+    } else if (std::strcmp(path, "/api/v1/plugins/slot/preset/load") == 0) {
+        cmd = {WebCommandKind::PluginPresetLoad, 0, 0.0, "", std::string(body, bodyLen)};
     } else if (std::strcmp(path, "/api/v1/plugins/loading/decision") == 0) {
         wire::WPluginLoadDecisionPayload p;
         const auto err = glz::read_json(p, std::string_view(body, bodyLen));

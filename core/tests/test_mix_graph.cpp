@@ -502,11 +502,15 @@ TEST_CASE("buildMixGraph: processor layout key ignores controls but tracks inser
     CHECK(buildMixGraph(p, outputs16()).processorLayoutKey == original);
     p.tracks[0].plugins[0].bypassed = false;
     p.tracks[0].plugins[0].stateResource = "Plugins/slot-1.state";
-    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey == original);
+    const uint64_t firstStateResource = buildMixGraph(p, outputs16()).processorLayoutKey;
+    CHECK(firstStateResource != original);
+    CHECK(buildMixGraph(p, outputs16()).routingLayoutKey == originalRouting);
+    p.tracks[0].plugins[0].stateResource = "Plugins/PresetStates/slot-1/preset-a.state";
+    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != firstStateResource);
 
     p.tracks.push_back(TrackDef{});
     p.tracks.back().id = "audio::track:3";
-    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != original);
+    CHECK(buildMixGraph(p, outputs16()).processorLayoutKey != firstStateResource);
 }
 
 // ── Flat route ids (engine/project/RouteId.h) ───────────────────────────────

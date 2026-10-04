@@ -16,6 +16,7 @@ import { pluginChains, type PluginCatalogEntry } from "@/lib/state/api";
 import type { PluginSlotRow } from "@/lib/state/types";
 import { groupEffects, type PluginGroup } from "@/screens/mixer/plugins/logic/pluginGroups";
 import { PluginSlotControl } from "@/screens/mixer/plugins/PluginSlotControl";
+import { PluginPresetDialog } from "@/screens/mixer/plugins/components/PluginPresetDialog";
 
 interface SlotMenu {
   x: number;
@@ -73,6 +74,7 @@ export function PluginInsertSlots({
   targetSlotCount?: number;
 }) {
   const [menu, setMenu] = useState<SlotMenu | null>(null);
+  const [presetSlot, setPresetSlot] = useState<PluginSlotRow | null>(null);
   const [draggedSlotId, setDraggedSlotId] = useState<string | null>(null);
   const groups = useMemo(() => groupEffects(catalog), [catalog]);
   // Smart aligned mixer racks: match targetSlotCount across strips
@@ -207,6 +209,14 @@ export function PluginInsertSlots({
               >
                 Open Editor Window
               </ContextMenuItem>
+              <ContextMenuItem
+                onClick={() => {
+                  setPresetSlot(menu.slot);
+                  setMenu(null);
+                }}
+              >
+                Presets…
+              </ContextMenuItem>
               <ContextMenuDivider />
               <ContextMenuSubmenu label="Swap Plug-in">
                 {effectCategoryMenus(groups, false, (plugin) => {
@@ -284,6 +294,17 @@ export function PluginInsertSlots({
             effectCategoryMenus(groups, slots.length >= 32, addPlugin)
           )}
         </ContextMenu>
+      )}
+
+      {presetSlot && (
+        <PluginPresetDialog
+          open
+          stripId={stripId}
+          slotId={presetSlot.id}
+          pluginId={presetSlot.pluginId}
+          pluginName={presetSlot.name}
+          onClose={() => setPresetSlot(null)}
+        />
       )}
     </>
   );

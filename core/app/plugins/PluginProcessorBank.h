@@ -19,6 +19,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -82,7 +83,11 @@ public:
     };
 
     struct StateBlob {
+        /** Exact owning processor chain; slot IDs alone are not globally unique. */
+        std::string stripId;
         std::string slotId;
+        /** Project resource identity represented by these opaque bytes. */
+        std::optional<std::string> stateResource;
         std::vector<uint8_t> data;
     };
 
