@@ -962,3 +962,20 @@ the combined focused run passed 19/19. Full UI Vitest passed 1,018 tests across
 150 files; TypeScript and production build passed; lint passed with 12 existing
 warnings outside this change; `git diff --check` passed. No manual Electron or
 device acceptance was performed.
+
+### MIDI Clip File framing and export resource bounds (2026-10-04)
+
+The `.midi2` parser enforces one DCTPQ preceded by a zero-delta DCS and before
+Start of Clip; Start/End must have clockstamps, remain single and ordered, and
+End must be final. Parser-retained UMP events are capped at 200,000. Export now
+enforces that same cap as events are collected, including loop expansion, and
+filters visible source items once before expanding loops. A long-gap regression
+round-trips the writer's DCS/NOOP resets. These framing assertions follow MIDI
+Clip File Specification v1.0 sections 3, 6 and 7:
+<https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf>.
+
+Focused MIDI Clip/SMF tests passed 27/27; full UI passed 1,024 tests across 151
+files; TypeScript and production build passed; lint passed with 12 pre-existing
+warnings outside the changed files; `git diff --check` passed. Independent
+profile/config, SysEx, Flex Data and broad UMP fixtures, cross-DAW acceptance,
+and native UMP endpoint support remain open.

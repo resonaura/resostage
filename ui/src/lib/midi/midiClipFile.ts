@@ -52,6 +52,7 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   let started = false;
   let ended = false;
   let packetCount = 0;
+  let lastDcsDelta: number | null = null;
   while (reader.offset < bytes.length) {
     // DCS packets are not retained as musical events, but still count toward
     // parsing work. Allow one delta-control packet per retained event plus
@@ -63,24 +64,44 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     for (let index = 1; index < packetWords(type); index++) words.push(reader.word());
     if (type === 0) {
       const status = (first >>> 20) & 0xf;
-      if (status === 4) ticks += first & MAX_DELTA;
-      else if (status === 3) {
+      if (status === 4) {
+        lastDcsDelta = first & MAX_DELTA;
+        ticks += lastDcsDelta;
+      } else if (status === 3) {
+        if (started) throw new Error("MIDI 2.0 clip DCTPQ must precede Start of Clip");
+        if (tpq !== 0) throw new Error("MIDI 2.0 clip contains more than one DCTPQ");
+        if (lastDcsDelta !== 0)
+          throw new Error("MIDI 2.0 clip DCTPQ must follow a zero Delta Clockstamp");
         const value = first & 0xffff;
         if (value === 0) throw new Error("MIDI 2.0 clip has an invalid zero DCTPQ");
         tpq = value;
-      }
+        lastDcsDelta = null;
+      } else lastDcsDelta = null;
       continue;
     }
+    const precedingDcsDelta = lastDcsDelta;
+    lastDcsDelta = null;
     if (type === 0xf) {
       const status = (first >>> 16) & 0x3ff;
-      if (status === 0x20) { started = true; continue; }
+      if (status === 0x20) {
+        if (started || ended) throw new Error("MIDI 2.0 clip has an unexpected Start of Clip");
+        if (precedingDcsDelta === null)
+          throw new Error("MIDI 2.0 clip Start of Clip must have a preceding Delta Clockstamp");
+        started = true;
+        continue;
+      }
       if (status === 0x21) {
+        if (!started || ended) throw new Error("MIDI 2.0 clip has an unexpected End of Clip");
+        if (precedingDcsDelta === null)
+          throw new Error("MIDI 2.0 clip End of Clip must have a preceding Delta Clockstamp");
         ended = true;
         clipEndTicks = ticks;
         if (reader.offset !== bytes.length) throw new Error("MIDI 2.0 clip contains data after End of Clip");
         break;
       }
     }
+    if (packets.length >= MAX_EVENTS)
+      throw new Error("MIDI 2.0 clip has too many UMP events");
     packets.push({ words, ticks, order: packets.length });
   }
   if (!tpq) throw new Error("MIDI 2.0 clip is missing DCTPQ");
@@ -220,23 +241,61 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   const origin = options.fromProjectStart || !Number.isFinite(earliest) ? 0 : earliest;
   const events: ClipEvent[] = [];
   let order = 0;
+  const appendEvent = (event: ClipEvent) => {
+    if (!Number.isFinite(event.beat) || event.beat < 0)
+      throw new Error("MIDI 2.0 clip contains an invalid event time");
+    if (events.length >= MAX_EVENTS)
+      throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");
+    events.push(event);
+  };
   const addNote = (note: MidiNoteRow, beat: number, durationBeats: number) => {
     for (const [index, item] of notePackets({ ...note, startBeats: beat, durationBeats }, 0).entries())
-      events.push({ ...item, priority: index === 0 ? 2 : 0, order: order++ });
+      appendEvent({ ...item, priority: index === 0 ? 2 : 0, order: order++ });
   };
   for (const track of tracks) for (const region of track.regions) {
     if (region.muted) continue;
     const loopLength = region.loopLengthBeats > 0 ? region.loopLengthBeats : region.durationBeats;
-    const loops = options.expandLoops && region.loop && loopLength > 0
+    const expandRegionLoop = options.expandLoops && region.loop && loopLength > 0;
+    const firstRelativeBeat = (sourceBeat: number): number | null => {
+      if (!Number.isFinite(sourceBeat)
+          || (region.loop && !midiRegionContainsLoopSourceBeat(region, sourceBeat))) return null;
+      const relative = expandRegionLoop
+        ? midiRegionLoopOccurrence(region, sourceBeat)
+        : sourceBeat - region.clipOffsetBeats;
+      return relative >= 0 && relative < region.durationBeats ? relative : null;
+    };
+    const notes = region.notes.flatMap((note) => {
+      if (note.muted) return [];
+      const relative = firstRelativeBeat(note.startBeats);
+      return relative === null ? [] : [{ note, relative }];
+    });
+    const umpEvents = (region.umpEvents ?? []).flatMap((event) => {
+      const relative = firstRelativeBeat(event.beat);
+      if (relative === null) return [];
+      const wordCount = event.wordCount;
+      const words = Array.isArray(event.words) ? event.words.slice(0, wordCount) : [];
+      if (wordCount < 1 || wordCount > 4 || words.length !== wordCount
+          || words.some((word) => !Number.isInteger(word) || word < 0 || word > 0xffff_ffff))
+        throw new Error("A stored UMP event is malformed");
+      const expectedWords = packetWords(words[0] >>> 28);
+      if (expectedWords !== wordCount) throw new Error("A stored UMP event has an invalid packet length");
+      return [{ relative, words }];
+    });
+    const midiEvents = (region.events ?? []).flatMap((event) => {
+      const relative = firstRelativeBeat(event.beat);
+      if (relative === null) return [];
+      const words = midi1EventToUmp(event.status, event.data);
+      return words ? [{ relative, words }] : [];
+    });
+    if (!notes.length && !umpEvents.length && !midiEvents.length) continue;
+
+    const loops = expandRegionLoop
       ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength)) : 1;
     for (let iteration = 0; iteration < loops; iteration++) {
-      for (const note of region.notes) {
-        if (note.muted) continue;
-        if (region.loop && !midiRegionContainsLoopSourceBeat(region, note.startBeats)) continue;
-        const relative = options.expandLoops && region.loop && loopLength > 0
-          ? midiRegionLoopOccurrence(region, note.startBeats) + iteration * loopLength
-          : note.startBeats - region.clipOffsetBeats;
-        if (relative < 0 || relative >= region.durationBeats) continue;
+      const loopOffset = expandRegionLoop ? iteration * loopLength : 0;
+      for (const { note, relative: sourceRelative } of notes) {
+        const relative = sourceRelative + loopOffset;
+        if (relative >= region.durationBeats) continue;
         const beat = region.startBeats + relative - origin;
         if (beat < -1e-9) continue;
         const availableInLoop = region.loop
@@ -246,32 +305,20 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
           note.durationBeats, availableInLoop, region.durationBeats - relative,
         ));
       }
-      for (const event of region.umpEvents ?? []) {
-        if (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat)) continue;
-        const relative = options.expandLoops && region.loop && loopLength > 0
-          ? midiRegionLoopOccurrence(region, event.beat) + iteration * loopLength
-          : event.beat - region.clipOffsetBeats;
+      for (const { relative: sourceRelative, words } of umpEvents) {
+        const relative = sourceRelative + loopOffset;
         if (relative < 0 || relative >= region.durationBeats) continue;
         const beat = region.startBeats + relative - origin;
         if (beat >= -1e-9) {
-          const wordCount = event.wordCount;
-          const words = event.words.slice(0, wordCount);
-          if (wordCount < 1 || wordCount > 4 || words.length !== wordCount || words.some((word) => !Number.isInteger(word) || word < 0 || word > 0xffff_ffff))
-            throw new Error("A stored UMP event is malformed");
-          const expectedWords = packetWords(words[0] >>> 28);
-          if (expectedWords !== wordCount) throw new Error("A stored UMP event has an invalid packet length");
-          events.push({ beat: Math.max(0, beat), words, priority: 1, order: order++ });
+          appendEvent({ beat: Math.max(0, beat), words, priority: 1, order: order++ });
         }
       }
-      for (const event of region.events ?? []) {
-        if (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat)) continue;
-        const relative = options.expandLoops && region.loop && loopLength > 0
-          ? midiRegionLoopOccurrence(region, event.beat) + iteration * loopLength
-          : event.beat - region.clipOffsetBeats;
+      for (const { relative: sourceRelative, words } of midiEvents) {
+        const relative = sourceRelative + loopOffset;
         if (relative < 0 || relative >= region.durationBeats) continue;
         const beat = region.startBeats + relative - origin;
-        const words = midi1EventToUmp(event.status, event.data);
-        if (words && beat >= -1e-9) events.push({ beat: Math.max(0, beat), words, priority: 1, order: order++ });
+        if (beat >= -1e-9)
+          appendEvent({ beat: Math.max(0, beat), words, priority: 1, order: order++ });
       }
     }
   }
@@ -289,7 +336,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     if (beat < -1e-9) continue;
     const quantizedBeat = Math.max(0, Math.round(beat * 24) / 24);
     const units = Math.max(1, Math.min(0xffff_ffff, Math.round(60 / item.bpm * 100_000_000)));
-    events.push({ beat: quantizedBeat, words: [0xd0100000, units >>> 0, 0, 0], priority: -2, order: order++ });
+    appendEvent({ beat: quantizedBeat, words: [0xd0100000, units >>> 0, 0, 0], priority: -2, order: order++ });
   }
   const rawMeterEvents = [...(options.meterEvents ?? [{ beat: 0, numerator: options.numerator, denominator: options.denominator }])]
     .filter((item) => Number.isFinite(item.beat) && item.numerator > 0 && Number.isInteger(item.denominator))
@@ -307,7 +354,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     if (!Number.isInteger(power) || power < 0 || power > 7) continue;
     const quantizedBeat = Math.max(0, Math.round(beat * 24) / 24);
     const word1 = (((item.numerator & 0xff) << 24) | ((power & 0xff) << 16) | (8 << 8)) >>> 0;
-    events.push({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], priority: -1, order: order++ });
+    appendEvent({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], priority: -1, order: order++ });
   }
   if (!events.length) throw new Error("No MIDI events to export");
   if (events.length > MAX_EVENTS) throw new Error("MIDI 2.0 clip exceeds the 200,000 event export limit");

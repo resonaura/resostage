@@ -1349,3 +1349,22 @@ passed with 12 existing warnings outside this change; `git diff --check` passed.
 No manual Electron or hardware acceptance was run. Next: commit this verified
 block, then proceed to MIDI Clip File conformance fixtures and remaining native
 UMP transport gaps. Do not push.
+
+### Latest continuation — MIDI Clip File framing and bounded export (2026-10-04)
+
+The MIDI Clip File parser now validates a single DCTPQ preceded by a zero DCS
+and before Start of Clip; Start/End each require a preceding DCS, are single
+and ordered, and End must be final. It rejects more than 200,000 retained UMP
+events. Writer output applies the same cap at event insertion, so loop expansion
+cannot first allocate an oversized event list. It prefilters muted, trimmed
+and out-of-loop source events once before expansion. A long-gap test covers
+the writer's DCS/NOOP resets. These assertions derive from the published
+MIDI Clip File Specification v1.0 (sections 3, 6 and 7):
+<https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf>.
+
+Focused MIDI Clip/SMF tests passed 27/27; full UI passed 1,024 tests across
+151 files; TypeScript and production build passed; lint passed with 12
+pre-existing warnings outside the change; `git diff --check` passed. Remaining
+codec work: independent profile/config, SysEx, Flex Data and broad UMP fixtures,
+plus cross-DAW round-trip acceptance. Continue with those and native UMP I/O;
+do not push.

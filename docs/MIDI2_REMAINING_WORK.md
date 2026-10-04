@@ -24,6 +24,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   MIDI 1.0 Channel Voice UMP, MIDI 2.0 Note On/Off, note group, 16-bit attack
   and release velocity, and the note attribute fields represented in the
   current project schema.
+- MIDI Clip File parsing requires one DCTPQ with its preceding zero DCS,
+  clockstamped Start/End markers, no bytes after End, and at most 200,000
+  retained UMP events. Export enforces the same event cap while collecting
+  output (including loop expansion), rather than after building an oversized
+  intermediate list. Long DCS gaps are emitted with bounded DCS/NOOP resets.
 - Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
   packets on MIDI regions; the current format 12 retains them. Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and
@@ -109,8 +114,12 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   timing, uses exact region history edits, and wraps pasted points through the
   source loop window. It does not bridge to the OS clipboard. The semantic
   event dialog remains available for exact field entry.
-- The importer has focused unit coverage but no maintained conformance corpus
-  from other DAWs and no broad cross-application round-trip certification.
+- The parser/exporter now have focused structural, timing, long-gap and
+  capacity tests, but there is no maintained reference-file corpus from other
+  DAWs and no broad cross-application round-trip certification. Use the
+  [MIDI Clip File Specification v1.0](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf)
+  as the source for future conformance fixtures; do not infer rules from an
+  implementation that conflicts with the published specification.
 
 ### Live MIDI and plug-ins
 
@@ -128,12 +137,13 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 
 ## Recommended implementation order
 
-1. **Close file-codec gaps:** add official/reference fixtures for MIDI Clip
-   File framing, DCTPQ/DCS edge cases, simultaneous events, SysEx, Flex Data,
-   malformed packets, large deltas, and all supported UMP message lengths.
-   Specify exact handling for note-off attributes and overlapping same-pitch
-   notes; extend the project note model only where round-trip requirements
-   justify it.
+1. **Continue file-codec conformance:** add official/reference fixtures for
+   MIDI Clip File profiles/configuration messages, simultaneous events,
+   SysEx, Flex Data, malformed packets, large deltas, and all supported UMP
+   message lengths. Existing tests cover core DCTPQ/DCS framing, Start/End,
+   shared deltas, long-gap resets and size caps. Specify exact handling for
+   note-off attributes and overlapping same-pitch notes; extend the project
+   note model only where round-trip requirements justify it.
 2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor,
    group/channel preview filters, direct point gestures, curve/smoothing,
    marquee selection and internal cut/copy/paste for recognized CC/Pitch Bend
