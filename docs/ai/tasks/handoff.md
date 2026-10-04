@@ -1661,3 +1661,14 @@ Core CTest 1/1; `ResoStage` native target and UI production build pass; TS
 project build, changed-file lint and `git diff --check` pass. Pending: final
 diff review and an English commit; do not push. Continue researching
 independent MIDI Clip fixtures and avoid overstating cross-DAW compatibility.
+
+Latest continuation — disclose MIDI 2.0 zero-velocity Note On conversion
+(2026-10-04): Standard MIDI `.mid` export correctly raises a MIDI 2.0 zero-
+velocity Note On to velocity 1, but the loss analyzer did not disclose this
+change. Added a dedicated count and warning, separate from ordinary 7-bit
+velocity quantization, plus a round-trip regression proving the output remains
+a Note On. Export consent now keys off the selected MIDI 1/2 loss summary and
+exact selected meter metadata, invalidating consent when those loss details
+change. Focused SMF 29/29; full UI 1,064/1,064 across 151 files; TypeScript,
+production build and lint passed. Basis: UMP Protocol v1.1.1 §7.4.2. Pending
+final diff review and English commit; do not push.

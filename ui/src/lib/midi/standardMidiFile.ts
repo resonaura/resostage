@@ -327,6 +327,7 @@ export interface Midi1LossReport {
   midi2Notes: number;
   noteAttributes: number;
   groups: number;
+  zeroVelocityNoteOns: number;
   quantizedVelocities: number;
   unsupportedUmpEvents: number;
 }
@@ -340,7 +341,8 @@ function scaleMidi1VelocityToMidi2(value: number): number {
 /** Inspect selected content before lossy export to Standard MIDI File 1.0. */
 export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossReport {
   const report: Midi1LossReport = {
-    midi2Notes: 0, noteAttributes: 0, groups: 0, quantizedVelocities: 0, unsupportedUmpEvents: 0,
+    midi2Notes: 0, noteAttributes: 0, groups: 0, zeroVelocityNoteOns: 0,
+    quantizedVelocities: 0, unsupportedUmpEvents: 0,
   };
   for (const track of tracks) for (const region of track.regions) {
     if (region.muted) continue;
@@ -353,7 +355,11 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
       if (note.midi2.group !== 0) report.groups++;
       const on = note.midi2.velocity;
       const off = note.midi2.releaseVelocity;
-      if (scaleMidi1VelocityToMidi2(on >>> 9) !== on || scaleMidi1VelocityToMidi2(off >>> 9) !== off)
+      // In UMP MIDI 2.0, zero is a valid Note On attack. MIDI 1.0 interprets
+      // velocity-zero Note On as Note Off, so the exporter raises it to 1.
+      if (on === 0) report.zeroVelocityNoteOns++;
+      if ((on !== 0 && scaleMidi1VelocityToMidi2(on >>> 9) !== on)
+        || scaleMidi1VelocityToMidi2(off >>> 9) !== off)
         report.quantizedVelocities++;
     }
     for (const event of region.umpEvents ?? []) {

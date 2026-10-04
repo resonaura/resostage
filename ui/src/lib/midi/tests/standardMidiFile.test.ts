@@ -379,6 +379,7 @@ describe("Standard MIDI File", () => {
       midi2Notes: 1,
       noteAttributes: 1,
       groups: 1,
+      zeroVelocityNoteOns: 0,
       quantizedVelocities: 1,
       unsupportedUmpEvents: 1,
     });
@@ -388,6 +389,26 @@ describe("Standard MIDI File", () => {
       releaseAttributeType: 2, releaseAttributeData: 0x1234,
     } }] };
     expect(analyzeMidi1ExportLoss([{ name: "Release attribute", regions: [releaseOnly] }]).noteAttributes).toBe(1);
+  });
+
+  it("reports and preserves MIDI 2.0 zero-velocity Note On during lossy MIDI 1 export", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      notes: [{ ...region.notes[0], midi2: {
+        group: 0, velocity: 0, releaseVelocity: 0, attributeType: 0, attributeData: 0,
+      } }],
+    };
+    expect(analyzeMidi1ExportLoss([{ name: "Zero attack", regions: [source] }])).toMatchObject({
+      zeroVelocityNoteOns: 1,
+      quantizedVelocities: 0,
+    });
+
+    const parsed = parseStandardMidiFile(writeStandardMidiFile(
+      [{ name: "Zero attack", regions: [source] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+    expect(parsed.tracks[1].notes[0].velocity).toBeCloseTo(1 / 127, 6);
   });
 
   it("preserves source MIDI channels and non-note channel/meta events", () => {

@@ -50,10 +50,6 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
     [intent.kind, intent.songIndex, selectedSongs],
   );
   const exportSelectionKey = exportSongIndices.join(",");
-  useEffect(() => {
-    setLossAccepted(false);
-    setMidi2LossAccepted(false);
-  }, [format, exportSelectionKey, intent.kind, intent.regionId, intent.trackId]);
   const exportTracks = useMemo(() => {
     const tracks = new Map<string, MidiExportTrack>();
     const trackNames = new Map(projectTracks.map((track) => [track.id, track.name]));
@@ -73,12 +69,29 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
     return [...tracks.values()];
   }, [exportSongIndices, songs, projectTracks, intent.kind, intent.regionId, intent.trackId]);
   const lossReport = useMemo(() => analyzeMidi1ExportLoss(exportTracks), [exportTracks]);
-  const hasMidi1Loss = lossReport.noteAttributes + lossReport.groups + lossReport.quantizedVelocities + lossReport.unsupportedUmpEvents > 0;
+  const hasMidi1Loss = lossReport.noteAttributes + lossReport.groups + lossReport.zeroVelocityNoteOns
+    + lossReport.quantizedVelocities + lossReport.unsupportedUmpEvents > 0;
   const midi2ClickIntervalLossCount = useMemo(
     () => countMidi2TimeSignatureClickIntervalLoss(songs, exportSongIndices),
     [songs, exportSongIndices],
   );
   const hasMidi2Loss = midi2ClickIntervalLossCount > 0;
+  const lossFingerprint = JSON.stringify({
+    midi1: lossReport,
+    midi2: exportSongIndices.map((index) => ({
+      index,
+      signatures: (songs[index]?.signaturePoints ?? []).map((point) => [
+        point.beat,
+        point.numerator,
+        point.denominator,
+        point.midiClocksPerMetronomeClick ?? 24,
+      ]),
+    })),
+  });
+  useEffect(() => {
+    setLossAccepted(false);
+    setMidi2LossAccepted(false);
+  }, [format, exportSelectionKey, intent.kind, intent.regionId, intent.trackId, lossFingerprint]);
 
   const doExport = () => {
     try {
@@ -140,6 +153,7 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
                 <ul className="list-inside list-disc text-foreground/70">
                   {lossReport.noteAttributes > 0 && <li>{lossReport.noteAttributes} note attribute(s) will be omitted</li>}
                   {lossReport.groups > 0 && <li>{lossReport.groups} note(s) use a UMP group other than 0</li>}
+                  {lossReport.zeroVelocityNoteOns > 0 && <li>{lossReport.zeroVelocityNoteOns} MIDI 2.0 zero-velocity Note On attack(s) will be raised to velocity 1 so MIDI 1.0 does not interpret them as Note Off</li>}
                   {lossReport.quantizedVelocities > 0 && <li>{lossReport.quantizedVelocities} note(s) have velocity values that will be quantized to 7 bits</li>}
                   {lossReport.unsupportedUmpEvents > 0 && <li>{lossReport.unsupportedUmpEvents} UMP-only event(s) have no implemented MIDI 1.0 conversion</li>}
                 </ul>

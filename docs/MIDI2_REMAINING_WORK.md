@@ -154,8 +154,12 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   packets; the profile payload is not interpreted and no MIDI-CI negotiation
   is performed.
 - `.mid` remains inherently lossy for data without a MIDI 1.0 equivalent.
-  The loss report is a safeguard, not a universal translator. MPE/vendor
-  encodings are not synthesized automatically.
+  The loss report is a safeguard, not a universal translator. In particular,
+  a MIDI 2.0 zero-velocity Note On is a valid attack but cannot be written as a
+  MIDI 1.0 zero-velocity Note On (which means Note Off); the exporter raises it
+  to velocity 1 and reports this conversion separately from ordinary 7-bit
+  velocity quantization. MPE/vendor encodings are not synthesized
+  automatically.
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay
@@ -539,3 +543,18 @@ TypeScript check, and production UI build passed. Independent cross-DAW
 fixtures and complete MIDI Clip interoperability remain open. References:
 [MIDI.org Standard MIDI Files specification](https://midi.org/standard-midi-files-specification),
 [UMP & MIDI 2.0 Protocol v1.1.1 §7.5.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — disclose MIDI 2.0 zero-velocity Note On conversion (2026-10-04)
+
+MIDI 2.0 permits a zero-velocity Note On as a real attack. The MIDI 1.0
+translator must replace the converted zero with velocity 1, because MIDI 1.0
+assigns Note-On velocity zero the Note-Off meaning. Standard MIDI export
+already performed this protocol-correct conversion, but its loss analyzer
+failed to report it. The report now counts these attacks separately from
+ordinary 7-bit velocity quantization and the dialog names the conversion.
+The MIDI export consent fingerprint includes the selected MIDI 1/2 loss
+summary and exact selected time-signature metadata, so project changes that
+alter the reported loss clear prior consent. Focused SMF tests passed 29/29;
+full UI passed 1,064/1,064 across 151 files; TypeScript, production build, and
+changed-file lint passed. Reference: [UMP & MIDI 2.0 Protocol v1.1.1 §7.4.2]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

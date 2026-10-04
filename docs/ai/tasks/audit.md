@@ -2322,3 +2322,18 @@ as raw channel-track data. Regression coverage includes an older project
 without the field, non-default round-trip, and selection-aware loss reporting.
 Verification passed: SMF tests 28/28, UI 1,063/1,063 across 151 files, Core
 CTest 1/1, native `ResoStage` build, TypeScript and UI production build.
+
+### Audit — zero-velocity MIDI 2.0 Note On export warning (2026-10-04)
+
+UMP MIDI 2.0 allows velocity zero on Note On without treating it as Note Off;
+the MIDI 1.0 default translator must replace a converted zero velocity with 1.
+The `.mid` writer already did that, but the loss report equated source zero
+with translated zero and omitted the conversion from consent. Added a separate
+`zeroVelocityNoteOns` count and explicit dialog copy; ordinary 7-bit velocity
+quantization stays separately counted. The export acceptance fingerprint now
+tracks the selected loss summary and exact selected meter fields so changed
+loss data clears stale consent while unrelated telemetry changes do not.
+Regression test verifies both warning and output note attack. Focused SMF
+29/29; full UI 1,064/1,064 across 151 files; TypeScript/production build and
+changed-file lint passed. Basis: [UMP & MIDI 2.0 Protocol v1.1.1 §7.4.2]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
