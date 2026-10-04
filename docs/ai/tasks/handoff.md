@@ -2021,3 +2021,14 @@ Commit this block separately in English and do not push. Continue with reference
 SMF fixtures and audit program/channel/name metadata and export-loss reporting;
 avoid claiming full MIDI 2.0 device, SMF2 Container, or overall MIDI
 interoperability.
+
+Latest verified SMF metadata fix (2026-10-04): track-name meta (`FF 03`) is
+kept as track metadata and no longer duplicated among timed region events. The
+writer also skips legacy stored `FF 03` region events, so exporting after a DAW
+rename writes only the current track label. Other meta, SysEx, and controller
+events remain timed/preserved. Verified: focused SMF 84/84; full UI 1,139/1,139
+across 154 files; production build, changed-file lint, and diff check pass.
+Commit separately in English and do not push. Next, verify program/channel
+behavior against independent SMF files; a track can legally contain messages
+for multiple channels, so preserve its original message structure unless the
+user explicitly selects a transform.

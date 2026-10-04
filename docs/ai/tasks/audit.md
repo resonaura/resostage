@@ -2694,3 +2694,16 @@ Focused tests: 13/13; full UI: 1,138/1,138 across 154 files; UI production
 build, changed-file lint, Core build, and diff check passed. Next, audit real
 SMF fixtures for source-track metadata/program/channel fidelity and compare the
 loss report to actual imported/exported data before broad compatibility claims.
+
+Latest metadata audit (2026-10-04): SMF `FF 03` track-name meta was both used
+to name the imported DAW track and retained as a timed MIDI-region event. The
+writer also inserts the current DAW name, so an edited track could export two
+conflicting names and the old name could win on reimport. The parser now keeps
+track name only in the track metadata field, and the writer suppresses legacy
+raw `FF 03` region events. Other raw meta/SysEx/controller data remains
+untouched. Focused SMF tests 84/84; full UI 1,139/1,139 across 154 files;
+production build, changed-file lint, and diff check passed. Basis: [MIDI
+Association Standard MIDI Files](https://midi.org/standard-midi-files), which
+describes tracks and their descriptive names. Continue auditing channel/program
+semantics with reference files; format tracks may legally carry multiple
+channels, so never split or merge them implicitly without a visible choice.

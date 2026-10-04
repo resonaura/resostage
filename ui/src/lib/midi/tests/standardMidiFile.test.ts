@@ -112,6 +112,29 @@ describe("Standard MIDI File", () => {
     });
   });
 
+  it("treats SMF track names as track metadata and exports only the current DAW name", () => {
+    const sourceName = [...new TextEncoder().encode("Source track")];
+    const imported = parseStandardMidiFile(smfWithTrackEvents([
+      0, 0xff, 0x03, sourceName.length, ...sourceName,
+      0, 0xff, 0x2f, 0,
+    ]));
+    expect(imported.tracks[0].name).toBe("Source track");
+    expect(imported.tracks[0].events).toEqual([]);
+
+    const legacyRegion: MidiRegionRow = {
+      ...region,
+      events: [{ beat: 0, status: 0xff, data: [0x03, ...sourceName] }],
+    };
+    const exported = parseStandardMidiFile(writeStandardMidiFile([
+      { name: "Current DAW name", regions: [legacyRegion] },
+    ], {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false,
+    }));
+    expect(exported.tracks[1].name).toBe("Current DAW name");
+    expect(exported.tracks[1].events).toEqual([]);
+  });
+
   it("skips unknown chunks before and between declared track chunks", () => {
     const trackChunk = (pitch: number) => [
       0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 12,

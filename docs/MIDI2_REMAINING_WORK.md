@@ -953,3 +953,20 @@ Validation: import dialog and batch tests 13/13; full UI 1,138/1,138 across
 and Core application build passed. This improves SMF Format 0/1 track layout;
 it does not imply complete SMF/MIDI Clip interoperability or add SMF2 Container
 support.
+
+### Latest continuation — keep SMF track names out of region event streams (2026-10-04)
+
+Standard MIDI track-name meta events (`FF 03`) are now represented only as
+`ImportedMidiTrack.name` and then as the DAW track label. They are not also
+stored as timed MIDI-region events. The SMF writer filters legacy raw `FF 03`
+region events and emits the current DAW track name once, preventing a source
+name from overriding or duplicating a later edited track name on re-export.
+Other raw text, lyric, instrument-name, device/port, SysEx, and controller
+events remain preserved as timed events. This follows the Standard MIDI File
+model where tracks can carry track names and other descriptive information
+([MIDI Association: Standard MIDI Files](https://midi.org/standard-midi-files)).
+
+Validation: focused SMF tests 84/84; full UI 1,139/1,139 across 154 files;
+production UI build, changed-file oxlint, and diff check passed. This is track
+metadata fidelity only and does not close the independent reference-fixture,
+SMF2 Container, or live MIDI 2.0 transport gaps.

@@ -245,7 +245,11 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
             throw new Error("MIDI track contains data after End-of-Track");
           break;
         }
-        if (!recognizedTimingMetaEvent && kind !== 0x2f) {
+        // Track Name is represented by ImportedMidiTrack.name / the DAW track
+        // label, not a timed region event. Keeping a duplicate raw copy would
+        // make an export contain both the current DAW name and the old source
+        // name on the same output track.
+        if (!recognizedTimingMetaEvent && kind !== 0x2f && kind !== 0x03) {
           events.push({ beat: musicalPosition(tick), status: 0xff,
             data: [kind, ...retainEventData(data, 1)] });
         }
@@ -1028,6 +1032,9 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
         }
       }
       for (const event of region.events ?? []) {
+        // Older projects may already have stored source track names as raw
+        // region events. The output track's current DAW name is authoritative.
+        if (event.status === 0xff && event.data[0] === 0x03) continue;
         const repeats = options.expandLoops && region.loop && loopLength > 0
           ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength))
           : 1;
