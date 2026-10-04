@@ -1240,6 +1240,16 @@ describe("Standard MIDI File", () => {
     );
   });
 
+  it.each([
+    [0, 0xf1, 0x80, 0, 0xff, 0x2f, 0],
+    [0, 0xf2, 0x01, 0x80, 0, 0xff, 0x2f, 0],
+    [0, 0xf3, 0x80, 0, 0xff, 0x2f, 0],
+  ])("rejects a MIDI System Common data byte with its status bit set", (...events) => {
+    expect(() => parseStandardMidiFile(smfWithTrackEvents(events))).toThrow(
+      /system event data bytes must be 7-bit values/,
+    );
+  });
+
   it("rejects malformed stored MIDI events instead of writing broken track data", () => {
     const malformedEvents = [
       { beat: 0, status: 0x90, data: [60, 0x80] },

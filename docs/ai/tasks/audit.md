@@ -2519,3 +2519,9 @@ flattening large nested number arrays. Loop expansion of a large SysEx event
 rejects as soon as the output budget is exceeded. Focused Standard MIDI tests
 passed 64/64; full UI passed 1,099/1,099 across 151 files. TypeScript,
 production build, changed-file oxlint and `git diff --check` passed.
+
+Follow-up parser validation applies 7-bit data checks to imported F1/F2/F3
+System Common events, matching the writer and Channel Voice parser. Do not
+apply this to SysEx/F7 escape payloads. Focused tests passed 67/67; full UI
+passed 1,102/1,102 across 151 files; TypeScript, production build,
+changed-file oxlint, and `git diff --check` passed.

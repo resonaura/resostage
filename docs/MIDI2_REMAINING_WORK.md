@@ -696,3 +696,11 @@ A regression uses loop-expanded raw SysEx to verify early rejection over the
 file-size limit. Focused Standard MIDI tests passed 64/64; full UI passed
 1,099/1,099 across 151 files; TypeScript, production build, changed-file
 oxlint, and `git diff --check` passed.
+
+The importer now applies its existing 7-bit data-byte validation to System
+Common messages as well as Channel Voice messages. This closes a mismatch where
+malformed F1/F2/F3 payloads could enter project state even though export
+rejected the same data. SysEx and F7 escape payload handling remains unchanged.
+Focused Standard MIDI tests passed 67/67; full UI passed 1,102/1,102 across
+151 files; TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed.
