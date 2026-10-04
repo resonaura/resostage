@@ -22,6 +22,8 @@ const MAX_BYTES = 32 * 1024 * 1024;
 const MAX_TRACKS = 256;
 const MAX_EVENTS = 200_000;
 
+type MidiRegionEvent = NonNullable<MidiRegionRow["events"]>[number];
+
 export interface MidiMeterEvent {
   beat: number;
   numerator: number;
@@ -349,6 +351,43 @@ function vlq(value: number): number[] {
   while ((n >>= 7) > 0) out.unshift((n & 0x7f) | 0x80);
   return out;
 }
+
+function rawSmfEventBytes(event: MidiRegionEvent): number[] {
+  if (!Number.isInteger(event.status) || event.status < 0x80 || event.status > 0xff)
+    throw new Error("MIDI export contains an invalid event status byte");
+  if (!Array.isArray(event.data) || event.data.some((byte) =>
+    !Number.isInteger(byte) || byte < 0 || byte > 0xff))
+    throw new Error("MIDI export contains an invalid event data byte");
+
+  if (event.status === 0xff) {
+    const [metaType, ...payload] = event.data;
+    if (metaType === undefined) throw new Error("MIDI meta event is missing its type byte");
+    if (metaType === 0x2f) throw new Error("End-of-Track cannot be exported as a MIDI region event");
+    return [0xff, metaType, ...vlq(payload.length), ...payload];
+  }
+  if (event.status === 0xf0 || event.status === 0xf7)
+    return [event.status, ...vlq(event.data.length), ...event.data];
+
+  if (event.status >= 0xf0) {
+    const length = event.status === 0xf1 || event.status === 0xf3 ? 1
+      : event.status === 0xf2 ? 2
+        : event.status === 0xf6 || event.status >= 0xf8 ? 0 : -1;
+    if (length < 0 || event.data.length !== length)
+      throw new Error("MIDI export contains an unsupported or malformed system event");
+    if (event.data.some((byte) => byte > 0x7f))
+      throw new Error("MIDI system event data bytes must be 7-bit values");
+    return [event.status, ...event.data];
+  }
+
+  const kind = event.status & 0xf0;
+  const length = kind === 0xc0 || kind === 0xd0 ? 1 : 2;
+  if (event.data.length !== length)
+    throw new Error("MIDI export contains a malformed channel voice event");
+  if (event.data.some((byte) => byte > 0x7f))
+    throw new Error("MIDI channel voice data bytes must be 7-bit values");
+  return [event.status, ...event.data];
+}
+
 function u16(value: number): number[] { return [(value >> 8) & 0xff, value & 0xff]; }
 function u32(value: number): number[] {
   return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
@@ -825,16 +864,7 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
             : event.beat - region.clipOffsetBeats;
           if (relative < 0 || relative >= region.durationBeats) continue;
           const tick = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
-          let bytes: number[];
-          if (event.status === 0xff) {
-            const [metaType, ...payload] = event.data;
-            if (metaType === undefined) continue;
-            bytes = [0xff, metaType, ...vlq(payload.length), ...payload];
-          } else if (event.status === 0xf0 || event.status === 0xf7) {
-            bytes = [event.status, ...vlq(event.data.length), ...event.data];
-          } else {
-            bytes = [event.status, ...event.data];
-          }
+          const bytes = rawSmfEventBytes(event);
           events.push({ tick, order: 1, bytes });
           totalEvents++;
           if (events.length > MAX_EVENTS || totalEvents > 400_000)

@@ -629,3 +629,17 @@ production build, changed-file oxlint, and `git diff --check` passed. This
 follows the MIDI Association's [MIDI 1.0 Detailed
 Specification](https://midi.org/midi-1-0-detailed-specification) and [expanded
 message table](https://midi.org/expanded-midi-1-0-messages-list).
+
+### Latest continuation — validate stored events before SMF export (2026-10-04)
+
+Standard MIDI export now validates every persisted raw event before writing
+track bytes: status/data octets must be in range, Channel Voice and supported
+System messages must have the proper byte count, MIDI data fields must be
+7-bit, and End-of-Track is forbidden as an in-region event because it would
+truncate later events. Unknown meta payloads and SysEx bytes remain retained.
+Regression coverage exercises invalid values, message lengths, unsupported
+system status, and embedded End-of-Track. Focused SMF tests passed 57/57;
+TypeScript and changed-file oxlint passed; full UI passed 1,092/1,092 across
+151 files, the production build, and `git diff --check` passed. See the MIDI
+Association [Standard MIDI Files specification]
+(https://midi.org/standard-midi-files-specification).

@@ -1098,6 +1098,23 @@ describe("Standard MIDI File", () => {
     );
   });
 
+  it("rejects malformed stored MIDI events instead of writing broken track data", () => {
+    const malformedEvents = [
+      { beat: 0, status: 0x90, data: [60, 0x80] },
+      { beat: 0, status: 0xc0, data: [12, 13] },
+      { beat: 0, status: 0xff, data: [0x2f] },
+      { beat: 0, status: 0xf1, data: [0x80] },
+      { beat: 0, status: 0xf5, data: [] },
+    ];
+    for (const event of malformedEvents) {
+      const invalidRegion: MidiRegionRow = { ...region, startBeats: 0, notes: [], events: [event] };
+      expect(() => writeStandardMidiFile([{ name: "Malformed", regions: [invalidRegion] }], {
+        bpm: 120, numerator: 4, denominator: 4,
+        fromProjectStart: true, expandLoops: false,
+      })).toThrow();
+    }
+  });
+
   it("concatenates chosen songs with tempo and meter changes at exact boundaries", () => {
     const makeSong = (name: string, bpm: number, numerator: number, midi: MidiRegionRow): SongRow => ({
       name, bpm, tsNum: numerator, tsDen: 4, mode: "auto", endSeconds: 2,

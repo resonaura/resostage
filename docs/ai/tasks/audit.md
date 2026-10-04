@@ -2447,3 +2447,12 @@ positions. Focused SMF tests passed 56/56; full UI passed 1,091/1,091 across
 `git diff --check` passed. Basis: MIDI Association
 [MIDI 1.0 Detailed Specification](https://midi.org/midi-1-0-detailed-specification)
 and [expanded message table](https://midi.org/expanded-midi-1-0-messages-list).
+
+Latest writer audit — stored SMF event validation (2026-10-04): raw persisted
+events could contain invalid status/data octets, wrong channel/system message
+lengths, or an embedded End-of-Track that caused parsers to ignore subsequent
+events. The writer now validates these before serialization while retaining
+unknown meta payloads and SysEx bytes. Focused SMF tests passed 57/57; full UI
+passed 1,092/1,092 across 151 files; TypeScript, production build,
+changed-file oxlint, and `git diff --check` passed. See MIDI Association
+Standard MIDI Files Specification.

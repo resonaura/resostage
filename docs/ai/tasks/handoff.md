@@ -1765,3 +1765,14 @@ cover data1 and data2. Focused SMF tests passed 56/56; full UI passed
 oxlint, and `git diff --check` passed. Review the diff and commit in English
 without pushing. Reference:
 [MIDI 1.0 Detailed Specification](https://midi.org/midi-1-0-detailed-specification).
+
+Next in-progress SMF writer hardening (2026-10-04): raw stored MIDI events are
+validated before serialization. Invalid status/data octets, malformed
+Channel Voice/System message lengths, data bytes with bit 7 set, unsupported
+system statuses, and embedded End-of-Track now reject instead of writing a
+corrupt track; unknown meta payload and SysEx byte data remain preserved.
+Focused SMF tests passed 57/57; full UI passed 1,092/1,092 across 151 files;
+TypeScript, production build, changed-file oxlint, and `git diff --check`
+passed. Review diff and commit in English without pushing. Source:
+[Standard MIDI Files specification]
+(https://midi.org/standard-midi-files-specification).
