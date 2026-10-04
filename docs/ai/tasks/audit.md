@@ -2500,3 +2500,13 @@ System Real-Time remains transparent to SysEx framing. The regression checks
 both the loss report and the parsed output file. Focused Standard MIDI tests
 passed 62/62; full UI passed 1,097/1,097 across 151 files. TypeScript,
 production build, changed-file oxlint and `git diff --check` passed.
+
+Latest SMF writer boundary audit (2026-10-04): parsing caps the entire file at
+200,000 events, including tempo/meter, track-name and End-of-Track metadata,
+while export previously allowed 400,000 content events and omitted metadata
+from its count. Export could therefore create a `.mid` that its own parser
+rejected. Writer admission now reserves mandatory events and shares the exact
+file-wide ceiling. Repeated loop occurrences reuse the encoded bytes of a raw
+source event. Focused Standard MIDI tests passed 63/63; full UI passed
+1,098/1,098 across 151 files. TypeScript, production build, changed-file
+oxlint and `git diff --check` passed.

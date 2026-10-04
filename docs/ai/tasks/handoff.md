@@ -1822,3 +1822,13 @@ remain transparent. A regression verifies both the warning counts and parsed
 across 151 files; TypeScript, production build, changed-file oxlint, and
 `git diff --check` passed. Review and commit in English; do not push. Continue
 the interoperability audit from `docs/MIDI2_REMAINING_WORK.md`.
+
+Latest verified continuation — align Standard MIDI writer/parser event caps
+(2026-10-04): writer now counts content together with tempo/meter events and
+reserves track-name and End-of-Track metadata against the parser's 200,000
+file-wide event limit. This closes a self-round-trip failure where `.mid`
+exports above the parser cap were accepted. Repeated loop occurrences reuse
+validated raw event bytes. Focused Standard MIDI tests: 63/63; full UI:
+1,098/1,098 across 151 files; TypeScript, production build, changed-file
+oxlint, and `git diff --check` passed. Review and commit in English; do not
+push. Continue the interoperability audit from `docs/MIDI2_REMAINING_WORK.md`.

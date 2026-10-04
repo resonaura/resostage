@@ -808,6 +808,20 @@ function umpEventToSmfBytes(event: Midi1EventFromUmp): number[][] {
 /** Write a type-1 SMF, one note track per DAW track plus a tempo map. */
 export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiExportOptions): Uint8Array {
   if (!tracks.length || tracks.length > MAX_TRACKS - 1) throw new Error("Select 1–255 MIDI tracks");
+  // The parser's cap counts every track event, including tempo/name/EOT
+  // metadata. Reserve those mandatory events before admitting musical data so
+  // the writer never creates a file that its own parser must reject.
+  const maxContentEvents = MAX_EVENTS - 1 - (tracks.length * 2);
+  let contentEventCount = 0;
+  const appendEvent = (
+    target: Array<{ tick: number; order: number; bytes: number[] }>,
+    event: { tick: number; order: number; bytes: number[] },
+  ) => {
+    if (++contentEventCount > maxContentEvents)
+      throw new Error(`MIDI export exceeds the ${MAX_EVENTS.toLocaleString("en-US")} total event limit`);
+    target.push(event);
+  };
+  const rawEventBytesByIdentity = new WeakMap<object, number[]>();
   const earliest = tracks.reduce((minimum, track) => track.regions.reduce(
     (value, region) => Math.min(value, region.startBeats), minimum,
   ), Infinity);
@@ -821,7 +835,7 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
   for (const event of tempo) {
     if (!Number.isFinite(event.beat) || !Number.isFinite(event.bpm) || event.bpm <= 0) continue;
     const micros = Math.max(1, Math.min(0xffffff, Math.round(60_000_000 / event.bpm)));
-    metaEvents.push({ tick: Math.max(0, Math.round((event.beat - origin) * PPQN)), order: 0,
+    appendEvent(metaEvents, { tick: Math.max(0, Math.round((event.beat - origin) * PPQN)), order: 0,
       bytes: [0xff, 0x51, 3, (micros >> 16) & 0xff, (micros >> 8) & 0xff, micros & 0xff] });
   }
   const rawMeter = [...(options.meterEvents ?? [{ beat: 0, numerator: options.numerator, denominator: options.denominator }])]
@@ -843,7 +857,7 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
     if (!Number.isInteger(thirtySecondsPerQuarter)
         || thirtySecondsPerQuarter < 0 || thirtySecondsPerQuarter > 0xff)
       throw new Error("MIDI meter 1/32-note count must be an unsigned 8-bit integer");
-    metaEvents.push({ tick: Math.max(0, Math.round((event.beat - origin) * PPQN)), order: 1,
+    appendEvent(metaEvents, { tick: Math.max(0, Math.round((event.beat - origin) * PPQN)), order: 1,
       bytes: [0xff, 0x58, 4, event.numerator & 0xff, denomPower,
         midiClocksPerMetronomeClick, thirtySecondsPerQuarter] });
   }
@@ -856,7 +870,6 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
   }
   tempoTrack.push(0, 0xff, 0x2f, 0);
   const chunks = [chunk("MTrk", tempoTrack)];
-  let totalEvents = 0;
   for (const track of tracks) {
     const events: Array<{ tick: number; order: number; bytes: number[] }> = [];
     for (const region of track.regions) {
@@ -896,8 +909,8 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
             : Math.max(0x80, attackVelocity14) & 0x7f;
           const attackOrder = isInstantaneous ? 2 : 4;
           if (attackVelocityLsb !== 0)
-            events.push({ tick: start, order: attackOrder, bytes: [0xb0 | channel, 88, attackVelocityLsb] });
-          events.push({ tick: start, order: isInstantaneous ? 2 : 4,
+            appendEvent(events, { tick: start, order: attackOrder, bytes: [0xb0 | channel, 88, attackVelocityLsb] });
+          appendEvent(events, { tick: start, order: isInstantaneous ? 2 : 4,
             bytes: [0x90 | channel, pitch, velocity] });
           const releaseVelocity14 = note.midi2
             ? Math.max(0, Math.min(0xffff, Math.round(note.midi2.releaseVelocity))) >>> 2
@@ -908,12 +921,9 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           const releaseVelocityLsb = releaseVelocity14 === undefined ? 0 : releaseVelocity14 & 0x7f;
           const releaseOrder = isInstantaneous ? 3 : 0;
           if (releaseVelocityLsb !== 0)
-            events.push({ tick: end, order: releaseOrder, bytes: [0xb0 | channel, 88, releaseVelocityLsb] });
-          events.push({ tick: end, order: isInstantaneous ? 3 : 0,
+            appendEvent(events, { tick: end, order: releaseOrder, bytes: [0xb0 | channel, 88, releaseVelocityLsb] });
+          appendEvent(events, { tick: end, order: isInstantaneous ? 3 : 0,
             bytes: [0x80 | channel, pitch, Math.max(0, Math.min(127, midi1ReleaseVelocity))] });
-          totalEvents += 2 + Number(attackVelocityLsb !== 0) + Number(releaseVelocityLsb !== 0);
-          if (events.length > MAX_EVENTS || totalEvents > 400_000)
-            throw new Error("MIDI export exceeds event limit");
         }
       }
       for (const event of region.events ?? []) {
@@ -921,17 +931,21 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength))
           : 1;
         if (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat)) continue;
+        let bytes: number[] | undefined;
         for (let repeat = 0; repeat < repeats; repeat++) {
           const relative = options.expandLoops && region.loop && loopLength > 0
             ? midiRegionLoopOccurrence(region, event.beat) + repeat * loopLength
             : event.beat - region.clipOffsetBeats;
           if (relative < 0 || relative >= region.durationBeats) continue;
           const tick = Math.max(0, Math.round((region.startBeats + relative - origin) * PPQN));
-          const bytes = rawSmfEventBytes(event);
-          events.push({ tick, order: 1, bytes });
-          totalEvents++;
-          if (events.length > MAX_EVENTS || totalEvents > 400_000)
-            throw new Error("MIDI export exceeds event limit");
+          if (!bytes) {
+            bytes = rawEventBytesByIdentity.get(event);
+            if (!bytes) {
+              bytes = rawSmfEventBytes(event);
+              rawEventBytesByIdentity.set(event, bytes);
+            }
+          }
+          appendEvent(events, { tick, order: 1, bytes });
         }
       }
       for (const event of region.umpEvents ?? []) {
@@ -941,10 +955,7 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           const converted = umpEventToMidi1(event.words, event.wordCount);
           if (converted) {
             for (const bytes of umpEventToSmfBytes(converted)) {
-              events.push({ tick: 0, order: -2, bytes });
-              totalEvents++;
-              if (events.length > MAX_EVENTS || totalEvents > 400_000)
-                throw new Error("MIDI export exceeds event limit");
+              appendEvent(events, { tick: 0, order: -2, bytes });
             }
           }
           // SMF has no distinct receiver-configuration section. Representable
@@ -964,10 +975,7 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           const converted = umpEventToMidi1(event.words, event.wordCount);
           if (!converted) continue;
           for (const bytes of umpEventToSmfBytes(converted)) {
-            events.push({ tick, order: 1, bytes });
-            totalEvents++;
-            if (events.length > MAX_EVENTS || totalEvents > 400_000)
-              throw new Error("MIDI export exceeds event limit");
+            appendEvent(events, { tick, order: 1, bytes });
           }
         }
       }

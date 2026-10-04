@@ -670,3 +670,16 @@ standard SMF track events. The behavior follows MIDI Association guidance that
 Real-Time messages may occur anywhere and do not alter running status:
 [MIDI messages](https://midi.org/about-midi-part-3midi-messages), [MIDI.org
 running-status discussion](https://midi.org/community/getting-started-with-midi-1/note-off/paged/2).
+
+### Latest continuation — keep Standard MIDI export within parser event limits (2026-10-04)
+
+The SMF parser rejects files with more than 200,000 events, counting tempo,
+meter, track-name and End-of-Track metadata. The writer previously allowed
+400,000 channel events and did not count metadata, so it could generate a file
+that ResoStage itself could not reopen. The writer now reserves mandatory
+track/tempo metadata and admits no more content events than fit the parser's
+file-wide cap. Repeated loop occurrences of one raw source event reuse its
+validated encoded bytes. A regression exercises the over-limit boundary.
+Focused Standard MIDI tests passed 63/63; full UI passed 1,098/1,098 across
+151 files; TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed.

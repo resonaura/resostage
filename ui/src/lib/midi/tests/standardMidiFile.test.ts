@@ -1193,6 +1193,23 @@ describe("Standard MIDI File", () => {
     })).toThrow(/integers from 0 to 0x0FFFFFFF/);
   });
 
+  it("keeps exported event count within the parser limit including metadata", () => {
+    const repeatedEvent = { beat: 0, status: 0x90, data: [60, 100] };
+    const denseRegion: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      events: Array(199_996).fill(repeatedEvent),
+      umpEvents: [],
+    };
+
+    expect(() => writeStandardMidiFile([{ name: "Dense", regions: [denseRegion] }], {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: false,
+    })).toThrow(/200,000 total event limit/);
+  });
+
   it.each([
     [0, 0x90, 0x80, 100, 0, 0xff, 0x2f, 0],
     [0, 0x90, 60, 0x80, 0, 0xff, 0x2f, 0],
