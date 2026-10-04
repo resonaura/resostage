@@ -1010,8 +1010,18 @@ struct WebUiState {
             // -1 = sum L+R into a mono destination, 0 = left, 1 = right.
             int sourceChannel = -1;
         };
+        struct SidechainEdgeRow {
+            std::string from;
+            std::string to;
+            std::string pluginSlotId;
+            std::string pluginName;
+            uint32_t inputBusIndex = 1;
+            std::string channelMode = "automatic";
+            bool active = true;
+        };
         std::vector<StripRow> strips;
         std::vector<EdgeRow> edges;
+        std::vector<SidechainEdgeRow> sidechainEdges;
     };
     MixGraphRow mixGraph;
 

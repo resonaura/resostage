@@ -19,6 +19,10 @@ const NODE_TYPES = { route: SignalFlowNodeCard };
 
 function edgeLabel(edge: SignalFlowEdge): string {
   if (edge.protocol === "midi") return edge.label || "MIDI";
+  if (edge.protocol === "sidechain") {
+    const mode = edge.channelMode === "automatic" ? "auto" : edge.channelMode;
+    return `SC · ${edge.pluginName || edge.pluginSlotId || "plug-in"} · bus ${edge.inputBusIndex} · ${mode}`;
+  }
   const parts: string[] = [];
   if (Math.round(edge.level) !== 100) parts.push(`${Math.round(edge.level)}%`);
   if (edge.preFader) parts.push("pre");
@@ -27,7 +31,7 @@ function edgeLabel(edge: SignalFlowEdge): string {
   return parts.join(" · ");
 }
 
-/** Audio wiring comes from Core verbatim; dotted MIDI paths describe published configuration. */
+/** Audio and sidechain wiring come from Core verbatim; dotted MIDI paths describe published configuration. */
 export const SignalFlowGraph = memo(function SignalFlowGraph({
   model,
   focusNodeId,
@@ -80,19 +84,24 @@ export const SignalFlowGraph = memo(function SignalFlowGraph({
     const edges: Edge[] = model.edges.map((edge, index) => {
       const offPath = focused != null && !focused.edges.has(index);
       const midi = edge.protocol === "midi";
+      const sidechain = edge.protocol === "sidechain";
       const label = edgeLabel(edge);
       // Audio routes follow their source's track/strip colour. MIDI ingress
       // follows its destination track, preserving the same visual identity.
       const color = midi && nodeColors.has(edge.to) ? nodeColors.get(edge.to)! : nodeColors.get(edge.from)!;
       return {
         id: `${edge.from}->${edge.to}#${index}`, source: edge.from, target: edge.to,
+        // A higher Bézier curvature separates a configured sidechain from an
+        // ordinary route with the same source and destination IDs.
+        type: sidechain ? "default" : undefined,
+        pathOptions: sidechain ? { curvature: 0.5 } : undefined,
         animated: false, label: label || undefined,
         labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 3,
         labelBgStyle: { fill: colors.labelBg },
         style: {
           stroke: edge.active ? withHexAlpha(color, "b3") : midi ? withHexAlpha(color, "59") : colors.silenced,
           strokeWidth: offPath ? 1 : 1.5,
-          strokeDasharray: midi ? "2 4" : edge.active ? undefined : "5 3",
+          strokeDasharray: midi ? "2 4" : sidechain ? "7 4" : edge.active ? undefined : "5 3",
           opacity: offPath ? 0.12 : 1,
           transition: "opacity 140ms ease-out",
         },

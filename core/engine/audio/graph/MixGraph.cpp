@@ -105,6 +105,7 @@ uint64_t routingLayoutKey(const MixGraph& graph) {
         hashU32(hash, edge.from);
         hashU32(hash, edge.to);
         hashU32(hash, edge.pluginSlotIndex);
+        hashBytes(hash, edge.pluginSlotId);
         hashU32(hash, edge.inputBusIndex);
         hashByte(hash, static_cast<uint8_t>(edge.channelMode));
     }
@@ -638,7 +639,8 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
 
             graph.sidechainEdges.push_back({
                 source, destination, slotIndex, slot.sidechain->inputBusIndex,
-                slot.sidechain->channelMode, graph.strips[source].audible});
+                slot.sidechain->channelMode, graph.strips[source].audible,
+                slot.id});
             dependencyGraph[source].push_back(destination);
             ++acceptedFeeds;
         }

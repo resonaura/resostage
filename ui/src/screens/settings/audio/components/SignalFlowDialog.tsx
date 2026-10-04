@@ -113,7 +113,7 @@ export function SignalFlowDialog({
                   </Button>
                 )}
                 <span className="text-[10px] text-foreground/55">Track and mixer colours</span>
-                <span className="text-[10px] text-foreground/55">Solid = audio · dotted = MIDI</span>
+                <span className="text-[10px] text-foreground/55">Solid = audio · dashed = sidechain · dotted = MIDI</span>
                 <Button
                   size="sm"
                   variant={live ? "secondary" : "outline"}
@@ -161,6 +161,9 @@ export function SignalFlowDialog({
               <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-default/25 px-4 py-1.5 text-[10px] text-foreground/40">
                 <span>{snapshot.graph.strips.length} audio strips</span>
                 <span>{snapshot.graph.edges.length} audio routes</span>
+                {(snapshot.graph.sidechainEdges?.length ?? 0) > 0 && (
+                  <span>{snapshot.graph.sidechainEdges?.length} sidechain routes</span>
+                )}
                 {model.midiConnections > 0 && <span>{model.midiConnections} MIDI routes</span>}
                 <span className="ml-auto">
                   Red dashes = audio muted/soloed · MIDI shows configuration, without delivery telemetry

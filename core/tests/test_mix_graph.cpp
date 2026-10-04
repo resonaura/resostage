@@ -135,6 +135,7 @@ TEST_CASE("buildMixGraph keeps sidechain edges distinct and orders a later sourc
     CHECK(edge.from == graph.find("audio::track:2"));
     CHECK(edge.to == graph.find("audio::track:1"));
     CHECK(edge.pluginSlotIndex == 0);
+    CHECK(edge.pluginSlotId == "slot:compressor");
     CHECK(edge.inputBusIndex == 1);
     CHECK(edge.channelMode == SidechainChannelMode::MonoSum);
     CHECK(edge.from < edge.to);

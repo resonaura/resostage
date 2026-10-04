@@ -726,6 +726,18 @@ std::string WebServer::buildStateJson(const char* view) const {
             wE.sourceChannel = e.sourceChannel;
             wG.edges.push_back(std::move(wE));
         }
+        wG.sidechainEdges.reserve(snap.mixGraph.sidechainEdges.size());
+        for (const auto& e : snap.mixGraph.sidechainEdges) {
+            WMixSidechainEdgeTelemetry wE;
+            wE.from = e.from;
+            wE.to = e.to;
+            wE.pluginSlotId = e.pluginSlotId;
+            wE.pluginName = e.pluginName;
+            wE.inputBusIndex = e.inputBusIndex;
+            wE.channelMode = e.channelMode;
+            wE.active = e.active;
+            wG.sidechainEdges.push_back(std::move(wE));
+        }
         wire.mixGraph = std::move(wG);
     }
 

@@ -632,6 +632,7 @@ void MainComponent::publishWebState() {
     // is that it cannot disagree with what you hear.
     state.mixGraph.strips.clear();
     state.mixGraph.edges.clear();
+    state.mixGraph.sidechainEdges.clear();
     if (publishedGraph != nullptr) {
         state.mixGraph.strips.reserve(publishedGraph->strips.size());
         for (const MixStrip& strip : publishedGraph->strips) {
@@ -682,6 +683,52 @@ void MainComponent::publishWebState() {
             row.active = edge.active;
             row.sourceChannel = edge.sourceChannel;
             state.mixGraph.edges.push_back(std::move(row));
+        }
+        // Routing may intentionally retain the last-good graph while a new
+        // project epoch is being staged. Never resolve that graph's slot
+        // indices against the replacement mutable Project.
+        if (publishedGraph->projectEpoch == engine.currentProjectEpoch()) {
+            const auto pluginSlotsForStrip = [&proj](const MixStrip& strip)
+                -> const std::vector<PluginSlot>* {
+                switch (strip.kind) {
+                    case StripKind::Track:
+                        return strip.projectIndex < proj.tracks.size()
+                            ? &proj.tracks[strip.projectIndex].plugins : nullptr;
+                    case StripKind::Click:
+                        return &proj.click.plugins;
+                    case StripKind::Send:
+                        return strip.projectIndex < proj.sends.size()
+                            ? &proj.sends[strip.projectIndex].plugins : nullptr;
+                    case StripKind::Main:
+                        return &proj.main.plugins;
+                    case StripKind::OutputLane:
+                        return nullptr;
+                }
+                return nullptr;
+            };
+            state.mixGraph.sidechainEdges.reserve(
+                publishedGraph->sidechainEdges.size());
+            for (const MixSidechainEdge& edge : publishedGraph->sidechainEdges) {
+                if (edge.from >= publishedGraph->strips.size()
+                    || edge.to >= publishedGraph->strips.size())
+                    continue;
+                const auto* slots = pluginSlotsForStrip(
+                    publishedGraph->strips[edge.to]);
+                if (slots == nullptr || edge.pluginSlotIndex >= slots->size()
+                    || edge.pluginSlotId.empty()
+                    || (*slots)[edge.pluginSlotIndex].id != edge.pluginSlotId)
+                    continue;
+                const PluginSlot& slot = (*slots)[edge.pluginSlotIndex];
+                WebUiState::MixGraphRow::SidechainEdgeRow row;
+                row.from = publishedGraph->strips[edge.from].id;
+                row.to = publishedGraph->strips[edge.to].id;
+                row.pluginSlotId = edge.pluginSlotId;
+                row.pluginName = slot.plugin.name;
+                row.inputBusIndex = edge.inputBusIndex;
+                row.channelMode = sidechainChannelModeToString(edge.channelMode);
+                row.active = edge.active;
+                state.mixGraph.sidechainEdges.push_back(std::move(row));
+            }
         }
     }
 

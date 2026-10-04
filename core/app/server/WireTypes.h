@@ -826,9 +826,20 @@ struct WMixEdgeTelemetry {
     int sourceChannel = -1;
 };
 
+struct WMixSidechainEdgeTelemetry {
+    std::string from;
+    std::string to;
+    std::string pluginSlotId;
+    std::string pluginName;
+    uint32_t inputBusIndex = 1;
+    std::string channelMode = "automatic";
+    bool active = true;
+};
+
 struct WMixGraphTelemetry {
     std::vector<WMixStripTelemetry> strips;
     std::vector<WMixEdgeTelemetry> edges;
+    std::vector<WMixSidechainEdgeTelemetry> sidechainEdges;
 };
 
 struct WProcessTelemetry {

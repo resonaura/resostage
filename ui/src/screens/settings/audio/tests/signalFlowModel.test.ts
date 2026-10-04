@@ -46,7 +46,7 @@ describe("signal flow model", () => {
       .toEqual({ projectMatches: false, targetExists: false, focusNodeId: null });
   });
 
-  it("does not mix configured MIDI paths into an audio-bus focus path", () => {
+  it("includes sidechain paths but excludes configured MIDI from an audio-bus focus path", () => {
     const model: SignalFlowModel = {
       strips: [
         { id: "track", kind: "track", strip: strip("track") },
@@ -58,6 +58,8 @@ describe("signal flow model", () => {
       ],
       edges: [
         { from: "track", to: "bus", protocol: "audio", level: 50, preFader: true, active: true, sourceChannel: -1 },
+        { from: "track", to: "bus", protocol: "sidechain", level: 100, preFader: false, active: true, sourceChannel: -1,
+          pluginSlotId: "compressor-1", pluginName: "Compressor", inputBusIndex: 1, channelMode: "mono-sum" },
         { from: "bus", to: "main", protocol: "audio", level: 100, preFader: false, active: true, sourceChannel: -1 },
         { from: "main", to: "audio::out:1", protocol: "audio", level: 100, preFader: false, active: true, sourceChannel: 0 },
         { from: "track", to: "midi::dispatcher", protocol: "midi", level: 100, preFader: false, active: true, sourceChannel: -1 },
@@ -67,7 +69,39 @@ describe("signal flow model", () => {
     };
     const focused = pathThroughSignalFlow(model, "bus", true);
     expect([...focused.strips].sort()).toEqual(["audio::out:1", "bus", "main", "track"]);
-    expect([...focused.edges].map((index) => model.edges[index].protocol)).toEqual(["audio", "audio", "audio"]);
+    expect([...focused.edges].map((index) => model.edges[index].protocol))
+      .toEqual(expect.arrayContaining(["audio", "sidechain", "audio", "audio"]));
+  });
+
+  it("keeps plugin sidechain edges distinct and labels the exact destination input", () => {
+    const graph: MixGraphPayload = {
+      strips: [strip("source"), strip("destination")],
+      edges: [],
+      sidechainEdges: [{
+        from: "source",
+        to: "destination",
+        pluginSlotId: "compressor-slot",
+        pluginName: "Bus Compressor",
+        inputBusIndex: 2,
+        channelMode: "right",
+        active: false,
+      }],
+    };
+
+    const model = buildSignalFlowModel(graph, structuredClone(emptyState));
+    expect(model.edges).toHaveLength(1);
+    expect(model.edges[0]).toMatchObject({
+      from: "source",
+      to: "destination",
+      protocol: "sidechain",
+      pluginSlotId: "compressor-slot",
+      pluginName: "Bus Compressor",
+      inputBusIndex: 2,
+      channelMode: "right",
+      active: false,
+    });
+    expect(model.sidechainConnections).toBe(1);
+    expect(model.midiConnections).toBe(0);
   });
 
   it("preserves direct L/R, bus physical routes and shadow lanes from Core", () => {

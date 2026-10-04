@@ -443,7 +443,7 @@ TEST_CASE("MixRenderer allocator probe: zero heap allocation during block render
     // under the allocator probe below, in addition to the ordinary send edges.
     for (uint32_t source = 0; source < kMaximumSidechainFeedsPerStrip; ++source) {
         graph.sidechainEdges.push_back({
-            source, 8, source, 1, SidechainChannelMode::Automatic, true});
+            source, 8, source, 1, SidechainChannelMode::Automatic, true, {}});
     }
     std::stable_sort(graph.edges.begin(), graph.edges.end(),
                      [](const MixEdge& left, const MixEdge& right) {

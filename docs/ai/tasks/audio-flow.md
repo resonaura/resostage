@@ -139,7 +139,8 @@ passed 21/21; UI TypeScript and changed-file lint passed; full UI and
 production-build results are recorded in the latest audit/handoff entry. This
 bounds the optimizer's crossing work, not React Flow's O(E) rendering, and
 does not prove dense-graph visual legibility or manual interaction quality.
-Sidechain port authoring and visualization remain unimplemented.
+Sidechain port authoring remains unimplemented; graph visualization is tracked
+separately below.
 
 ## Sidechain model and graph foundation (2026-10-03)
 
@@ -176,7 +177,30 @@ transiently failed their editor open/close requests after the helpers were
 ready and had rendered audio; keep that flaky observation separate from
 sidechain work. This is not yet complete user-facing support: sidechain-path
 PDC/alignment, bus-capability discovery, route-authoring and validation UI,
-audio-flow visualization, and real AU/VST sidechain fixtures remain open.
+and real AU/VST sidechain fixtures remain open.
 Unsupported bus bindings warn during bank preparation and degrade to the
 normal plug-in path; do not claim full compatibility until the remaining
 stages and acceptance tests pass.
+
+## Sidechain route visualization (2026-10-03)
+
+The explicit `/api/v1/audio/mixgraph` response now has a separate
+`sidechainEdges` collection. Each edge carries source/destination strip IDs,
+stable plug-in slot ID and display name, auxiliary bus index, channel mode,
+and resolved source audibility. Core projects only edges already present in
+the published render graph and validates the slot index while creating the
+view snapshot; a stale edge is omitted rather than assigned to another slot.
+
+Settings > Audio Signal Flow renders these as dashed, track-coloured edges
+with labels identifying the plug-in, bus and channel mode. Focused bus paths
+include sidechain edges but continue excluding configured MIDI paths. The
+ordinary graph and MIDI edge semantics are unchanged; older Core responses
+without `sidechainEdges` remain valid. This is inspection only: users cannot
+create/change a route from the graph yet, no aux-bus capability catalog is
+published, and a configured but unsupported plug-in bus is still a runtime
+warning rather than a UI validation error.
+
+Focused Signal Flow model/layout tests passed (32 tests); full UI passed 917
+tests in 138 files. TypeScript, production UI build, changed-file lint,
+optimized Core/helper build, native CTest (1/1), and `git diff --check` passed.
+Packaged/remote response and visual theme/density checks remain open.

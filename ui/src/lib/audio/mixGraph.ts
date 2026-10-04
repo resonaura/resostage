@@ -37,7 +37,20 @@ export interface MixGraphEdge {
   sourceChannel: number;
 }
 
+export interface MixGraphSidechainEdge {
+  from: string;
+  to: string;
+  pluginSlotId: string;
+  pluginName: string;
+  inputBusIndex: number;
+  channelMode: "automatic" | "mono-sum" | "left" | "right";
+  /** False when the source is muted or silenced by another strip's solo. */
+  active: boolean;
+}
+
 export interface MixGraphPayload {
   strips: MixGraphStrip[];
   edges: MixGraphEdge[];
+  /** Optional for compatibility with Core versions predating sidechain graph data. */
+  sidechainEdges?: MixGraphSidechainEdge[];
 }

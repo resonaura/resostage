@@ -26,13 +26,18 @@ export interface MidiFlowNode {
 
 export type SignalFlowNode = AudioFlowNode | MidiFlowNode;
 export interface SignalFlowEdge extends MixGraphEdge {
-  protocol: "audio" | "midi";
+  protocol: "audio" | "sidechain" | "midi";
   label?: string;
+  pluginSlotId?: string;
+  pluginName?: string;
+  inputBusIndex?: number;
+  channelMode?: "automatic" | "mono-sum" | "left" | "right";
 }
 export interface SignalFlowModel {
   strips: SignalFlowNode[];
   edges: SignalFlowEdge[];
   midiConnections: number;
+  sidechainConnections?: number;
 }
 
 /** Resolve a node's connected path while preserving indices into model.edges. */
@@ -44,7 +49,7 @@ export function pathThroughSignalFlow(
   const originalIndices: number[] = [];
   const candidates: SignalFlowEdge[] = [];
   model.edges.forEach((edge, index) => {
-    if (audioOnly && edge.protocol !== "audio") return;
+    if (audioOnly && edge.protocol === "midi") return;
     originalIndices.push(index);
     candidates.push(edge);
   });
@@ -109,7 +114,16 @@ export function buildSignalFlowModel(graph: MixGraphPayload, state: WebUiState):
   });
   const sourceNodes: MidiFlowNode[] = [];
   const destinationNodes: MidiFlowNode[] = [];
-  const edges: SignalFlowEdge[] = graph.edges.map((edge) => ({ ...edge, protocol: "audio" }));
+  const edges: SignalFlowEdge[] = [
+    ...graph.edges.map((edge) => ({ ...edge, protocol: "audio" as const })),
+    ...(graph.sidechainEdges ?? []).map((edge) => ({
+      ...edge,
+      level: 100,
+      preFader: false,
+      sourceChannel: -1,
+      protocol: "sidechain" as const,
+    })),
+  ];
   const audioIds = new Set(graph.strips.map((strip) => strip.id));
   const addMidiEdge = (from: string, to: string, label?: string, active = true) => {
     edges.push({ from, to, label, active, protocol: "midi", level: 100, preFader: false, sourceChannel: -1 });
@@ -226,5 +240,10 @@ export function buildSignalFlowModel(graph: MixGraphPayload, state: WebUiState):
     }
   }
 
-  return { strips: [...sourceNodes, ...audioNodes, ...destinationNodes], edges, midiConnections: edges.length - graph.edges.length };
+  return {
+    strips: [...sourceNodes, ...audioNodes, ...destinationNodes],
+    edges,
+    midiConnections: edges.filter((edge) => edge.protocol === "midi").length,
+    sidechainConnections: edges.filter((edge) => edge.protocol === "sidechain").length,
+  };
 }

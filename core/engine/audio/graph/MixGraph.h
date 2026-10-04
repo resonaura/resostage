@@ -158,6 +158,9 @@ struct MixSidechainEdge {
     // Sidechains use the source's post-fader signal and therefore respect its
     // resolved mute/solo audibility. The callback never re-derives that rule.
     bool active = true;
+    // Stable identity accompanies the callback's faster index so diagnostic
+    // views never resolve a retained graph against another slot at that index.
+    std::string pluginSlotId;
 };
 
 inline constexpr uint32_t kMaximumSidechainFeedsPerStrip = 8;
