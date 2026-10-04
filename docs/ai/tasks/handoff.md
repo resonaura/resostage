@@ -1546,6 +1546,17 @@ both invalid forms and nonzero reserved fields. Focused tests 28/28; full UI
 Next audit timing-event positions versus MIDI Clock/bar recommendations and
 independent file fixtures; commit each verified block in English, do not push.
 
+Latest continuation — MIDI Clip Set Tempo limits (2026-10-04): replaced silent
+clamping of the 10-nanosecond-per-quarter-note value with an explicit encoding
+range check (`1..0xFFFFFFFF`), and reject invalid tempo events instead of
+dropping them. Boundary tests cover both representable extremes and out-of-range
+values. Set Tempo events remain on the protocol's 1/24-quarter-note grid.
+Focused MIDI Clip 31/31; full UI 1,052/1,052 across 151 files; TypeScript/build,
+changed-file lint, and `git diff --check` passed. Source: [UMP & MIDI 2.0
+Protocol v1.1.1 §7.5.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Commit verified blocks separately in English and do not push. Continue auditing
+independent reference-file compatibility and remaining MIDI Clip conformance.
+
 Latest continuation — MIDI Clip time-signature tick precision (2026-10-04):
 Set Time Signature is no longer quantized to the 1/24 MIDI Clock grid; output
 preserves it on the DCTPQ tick grid. A 1/128 bar change at 1/32 beat now

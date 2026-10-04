@@ -20,6 +20,15 @@ const MAX_EVENTS = 200_000;
 const TPQ = 65_280;
 const MAX_DELTA = 0x000f_ffff;
 const MAX_OUTPUT_PACKETS = MAX_EVENTS * 4 + 16;
+const MAX_SET_TEMPO_UNITS = 0xffff_ffff;
+
+function setTempoUnitsForBpm(bpm: number): number {
+  const units = Math.round(6_000_000_000 / bpm);
+  if (!Number.isFinite(bpm) || bpm <= 0 || !Number.isSafeInteger(units)
+      || units < 1 || units > MAX_SET_TEMPO_UNITS)
+    throw new Error("MIDI Clip tempo is outside the MIDI 2.0 Set Tempo encoding range");
+  return units;
+}
 
 function packetWords(messageType: number): number {
   if (messageType <= 2 || messageType === 6 || messageType === 7) return 1;
@@ -598,9 +607,11 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
       }
     }
   }
-  const rawTempoEvents = [...(options.tempoEvents ?? [{ beat: 0, bpm: options.bpm }])]
-    .filter((item) => Number.isFinite(item.beat) && Number.isFinite(item.bpm) && item.bpm > 0)
-    .sort((a, b) => a.beat - b.beat);
+  const rawTempoEvents = [...(options.tempoEvents ?? [{ beat: 0, bpm: options.bpm }])];
+  if (rawTempoEvents.some((item) => !Number.isFinite(item.beat)
+      || !Number.isFinite(item.bpm) || item.bpm <= 0))
+    throw new Error("MIDI Clip contains an invalid tempo event");
+  rawTempoEvents.sort((a, b) => a.beat - b.beat);
   const effectiveTempo = rawTempoEvents.filter((item) => item.beat <= origin + 1e-9).at(-1)
     ?? { beat: origin, bpm: options.bpm };
   const tempoEvents = [
@@ -611,7 +622,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     const beat = item.beat;
     if (beat < -1e-9) continue;
     const quantizedBeat = Math.max(0, Math.round(beat * 24) / 24);
-    const units = Math.max(1, Math.min(0xffff_ffff, Math.round(60 / item.bpm * 100_000_000)));
+    const units = setTempoUnitsForBpm(item.bpm);
     appendEvent({ beat: quantizedBeat, words: [0xd0100000, units >>> 0, 0, 0], priority: -2, order: order++ });
   }
   const rawMeterEvents = [...(options.meterEvents ?? [{ beat: 0, numerator: options.numerator, denominator: options.denominator }])]

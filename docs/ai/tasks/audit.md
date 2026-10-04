@@ -2222,3 +2222,15 @@ of a gap exceeding budget. Focused MIDI Clip tests passed 30/30; full UI passed
 1,051/1,051 across 151 files; TypeScript/production build, changed-file lint
 and `git diff --check` passed. Standard: [UMP & MIDI 2.0 Protocol v1.1.1
 §7.2.3.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+### Latest continuation — reject lossy MIDI Clip Set Tempo clamping (2026-10-04)
+
+The writer previously clamped out-of-range BPM to the nearest representable
+32-bit 10-nanosecond time-per-quarter-note value, silently changing tempo. It
+now rejects invalid tempo events and rejects conversion when rounded units are
+outside `1..0xFFFFFFFF`. Tests cover the slowest/fastest representable endpoint,
+out-of-range BPM on both sides, and malformed supplied event data. Tempo
+placement remains quantized to 1/24 quarter note as required by the protocol.
+Focused tests 31/31; full UI 1,052/1,052 across 151 files; TypeScript/build,
+changed-file lint and `git diff --check` passed. Reference: [UMP & MIDI 2.0
+Protocol v1.1.1 §7.5.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

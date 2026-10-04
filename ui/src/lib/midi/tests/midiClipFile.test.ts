@@ -315,6 +315,25 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]);
   });
 
+  it("preserves Set Tempo units at the encoding limits and rejects clamped tempos", () => {
+    const exportWithBpm = (bpm: number) => writeMidiClipFile(
+      [{ name: "Tempo limits", regions: [region] }],
+      { bpm, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    );
+    const slowest = parseMidiClipFile(exportWithBpm(6_000_000_000 / 0xffff_ffff));
+    const fastest = parseMidiClipFile(exportWithBpm(6_000_000_000));
+    expect(slowest.tempoEvents[0].bpm).toBeCloseTo(6_000_000_000 / 0xffff_ffff, 9);
+    expect(fastest.tempoEvents[0].bpm).toBe(6_000_000_000);
+
+    expect(() => exportWithBpm(1)).toThrow(/outside the MIDI 2\.0 Set Tempo encoding range/);
+    expect(() => exportWithBpm(12_000_000_001)).toThrow(/outside the MIDI 2\.0 Set Tempo encoding range/);
+    expect(() => writeMidiClipFile(
+      [{ name: "Invalid tempo", regions: [region] }],
+      { bpm: 120, tempoEvents: [{ beat: 0, bpm: Number.NaN }], numerator: 4, denominator: 4,
+        fromProjectStart: true, expandLoops: false },
+    )).toThrow(/invalid tempo event/);
+  });
+
   it("round-trips high-resolution long gaps and rejects expansion beyond its packet budget", () => {
     const clock = [0x0010_1234];
     const timestamp = [0x0020_5678];

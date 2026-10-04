@@ -412,3 +412,18 @@ This follows [MIDI Clip File v1.0 §7.1.2](https://amei.or.jp/midistandardcommit
 Focused MIDI Clip tests passed 30/30, including DCTPQ and long-gap cases; full
 UI passed 1,051/1,051 across 151 files; TypeScript/production build,
 changed-file lint, and `git diff --check` passed.
+
+### Latest continuation — reject lossy Set Tempo clamping (2026-10-04)
+
+Set Tempo export converts BPM to the protocol's 10-nanosecond units per
+quarter note and rejects values that round outside the unsigned 32-bit range
+instead of silently clamping them. Invalid supplied tempo events are rejected
+rather than filtered out. Tests exercise both representable endpoints, values
+outside the range, and invalid event data. Set Tempo placement continues to
+follow the protocol's 1/24-quarter-note grid. The encoding range comes from
+[UMP & MIDI 2.0 Protocol v1.1.1 §7.5.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+Focused MIDI Clip tests passed 31/31; full UI passed 1,052/1,052 across
+151 files; TypeScript/production build, changed-file lint, and `git diff --check`
+passed. Broader cross-application MIDI Clip fixtures remain an open validation
+gap; do not claim complete MIDI 2.0 interoperability.
