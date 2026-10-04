@@ -1732,3 +1732,8 @@ events before scanning its fixed cap. A focused regression fails if the source
 array is sliced. The bounded selected-event/projected-event allocations remain;
 no canvas-frame benchmark or device profiler was run. Focused controller-lane
 tests passed 10/10. See the newest `handoff.md` block for full UI verification.
+
+The lane-picker follow-up also removed its own 16,384-event prefix copy:
+`collectPianoRollControllerNumbers()` preserves bounded lane discovery while
+scanning by index. This is a source-level allocation reduction, not a
+frame-time measurement.

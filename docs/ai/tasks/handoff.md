@@ -1117,3 +1117,13 @@ tests across 142 files; production UI build passed. Repository lint exited 0
 with the same 12 pre-existing warnings in unrelated files. `git diff --check`
 passed. No profiler/device frame-time claim. Commit this block in English and
 continue with the next open audit item; do not push.
+
+### Piano Roll lane-picker scan follow-up (2026-10-04)
+
+The raw controller event projection no longer copies its bounded event prefix;
+this follow-up also removes the independent `regionEvents.slice(0, 16_384)`
+copy used to populate the Piano Roll CC lane picker. The shared controller
+logic now collects CC IDs by indexed bounded scan, preserving the original
+cap/semantics. A focused regression checks that the source array's `slice()`
+is not called. Verify focused/full UI tests, TypeScript, build, lint and diff
+check before committing this block. No frame-time/profile claim. Do not push.

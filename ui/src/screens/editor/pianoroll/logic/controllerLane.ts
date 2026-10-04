@@ -44,6 +44,20 @@ export interface PianoRollControllerProjection {
   truncated: boolean;
 }
 
+/** Collect visible CC lane IDs without cloning the bounded source prefix. */
+export function collectPianoRollControllerNumbers(
+  events: MidiClipEventRow[],
+): Set<number> {
+  const controllerNumbers = new Set<number>();
+  const eventCount = Math.min(events.length, MAX_SOURCE_EVENTS);
+  for (let index = 0; index < eventCount; index += 1) {
+    const event = events[index];
+    if ((event.status & 0xf0) === 0xb0 && event.data.length > 1)
+      controllerNumbers.add(event.data[0]);
+  }
+  return controllerNumbers;
+}
+
 interface SelectedEvent {
   beat: number;
   value: number;

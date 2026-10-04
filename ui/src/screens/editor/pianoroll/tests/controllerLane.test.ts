@@ -9,6 +9,7 @@ import type { MidiRegionRow } from "@/lib/state/types";
 import {
   buildPianoRollControllerProjection,
   clampControllerDisplayBeat,
+  collectPianoRollControllerNumbers,
   createControllerEvent,
   editControllerEvent,
   removeControllerEvent,
@@ -121,6 +122,14 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     const projection = buildPianoRollControllerProjection(region({ events }), "cc74", 0, 8);
 
     expect(projection.truncated).toBe(true);
+    expect(copySource).not.toHaveBeenCalled();
+  });
+
+  it("collects lane options without cloning the bounded event prefix", () => {
+    const events = [cc(0, 74, 1), cc(1, 11, 2), pitchBend(2, 0)];
+    const copySource = vi.spyOn(events, "slice");
+
+    expect(collectPianoRollControllerNumbers(events)).toEqual(new Set([74, 11]));
     expect(copySource).not.toHaveBeenCalled();
   });
 

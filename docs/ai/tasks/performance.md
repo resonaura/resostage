@@ -455,3 +455,8 @@ The focused controller-lane suite passes 10/10, including an explicit spy
 asserting that projection does not clone its source event array. Full UI/build/
 lint status is in the newest `handoff.md` entry. No profiler/device measurement
 was performed; treat this as a source-level allocation reduction only.
+
+The Piano Roll CC lane picker now uses the same explicit bounded index scan
+instead of `regionEvents.slice(0, 16_384)`. It preserves the prior first-16,384
+event behavior and collects the same controller IDs without an intermediate
+prefix array. Its regression test spies on the event array's `slice()` method.

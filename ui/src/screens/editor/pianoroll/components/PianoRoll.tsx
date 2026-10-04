@@ -17,6 +17,7 @@ import { getTrackColor } from "@/lib/theme";
 import { useThemeVersion } from "@/hooks/useThemeVersion";
 import { PianoRollHeader } from "@/screens/editor/pianoroll/components/PianoRollHeader";
 import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
+import { collectPianoRollControllerNumbers } from "@/screens/editor/pianoroll/logic/controllerLane";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
 import { usePianoRollNoteDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteDraft";
@@ -109,13 +110,10 @@ export function PianoRoll({
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
   const [controllerLaneMode, setControllerLaneMode] = useState<PianoRollControllerLaneMode>("events");
   const bottomLaneOptions = useMemo(() => {
-    const controllerNumbers = new Set<number>();
-    for (const event of regionEvents.slice(0, 16_384)) {
-      const status = event.status & 0xf0;
-      if (status === 0xb0 && event.data.length > 1)
-        controllerNumbers.add(event.data[0]);
-    }
-    return pianoRollLaneOptions(controllerNumbers, bottomLane);
+    return pianoRollLaneOptions(
+      collectPianoRollControllerNumbers(regionEvents),
+      bottomLane,
+    );
   }, [regionEvents, bottomLane]);
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
   useEffect(() => subscribeHistoryBoundary(() => {
