@@ -2569,3 +2569,11 @@ and incomplete fragment sequences reject on import and export. Tests cover
 valid round-trip and these failures. Focused MIDI Clip tests passed 38/38;
 full UI passed 1,109/1,109 across 151 files; TypeScript, production build,
 changed-file oxlint and `git diff --check` passed.
+
+Latest MIDI Clip Property Exchange boundary audit (2026-10-04): recognized
+MIDI-CI Property Exchange SysEx7 is now rejected in the receiver-configuration
+header as well as in sequence data. Valid non-PE receiver setup is unaffected.
+Tests cover both import and export. Focused MIDI Clip tests passed 39/39; full
+UI passed 1,110/1,110 across 151 files; TypeScript, production build,
+changed-file oxlint and `git diff --check` passed. Basis: MIDI Clip File v1.0
+§6.4.

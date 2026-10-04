@@ -676,6 +676,26 @@ describe("MIDI Clip File framing and resource bounds", () => {
     })).toThrow(/invalid data or nonzero padding/);
   });
 
+  it("rejects MIDI-CI Property Exchange in receiver configuration sections", () => {
+    const propertyExchange = propertyExchangePackets();
+    expect(() => parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960),
+      ...propertyExchange.flatMap((packet) => [dcs(0), packet]),
+      dcs(0), start,
+      dcs(0), end,
+    ]))).toThrow(/Property Exchange messages are not allowed in MIDI Clip receiver configuration/);
+
+    const source: MidiRegionRow = {
+      ...region,
+      umpEvents: propertyExchange.map((words) => ({
+        beat: 0, words, wordCount: 2, configurationHeader: true,
+      })),
+    };
+    expect(() => writeMidiClipFile([{ name: "Property Exchange setup", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    })).toThrow(/Property Exchange messages are not allowed in MIDI Clip receiver configuration/);
+  });
+
   it("rejects profile prefixes that are not complete MIDI-CI Set Profile On messages", () => {
     const profile = setProfileOnPackets();
     const profileOff = sysex7Packet(0, 0,

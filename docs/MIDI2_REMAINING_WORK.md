@@ -768,3 +768,14 @@ written. Regressions cover valid preservation plus bad count, padding, and an
 unfinished message on both import/export paths. Focused MIDI Clip tests passed
 38/38; full UI passed 1,109/1,109 across 151 files; TypeScript, production
 build, changed-file oxlint, and `git diff --check` passed.
+
+### Latest continuation — reject Property Exchange from receiver setup (2026-10-04)
+
+The receiver-configuration SysEx7 validator now also rejects MIDI-CI Property
+Exchange messages, while preserving structurally valid non-PE SysEx setup.
+Property Exchange is excluded from MIDI Clip data; it must not bypass the
+sequence validator merely because a packet is in the configuration header.
+Regression coverage checks both import and export. Focused MIDI Clip tests
+passed 39/39; full UI passed 1,110/1,110 across 151 files; TypeScript,
+production build, changed-file oxlint, and `git diff --check` passed. Basis:
+[MIDI Clip File v1.0 §6.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf).

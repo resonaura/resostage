@@ -124,6 +124,7 @@ function validateSysEx7Messages(
   rejectPropertyExchange: boolean,
 ): void {
   const active = new Map<number, SysEx7MessageState>();
+  const propertyExchangeScope = scope === "sequence" ? "Sequence Data" : scope;
 
   for (const words of packets) {
     if ((words[0] >>> 28) !== 3) continue;
@@ -136,7 +137,7 @@ function validateSysEx7Messages(
       const complete = { byteCount: 0, prefix: [] as number[] };
       appendPayload(complete, bytes);
       if (rejectPropertyExchange && isPropertyExchangePrefix(complete.prefix))
-        throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
+        throw new Error(`MIDI-CI Property Exchange messages are not allowed in MIDI Clip ${propertyExchangeScope}`);
       continue;
     }
 
@@ -146,7 +147,7 @@ function validateSysEx7Messages(
       const started = { byteCount: 0, prefix: [] as number[] };
       appendPayload(started, bytes);
       if (rejectPropertyExchange && isPropertyExchangePrefix(started.prefix))
-        throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
+        throw new Error(`MIDI-CI Property Exchange messages are not allowed in MIDI Clip ${propertyExchangeScope}`);
       active.set(group, started);
       continue;
     }
@@ -155,7 +156,7 @@ function validateSysEx7Messages(
       throw new Error(`MIDI Clip ${scope} has a SysEx7 continuation without a matching start`);
     appendPayload(current, bytes);
     if (rejectPropertyExchange && isPropertyExchangePrefix(current.prefix))
-      throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
+      throw new Error(`MIDI-CI Property Exchange messages are not allowed in MIDI Clip ${propertyExchangeScope}`);
     if (status === 3) active.delete(group);
   }
 
@@ -165,7 +166,7 @@ function validateSysEx7Messages(
 
 /** Validate SysEx7 framing in receiver setup without interpreting its payload. */
 export function validateMidiClipReceiverConfigurationPackets(packets: number[][]): void {
-  validateSysEx7Messages(packets, "receiver configuration", false);
+  validateSysEx7Messages(packets, "receiver configuration", true);
 }
 
 /** Reject MIDI-CI Property Exchange SysEx7 messages from sequence data. */

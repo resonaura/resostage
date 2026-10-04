@@ -1896,3 +1896,10 @@ after DCTPQ. Sequence-specific Property Exchange rejection remains scoped to
 sequence data. Focused MIDI Clip tests: 38/38; full UI: 1,109/1,109 across
 151 files; TypeScript, production build, changed-file oxlint and diff check
 passed. Review/commit in English without pushing, then continue the codec audit.
+
+Latest verified MIDI Clip restriction (2026-10-04): Property Exchange
+SysEx7 messages are rejected in receiver configuration as well as sequence
+data, following MIDI Clip File v1.0 §6.4. Valid non-PE receiver SysEx remains
+supported. Focused MIDI Clip tests: 39/39; full UI: 1,110/1,110 across 151
+files; TypeScript, production build, changed-file oxlint and diff check passed.
+Review and commit this block in English without pushing, then continue auditing.
