@@ -20,9 +20,11 @@ import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/o
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
 import { usePianoRollNoteDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteDraft";
+import { usePianoRollMidiEventDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollMidiEventDraft";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
+  PianoRollControllerLaneMode,
   PianoRollProps,
   PianoRollTool,
   PianoRollViewport,
@@ -57,6 +59,7 @@ export function PianoRoll({
   isPlaying,
   onSeek,
   onNotesChange,
+  onEventsChange,
   onRegionChange,
   canUndo = false,
   canRedo = false,
@@ -94,16 +97,26 @@ export function PianoRoll({
     retryDraft, error: noteEditError, canRetry } = usePianoRollNoteDraft({
     regionId: region.id, resetKey, notes: region.notes, onNotesChange,
   });
+  const regionEvents = useMemo(() => region.events ?? [], [region.events]);
+  const { editableEvents, commitEvents, discardDraft: discardEventDraft,
+    retryDraft: retryEventDraft, error: eventEditError,
+    canRetry: canRetryEventDraft, status: eventEditStatus } = usePianoRollMidiEventDraft({
+    regionId: region.id,
+    resetKey,
+    events: regionEvents,
+    onEventsChange,
+  });
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
+  const [controllerLaneMode, setControllerLaneMode] = useState<PianoRollControllerLaneMode>("events");
   const bottomLaneOptions = useMemo(() => {
     const controllerNumbers = new Set<number>();
-    for (const event of (region.events ?? []).slice(0, 16_384)) {
+    for (const event of regionEvents.slice(0, 16_384)) {
       const status = event.status & 0xf0;
       if (status === 0xb0 && event.data.length > 1)
         controllerNumbers.add(event.data[0]);
     }
     return pianoRollLaneOptions(controllerNumbers, bottomLane);
-  }, [region.events, bottomLane]);
+  }, [regionEvents, bottomLane]);
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
   useEffect(() => subscribeHistoryBoundary(() => {
     setLoopLengthDraft(null);
@@ -268,8 +281,9 @@ export function PianoRoll({
   const canvasRegion = useMemo(() => ({
     ...region,
     notes: editableNotes,
+    events: editableEvents,
     ...(loopLengthDraft !== null ? { loopLengthBeats: previewLoopLength } : {}),
-  }), [region, editableNotes, loopLengthDraft, previewLoopLength]);
+  }), [region, editableNotes, editableEvents, loopLengthDraft, previewLoopLength]);
 
   const noteActions = usePianoRollNoteActions({
     selectedNoteIds,
@@ -412,6 +426,8 @@ export function PianoRoll({
         bottomLane={bottomLane}
         bottomLaneOptions={bottomLaneOptions}
         onBottomLaneChange={setBottomLane}
+        controllerLaneMode={controllerLaneMode}
+        onControllerLaneModeChange={setControllerLaneMode}
         pixelsPerBeat={viewport.pixelsPerBeat}
         onPixelsPerBeatChange={(ppb) => {
           setViewport((v) => ({ ...v, pixelsPerBeat: ppb }));
@@ -448,6 +464,14 @@ export function PianoRoll({
         </div>
       )}
 
+      {eventEditError && (
+        <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+          <span className="min-w-0 flex-1">{eventEditError}</span>
+          <Button size="sm" variant="secondary" isDisabled={!canRetryEventDraft} onPress={retryEventDraft}>Retry</Button>
+          <Button size="sm" variant="ghost" onPress={discardEventDraft}>Discard draft</Button>
+        </div>
+      )}
+
       {/* Canvas Viewport */}
       <div className="relative flex-1 min-h-0 w-full">
         <PianoRollCanvas
@@ -465,6 +489,9 @@ export function PianoRoll({
           onNotesChange={commitNotes}
           onRegionChange={onRegionChange}
           bottomLane={bottomLane}
+          controllerLaneMode={controllerLaneMode}
+          eventEditStatus={eventEditStatus}
+          onEventsChange={onEventsChange ? commitEvents : undefined}
           playheadBeats={playheadBeats}
           getLivePlayheadBeats={getLivePlayheadBeats}
           activeMidiPitches={activeMidiPitches}

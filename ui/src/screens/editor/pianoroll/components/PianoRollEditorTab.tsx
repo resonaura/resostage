@@ -14,12 +14,12 @@ import { getTrackColor } from "@/lib/theme";
 import { songDurationSeconds } from "@/screens/editor/timeline/layout/logic/rows";
 import { createSongTempoMap } from "@/lib/midi/tempoMap";
 import type {
-  MidiNoteRow,
   PeaksResponse,
   WebUiState,
 } from "@/lib/state/types";
 import { MidiRegionSidePanel } from "@/screens/editor/pianoroll/components/MidiRegionSidePanel";
 import { PianoRoll } from "@/screens/editor/pianoroll/components/PianoRoll";
+import { usePianoRollRegionMutations } from "@/screens/editor/pianoroll/hooks/usePianoRollRegionMutations";
 import type { PendingMidiRegionCreation } from "@/screens/editor/hooks/useMidiRegionEditorState";
 
 interface PianoRollEditorTabProps {
@@ -121,96 +121,12 @@ function PianoRollActiveView({
     return songBeats - activeRegion.startBeats;
   }, [getLivePlayheadAbsolute, tempoMap, activeRegion.startBeats]);
 
-  const handleNotesChange = (updatedNotes: MidiNoteRow[]): Promise<void> => {
-    // Keep the lossless MIDI 2.0 shadow values in sync with the
-    // editable normalized fields. Otherwise Piano Roll velocity
-    // edits would play correctly via MIDI 1.0 but export the stale
-    // imported 16-bit value as MIDI 2.0.
-    const previousNotes = new Map(
-      activeRegion.notes.map((note) => [note.id, note]),
-    );
-    const notesToSave = updatedNotes.map((note) => {
-      const previous = previousNotes.get(note.id);
-      if (!note.midi2 || !previous) return note;
-      const midi2 = { ...note.midi2 };
-      if (note.velocity !== previous.velocity)
-        midi2.velocity = Math.max(
-          0,
-          Math.min(0xffff, Math.round(note.velocity * 0xffff)),
-        );
-      if (note.releaseVelocity !== previous.releaseVelocity)
-        midi2.releaseVelocity = Math.max(
-          0,
-          Math.min(0xffff, Math.round(note.releaseVelocity * 0xffff)),
-        );
-      return { ...note, midi2 };
-    });
-    const exists = midiRegions.some((region) => region.id === activeRegion.id);
-    if (!exists) {
-      const pending = pendingMidiRegionCreates.get(activeRegion.id);
-      if (pending) {
-        pending.notes = notesToSave;
-        pending.followupEdit = true;
-        return pending.completion;
-      }
-      // The placeholder ID is UI-only; Core assigns the durable ID.
-      // Include the first notes in Add and defer any follow-up edits
-      // until telemetry reveals that durable ID.
-      let resolve!: () => void;
-      let reject!: (error: Error) => void;
-      const completion = new Promise<void>((accept, decline) => { resolve = accept; reject = decline; });
-      pendingMidiRegionCreates.set(activeRegion.id, {
-        songIndex: state.songIndex,
-        trackId: activeRegion.trackId,
-        notes: notesToSave,
-        followupEdit: false,
-        startedAt: Date.now(),
-        completion,
-        resolve,
-        reject,
-      });
-      void builder.midiRegionAdd({
-        songIndex: state.songIndex,
-        trackId: activeRegion.trackId,
-        name: activeRegion.name,
-        startBeats: activeRegion.startBeats,
-        durationBeats: activeRegion.durationBeats,
-        clipOffsetBeats: activeRegion.clipOffsetBeats,
-        loop: activeRegion.loop,
-        loopLengthBeats: activeRegion.loopLengthBeats,
-        loopStartBeats: activeRegion.loopStartBeats ?? 0,
-        muted: Boolean(activeRegion.muted),
-        color: activeRegion.color,
-        notes: notesToSave,
-      }).catch((error: unknown) => {
-        pendingMidiRegionCreates.delete(activeRegion.id);
-        reject(error instanceof Error ? error : new Error(String(error)));
-      });
-      return completion;
-    } else {
-      // If Core's add has reached the UI state but the reconciliation
-      // effect has not run yet, discard the queued stale snapshot;
-      // this authoritative update already contains the newest edit.
-      const superseded: PendingMidiRegionCreation[] = [];
-      for (const [placeholderId, pending] of pendingMidiRegionCreates) {
-        if (
-          pending.songIndex === state.songIndex &&
-          pending.trackId === activeRegion.trackId
-        ) {
-          superseded.push(pending);
-          pendingMidiRegionCreates.delete(placeholderId);
-        }
-      }
-      return builder.midiRegionUpdate({
-        songIndex: state.songIndex,
-        regionId: activeRegion.id,
-        notes: notesToSave,
-      }).then(() => { superseded.forEach((pending) => pending.resolve()); }, (error: unknown) => {
-        superseded.forEach((pending) => pending.reject(error instanceof Error ? error : new Error(String(error))));
-        throw error;
-      });
-    }
-  };
+  const { handleNotesChange, handleEventsChange } = usePianoRollRegionMutations({
+    state,
+    activeRegion,
+    midiRegions,
+    pendingMidiRegionCreates,
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-row gap-1.5 overflow-hidden">
@@ -266,6 +182,7 @@ function PianoRollActiveView({
           void transport.seek(seekSec, state.songIndex);
         }}
         onNotesChange={handleNotesChange}
+        onEventsChange={handleEventsChange}
         projectCycle={state.cycle}
         projectSongIndex={state.songIndex}
         projectSong={currentSong}

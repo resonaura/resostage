@@ -9,6 +9,7 @@ import type { SelectOption } from "@/components/ui";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
+  PianoRollControllerLaneMode,
   PianoRollTool,
   ScaleMode,
 } from "@/screens/editor/pianoroll/logic/types";
@@ -53,6 +54,8 @@ export interface PianoRollToolbarProps {
   bottomLane?: PianoRollBottomLane;
   bottomLaneOptions?: readonly SelectOption[];
   onBottomLaneChange?: (lane: PianoRollBottomLane) => void;
+  controllerLaneMode?: PianoRollControllerLaneMode;
+  onControllerLaneModeChange?: (mode: PianoRollControllerLaneMode) => void;
   pixelsPerBeat?: number;
   onPixelsPerBeatChange?: (val: number) => void;
   pixelsPerPitch?: number;

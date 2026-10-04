@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, ProjectCycleRow, SongRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, ProjectCycleRow, SongRow } from "@/lib/state/types";
 
 export type PianoRollTool = "select" | "draw" | "erase" | "brush" | "slice";
 
@@ -20,6 +20,8 @@ export type PianoRollBottomLane =
   | "cc69" // Hold 2
   | `cc${number}` // Other raw MIDI controllers present in this region
   | "pitchBend";
+
+export type PianoRollControllerLaneMode = "events" | "automation";
 
 export type GridSnapValue =
   | 4.0 // 1 Bar (4/4)
@@ -63,6 +65,7 @@ export interface DraggingState {
     | "brush"
     | "slice"
     | "cc"
+    | "midiEvent"
     | "playhead";
   startPointerX: number;
   startPointerY: number;
@@ -102,6 +105,18 @@ export interface PianoRollControllerGesture {
   lastValue: number;
 }
 
+/** Snapshot and cursor state for one raw MIDI CC or pitch-bend event gesture. */
+export interface PianoRollMidiEventGesture {
+  beforeEvents: MidiClipEventRow[];
+  baseEvents: MidiClipEventRow[];
+  sourceEventIndex: number;
+  added: boolean;
+  anchorBeat: number;
+  changed: boolean;
+  lastBeat: number;
+  lastValue: number;
+}
+
 /** Expected Core acknowledgement for the last region automation edit. */
 export interface PianoRollPendingAutomationCommit {
   parameterId: string;
@@ -129,6 +144,7 @@ export interface PianoRollProps {
   onSeek?: (beats: number) => void;
   /** Reliable admission; the editor keeps its draft until a matching Core snapshot. */
   onNotesChange: (notes: MidiNoteRow[]) => void | Promise<void>;
+  onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
   onRegionChange?: (region: MidiRegionRow) => void;
   canUndo?: boolean;
   canRedo?: boolean;

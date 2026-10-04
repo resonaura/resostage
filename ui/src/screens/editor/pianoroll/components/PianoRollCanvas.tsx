@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
 import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import type { CycleLocators } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 import {
@@ -16,17 +16,20 @@ import { usePianoRollAutoScroll } from "@/screens/editor/pianoroll/hooks/usePian
 import { usePianoRollCanvasRenderer } from "@/screens/editor/pianoroll/hooks/usePianoRollCanvasRenderer";
 import { usePianoRollCoordinates } from "@/screens/editor/pianoroll/hooks/usePianoRollCoordinates";
 import { usePianoRollPlayheadFollow } from "@/screens/editor/pianoroll/hooks/usePianoRollPlayheadFollow";
-import { usePianoRollPointerEndHandlers } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerEndHandlers";
-import { usePianoRollPointerDownHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerDownHandler";
-import { usePianoRollPointerMoveHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerMoveHandler";
+import { createPianoRollPointerEndHandlers } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerEndHandlers";
+import { createPianoRollPointerDownHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerDownHandler";
+import { createPianoRollPointerMoveHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerMoveHandler";
 import { usePianoRollViewportGestures } from "@/screens/editor/pianoroll/hooks/usePianoRollViewportGestures";
 import { usePianoRollGestureLifecycle } from "@/screens/editor/pianoroll/hooks/usePianoRollGestureLifecycle";
 import { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
+import { sameEditableMidiEvents } from "@/screens/editor/pianoroll/logic/controllerLane";
 import type {
   DraggingState,
   GridSnapValue,
   PianoRollBottomLane,
   PianoRollControllerGesture,
+  PianoRollMidiEventGesture,
+  PianoRollControllerLaneMode,
   PianoRollPendingAutomationCommit,
   PianoRollTool,
   PianoRollViewport,
@@ -48,7 +51,10 @@ interface PianoRollCanvasProps {
   onSelectionChange: (ids: Set<number>) => void;
   onNotesChange: (notes: MidiNoteRow[]) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
+  onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
   bottomLane?: PianoRollBottomLane;
+  controllerLaneMode?: PianoRollControllerLaneMode;
+  eventEditStatus?: string;
   playheadBeats?: number;
   getLivePlayheadBeats?: () => number;
   activeMidiPitches?: Set<number>;
@@ -86,7 +92,10 @@ export function PianoRollCanvas({
   onSelectionChange,
   onNotesChange,
   onRegionChange,
+  onEventsChange,
   bottomLane = "velocity",
+  controllerLaneMode = "events",
+  eventEditStatus = "idle",
   playheadBeats,
   getLivePlayheadBeats,
   activeMidiPitches = new Set<number>(),
@@ -121,6 +130,15 @@ export function PianoRollCanvas({
   // Local working copy of notes during interactive drag to provide 120 FPS feedback
   // with zero network roundtrip latency or runaway accumulation.
   const [localNotes, setLocalNotes] = useState<MidiNoteRow[] | null>(null);
+  const [localEvents, setLocalEventsState] = useState<MidiClipEventRow[] | null>(null);
+  const localEventsRef = useRef<MidiClipEventRow[] | null>(null);
+  const setLocalEvents = useCallback((events: MidiClipEventRow[] | null) => {
+    localEventsRef.current = events;
+    setLocalEventsState(events);
+  }, []);
+  const renderedRegion = localEvents
+    ? { ...region, events: localEvents }
+    : region;
   const notesToRender = localNotes || region.notes;
   const pendingCommitRef = useRef<MidiNoteRow[] | null>(null);
   const lastSingleSelectedDurationRef = useRef<number | null>(null);
@@ -132,6 +150,7 @@ export function PianoRollCanvas({
   }, []);
   const pendingAutomationCommitRef = useRef<PianoRollPendingAutomationCommit | null>(null);
   const controllerGestureRef = useRef<PianoRollControllerGesture | null>(null);
+  const midiEventGestureRef = useRef<PianoRollMidiEventGesture | null>(null);
   const velocityPaintRef = useRef<PianoRollVelocityPaintState | null>(null);
 
   // When authoritative region.notes updates from parent (e.g. edit commit, undo, delete),
@@ -140,6 +159,15 @@ export function PianoRollCanvas({
     setLocalNotes(null);
     pendingCommitRef.current = null;
   }, [region.notes, region.id]);
+
+  useEffect(() => {
+    const local = localEventsRef.current;
+    if (local && (eventEditStatus === "idle"
+        || sameEditableMidiEvents(local, region.events ?? [])))
+      setLocalEvents(null);
+  }, [region.events, eventEditStatus, setLocalEvents]);
+
+  useEffect(() => setLocalEvents(null), [region.id, setLocalEvents]);
 
   useEffect(() => {
     const pending = pendingAutomationCommitRef.current;
@@ -210,11 +238,13 @@ export function PianoRollCanvas({
       pendingCommitRef,
       pendingAutomationCommitRef,
       controllerGestureRef,
+      midiEventGestureRef,
       velocityPaintRef,
       lastDragDetentRef,
       stopAutoScroll,
       setLocalNotes,
       setControllerPreview,
+      setLocalEvents,
       setHoveredPitch,
       onSelectionChange,
     });
@@ -245,7 +275,8 @@ export function PianoRollCanvas({
     notesToRender,
     viewport,
     bottomLane,
-    region,
+    controllerLaneMode,
+    region: renderedRegion,
     localAutomationLanes,
     rootNote,
     scaleMode,
@@ -271,7 +302,7 @@ export function PianoRollCanvas({
     onSuspendFollow,
   });
 
-  const handlePointerDown = usePianoRollPointerDownHandler({
+  const handlePointerDown = createPianoRollPointerDownHandler({
     canvasRef,
     lastPointerPosRef,
     draggingRef,
@@ -279,13 +310,15 @@ export function PianoRollCanvas({
     velocityPaintRef,
     localAutomationLanesRef,
     controllerGestureRef,
+    midiEventGestureRef,
     lastDragDetentRef,
     lastSingleSelectedDurationRef,
     isFollowSuspendedRef,
     spatialIndex,
     viewport,
-    region,
+    region: renderedRegion,
     bottomLane,
+    controllerLaneMode,
     notesToRender,
     selectedNoteIds,
     tool,
@@ -301,25 +334,29 @@ export function PianoRollCanvas({
     setLocalNotes,
     setHoveredPitch,
     setControllerPreview,
+    setLocalEvents,
     onSeek,
     onSelectionChange,
     onNotesChange,
     onRegionChange,
+    onEventsChange,
     startAutoScroll,
   });
 
-  const handlePointerMove = usePianoRollPointerMoveHandler({
+  const handlePointerMove = createPianoRollPointerMoveHandler({
     canvasRef,
     lastPointerPosRef,
     draggingRef,
     pendingCommitRef,
     velocityPaintRef,
     controllerGestureRef,
+    midiEventGestureRef,
     lastDragDetentRef,
     spatialIndex,
     viewport,
-    region,
+    region: renderedRegion,
     bottomLane,
+    controllerLaneMode,
     notesToRender,
     tool,
     snap,
@@ -332,29 +369,34 @@ export function PianoRollCanvas({
     sourceBeatAt,
     setLocalNotes,
     setControllerPreview,
+    setLocalEvents,
     onSelectionChange,
     onSeek,
     onRegionChange,
+    onEventsChange,
     render,
   });
 
   const {
     handlePointerUp,
     handleDoubleClick,
-  } = usePianoRollPointerEndHandlers({
+  } = createPianoRollPointerEndHandlers({
     canvasRef,
     draggingRef,
     pendingCommitRef,
     pendingAutomationCommitRef,
     controllerGestureRef,
+    midiEventGestureRef,
     localAutomationLanesRef,
+    localEventsRef,
     velocityPaintRef,
     lastDragDetentRef,
     localNotes,
     notesToRender,
-    region,
+    region: renderedRegion,
     viewport,
     bottomLane,
+    controllerLaneMode,
     spatialIndex,
     stopAutoScroll,
     render,
@@ -363,9 +405,11 @@ export function PianoRollCanvas({
     setLocalNotes,
     setHoveredPitch,
     setControllerPreview,
+    setLocalEvents,
     onNotesChange,
     onSelectionChange,
     onRegionChange,
+    onEventsChange,
   });
 
   return (
@@ -396,6 +440,7 @@ export function PianoRollCanvas({
             notes: localNotes,
             pendingNotes: pendingCommitRef.current,
             lanes: localAutomationLanesRef.current,
+            events: localEvents,
             selection: new Set(selectedNoteIds),
           };
           handlePointerDown(event);

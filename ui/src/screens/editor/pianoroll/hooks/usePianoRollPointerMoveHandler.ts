@@ -8,7 +8,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
 import { triggerHaptic } from "@/lib/interaction/haptics";
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
 import {
   editControllerPoint,
   resolveDrawNoteDuration,
@@ -16,6 +16,10 @@ import {
 import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import { controllerValueFromY } from "@/screens/editor/pianoroll/logic/canvasUtils";
+import {
+  clampControllerDisplayBeat,
+  editControllerEvent,
+} from "@/screens/editor/pianoroll/logic/controllerLane";
 import {
   boundedNoteMove,
   boundedNoteResize,
@@ -28,6 +32,8 @@ import type {
   GridSnapValue,
   PianoRollBottomLane,
   PianoRollControllerGesture,
+  PianoRollMidiEventGesture,
+  PianoRollControllerLaneMode,
   PianoRollTool,
   PianoRollViewport,
   PianoRollVelocityPaintState,
@@ -41,11 +47,13 @@ interface PianoRollPointerMoveHandlerOptions {
   pendingCommitRef: MutableRefObject<MidiNoteRow[] | null>;
   velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
+  midiEventGestureRef: MutableRefObject<PianoRollMidiEventGesture | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
   spatialIndex: MutableRefObject<SpatialNoteIndex>;
   viewport: PianoRollViewport;
   region: MidiRegionRow;
   bottomLane: PianoRollBottomLane;
+  controllerLaneMode: PianoRollControllerLaneMode;
   notesToRender: MidiNoteRow[];
   tool: PianoRollTool;
   snap: GridSnapValue;
@@ -58,25 +66,29 @@ interface PianoRollPointerMoveHandlerOptions {
   sourceBeatAt: (beat: number) => number;
   setLocalNotes: Dispatch<SetStateAction<MidiNoteRow[] | null>>;
   setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
+  setLocalEvents: (events: MidiClipEventRow[] | null) => void;
   onSelectionChange: (ids: Set<number>) => void;
   onSeek?: (beats: number) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
+  onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
   render: () => void;
 }
 
 /** Updates the active Piano Roll drag, hover cursor, and local preview state. */
-export function usePianoRollPointerMoveHandler({
+export function createPianoRollPointerMoveHandler({
   canvasRef,
   lastPointerPosRef,
   draggingRef,
   pendingCommitRef,
   velocityPaintRef,
   controllerGestureRef,
+  midiEventGestureRef,
   lastDragDetentRef,
   spatialIndex,
   viewport,
   region,
   bottomLane,
+  controllerLaneMode,
   notesToRender,
   tool,
   snap,
@@ -89,9 +101,11 @@ export function usePianoRollPointerMoveHandler({
   sourceBeatAt,
   setLocalNotes,
   setControllerPreview,
+  setLocalEvents,
   onSelectionChange,
   onSeek,
   onRegionChange,
+  onEventsChange,
   render,
 }: PianoRollPointerMoveHandlerOptions) {
   // ── Pointer Move Interaction ───────────────────────────────────────────
@@ -174,8 +188,34 @@ export function usePianoRollPointerMoveHandler({
       return;
     }
 
-    // ── Dragging: CC Automation ──────────────────────────────────────────
-    if (dragging.type === "cc" && onRegionChange) {
+    // ── Dragging: Raw MIDI Controller Event ──────────────────────────────
+    if (dragging.type === "midiEvent" && controllerLaneMode === "events" && onEventsChange) {
+      const gesture = midiEventGestureRef.current;
+      if (!gesture) return;
+      const displayBeat = clampControllerDisplayBeat(
+        xToBeat(x), region.durationBeats, snap,
+      );
+      const beat = sourceBeatAt(displayBeat);
+      const value = controllerValueFromY(
+        y, gridBottom, height, bottomLane === "pitchBend",
+      );
+      if (gesture.lastBeat === displayBeat && gesture.lastValue === value) return;
+      const updated = editControllerEvent(
+        gesture.baseEvents,
+        gesture.sourceEventIndex,
+        bottomLane,
+        beat,
+        value,
+      );
+      if (!updated) return;
+      gesture.lastBeat = displayBeat;
+      gesture.lastValue = value;
+      gesture.changed = true;
+      setLocalEvents(updated);
+      return;
+    }
+
+    if (dragging.type === "cc" && controllerLaneMode === "automation" && onRegionChange) {
       const gesture = controllerGestureRef.current;
       if (!gesture) return;
       const beat = Math.max(0, snapBeat(sourceBeatAt(xToBeat(x))));

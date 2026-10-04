@@ -70,6 +70,7 @@ function draw(ctx: CanvasRenderingContext2D, midiRegion: MidiRegionRow, lane: "c
       velocityLaneHeight: 70,
     },
     bottomLane: lane,
+    controllerLaneMode: "events",
     timeVisibleNotes: [],
     selectedNoteIds: new Set(),
     localAutomationLanes: [],

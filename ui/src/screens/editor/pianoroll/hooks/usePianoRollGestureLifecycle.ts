@@ -6,12 +6,13 @@
 
 import { useCallback, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
-import type { AutomationLaneRow, MidiNoteRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow } from "@/lib/state/types";
 import { beginCancellableDrag, type CancellableDrag } from "@/lib/interaction/dragCancel";
 import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import type {
   DraggingState,
   PianoRollControllerGesture,
+  PianoRollMidiEventGesture,
   PianoRollPendingAutomationCommit,
   PianoRollVelocityPaintState,
 } from "@/screens/editor/pianoroll/logic/types";
@@ -20,6 +21,7 @@ export interface PianoRollGestureSnapshot {
   notes: MidiNoteRow[] | null;
   pendingNotes: MidiNoteRow[] | null;
   lanes: AutomationLaneRow[] | null;
+  events?: MidiClipEventRow[] | null;
   selection: Set<number>;
 }
 
@@ -30,11 +32,13 @@ interface PianoRollGestureLifecycleOptions {
   pendingCommitRef: MutableRefObject<MidiNoteRow[] | null>;
   pendingAutomationCommitRef: MutableRefObject<PianoRollPendingAutomationCommit | null>;
   controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
+  midiEventGestureRef: MutableRefObject<PianoRollMidiEventGesture | null>;
   velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
   stopAutoScroll: () => void;
   setLocalNotes: (notes: MidiNoteRow[] | null) => void;
   setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
+  setLocalEvents: (events: MidiClipEventRow[] | null) => void;
   setHoveredPitch: (pitch: number | null) => void;
   onSelectionChange: (ids: Set<number>) => void;
 }
@@ -70,6 +74,7 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
     releaseCapture();
     current.draggingRef.current = null;
     current.controllerGestureRef.current = null;
+    current.midiEventGestureRef.current = null;
     current.velocityPaintRef.current = null;
     current.lastDragDetentRef.current = null;
     current.setHoveredPitch(null);
@@ -86,6 +91,7 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
       current.pendingCommitRef.current = snapshot.pendingNotes;
       current.setLocalNotes(snapshot.notes);
       current.setControllerPreview(snapshot.lanes);
+      current.setLocalEvents(snapshot.events ?? null);
       current.onSelectionChange(snapshot.selection);
     });
   }, [clearGesture, endGesture]);
@@ -104,8 +110,10 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
     clearGesture();
     current.pendingCommitRef.current = null;
     current.pendingAutomationCommitRef.current = null;
+    current.midiEventGestureRef.current = null;
     current.setLocalNotes(null);
     current.setControllerPreview(null);
+    current.setLocalEvents(null);
   }), [clearGesture, endGesture]);
 
   useLayoutEffect(() => {
@@ -115,8 +123,10 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
     clearGesture();
     current.pendingCommitRef.current = null;
     current.pendingAutomationCommitRef.current = null;
+    current.midiEventGestureRef.current = null;
     current.setLocalNotes(null);
     current.setControllerPreview(null);
+    current.setLocalEvents(null);
     return () => {
       handleRef.current?.end();
       handleRef.current = null;

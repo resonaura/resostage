@@ -667,6 +667,38 @@ tests across 138 files; TypeScript and production build passed. Lint exited 0
 with 12 warnings in unrelated files and none in changed files; `git diff --check`
 passed. No device playback/recording or manual visual acceptance was performed.
 
+### Latest continuation — edit persisted MIDI controller events (2026-10-04)
+
+The Piano Roll bottom lane now has an explicit Events/Automation mode. Events
+mode edits persisted MIDI 1.0 channel events in `MidiRegionRow.events`; it does
+not turn those events into region automation points. A click on an empty CC or
+pitch-bend lane creates one event, dragging an existing marker edits its beat
+and value, and double-click removes only the event under the pointer. New
+events use the lane's existing MIDI channel or channel 1 when that lane has no
+events. CC64–69 use binary off/on values, other CC values are 7-bit, and pitch
+bend retains its signed 14-bit range. Event source indexes remain stable through
+visible trim/loop projection so editing a repeated occurrence updates the
+source event rather than duplicating every loop pass. Region edits use the
+existing reliable, undoable MIDI-region content update path.
+
+The editor refuses to mutate a region if source/projected event limits make the
+visible projection incomplete. Input clamps to the last valid grid position in
+the region's half-open visible range, preventing an event at the exclusive
+right edge from becoming invisible. Local edits remain drafts until the full
+authoritative event list echoes; rejected edits remain visible with an explicit
+retry path, while project/region identity changes and history boundaries retire
+the draft. Pending region creation carries notes and events together, avoiding
+loss when the first edit creates a previously empty MIDI region.
+
+This is a MIDI 1.0 raw-event editor, not UMP/MIDI 2.0 event authoring. It does
+not yet provide multi-event selection, freehand controller painting, a curve
+tool for raw events, or hardware-device acceptance. Those remain separate from
+automation lane editing and must not be conflated with it. Focused coverage
+includes pointer create/move/delete, channel/data preservation, loop mapping,
+exclusive-end clamping, bounded projection, rejected/uncertain authoritative
+drafts, pending-region creation, cancellation and history boundaries. The
+read-only status above describes the 2026-10-03 state and is superseded here.
+
 ## Display motion note — 2026-10-03
 
 Automated gain, pan and send control geometry shares the CSS-only easing policy

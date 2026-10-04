@@ -8,13 +8,20 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import type { MutableRefObject } from "react";
 import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
 import { triggerHaptic } from "@/lib/interaction/haptics";
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
 import {
   editControllerPoint,
   generateNoteId,
   paintBrushNote,
   sliceNote,
 } from "@/screens/editor/pianoroll/logic/pianoRollModel";
+import {
+  buildPianoRollControllerProjection,
+  clampControllerDisplayBeat,
+  createControllerEvent,
+  defaultControllerChannel,
+  MAX_EDITABLE_CONTROLLER_EVENTS,
+} from "@/screens/editor/pianoroll/logic/controllerLane";
 import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import {
@@ -30,6 +37,8 @@ import type {
   GridSnapValue,
   PianoRollBottomLane,
   PianoRollControllerGesture,
+  PianoRollMidiEventGesture,
+  PianoRollControllerLaneMode,
   PianoRollTool,
   ScaleMode,
   PianoRollViewport,
@@ -44,6 +53,7 @@ interface PianoRollPointerDownHandlerOptions {
   velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   localAutomationLanesRef: MutableRefObject<AutomationLaneRow[] | null>;
   controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
+  midiEventGestureRef: MutableRefObject<PianoRollMidiEventGesture | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
   lastSingleSelectedDurationRef: MutableRefObject<number | null>;
   isFollowSuspendedRef: MutableRefObject<boolean>;
@@ -51,6 +61,7 @@ interface PianoRollPointerDownHandlerOptions {
   viewport: PianoRollViewport;
   region: MidiRegionRow;
   bottomLane: PianoRollBottomLane;
+  controllerLaneMode: PianoRollControllerLaneMode;
   notesToRender: MidiNoteRow[];
   selectedNoteIds: Set<number>;
   tool: PianoRollTool;
@@ -66,15 +77,17 @@ interface PianoRollPointerDownHandlerOptions {
   setLocalNotes: (notes: MidiNoteRow[] | null) => void;
   setHoveredPitch: (pitch: number | null) => void;
   setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
+  setLocalEvents: (events: MidiClipEventRow[] | null) => void;
   onSeek?: (beats: number) => void;
   onSelectionChange: (ids: Set<number>) => void;
   onNotesChange: (notes: MidiNoteRow[]) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
+  onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
   startAutoScroll: () => void;
 }
 
 /** Starts a Piano Roll gesture based on the clicked editor lane or note. */
-export function usePianoRollPointerDownHandler({
+export function createPianoRollPointerDownHandler({
   canvasRef,
   lastPointerPosRef,
   draggingRef,
@@ -82,6 +95,7 @@ export function usePianoRollPointerDownHandler({
   velocityPaintRef,
   localAutomationLanesRef,
   controllerGestureRef,
+  midiEventGestureRef,
   lastDragDetentRef,
   lastSingleSelectedDurationRef,
   isFollowSuspendedRef,
@@ -89,6 +103,7 @@ export function usePianoRollPointerDownHandler({
   viewport,
   region,
   bottomLane,
+  controllerLaneMode,
   notesToRender,
   selectedNoteIds,
   tool,
@@ -104,10 +119,12 @@ export function usePianoRollPointerDownHandler({
   setLocalNotes,
   setHoveredPitch,
   setControllerPreview,
+  setLocalEvents,
   onSeek,
   onSelectionChange,
   onNotesChange,
   onRegionChange,
+  onEventsChange,
   startAutoScroll,
 }: PianoRollPointerDownHandlerOptions) {
   // ── Pointer Down Interaction ───────────────────────────────────────────
@@ -145,7 +162,7 @@ export function usePianoRollPointerDownHandler({
       return;
     }
 
-    // ── B. Click in Bottom Lane (Velocity or CC Automation) ───────────────
+    // ── B. Click in the Velocity, MIDI Event, or Automation lane ─────────
     if (y >= gridBottom) {
       if (bottomLane === "velocity") {
         const beat = sourceBeatAt(xToBeat(x));
@@ -175,6 +192,84 @@ export function usePianoRollPointerDownHandler({
           startBeat: beat,
           startPitch: 0,
           initialNotesSnapshot: new Map(region.notes.map((n) => [n.id, n])),
+        };
+      } else if (controllerLaneMode === "events") {
+        if (!onEventsChange || x < viewport.keyWidth) {
+          canvas.releasePointerCapture(e.pointerId);
+          return;
+        }
+        const beforeEvents = (region.events ?? []).map((event) => ({
+          ...event,
+          data: [...event.data],
+        }));
+        if (beforeEvents.length > MAX_EDITABLE_CONTROLLER_EVENTS) {
+          canvas.releasePointerCapture(e.pointerId);
+          return;
+        }
+        const displayBeat = clampControllerDisplayBeat(
+          xToBeat(x), region.durationBeats, snap,
+        );
+        const sourceBeat = sourceBeatAt(displayBeat);
+        const isPB = bottomLane === "pitchBend";
+        const value = controllerValueFromY(y, gridBottom, height, isPB);
+        const projection = buildPianoRollControllerProjection(
+          { ...region, events: beforeEvents }, bottomLane, 0, region.durationBeats,
+        );
+        if (projection.truncated) {
+          canvas.releasePointerCapture(e.pointerId);
+          return;
+        }
+        let hitIndex = -1;
+        let nearestDistance = 8;
+        for (const projected of projection.events) {
+          const px = viewport.keyWidth + (projected.beat - viewport.scrollBeats) * viewport.pixelsPerBeat;
+          const py = controllerYFromValue(projected.value, gridBottom, height, isPB);
+          const distance = Math.hypot(px - x, py - y);
+          if (distance <= nearestDistance) {
+            nearestDistance = distance;
+            hitIndex = projected.sourceEventIndex;
+          }
+        }
+        let gestureEvents = beforeEvents;
+        let sourceEventIndex = hitIndex;
+        let added = false;
+        if (hitIndex < 0) {
+          if (beforeEvents.length >= MAX_EDITABLE_CONTROLLER_EVENTS) {
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+          const event = createControllerEvent(
+            bottomLane,
+            sourceBeat,
+            value,
+            defaultControllerChannel(beforeEvents, bottomLane),
+          );
+          if (!event) {
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+          gestureEvents = [...beforeEvents, event];
+          sourceEventIndex = gestureEvents.length - 1;
+          added = true;
+          setLocalEvents(gestureEvents);
+        }
+        midiEventGestureRef.current = {
+          beforeEvents,
+          baseEvents: gestureEvents,
+          sourceEventIndex,
+          added,
+          anchorBeat: displayBeat,
+          changed: added,
+          lastBeat: displayBeat,
+          lastValue: value,
+        };
+        draggingRef.current = {
+          type: "midiEvent",
+          startPointerX: x,
+          startPointerY: y,
+          startBeat: displayBeat,
+          startPitch: 0,
+          initialNotesSnapshot: new Map(region.notes.map((note) => [note.id, note])),
         };
       } else if (onRegionChange) {
         const beat = Math.max(0, snapBeat(sourceBeatAt(xToBeat(x))));

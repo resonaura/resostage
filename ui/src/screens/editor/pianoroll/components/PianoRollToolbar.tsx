@@ -18,7 +18,7 @@ import { PianoRollOptions } from "@/screens/editor/pianoroll/toolbar/components/
 import { PianoRollTransforms } from "@/screens/editor/pianoroll/toolbar/components/PianoRollTransforms";
 import { PIANO_ROLL_LANE_OPTIONS, PIANO_ROLL_SNAP_OPTIONS } from "@/screens/editor/pianoroll/toolbar/logic/options";
 import type { PianoRollToolbarProps } from "@/screens/editor/pianoroll/toolbar/logic/types";
-import type { GridSnapValue, PianoRollBottomLane, PianoRollTool } from "@/screens/editor/pianoroll/logic/types";
+import type { GridSnapValue, PianoRollBottomLane, PianoRollControllerLaneMode, PianoRollTool } from "@/screens/editor/pianoroll/logic/types";
 
 const TOOLS = [
   { id: "select", label: "Select / Move (V)", icon: MousePointer2 },
@@ -123,11 +123,25 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
           onTranspose={props.onTranspose} snapEnabled={snapEnabled} />
         <PianoRollOptions {...props} />
         {props.onBottomLaneChange && (
-          <Select size="sm" fullWidth={false} aria-label="Bottom automation lane"
-            options={props.bottomLaneOptions ?? PIANO_ROLL_LANE_OPTIONS}
-            value={props.bottomLane ?? "velocity"}
-            onChange={(value) => props.onBottomLaneChange?.(value as PianoRollBottomLane)}
-            startContent={<SlidersHorizontal size={13} />} className="w-36" />
+          <>
+            <Select size="sm" fullWidth={false} aria-label="Bottom lane"
+              options={props.bottomLaneOptions ?? PIANO_ROLL_LANE_OPTIONS}
+              value={props.bottomLane ?? "velocity"}
+              onChange={(value) => props.onBottomLaneChange?.(value as PianoRollBottomLane)}
+              startContent={<SlidersHorizontal size={13} />} className="w-36" />
+            {props.bottomLane !== "velocity" && props.onControllerLaneModeChange && (
+              <ToggleButtonGroup size="sm" aria-label="MIDI lane editing mode"
+                selectionMode="single" disallowEmptySelection
+                selectedKeys={[props.controllerLaneMode ?? "events"]}
+                onSelectionChange={(keys) => {
+                  const mode = [...keys][0] as PianoRollControllerLaneMode | undefined;
+                  if (mode) props.onControllerLaneModeChange?.(mode);
+                }}>
+                <ToggleButton id="events" aria-label="Edit MIDI events">Events</ToggleButton>
+                <ToggleButton id="automation" aria-label="Edit automation">Automation</ToggleButton>
+              </ToggleButtonGroup>
+            )}
+          </>
         )}
         <Separator orientation="vertical" />
         <PianoRollFollowControl followMode={props.followMode} onCycleFollowMode={props.onCycleFollowMode}

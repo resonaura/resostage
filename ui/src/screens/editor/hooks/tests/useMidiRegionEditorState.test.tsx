@@ -149,6 +149,7 @@ describe("useMidiRegionEditorState", () => {
       songIndex: 0,
       trackId: "track-inst-1",
       notes: [makeNote(1, 60, 0, 1, 0.8)],
+      events: [],
       followupEdit: false,
       startedAt: Date.now(),
       completion,
@@ -196,11 +197,13 @@ describe("useMidiRegionEditorState", () => {
       makeNote(1, 60, 0, 1, 0.8),
       makeNote(2, 64, 1, 1, 0.9),
     ];
+    const followupEvents = [{ beat: 1.5, status: 0xb0, data: [64, 127] }];
 
     hookResult.pendingMidiRegionCreatesRef.current.set("temp-placeholder", {
       songIndex: 0,
       trackId: "track-inst-1",
       notes: followupNotes,
+      events: followupEvents,
       followupEdit: true,
       startedAt: Date.now(),
       completion,
@@ -226,6 +229,7 @@ describe("useMidiRegionEditorState", () => {
       songIndex: 0,
       regionId: "durable-region-1",
       notes: followupNotes,
+      events: followupEvents,
     });
   });
 
@@ -248,6 +252,7 @@ describe("useMidiRegionEditorState", () => {
       songIndex: 0,
       trackId: "track-inst-1",
       notes: [],
+      events: [],
       followupEdit: false,
       startedAt: Date.now(),
       completion,
@@ -287,6 +292,7 @@ describe("useMidiRegionEditorState", () => {
       songIndex: 0,
       trackId: "track-inst-1",
       notes: [],
+      events: [],
       followupEdit: false,
       startedAt: Date.now(),
       completion,

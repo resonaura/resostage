@@ -9,7 +9,7 @@ import {
   midiRegionContainsLoopSourceBeat,
   midiRegionLoopOccurrence,
 } from "@/lib/midi/midiRegionTiming";
-import type { PianoRollBottomLane, PianoRollViewport } from "@/screens/editor/pianoroll/logic/types";
+import type { PianoRollBottomLane, PianoRollControllerLaneMode, PianoRollViewport } from "@/screens/editor/pianoroll/logic/types";
 import type { PianoRollNoteView, PianoRollRenderTheme } from "@/screens/editor/pianoroll/logic/render/types";
 import { buildPianoRollControllerProjection } from "@/screens/editor/pianoroll/logic/controllerLane";
 import { buildPianoRollPedalProjection } from "@/screens/editor/pianoroll/logic/pedalLane";
@@ -23,6 +23,7 @@ interface PianoRollBottomLaneOptions {
   maxBeat: number;
   viewport: PianoRollViewport;
   bottomLane: PianoRollBottomLane;
+  controllerLaneMode: PianoRollControllerLaneMode;
   timeVisibleNotes: PianoRollNoteView[];
   selectedNoteIds: Set<number>;
   trackColor?: string;
@@ -43,6 +44,7 @@ export function drawPianoRollBottomLane({
   maxBeat,
   viewport,
   bottomLane,
+  controllerLaneMode,
   timeVisibleNotes,
   selectedNoteIds,
   trackColor,
@@ -151,7 +153,7 @@ export function drawPianoRollBottomLane({
     (candidate) => isControllerLane(candidate, bottomLane),
   );
 
-  if (lane && lane.points && lane.points.length > 0) {
+  if (controllerLaneMode === "automation" && lane && lane.points && lane.points.length > 0) {
     const sorted = [...lane.points].sort(
       (a, b) => a.timeBeats - b.timeBeats,
     );
@@ -214,7 +216,7 @@ export function drawPianoRollBottomLane({
   // Pedal switches are stored as ordinary MIDI CC events, not automation
   // approximations. Render their actual down/up transitions and held spans.
   const pedalController = Number(bottomLane.slice(2));
-  if (pedalController >= 64 && pedalController <= 69) {
+  if (controllerLaneMode === "events" && pedalController >= 64 && pedalController <= 69) {
     const pedal = buildPianoRollPedalProjection(
       region, pedalController, minBeat, maxBeat,
     );
@@ -255,7 +257,8 @@ export function drawPianoRollBottomLane({
   // rendered as bounded value stems so imported events are visible too.
   const isPedal = bottomLane.startsWith("cc")
     && pedalController >= 64 && pedalController <= 69;
-  if (!isPedal && (bottomLane === "pitchBend" || bottomLane.startsWith("cc"))) {
+  if (controllerLaneMode === "events" && !isPedal
+      && (bottomLane === "pitchBend" || bottomLane.startsWith("cc"))) {
     const projection = buildPianoRollControllerProjection(
       region, bottomLane, minBeat, maxBeat,
     );

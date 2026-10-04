@@ -1075,3 +1075,33 @@ Core/helper build passed for the implementation commit. No real
 sidechain-capable AU/VST3 acoustic test was run.
 Active-playback/helper failure and live/offline parity remain open. Do not
 push.
+
+### Latest continuation — Piano Roll raw MIDI event editing (2026-10-04)
+
+Replaced the 2026-10-03 read-only CC/PB-lane status with an editable raw-event
+path. Piano Roll Events/Automation mode explicitly separates persisted
+`MidiRegionRow.events` from region automation points. Events mode creates one
+MIDI 1.0 CC or pitch-bend event on an empty lane, moves/changes a hit event,
+and deletes the hit event on double-click. Existing lane channel is retained;
+new lanes default to channel 1. Pedal switches CC64–69 use 0/127, ordinary CC
+is 7-bit, pitch bend is signed 14-bit. Looped occurrences project the same
+source event; trim/loop conversion maps edits back to source beat. Events are
+submitted through reliable MIDI-region updates, so Core history remains the
+owner.
+
+Bounded event projections refuse edits when truncated. The exclusive region end
+is clamped to the last valid snap point. Drafts survive a rejected or uncertain
+admission until retry/authoritative confirmation and are retired at project,
+region, or history boundaries. Placeholder creation carries notes and events
+together. The UI edit hook and region mutation path have focused tests.
+
+Focused verification passed 29 tests across seven files, including the
+exclusive-end boundary regression. Full UI Vitest passed 935 tests across 142
+files; TypeScript project build, production UI build and lint passed. Lint
+reported 12 existing warnings outside the changed files; `git diff --check`
+passed. No physical MIDI device or manual browser visual test has been run.
+Remaining:
+multi-event selection/edit, freehand controller painting, raw-event curve
+tools, MIDI 2.0 UMP event authoring, and actual-device/visual acceptance. Next
+review the complete diff, commit all intended source/docs changes in English,
+and continue with the next still-open task. Do not push.

@@ -1,0 +1,264 @@
+/*
+ * ResoStage — Deterministic Real-Time Live Performance Workstation
+ * Copyright © 2026 Andrii Vynohradov. All rights reserved.
+ * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
+ */
+
+import type { PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent } from "react";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("@/lib/interaction/haptics", () => ({ triggerHaptic: vi.fn() }));
+import type { MidiClipEventRow, MidiRegionRow } from "@/lib/state/types";
+import { midiRegionSourceBeat } from "@/lib/midi/midiRegionTiming";
+import { createPianoRollPointerDownHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerDownHandler";
+import { createPianoRollPointerMoveHandler } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerMoveHandler";
+import { createPianoRollPointerEndHandlers } from "@/screens/editor/pianoroll/hooks/usePianoRollPointerEndHandlers";
+import { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
+import { controllerYFromValue } from "@/screens/editor/pianoroll/logic/canvasUtils";
+import type {
+  DraggingState,
+  PianoRollControllerGesture,
+  PianoRollMidiEventGesture,
+  PianoRollPendingAutomationCommit,
+  PianoRollVelocityPaintState,
+  PianoRollViewport,
+} from "@/screens/editor/pianoroll/logic/types";
+
+const ref = <T,>(current: T) => ({ current });
+const viewport: PianoRollViewport = {
+  pixelsPerBeat: 80,
+  pixelsPerPitch: 12,
+  scrollBeats: 0,
+  scrollPitch: 48,
+  keyWidth: 54,
+  velocityLaneHeight: 90,
+};
+
+function region(events: MidiClipEventRow[] = []): MidiRegionRow {
+  return {
+    id: "midi-region",
+    trackId: "track-1",
+    name: "MIDI",
+    startBeats: 0,
+    durationBeats: 8,
+    clipOffsetBeats: 0,
+    loop: false,
+    loopLengthBeats: 0,
+    notes: [],
+    events,
+  };
+}
+
+function harness(source: MidiRegionRow) {
+  const capture = new Set<number>();
+  const canvas = {
+    style: { cursor: "" },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 400, height: 400 }),
+    setPointerCapture: (pointerId: number) => capture.add(pointerId),
+    hasPointerCapture: (pointerId: number) => capture.has(pointerId),
+    releasePointerCapture: (pointerId: number) => capture.delete(pointerId),
+  } as unknown as HTMLCanvasElement;
+  const draggingRef = ref<DraggingState | null>(null);
+  const controllerGestureRef = ref<PianoRollControllerGesture | null>(null);
+  const midiEventGestureRef = ref<PianoRollMidiEventGesture | null>(null);
+  const localEventsRef = ref<MidiClipEventRow[] | null>(null);
+  const setLocalEvents = vi.fn((events: MidiClipEventRow[] | null) => {
+    localEventsRef.current = events;
+  });
+  const onEventsChange = vi.fn();
+  const snapBeat = (beat: number) => Math.max(0, Math.round(beat * 4) / 4);
+  const xToBeat = (x: number) => (x - viewport.keyWidth) / viewport.pixelsPerBeat;
+  const sourceBeatAt = (beat: number) => midiRegionSourceBeat(source, beat);
+  const canvasRef = ref<HTMLCanvasElement | null>(canvas);
+  const spatialIndex = ref(new SpatialNoteIndex(4, 12));
+  const noOp = vi.fn();
+  const setLocalNotes = vi.fn();
+  const setControllerPreview = vi.fn();
+  const pendingCommitRef = ref(null as unknown as MidiRegionRow["notes"] | null);
+  const velocityPaintRef = ref<PianoRollVelocityPaintState | null>(null);
+  const localAutomationLanesRef = ref(null);
+  const pendingAutomationCommitRef = ref<PianoRollPendingAutomationCommit | null>(null);
+  const lastDragDetentRef = ref<string | null>(null);
+
+  const pointerDown = createPianoRollPointerDownHandler({
+    canvasRef,
+    lastPointerPosRef: ref({ clientX: 0, clientY: 0 }),
+    draggingRef,
+    pendingCommitRef,
+    velocityPaintRef,
+    localAutomationLanesRef,
+    controllerGestureRef,
+    midiEventGestureRef,
+    lastDragDetentRef,
+    lastSingleSelectedDurationRef: ref(null),
+    isFollowSuspendedRef: ref(false),
+    spatialIndex,
+    viewport,
+    region: source,
+    bottomLane: "cc74",
+    controllerLaneMode: "events",
+    notesToRender: source.notes,
+    selectedNoteIds: new Set(),
+    tool: "select",
+    snap: 0.25,
+    snapToScale: false,
+    rootNote: 0,
+    scaleMode: "chromatic",
+    catchOnSeek: true,
+    xToBeat,
+    yToPitch: () => 60,
+    snapBeat,
+    sourceBeatAt,
+    setLocalNotes,
+    setHoveredPitch: noOp,
+    setControllerPreview,
+    setLocalEvents,
+    onSeek: noOp,
+    onSelectionChange: noOp,
+    onNotesChange: noOp,
+    onRegionChange: noOp,
+    onEventsChange,
+    startAutoScroll: noOp,
+  });
+
+  const pointerMove = createPianoRollPointerMoveHandler({
+    canvasRef,
+    lastPointerPosRef: ref({ clientX: 0, clientY: 0 }),
+    draggingRef,
+    pendingCommitRef,
+    velocityPaintRef,
+    controllerGestureRef,
+    midiEventGestureRef,
+    lastDragDetentRef,
+    spatialIndex,
+    viewport,
+    region: source,
+    bottomLane: "cc74",
+    controllerLaneMode: "events",
+    notesToRender: source.notes,
+    tool: "select",
+    snap: 0.25,
+    snapToScale: false,
+    rootNote: 0,
+    scaleMode: "chromatic",
+    xToBeat,
+    yToPitch: () => 60,
+    snapBeat,
+    sourceBeatAt,
+    setLocalNotes,
+    setControllerPreview,
+    setLocalEvents,
+    onSelectionChange: noOp,
+    onSeek: noOp,
+    onRegionChange: noOp,
+    onEventsChange,
+    render: noOp,
+  });
+
+  const pointerEnd = createPianoRollPointerEndHandlers({
+    canvasRef,
+    draggingRef,
+    pendingCommitRef,
+    pendingAutomationCommitRef,
+    controllerGestureRef,
+    midiEventGestureRef,
+    localEventsRef,
+    localAutomationLanesRef,
+    velocityPaintRef,
+    lastDragDetentRef,
+    localNotes: null,
+    notesToRender: source.notes,
+    region: source,
+    viewport,
+    bottomLane: "cc74",
+    controllerLaneMode: "events",
+    spatialIndex,
+    stopAutoScroll: noOp,
+    render: noOp,
+    sourceBeatAt,
+    xToBeat,
+    setLocalNotes,
+    setHoveredPitch: noOp,
+    setControllerPreview,
+    setLocalEvents,
+    onNotesChange: noOp,
+    onSelectionChange: noOp,
+    onRegionChange: noOp,
+    onEventsChange,
+  });
+  return { pointerDown, pointerMove, pointerEnd, onEventsChange, localEventsRef, draggingRef };
+}
+
+function pointer(clientX: number, clientY: number, pointerId = 1) {
+  return {
+    button: 0,
+    pointerId,
+    clientX,
+    clientY,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    stopPropagation: vi.fn(),
+    preventDefault: vi.fn(),
+  } as unknown as ReactPointerEvent<HTMLCanvasElement>;
+}
+
+describe("Piano Roll raw MIDI event gestures", () => {
+  it("creates a channel event on an empty lane and commits it as MIDI data", () => {
+    const h = harness(region());
+    h.pointerDown(pointer(214, 350));
+    expect(h.draggingRef.current?.type).toBe("midiEvent");
+    expect(h.localEventsRef.current).toHaveLength(1);
+
+    h.pointerEnd.handlePointerUp(pointer(214, 350));
+    expect(h.onEventsChange).toHaveBeenCalledOnce();
+    const committed = h.onEventsChange.mock.calls[0][0];
+    expect(committed[0].beat).toBe(2);
+    expect(committed[0].status).toBe(0xb0);
+    expect(committed[0].data[0]).toBe(74);
+  });
+
+  it("keeps a snapped event at the end of a looped region inside its visible range", () => {
+    const source = region();
+    source.loop = true;
+    source.loopLengthBeats = 4;
+    const h = harness(source);
+    h.pointerDown(pointer(694, 350)); // beat 8, the exclusive region end
+    h.pointerEnd.handlePointerUp(pointer(694, 350));
+
+    expect(h.onEventsChange).toHaveBeenCalledOnce();
+    expect(h.onEventsChange.mock.calls[0][0][0].beat).toBe(3.75);
+  });
+
+  it("moves and changes the source event while preserving its channel", () => {
+    const source = region([{ beat: 2, status: 0xb3, data: [74, 64] }]);
+    const h = harness(source);
+    const startY = controllerYFromValue(64, 310, 400, false);
+    h.pointerDown(pointer(214, startY));
+    expect(h.draggingRef.current?.type).toBe("midiEvent");
+    h.pointerMove(pointer(294, controllerYFromValue(110, 310, 400, false)));
+    h.pointerEnd.handlePointerUp(pointer(294, controllerYFromValue(110, 310, 400, false)));
+
+    expect(h.onEventsChange).toHaveBeenCalledOnce();
+    expect(h.onEventsChange.mock.calls[0][0]).toEqual([
+      { beat: 3, status: 0xb3, data: [74, 110] },
+    ]);
+  });
+
+  it("double-click deletes only the event under the cursor", () => {
+    const source = region([
+      { beat: 2, status: 0xb2, data: [74, 64] },
+      { beat: 4, status: 0x92, data: [60, 100] },
+    ]);
+    const h = harness(source);
+    const y = controllerYFromValue(64, 310, 400, false);
+    h.pointerEnd.handleDoubleClick({
+      clientX: 214,
+      clientY: y,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as ReactMouseEvent<HTMLCanvasElement>);
+
+    expect(h.onEventsChange).toHaveBeenCalledOnce();
+    expect(h.onEventsChange.mock.calls[0][0]).toEqual([source.events![1]]);
+  });
+});

@@ -10,13 +10,22 @@ import type {
 } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { triggerHaptic } from "@/lib/interaction/haptics";
-import type { AutomationLaneRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
 import { DEFAULT_NOTE_VELOCITY } from "@/screens/editor/pianoroll/logic/canvasUtils";
+import {
+  buildPianoRollControllerProjection,
+  MAX_EDITABLE_CONTROLLER_EVENTS,
+  removeControllerEvent,
+  sameEditableMidiEvents,
+} from "@/screens/editor/pianoroll/logic/controllerLane";
+import { controllerYFromValue } from "@/screens/editor/pianoroll/logic/canvasUtils";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import type {
   DraggingState,
   PianoRollBottomLane,
   PianoRollControllerGesture,
+  PianoRollMidiEventGesture,
+  PianoRollControllerLaneMode,
   PianoRollPendingAutomationCommit,
   PianoRollViewport,
   PianoRollVelocityPaintState,
@@ -28,6 +37,8 @@ interface PianoRollPointerEndHandlerOptions {
   pendingCommitRef: MutableRefObject<MidiNoteRow[] | null>;
   pendingAutomationCommitRef: MutableRefObject<PianoRollPendingAutomationCommit | null>;
   controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
+  midiEventGestureRef: MutableRefObject<PianoRollMidiEventGesture | null>;
+  localEventsRef: MutableRefObject<MidiClipEventRow[] | null>;
   localAutomationLanesRef: MutableRefObject<AutomationLaneRow[] | null>;
   velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
@@ -36,6 +47,7 @@ interface PianoRollPointerEndHandlerOptions {
   region: MidiRegionRow;
   viewport: PianoRollViewport;
   bottomLane: PianoRollBottomLane;
+  controllerLaneMode: PianoRollControllerLaneMode;
   spatialIndex: MutableRefObject<SpatialNoteIndex>;
   stopAutoScroll: () => void;
   render: () => void;
@@ -44,18 +56,22 @@ interface PianoRollPointerEndHandlerOptions {
   setLocalNotes: Dispatch<SetStateAction<MidiNoteRow[] | null>>;
   setHoveredPitch: Dispatch<SetStateAction<number | null>>;
   setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
+  setLocalEvents: (events: MidiClipEventRow[] | null) => void;
   onNotesChange: (notes: MidiNoteRow[]) => void;
   onSelectionChange: (ids: Set<number>) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
+  onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
 }
 
 /** Commits, cancels, or finalizes a Piano Roll pointer gesture. */
-export function usePianoRollPointerEndHandlers({
+export function createPianoRollPointerEndHandlers({
   canvasRef,
   draggingRef,
   pendingCommitRef,
   pendingAutomationCommitRef,
   controllerGestureRef,
+  midiEventGestureRef,
+  localEventsRef,
   localAutomationLanesRef,
   velocityPaintRef,
   lastDragDetentRef,
@@ -64,6 +80,7 @@ export function usePianoRollPointerEndHandlers({
   region,
   viewport,
   bottomLane,
+  controllerLaneMode,
   spatialIndex,
   stopAutoScroll,
   render,
@@ -72,9 +89,11 @@ export function usePianoRollPointerEndHandlers({
   setLocalNotes,
   setHoveredPitch,
   setControllerPreview,
+  setLocalEvents,
   onNotesChange,
   onSelectionChange,
   onRegionChange,
+  onEventsChange,
 }: PianoRollPointerEndHandlerOptions) {
   // ── Pointer Up Interaction ─────────────────────────────────────────────
   const handlePointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -102,6 +121,16 @@ export function usePianoRollPointerEndHandlers({
       if (isNoteGesture && finalNotes) {
         onNotesChange(finalNotes);
         triggerHaptic("generic");
+      } else if (dragging.type === "midiEvent" && midiEventGestureRef.current?.changed
+                 && onEventsChange) {
+        const nextEvents = localEventsRef.current;
+        const previousEvents = midiEventGestureRef.current.beforeEvents;
+        if (nextEvents && !sameEditableMidiEvents(nextEvents, previousEvents)) {
+          void onEventsChange(nextEvents);
+          triggerHaptic("generic");
+        } else if (midiEventGestureRef.current.added) {
+          setLocalEvents(null);
+        }
       } else if (dragging.type === "cc" && controllerGestureRef.current?.changed &&
                  localAutomationLanesRef.current && onRegionChange) {
         const lanes = localAutomationLanesRef.current;
@@ -120,6 +149,7 @@ export function usePianoRollPointerEndHandlers({
     }
     draggingRef.current = null;
     controllerGestureRef.current = null;
+    midiEventGestureRef.current = null;
     velocityPaintRef.current = null;
     setHoveredPitch(null);
     render();
@@ -135,10 +165,12 @@ export function usePianoRollPointerEndHandlers({
     // A cancelled gesture must not leave a speculative local preview or a
     // running RAF loop behind. The authoritative notes were not committed.
     setLocalNotes(null);
+    setLocalEvents(null);
     pendingCommitRef.current = null;
     if (controllerGestureRef.current)
       setControllerPreview(controllerGestureRef.current.beforeLanes);
     controllerGestureRef.current = null;
+    midiEventGestureRef.current = null;
     draggingRef.current = null;
     velocityPaintRef.current = null;
     lastDragDetentRef.current = null;
@@ -146,6 +178,40 @@ export function usePianoRollPointerEndHandlers({
   };
 
   const handleDoubleClick = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (bottomLane !== "velocity" && controllerLaneMode === "events" && onEventsChange) {
+      const canvas = canvasRef.current;
+      if (!canvas || (region.events?.length ?? 0) > MAX_EDITABLE_CONTROLLER_EVENTS) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const gridBottom = rect.height - viewport.velocityLaneHeight;
+      if (y < gridBottom || x < viewport.keyWidth) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const projection = buildPianoRollControllerProjection(
+        region, bottomLane, 0, region.durationBeats,
+      );
+      if (projection.truncated) return;
+      const isPB = bottomLane === "pitchBend";
+      let hitIndex = -1;
+      let nearestDistance = 8;
+      for (const projected of projection.events) {
+        const px = viewport.keyWidth + (projected.beat - viewport.scrollBeats) * viewport.pixelsPerBeat;
+        const py = controllerYFromValue(projected.value, gridBottom, rect.height, isPB);
+        const distance = Math.hypot(px - x, py - y);
+        if (distance <= nearestDistance) {
+          nearestDistance = distance;
+          hitIndex = projected.sourceEventIndex;
+        }
+      }
+      if (hitIndex < 0) return;
+      const updated = removeControllerEvent(region.events ?? [], hitIndex, bottomLane);
+      if (updated) {
+        void onEventsChange(updated);
+        triggerHaptic("generic");
+      }
+      return;
+    }
     if (bottomLane !== "velocity") return;
     const canvas = canvasRef.current;
     if (!canvas) return;

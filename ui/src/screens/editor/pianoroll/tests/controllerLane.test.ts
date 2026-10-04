@@ -6,7 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 import type { MidiRegionRow } from "@/lib/state/types";
-import { buildPianoRollControllerProjection } from "@/screens/editor/pianoroll/logic/controllerLane";
+import {
+  buildPianoRollControllerProjection,
+  clampControllerDisplayBeat,
+  createControllerEvent,
+  editControllerEvent,
+  removeControllerEvent,
+  sameEditableMidiEvents,
+} from "@/screens/editor/pianoroll/logic/controllerLane";
 import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
 
 function region(overrides: Partial<MidiRegionRow> = {}): MidiRegionRow {
@@ -38,6 +45,12 @@ function pitchBend(beat: number, value: number, channel = 0) {
 }
 
 describe("Piano Roll raw MIDI controller lanes", () => {
+  it("keeps snapped controller events inside the region's half-open range", () => {
+    expect(clampControllerDisplayBeat(8, 8, 0.25)).toBe(7.75);
+    expect(clampControllerDisplayBeat(7.8, 8, 0)).toBeLessThan(8);
+    expect(clampControllerDisplayBeat(0.2, 0.1, 0.25)).toBe(0);
+  });
+
   it("adds only valid imported controllers to the lane picker", () => {
     const options = pianoRollLaneOptions([74, 74, 1, -1, 128], "cc74");
     const ids = options.map((option) => option.id);
@@ -55,7 +68,7 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     }), "cc74", 0, 8);
 
     expect(projection.events).toEqual([
-      { beat: 1, value: 98, channel: 3 },
+      { beat: 1, value: 98, channel: 3, sourceEventIndex: 1 },
     ]);
     expect(projection.truncated).toBe(false);
   });
@@ -68,8 +81,8 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     }), "cc74", 4, 8);
 
     expect(projection.events).toEqual([
-      { beat: 5, value: 32, channel: 0 },
-      { beat: 6, value: 96, channel: 0 },
+      { beat: 5, value: 32, channel: 0, sourceEventIndex: 0 },
+      { beat: 6, value: 96, channel: 0, sourceEventIndex: 1 },
     ]);
   });
 
@@ -79,9 +92,9 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     }), "pitchBend", 0, 8);
 
     expect(projection.events).toEqual([
-      { beat: 1, value: -8192, channel: 1 },
-      { beat: 2, value: 0, channel: 1 },
-      { beat: 3, value: 8191, channel: 1 },
+      { beat: 1, value: -8192, channel: 1, sourceEventIndex: 0 },
+      { beat: 2, value: 0, channel: 1, sourceEventIndex: 1 },
+      { beat: 3, value: 8191, channel: 1, sourceEventIndex: 2 },
     ]);
   });
 
@@ -100,5 +113,36 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     }), "cc74", 0, 10);
     expect(loopLimited.truncated).toBe(true);
     expect(loopLimited.events).toHaveLength(1_200);
+  });
+
+  it("creates and edits CC events without changing channel or unrelated bytes", () => {
+    const original = [
+      cc(1, 74, 20, 3),
+      { beat: 2, status: 0x91, data: [60, 100] },
+    ];
+    expect(createControllerEvent("cc74", 1.5, 90, 3)).toEqual(cc(1.5, 74, 90, 3));
+    expect(editControllerEvent(original, 0, "cc74", 2.5, 96)).toEqual([
+      cc(2.5, 74, 96, 3),
+      original[1],
+    ]);
+    expect(editControllerEvent(original, 1, "cc74", 3, 64)).toBeNull();
+  });
+
+  it("encodes pedals as off/on, clamps pitch bend, and deletes only the selected event", () => {
+    expect(createControllerEvent("cc64", 1, 63)).toEqual(cc(1, 64, 0));
+    expect(createControllerEvent("cc64", 1, 64)).toEqual(cc(1, 64, 127));
+    expect(createControllerEvent("pitchBend", 1, 90_000, 2)).toEqual(pitchBend(1, 8191, 2));
+
+    const source = [cc(1, 64, 127), cc(2, 74, 50), pitchBend(3, 0)];
+    expect(removeControllerEvent(source, 0, "cc64")).toEqual(source.slice(1));
+    expect(removeControllerEvent(source, 1, "cc64")).toBeNull();
+  });
+
+  it("compares full event snapshots across Core's stable time sort", () => {
+    const left = [cc(2, 74, 80), cc(1, 74, 20)];
+    const echoed = [cc(1, 74, 20), cc(2, 74, 80)];
+    expect(sameEditableMidiEvents(left, echoed)).toBe(true);
+    expect(sameEditableMidiEvents(left, [cc(1, 74, 21), cc(2, 74, 80)])).toBe(false);
+    expect(sameEditableMidiEvents([cc(1, 74, 20), cc(1, 74, 20)], [cc(1, 74, 20)])).toBe(false);
   });
 });

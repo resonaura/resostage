@@ -13,7 +13,7 @@ import {
   midiRegionNotePlaybackDuration,
 } from "@/lib/midi/midiRegionTiming";
 import { isBlackKey, isPitchInScale, pitchToName } from "@/screens/editor/pianoroll/logic/scales";
-import type { DraggingState, PianoRollBottomLane, PianoRollViewport, ScaleMode } from "@/screens/editor/pianoroll/logic/types";
+import type { DraggingState, PianoRollBottomLane, PianoRollControllerLaneMode, PianoRollViewport, ScaleMode } from "@/screens/editor/pianoroll/logic/types";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import { drawPianoRollBottomLane } from "@/screens/editor/pianoroll/logic/render/bottomLane";
 import type { PianoRollRenderTheme } from "@/screens/editor/pianoroll/logic/render/types";
@@ -22,6 +22,7 @@ export interface PianoRollRenderParams {
   canvasElement: HTMLCanvasElement | null;
   viewport: PianoRollViewport;
   bottomLane: PianoRollBottomLane;
+  controllerLaneMode: PianoRollControllerLaneMode;
   region: MidiRegionRow;
   localAutomationLanes: AutomationLaneRow[] | null;
   rootNote: number;
@@ -47,6 +48,7 @@ export function drawPianoRollCanvas({
   canvasElement,
   viewport,
   bottomLane,
+  controllerLaneMode,
   region,
   localAutomationLanes,
   rootNote,
@@ -396,6 +398,7 @@ export function drawPianoRollCanvas({
       maxBeat,
       viewport,
       bottomLane,
+      controllerLaneMode,
       timeVisibleNotes,
       selectedNoteIds,
       trackColor,

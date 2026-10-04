@@ -1708,3 +1708,19 @@ cannot do that. It leaves a late sidechain source uncompensated and reports a
 preparation warning. Per-slot main-path delay and real AU/VST3 acoustic
 acceptance remain open. See `audio-flow.md` for implementation details and
 verification.
+
+### Latest audit update — Piano Roll raw MIDI controller-event edits (2026-10-04)
+
+The previous audit's statement that direct raw CC editing was open is now
+superseded. Piano Roll Events mode creates, moves/changes and deletes persisted
+MIDI 1.0 CC/pitch-bend channel events, separately from automation points. Its
+commit path uses the reliable MIDI-region update, preserves event channel and
+other event data, carries pending placeholder-region note/event content, and
+waits for authoritative region echo. Loop/trim projection edits source event
+identity, and the right edge is treated as exclusive. Focused regression tests
+cover pointer gestures, retries/rejections, cancellation, history boundary and
+pending region creation. This does not cover UMP/MIDI 2.0 event authoring,
+multi-event editing, freehand controller painting, physical-device acceptance,
+or manual visual acceptance. See `automation.md` for implementation detail and
+remaining edges. Full-suite/build/lint results are recorded after verification
+in the latest `handoff.md` continuation entry.

@@ -9,12 +9,12 @@ import { act, createElement } from "react";
 import type { MutableRefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AutomationLaneRow, MidiNoteRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow } from "@/lib/state/types";
 import { activeDragCount } from "@/lib/interaction/dragCancel";
 import { usePianoRollGestureLifecycle } from "@/screens/editor/pianoroll/hooks/usePianoRollGestureLifecycle";
 import type {
   DraggingState, PianoRollControllerGesture,
-  PianoRollPendingAutomationCommit, PianoRollVelocityPaintState,
+  PianoRollMidiEventGesture, PianoRollPendingAutomationCommit, PianoRollVelocityPaintState,
 } from "@/screens/editor/pianoroll/logic/types";
 
 const ref = <T,>(current: T): MutableRefObject<T> => ({ current });
@@ -34,6 +34,7 @@ describe("Piano Roll gesture lifecycle", () => {
   let options: Parameters<typeof usePianoRollGestureLifecycle>[0];
   let lanes: AutomationLaneRow[] | null;
   let localNotes: MidiNoteRow[] | null;
+  let localEvents: MidiClipEventRow[] | null;
   let selection: Set<number>;
   let capture: Set<number>;
 
@@ -47,6 +48,7 @@ describe("Piano Roll gesture lifecycle", () => {
     capture = new Set();
     lanes = null;
     localNotes = null;
+    localEvents = null;
     selection = new Set();
     const canvas = {
       hasPointerCapture: (id: number) => capture.has(id),
@@ -59,11 +61,13 @@ describe("Piano Roll gesture lifecycle", () => {
       pendingCommitRef: ref<MidiNoteRow[] | null>(null),
       pendingAutomationCommitRef: ref<PianoRollPendingAutomationCommit | null>(null),
       controllerGestureRef: ref<PianoRollControllerGesture | null>(null),
+      midiEventGestureRef: ref<PianoRollMidiEventGesture | null>(null),
       velocityPaintRef: ref<PianoRollVelocityPaintState | null>(null),
       lastDragDetentRef: ref<string | null>(null),
       stopAutoScroll: vi.fn(),
       setLocalNotes: (next) => { localNotes = next; },
       setControllerPreview: (next) => { lanes = next; },
+      setLocalEvents: (next) => { localEvents = next; },
       setHoveredPitch: vi.fn(),
       onSelectionChange: (next) => { selection = next; },
     };
@@ -86,7 +90,8 @@ describe("Piano Roll gesture lifecycle", () => {
     options.pendingAutomationCommitRef.current = { parameterId: "cc:1", points: [] };
     localNotes = notes;
     lanes = [];
-    lifecycle.beginGesture(7, { notes: null, pendingNotes: null, lanes: null, selection: new Set() });
+    localEvents = [{ beat: 1, status: 0xb0, data: [64, 127] }];
+    lifecycle.beginGesture(7, { notes: null, pendingNotes: null, lanes: null, events: null, selection: new Set() });
     expect(activeDragCount()).toBe(1);
 
     act(() => root.render(createElement(Harness, { regionId: "b" })));
@@ -96,6 +101,7 @@ describe("Piano Roll gesture lifecycle", () => {
     expect(options.pendingAutomationCommitRef.current).toBeNull();
     expect(localNotes).toBeNull();
     expect(lanes).toBeNull();
+    expect(localEvents).toBeNull();
     expect(capture.size).toBe(0);
     expect(options.stopAutoScroll).toHaveBeenCalled();
     expect(activeDragCount()).toBe(0);
