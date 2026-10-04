@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { MidiRegionRow } from "@/lib/state/types";
 import {
   buildPianoRollControllerProjection,
@@ -113,6 +113,15 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     }), "cc74", 0, 10);
     expect(loopLimited.truncated).toBe(true);
     expect(loopLimited.events).toHaveLength(1_200);
+  });
+
+  it("caps the scan without cloning the source event array", () => {
+    const events = Array.from({ length: 16_385 }, (_, index) => cc(index / 100, 74, index % 128));
+    const copySource = vi.spyOn(events, "slice");
+    const projection = buildPianoRollControllerProjection(region({ events }), "cc74", 0, 8);
+
+    expect(projection.truncated).toBe(true);
+    expect(copySource).not.toHaveBeenCalled();
   });
 
   it("creates and edits CC events without changing channel or unrelated bytes", () => {

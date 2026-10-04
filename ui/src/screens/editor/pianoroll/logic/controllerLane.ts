@@ -75,11 +75,11 @@ export function buildPianoRollControllerProjection(
     return result;
 
   const source = region.events ?? [];
-  const sourceEvents = source.slice(0, MAX_SOURCE_EVENTS);
-  result.truncated = source.length > sourceEvents.length;
+  const sourceEventCount = Math.min(source.length, MAX_SOURCE_EVENTS);
+  result.truncated = source.length > sourceEventCount;
   const selected: SelectedEvent[] = [];
-  for (let order = 0; order < sourceEvents.length; order += 1) {
-    const event = sourceEvents[order];
+  for (let order = 0; order < sourceEventCount; order += 1) {
+    const event = source[order];
     if (!Number.isFinite(event.beat)) continue;
     const command = event.status & 0xf0;
     let value: number;

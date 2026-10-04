@@ -1,6 +1,6 @@
 # Arrangement automation: verified state and remaining work
 
-Updated 2026-10-03. Read [audit.md](audit.md), [handoff.md](handoff.md), complete `AGENTS.md` and
+Updated 2026-10-04. Read [audit.md](audit.md), [handoff.md](handoff.md), complete `AGENTS.md` and
 [automation model](../../architecture/AUTOMATION_MODEL.md). This task remains open.
 
 ## Audit findings

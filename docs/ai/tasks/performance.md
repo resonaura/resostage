@@ -440,3 +440,18 @@ numeric readout text is still updated at telemetry cadence. The selected
 plug-in parameter's normalized value is now shown in Plugin Automation, but
 Inspector-wide plug-in controls and hardware/remote telemetry acceptance are
 not covered here.
+
+## Piano Roll event projection scan — avoid source-array copy (2026-10-04)
+
+`buildPianoRollControllerProjection()` now scans at most the existing 16,384
+source-event limit by index instead of first cloning that prefix with
+`Array.prototype.slice()`. Event selection, loop expansion, the 12,000 output
+cap, truncation reporting and edit refusal are unchanged. This removes one
+bounded but avoidable temporary array on each raw CC/pitch-bend projection; it
+does not eliminate selected-event/output allocations or establish a
+whole-canvas frame-time target.
+
+The focused controller-lane suite passes 10/10, including an explicit spy
+asserting that projection does not clone its source event array. Full UI/build/
+lint status is in the newest `handoff.md` entry. No profiler/device measurement
+was performed; treat this as a source-level allocation reduction only.

@@ -1,6 +1,6 @@
 # Post-completion audit and continuation contract
 
-Updated 2026-10-03. Start here, then read the complete `AGENTS.md` and inspect
+Updated 2026-10-04. Start here, then read the complete `AGENTS.md` and inspect
 `git status`/recent commits. This audit supersedes completion claims in older
 task snapshots. Do not repeat finished implementation or overwrite concurrent
 work. Commit each verified block in English; do not push.
@@ -1724,3 +1724,11 @@ multi-event editing, freehand controller painting, physical-device acceptance,
 or manual visual acceptance. See `automation.md` for implementation detail and
 remaining edges. Full-suite/build/lint results are recorded after verification
 in the latest `handoff.md` continuation entry.
+
+### Latest performance follow-up — bounded controller scan allocation (2026-10-04)
+
+`buildPianoRollControllerProjection()` no longer clones up to 16,384 raw MIDI
+events before scanning its fixed cap. A focused regression fails if the source
+array is sliced. The bounded selected-event/projected-event allocations remain;
+no canvas-frame benchmark or device profiler was run. Focused controller-lane
+tests passed 10/10. See the newest `handoff.md` block for full UI verification.

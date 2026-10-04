@@ -1,6 +1,6 @@
 # ResoStage: current continuation handoff
 
-Updated 2026-10-03. Read [audit.md](audit.md) first: it supersedes completion
+Updated 2026-10-04. Read [audit.md](audit.md) first: it supersedes completion
 claims below with confirmed remaining gaps and strict acceptance instructions.
 This file is intended to be given directly to the next coding
 agent. Read the complete repository `AGENTS.md` first. Check `git status` and
@@ -1105,3 +1105,15 @@ multi-event selection/edit, freehand controller painting, raw-event curve
 tools, MIDI 2.0 UMP event authoring, and actual-device/visual acceptance. Next
 review the complete diff, commit all intended source/docs changes in English,
 and continue with the next still-open task. Do not push.
+
+### Latest performance follow-up — avoid event-prefix clone (2026-10-04)
+
+Removed the temporary `source.slice(0, 16_384)` from the raw MIDI CC/pitch-bend
+projection. It now computes the bounded scan length and reads the source array
+by index; output cap, truncation flag and rendering semantics are unchanged.
+Focused UI test passes 10/10 and spies on the source array to prevent this
+allocation from returning. Full UI TypeScript check passed; Vitest passed 936
+tests across 142 files; production UI build passed. Repository lint exited 0
+with the same 12 pre-existing warnings in unrelated files. `git diff --check`
+passed. No profiler/device frame-time claim. Commit this block in English and
+continue with the next open audit item; do not push.
