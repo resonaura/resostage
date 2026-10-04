@@ -210,7 +210,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   ambiguous between a continuation and an escape event; ResoStage does not
   guess. An unpaired MIDI 1.0 CC 88 prefix remains unrepresentable in the MIDI
   Clip event stream and is disclosed; successfully matched prefixes are attached
-  to notes. MPE/vendor encodings are not synthesized automatically.
+  to notes. Loss analysis only treats UMPs actually emitted to SMF as
+  interruptions to an open SysEx7 sequence; omitted unsupported packets are
+  reported separately and do not create a duplicate false SysEx warning.
+  MPE/vendor encodings are not synthesized automatically.
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay

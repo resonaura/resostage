@@ -2490,3 +2490,13 @@ exceptions. Focused Standard MIDI tests passed 61/61; full UI passed
 1,096/1,096 across 151 files; TypeScript, production build, changed-file
 oxlint, and `git diff --check` passed. Basis: [UMP & MIDI 2.0 Protocol
 v1.1.1 §§D.1.4 and D.2.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+Latest MIDI export audit — SysEx7 warning reflects emitted SMF events
+(2026-10-04): the loss analyzer previously treated an unsupported UMP that the
+writer drops as an interruption to an open SysEx7 sequence. It now applies
+interruptions only for representable events present in the output; omitted
+packets still receive their own unsupported-UMP warning, while valid
+System Real-Time remains transparent to SysEx framing. The regression checks
+both the loss report and the parsed output file. Focused Standard MIDI tests
+passed 62/62; full UI passed 1,097/1,097 across 151 files. TypeScript,
+production build, changed-file oxlint and `git diff --check` passed.

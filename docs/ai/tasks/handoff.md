@@ -1812,3 +1812,13 @@ TypeScript, production build, changed-file oxlint and `git diff --check`
 passed. Review and commit in English; do not push. Primary basis: [UMP & MIDI
 2.0 Protocol v1.1.1 §§D.1.4 and D.2.1]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+
+Latest verified continuation — SysEx7 loss report matches emitted MIDI 1.0
+(2026-10-04): unsupported UMP events omitted by the SMF writer no longer
+falsely count as interruptions to an open SysEx7 message. Representable
+non-Real-Time events still interrupt it, and valid System Real-Time messages
+remain transparent. A regression verifies both the warning counts and parsed
+`.mid` bytes/events. Focused Standard MIDI tests: 62/62; full UI: 1,097/1,097
+across 151 files; TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed. Review and commit in English; do not push. Continue
+the interoperability audit from `docs/MIDI2_REMAINING_WORK.md`.

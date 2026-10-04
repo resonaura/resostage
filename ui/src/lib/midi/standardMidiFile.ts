@@ -532,8 +532,12 @@ function countIncompleteSysEx7Messages(events: MidiRegionRow["umpEvents"]): numb
         continue;
       }
     }
-    const systemStatus = type === 1 ? (first >>> 16) & 0xff : 0;
-    const isRealtime = [0xf8, 0xfa, 0xfb, 0xfc, 0xfe, 0xff].includes(systemStatus);
+    // Only events the SMF writer actually emits can interrupt an open SysEx
+    // sequence. Unsupported UMPs are omitted from the file and therefore must
+    // not create an additional, misleading SysEx loss warning.
+    const converted = umpEventToMidi1(event.words, event.wordCount);
+    if (!converted) continue;
+    const isRealtime = [0xf8, 0xfa, 0xfb, 0xfc, 0xfe, 0xff].includes(converted.status);
     if (!isRealtime && openGroups.delete(group)) invalidMessages++;
   }
   return invalidMessages + openGroups.size;

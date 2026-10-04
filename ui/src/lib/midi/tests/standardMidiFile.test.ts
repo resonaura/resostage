@@ -561,6 +561,35 @@ describe("Standard MIDI File", () => {
       .toMatchObject({ invalidUmpSysExMessages: 1, unsupportedUmpEvents: 0 });
   });
 
+  it("does not report dropped UMPs as interrupting an exported SysEx7 sequence", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0, words: sysex7Ump(1, [1, 2]), wordCount: 2 },
+        { beat: 0.5, words: [0x50000000, 0, 0, 0], wordCount: 4 },
+        { beat: 0.75, words: [0x10f80000], wordCount: 1 },
+        { beat: 1, words: sysex7Ump(3, [3, 4]), wordCount: 2 },
+      ],
+    };
+    const tracks = [{ name: "SysEx with omitted UMP", regions: [source] }];
+
+    expect(analyzeMidi1ExportLoss(tracks))
+      .toMatchObject({ invalidUmpSysExMessages: 0, unsupportedUmpEvents: 1 });
+    const parsed = parseStandardMidiFile(writeStandardMidiFile(tracks, {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+    expect(parsed.tracks[1].events?.filter((event) =>
+      event.status === 0xf0 || event.status === 0xf7 || event.status === 0xf8,
+    )).toEqual([
+      { beat: 0, status: 0xf0, data: [1, 2] },
+      { beat: 0.75, status: 0xf8, data: [] },
+      { beat: 1, status: 0xf7, data: [3, 4, 0xf7] },
+    ]);
+  });
+
   it("converts complete and fragmented SMF SysEx into MIDI Clip SysEx7 UMPs", () => {
     const source: MidiRegionRow = {
       ...region,
