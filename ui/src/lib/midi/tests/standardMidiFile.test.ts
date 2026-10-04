@@ -1089,6 +1089,15 @@ describe("Standard MIDI File", () => {
     })).toThrow(/integers from 0 to 0x0FFFFFFF/);
   });
 
+  it.each([
+    [0, 0x90, 0x80, 100, 0, 0xff, 0x2f, 0],
+    [0, 0x90, 60, 0x80, 0, 0xff, 0x2f, 0],
+  ])("rejects a MIDI channel-voice data byte with its status bit set", (...events) => {
+    expect(() => parseStandardMidiFile(smfWithTrackEvents(events))).toThrow(
+      /channel voice data bytes must be 7-bit values/,
+    );
+  });
+
   it("concatenates chosen songs with tempo and meter changes at exact boundaries", () => {
     const makeSong = (name: string, bpm: number, numerator: number, midi: MidiRegionRow): SongRow => ({
       name, bpm, tsNum: numerator, tsDen: 4, mode: "auto", endSeconds: 2,

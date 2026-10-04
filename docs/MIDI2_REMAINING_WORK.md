@@ -617,3 +617,15 @@ Focused Standard MIDI File tests passed 55/55; full UI passed 1,089/1,089 across
 unrepresentable gap rather than inserting a synthetic event into the user's
 sequence. The four-byte bound follows the [MIDI Association Standard MIDI
 Files specification](https://midi.org/standard-midi-files-specification).
+
+### Latest continuation — validate SMF channel data bytes (2026-10-04)
+
+Standard MIDI File import now rejects MIDI 1.0 Channel Voice messages whose
+data byte has bit 7 set. Such bytes are status values, and accepting them as
+pitch, velocity, or controller data could create malformed project events.
+Fixtures cover the first and second data-byte positions. Focused SMF tests
+passed 56/56; full UI passed 1,091/1,091 across 151 files, TypeScript,
+production build, changed-file oxlint, and `git diff --check` passed. This
+follows the MIDI Association's [MIDI 1.0 Detailed
+Specification](https://midi.org/midi-1-0-detailed-specification) and [expanded
+message table](https://midi.org/expanded-midi-1-0-messages-list).

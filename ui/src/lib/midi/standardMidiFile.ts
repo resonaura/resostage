@@ -219,6 +219,8 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
       const data1 = reader.byte();
       const data2 = kind === 0xc0 || kind === 0xd0 ? 0 : reader.byte();
       if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
+      if (data1 > 0x7f || data2 > 0x7f)
+        throw new Error("MIDI channel voice data bytes must be 7-bit values");
       if (kind !== 0x80 && kind !== 0x90) {
         const event = { beat: musicalPosition(tick), status,
           data: kind === 0xc0 || kind === 0xd0 ? [data1] : [data1, data2] };

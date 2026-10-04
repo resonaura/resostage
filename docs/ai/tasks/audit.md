@@ -2437,3 +2437,13 @@ full UI passed 1,089/1,089 across 151 files; TypeScript, production build,
 changed-file oxlint, and `git diff --check` passed. This follows the published MIDI Association Standard MIDI Files specification;
 rejecting is deliberate because synthetic spacer events would mutate the
 user's sequence and expose implementation artifacts to other applications.
+
+Latest parser audit — SMF channel data-byte validation (2026-10-04): the
+Standard MIDI File parser read arbitrary 8-bit values as Channel Voice data.
+It now rejects a data1 or data2 byte with bit 7 set instead of creating
+invalid pitches, velocities, or controller values. Regressions exercise both
+positions. Focused SMF tests passed 56/56; full UI passed 1,091/1,091 across
+151 files; TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed. Basis: MIDI Association
+[MIDI 1.0 Detailed Specification](https://midi.org/midi-1-0-detailed-specification)
+and [expanded message table](https://midi.org/expanded-midi-1-0-messages-list).

@@ -1756,3 +1756,12 @@ TypeScript, production build, changed-file oxlint, and `git diff --check` also
 passed. Review and commit this verified block with an English message; do not
 push. Source:
 [MIDI Association Standard MIDI Files specification](https://midi.org/standard-midi-files-specification).
+
+Next in-progress parser hardening — SMF Channel Voice data bytes (2026-10-04):
+the parser now rejects Channel Voice data bytes with bit 7 set, which had
+previously been accepted as arbitrary note/controller values. Regressions
+cover data1 and data2. Focused SMF tests passed 56/56; full UI passed
+1,091/1,091 across 151 files; TypeScript, production build, changed-file
+oxlint, and `git diff --check` passed. Review the diff and commit in English
+without pushing. Reference:
+[MIDI 1.0 Detailed Specification](https://midi.org/midi-1-0-detailed-specification).
