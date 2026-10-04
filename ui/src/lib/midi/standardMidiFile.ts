@@ -225,7 +225,8 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         }
         if (kind === 0x2f) {
           if (data.length !== 0) throw new Error("Invalid End-of-Track event length");
-          reader.offset = trackEnd;
+          if (reader.offset !== trackEnd)
+            throw new Error("MIDI track contains data after End-of-Track");
           break;
         }
         if (!recognizedTimingMetaEvent && kind !== 0x2f) {

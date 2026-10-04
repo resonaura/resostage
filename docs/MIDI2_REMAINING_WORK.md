@@ -803,3 +803,15 @@ trailing chunk. Focused Standard MIDI tests passed 76/76; full UI passed
 1,115/1,115 across 151 files; TypeScript, production build, changed-file
 oxlint, and `git diff --check` passed. Basis: the MIDI Association
 [Standard MIDI Files specification](https://midi.org/standard-midi-files-specification).
+
+### Latest continuation — enforce Standard MIDI End-of-Track termination (2026-10-04)
+
+When an `MTrk` contains an End-of-Track event, the parser now requires that
+event to end exactly at the declared track boundary. It no longer advances to
+the end of the chunk and discards later bytes/events. This change deliberately
+does not add a new rejection for tracks that omit EOT; malformed-but-readable
+files retain the existing recovery behavior. A regression verifies that an
+event after EOT is rejected. Focused Standard MIDI tests passed 77/77; full UI
+passed 1,116/1,116 across 151 files; TypeScript, production build, changed-file
+oxlint, and `git diff --check` passed. Basis: the MIDI Association
+[Standard MIDI Files specification](https://midi.org/standard-midi-files-specification).

@@ -1919,3 +1919,11 @@ trailing chunks rather than silently importing only part of the file. Focused
 SMF tests: 76/76; full UI: 1,115/1,115 across 151 files; TypeScript, production
 build, changed-file oxlint and `git diff --check` passed. Commit separately in
 English without pushing, then continue conformance auditing.
+
+Latest verified SMF End-of-Track fix (2026-10-04): a present EOT event must
+end exactly at the declared `MTrk` boundary. The parser rejects bytes/events
+after it rather than seeking past them and losing content; missing-EOT recovery
+behavior was intentionally left unchanged. Focused SMF tests: 77/77; full UI:
+1,116/1,116 across 151 files; TypeScript, production build, changed-file
+oxlint and `git diff --check` passed. Commit this block in English without
+pushing, then continue conformance auditing.

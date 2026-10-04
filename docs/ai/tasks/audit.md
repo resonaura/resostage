@@ -2595,3 +2595,10 @@ tracks and truncated trailing chunks receive explicit errors. Tests: 76/76
 focused SMF; full UI: 1,115/1,115 across 151 files; TypeScript, production UI
 build, changed-file oxlint and `git diff --check` passed. Continue checking
 End-of-Track termination and standard-vs-tolerant recovery policy.
+
+Latest Standard MIDI termination audit (2026-10-04): if `FF 2F 00` is present,
+it must consume the rest of its declared `MTrk`; bytes after EOT are rejected
+instead of silently dropped. No new strictness was added for a track with no
+EOT. Test coverage: 77/77 focused SMF; full UI: 1,116/1,116 across 151 files;
+TypeScript, production UI build, changed-file oxlint and `git diff --check`
+passed. Basis: MIDI Association Standard MIDI Files specification.

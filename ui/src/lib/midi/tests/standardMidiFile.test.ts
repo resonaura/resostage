@@ -217,6 +217,15 @@ describe("Standard MIDI File", () => {
       .toThrow(/MIDI event exceeds track chunk/);
   });
 
+  it("does not silently discard events after End-of-Track", () => {
+    const file = smfWithTrackEvents([
+      0, 0xff, 0x2f, 0,
+      0, 0x90, 60, 100,
+    ]);
+
+    expect(() => parseStandardMidiFile(file)).toThrow(/data after End-of-Track/);
+  });
+
   it("folds MIDI 1.0 CC 88 into one-shot 14-bit note-edge velocities", () => {
     const parsed = parseStandardMidiFile(smfWithTrackEvents([
       0, 0xb0, 88, 25,
