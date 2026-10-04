@@ -1314,3 +1314,22 @@ hardware or frame-profile acceptance was done. Next open items: bounded
 selection marquee and raw-event cut/copy with exact packet retention/history,
 then fill codec conformance gaps and continue native UMP I/O. Do not claim
 end-to-end MIDI 2.0 support and do not push.
+
+### Latest continuation — UMP controller marquee selection (2026-10-04)
+
+Piano Roll Select drags on recognized UMP CC/Pitch Bend lanes now marquee-select
+visible projected points. Candidate screen coordinates are computed once per
+gesture from the bounded projection, including Group/Channel filtering and
+region loop instances; selected indexes always refer to source UMP packets.
+Shift/platform-primary adds to the selection. A selection-only gesture does
+not deep-copy, alter or submit UMP packets. A dedicated overlay renders in the
+controller lane, and unchanged source-index sets do not trigger redundant
+React selection renders.
+
+Focused marquee/gesture suites passed 25/25; full UI Vitest passed 1,006 tests
+across 148 files; TypeScript, production UI build, repository lint and
+`git diff --check` passed. Lint has 12 existing warnings unrelated to this
+work. No manual visual, device or frame-profile acceptance was done. Continue
+with UMP cut/copy only after defining one atomic exact-region history edit that
+preserves packet words and event ownership; then address codec conformance and
+native UMP transport. No push.

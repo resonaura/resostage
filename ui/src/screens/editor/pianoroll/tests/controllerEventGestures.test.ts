@@ -212,6 +212,7 @@ function harness(
     setLocalUmpEvents,
     onSelectionChange: noOp,
     onControllerEventSelectionChange,
+    onUmpControllerEventSelectionChange,
     onSeek: noOp,
     onRegionChange: noOp,
     onEventsChange,
@@ -259,6 +260,7 @@ function harness(
   return {
     pointerDown, pointerMove, pointerEnd, onEventsChange, onUmpEventsChange,
     localEventsRef, localUmpEventsRef, draggingRef, midiEventGestureRef, umpControllerGestureRef,
+    capture,
     selectedControllerEventIndices, onControllerEventSelectionChange,
     selectedUmpControllerEventIndices, onUmpControllerEventSelectionChange,
   };
@@ -544,6 +546,46 @@ describe("Piano Roll raw MIDI event gestures", () => {
       source.umpEvents![0].words[1] + valueDelta,
       source.umpEvents![1].words[1] + valueDelta,
     ]);
+  });
+
+  it("marquee-selects only visible UMP points in the filtered Group and Channel", () => {
+    const source = region();
+    source.umpEvents = [
+      umpCc(2, 74, pianoRollUmpValueFromDisplayValue("umpCc74", 32)!, 2, 3),
+      umpCc(4, 74, pianoRollUmpValueFromDisplayValue("umpCc74", 96)!, 2, 3),
+      umpCc(3, 74, pianoRollUmpValueFromDisplayValue("umpCc74", 64)!, 9, 3),
+      { beat: 5, wordCount: 1, words: [0x1000_0000] },
+    ];
+    const h = harness(source, {
+      bottomLane: "umpCc74", umpGroupFilter: 2, umpChannelFilter: 3,
+    });
+    h.pointerDown(pointer(180, 340));
+    expect(h.draggingRef.current?.type).toBe("umpMarquee");
+    expect(h.capture.has(1)).toBe(true);
+    h.pointerMove(pointer(390, 380));
+
+    expect([...h.selectedUmpControllerEventIndices].sort()).toEqual([0, 1]);
+    h.pointerEnd.handlePointerUp(pointer(390, 380));
+    expect(h.capture.has(1)).toBe(false);
+    expect(h.onUmpEventsChange).not.toHaveBeenCalled();
+  });
+
+  it("supports additive UMP marquee selection while retaining points outside the box", () => {
+    const source = region();
+    source.umpEvents = [
+      umpCc(2, 74, pianoRollUmpValueFromDisplayValue("umpCc74", 32)!),
+      umpCc(4, 74, pianoRollUmpValueFromDisplayValue("umpCc74", 96)!),
+      umpCc(3, 74, pianoRollUmpValueFromDisplayValue("umpCc74", 5)!),
+    ];
+    const h = harness(source, { bottomLane: "umpCc74" });
+    h.pointerDown(pointer(294, controllerYFromValue(5, 310, 400, false), 1, true));
+    expect([...h.selectedUmpControllerEventIndices]).toEqual([2]);
+    h.pointerDown(pointer(180, 340, 2, true));
+    h.pointerMove(pointer(390, 380, 2, true));
+
+    expect([...h.selectedUmpControllerEventIndices].sort()).toEqual([0, 1, 2]);
+    h.pointerEnd.handlePointerUp(pointer(390, 380, 2, true));
+    expect(h.onUmpEventsChange).not.toHaveBeenCalled();
   });
 
   it("maps a UMP point drag on a loop occurrence back to its source beat", () => {

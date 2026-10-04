@@ -429,6 +429,7 @@ export function PianoRollCanvas({
     setLocalUmpEvents,
     onSelectionChange,
     onControllerEventSelectionChange,
+    onUmpControllerEventSelectionChange,
     onSeek,
     onRegionChange,
     onEventsChange,

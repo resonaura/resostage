@@ -1905,3 +1905,23 @@ changed files. No manual visual, physical-device or frame-time acceptance was
 performed. Remaining UMP editor work includes range marquee and raw event
 cut/copy; codec conformance, native UMP transport and end-to-end MIDI 2.0
 compatibility remain open.
+
+### Latest continuation — UMP controller marquee selection (2026-10-04)
+
+Select-tool drags over a MIDI 2.0 CC/Pitch Bend controller lane now draw a
+canvas-space marquee and select enclosed source packet indexes. Candidate
+coordinates are captured once from the bounded visible Piano Roll projection;
+pointer movement scans at most the existing 12,000 projected-point cap and
+publishes selection only when its source-index set changes. The active
+Group/Channel filters and loop projection are respected; repeated loop views
+deduplicate to their original UMP event index. Shift or the platform primary
+modifier makes the drag additive. Selection does not copy, mutate or submit UMP
+data; pointer-up remains a selection-only interaction. The selection box is
+drawn over the controller lane using the editor accent color.
+
+Focused marquee/gesture tests passed 25/25; full UI Vitest passed 1,006 tests
+across 148 files; TypeScript, production UI build, lint and `git diff --check`
+passed. Lint reports 12 existing warnings outside this change. No manual
+visual, physical-device or frame-time acceptance was done. Raw-event UMP
+cut/copy, codec conformance, native UMP transport and full MIDI 2.0
+compatibility remain open.

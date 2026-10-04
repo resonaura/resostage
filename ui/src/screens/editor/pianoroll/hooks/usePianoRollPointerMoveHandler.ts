@@ -30,6 +30,10 @@ import {
   pianoRollUmpValueFromY,
 } from "@/screens/editor/pianoroll/logic/umpControllerEditing";
 import {
+  samePianoRollUmpControllerSelection,
+  selectPianoRollUmpMarqueeCandidates,
+} from "@/screens/editor/pianoroll/logic/umpControllerMarquee";
+import {
   boundedNoteMove,
   boundedNoteResize,
   findNotesInMarquee,
@@ -81,6 +85,7 @@ interface PianoRollPointerMoveHandlerOptions {
   setLocalUmpEvents: (events: MidiUmpEventRow[] | null) => void;
   onSelectionChange: (ids: Set<number>) => void;
   onControllerEventSelectionChange: (indices: Set<number>) => void;
+  onUmpControllerEventSelectionChange: (indices: Set<number>) => void;
   onSeek?: (beats: number) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
@@ -120,6 +125,7 @@ export function createPianoRollPointerMoveHandler({
   setLocalUmpEvents,
   onSelectionChange,
   onControllerEventSelectionChange,
+  onUmpControllerEventSelectionChange,
   onSeek,
   onRegionChange,
   onEventsChange,
@@ -174,6 +180,27 @@ export function createPianoRollPointerMoveHandler({
       const beat = Math.max(0, xToBeat(x));
       const targetBeat = snap > 0 && !e.shiftKey ? snapBeat(beat) : beat;
       if (onSeek) onSeek(targetBeat);
+      return;
+    }
+
+    if (dragging.type === "umpMarquee" && dragging.umpMarqueeBox) {
+      const box = dragging.umpMarqueeBox;
+      box.currentX = x;
+      box.currentY = y;
+      const selection = selectPianoRollUmpMarqueeCandidates(
+        box.candidates,
+        box.startX,
+        box.startY,
+        box.currentX,
+        box.currentY,
+        dragging.additiveSelection,
+      );
+      if (!samePianoRollUmpControllerSelection(box.currentSelection, selection)) {
+        box.currentSelection = selection;
+        onUmpControllerEventSelectionChange(selection);
+      }
+      canvas.style.cursor = "crosshair";
+      render();
       return;
     }
 

@@ -57,6 +57,13 @@ export interface PianoRollViewport {
   velocityLaneHeight: number;
 }
 
+/** Bounded visible UMP points captured at marquee start for cheap pointer moves. */
+export interface PianoRollUmpMarqueeCandidate {
+  sourceEventIndex: number;
+  x: number;
+  y: number;
+}
+
 export interface DraggingState {
   type:
     | "move"
@@ -69,6 +76,7 @@ export interface DraggingState {
     | "cc"
     | "midiEvent"
     | "umpEvent"
+    | "umpMarquee"
     | "playhead";
   startPointerX: number;
   startPointerY: number;
@@ -85,6 +93,14 @@ export interface DraggingState {
     startPitch: number;
     currentBeat: number;
     currentPitch: number;
+  };
+  umpMarqueeBox?: {
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    candidates: PianoRollUmpMarqueeCandidate[];
+    currentSelection: ReadonlySet<number>;
   };
 }
 

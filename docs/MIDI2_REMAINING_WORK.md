@@ -96,9 +96,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   editing supports point creation, move/value editing, multi-selection,
   deletion, curve shaping and smoothing. Continuous transforms preserve the
   full unsigned 32-bit data word, endpoints, event timing and opaque packets;
-  binary pedal CC64–69 are excluded. Range marquee selection and raw event
-  cut/copy are not implemented. The semantic event dialog remains available
-  for exact field entry.
+  binary pedal CC64–69 are excluded. Canvas marquee selection now supports
+  visible points and additive Shift/platform-primary selection. Raw event
+  cut/copy is not implemented. The semantic event dialog remains available for
+  exact field entry.
 - The importer has focused unit coverage but no maintained conformance corpus
   from other DAWs and no broad cross-application round-trip certification.
 
@@ -127,8 +128,8 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor,
    group/channel preview filters, and direct point gestures for recognized
    CC/Pitch Bend packets, plus bounded curve/smoothing transforms, are
-   implemented. Next assess marquee and clipboard actions only if they can
-   retain packet identity and history semantics. Keep MIDI 1.0 `events` and UMP
+   implemented. Next add raw event cut/copy only if it can retain packet
+   identity and exact history semantics. Keep MIDI 1.0 `events` and UMP
    `umpEvents` separate and use the exact MIDI-region history/acknowledgement
    path.
 3. **Finish MIDI 1.0 interoperability:** maintain Format 0/1/2 fixtures,

@@ -52,6 +52,7 @@ import type {
   PianoRollControllerGesture,
   PianoRollMidiEventGesture,
   PianoRollUmpControllerGesture,
+  PianoRollUmpMarqueeCandidate,
   PianoRollControllerLaneMode,
   PianoRollTool,
   ScaleMode,
@@ -236,12 +237,13 @@ export function createPianoRollPointerDownHandler({
             canvas.releasePointerCapture(e.pointerId);
             return;
           }
-          const beforeEvents = copyPianoRollUmpEvents(sourceEvents);
           const displayBeat = clampControllerDisplayBeat(
             xToBeat(x), region.durationBeats, snap,
           );
+          const firstVisibleBeat = Math.max(0, xToBeat(viewport.keyWidth));
+          const lastVisibleBeat = Math.min(region.durationBeats, xToBeat(rect.width));
           const projection = buildPianoRollUmpControllerProjection(
-            { ...region, umpEvents: beforeEvents }, bottomLane, 0, region.durationBeats,
+            region, bottomLane, firstVisibleBeat, lastVisibleBeat,
             umpGroupFilter, umpChannelFilter,
           );
           if (projection.truncated) {
@@ -262,11 +264,15 @@ export function createPianoRollPointerDownHandler({
             }
           }
 
+          const visibleIndices = new Set(projection.events.map((event) => event.sourceEventIndex));
+          const currentSelection = new Set(
+            [...selectedUmpControllerEventIndices].filter((index) => visibleIndices.has(index)),
+          );
           onSelectionChange(new Set());
           onControllerEventSelectionChange(new Set());
           if (tool === "erase" && hit) {
             const removed = removePianoRollUmpControllerEvents(
-              beforeEvents, [hit.sourceEventIndex],
+              sourceEvents, [hit.sourceEventIndex],
             );
             if (removed) {
               onUmpControllerEventSelectionChange(new Set());
@@ -278,15 +284,40 @@ export function createPianoRollPointerDownHandler({
           }
 
           if (!hit && tool !== "draw") {
-            onUmpControllerEventSelectionChange(new Set());
-            canvas.releasePointerCapture(e.pointerId);
+            if (tool === "select") {
+              const additive = e.shiftKey || isPrimaryModifier(e);
+              const candidates: PianoRollUmpMarqueeCandidate[] = projection.events.map((event) => ({
+                sourceEventIndex: event.sourceEventIndex,
+                x: viewport.keyWidth
+                  + (event.beat - viewport.scrollBeats) * viewport.pixelsPerBeat,
+                y: controllerYFromValue(event.value, gridBottom, height, pitchBend),
+              }));
+              const retainedSelection = additive ? currentSelection : new Set<number>();
+              onUmpControllerEventSelectionChange(retainedSelection);
+              draggingRef.current = {
+                type: "umpMarquee",
+                startPointerX: x,
+                startPointerY: y,
+                startBeat: displayBeat,
+                startPitch: 0,
+                additiveSelection: retainedSelection,
+                initialNotesSnapshot: new Map(),
+                umpMarqueeBox: {
+                  startX: x,
+                  startY: y,
+                  currentX: x,
+                  currentY: y,
+                  candidates,
+                  currentSelection: retainedSelection,
+                },
+              };
+            } else {
+              onUmpControllerEventSelectionChange(new Set());
+            }
+            if (tool !== "select") canvas.releasePointerCapture(e.pointerId);
             return;
           }
 
-          const visibleIndices = new Set(projection.events.map((event) => event.sourceEventIndex));
-          const currentSelection = new Set(
-            [...selectedUmpControllerEventIndices].filter((index) => visibleIndices.has(index)),
-          );
           if (hit && (e.shiftKey || isPrimaryModifier(e))) {
             if (currentSelection.has(hit.sourceEventIndex))
               currentSelection.delete(hit.sourceEventIndex);
@@ -296,6 +327,7 @@ export function createPianoRollPointerDownHandler({
             return;
           }
 
+          const beforeEvents = copyPianoRollUmpEvents(sourceEvents);
           let latestEvents = beforeEvents;
           let selectedPoints: PianoRollUmpControllerGesture["selectedPoints"] = [];
           let anchorBeat = displayBeat;

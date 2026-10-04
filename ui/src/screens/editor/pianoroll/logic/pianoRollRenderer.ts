@@ -418,5 +418,23 @@ export function drawPianoRollCanvas({
       isControllerLane,
       controllerYFromValue,
     });
+
+    if (draggingState?.type === "umpMarquee" && draggingState.umpMarqueeBox) {
+      const { startX, startY, currentX, currentY } = draggingState.umpMarqueeBox;
+      const x1 = Math.min(startX, currentX);
+      const y1 = Math.min(startY, currentY);
+      const boxWidth = Math.abs(currentX - startX);
+      const boxHeight = Math.abs(currentY - startY);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(viewport.keyWidth, gridBottom, width - viewport.keyWidth, height - gridBottom);
+      ctx.clip();
+      ctx.fillStyle = withHexAlpha(theme.accent, "26");
+      ctx.strokeStyle = theme.accent;
+      ctx.lineWidth = 1;
+      ctx.fillRect(x1, y1, boxWidth, boxHeight);
+      ctx.strokeRect(x1, y1, boxWidth, boxHeight);
+      ctx.restore();
+    }
     ctx.restore();
 }

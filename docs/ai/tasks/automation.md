@@ -925,3 +925,20 @@ passed 999 tests across 147 files; TypeScript and production UI build passed.
 Lint exited 0 with 12 existing warnings in unrelated files, and
 `git diff --check` passed. No manual visual/device acceptance or performance
 profile was run. UMP range marquee and raw event cut/copy remain open.
+
+### Piano Roll UMP controller marquee selection (2026-10-04)
+
+Select-tool drag in a recognized MIDI 2.0 controller lane performs a separate
+canvas-space marquee. It caches bounded projected candidate coordinates at
+gesture start, respects UMP Group/Channel filters and region loop projection,
+and maps repeated occurrences back to one source event index. Shift/platform
+primary adds enclosed points to the selection captured at pointer-down. Only
+selection state changes; no UMP draft/history transaction occurs until an
+actual data-edit gesture. The selection rectangle is drawn over the controller
+lane. Selection equality checks avoid redundant React state updates while the
+pointer remains within the same selected points.
+
+Focused marquee/gesture tests passed 25/25; full UI tests passed 1,006/1,006
+across 148 files; TypeScript and production UI build passed. Lint exited 0 with
+12 existing unrelated warnings; `git diff --check` passed. No manual display or
+hardware acceptance was performed. Raw UMP event cut/copy remains open.
