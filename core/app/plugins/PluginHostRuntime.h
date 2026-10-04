@@ -47,6 +47,8 @@ public:
     void publishSlotStatuses(plugin_host::SharedArea& area) const noexcept;
     /** Writes bounded parameter names before the shared host becomes Ready. */
     void publishParameterDescriptors(plugin_host::SharedArea& area) const noexcept;
+    /** Writes bounded auxiliary input-bus metadata before the host becomes Ready. */
+    void publishSidechainBusDescriptors(plugin_host::SharedArea& area) const noexcept;
     PluginProcessorBank* bank() noexcept;
     const std::vector<std::string>& warnings() const noexcept;
 

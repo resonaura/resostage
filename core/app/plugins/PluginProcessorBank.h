@@ -107,6 +107,13 @@ public:
         bool automatable = true;
     };
 
+    struct SidechainBusInfo {
+        uint32_t busIndex = 0;
+        uint32_t channelCount = 0;
+        std::string name;
+        bool enabled = false;
+    };
+
     struct ParameterValue {
         uint32_t index = 0;
         float value = 0.0f;
@@ -241,6 +248,13 @@ public:
     std::vector<ParameterInfo> parametersForSlot(const std::string& slotId) const;
     std::vector<ParameterInfo> parametersForSlot(const std::string& stripId,
                                                 const std::string& slotId) const;
+    /** Non-realtime snapshot of a plug-in's auxiliary audio input buses. */
+    std::vector<SidechainBusInfo> sidechainBusesForSlot(
+        const std::string& slotId) const;
+    std::vector<SidechainBusInfo> sidechainBusesForSlot(
+        const std::string& stripId, const std::string& slotId) const;
+    bool sidechainBusMetadataTruncated(const std::string& stripId,
+                                       const std::string& slotId) const noexcept;
     /** Latest hosted parameter values without copying immutable descriptors. */
     std::vector<ParameterValue> parameterValuesForSlot(const std::string& slotId) const;
     std::vector<ParameterValue> parameterValuesForSlot(const std::string& stripId,

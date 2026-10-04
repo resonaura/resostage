@@ -165,6 +165,8 @@ describe("pluginChains", () => {
       loadState: "loaded",
       loadError: "",
       truncated: false,
+      sidechainBuses: [{ busIndex: 1, channelCount: 2, name: "Sidechain", enabled: false }],
+      sidechainBusMetadataTruncated: false,
       parameters: [{ index: 7, parameterId: "id:cutoff", name: "Cutoff", label: "Hz",
         defaultValue: 0.5, currentValue: 0.72, steps: 0, automatable: true }],
     };

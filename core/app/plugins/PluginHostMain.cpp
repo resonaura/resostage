@@ -346,6 +346,7 @@ public:
             area->processorTailSeconds = runtime->bank()->tailSeconds();
             runtime->publishSlotStatuses(*area);
             runtime->publishParameterDescriptors(*area);
+            runtime->publishSidechainBusDescriptors(*area);
         }
 
         area->hostState.store(

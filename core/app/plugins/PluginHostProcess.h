@@ -74,6 +74,10 @@ public:
     /** Startup-only immutable metadata; query from a non-realtime thread. */
     std::vector<plugin_host::ParameterDescriptor> parameterDescriptorsForSlot(
         size_t slotIndex, std::vector<float>* currentValues = nullptr) const;
+    /** Startup-only auxiliary input-bus capabilities from the helper snapshot. */
+    std::vector<plugin_host::SidechainBusDescriptor>
+    sidechainBusDescriptorsForSlot(size_t slotIndex) const;
+    bool sidechainBusMetadataTruncated() const noexcept;
     /** Lightweight latest-value read; descriptor identity stays in the cached list. */
     std::vector<ParameterValue> parameterValuesForSlot(size_t slotIndex) const;
     bool parameterMetadataTruncated() const noexcept;

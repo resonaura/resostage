@@ -199,6 +199,29 @@ PluginHostProcess::parameterDescriptorsForSlot(size_t slotIndex,
     return result;
 }
 
+std::vector<plugin_host::SidechainBusDescriptor>
+PluginHostProcess::sidechainBusDescriptorsForSlot(size_t slotIndex) const {
+    std::vector<plugin_host::SidechainBusDescriptor> result;
+    const auto* area = sharedMemory.area();
+    if (area == nullptr || !isReady() || slotIndex >= area->pluginSlotCount)
+        return result;
+    const auto count = std::min<uint32_t>(
+        area->sidechainBusDescriptorCount,
+        plugin_host::kMaximumSidechainBusDescriptorsPerChain);
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto& descriptor = area->sidechainBusDescriptors[i];
+        if (descriptor.slotIndex == slotIndex)
+            result.push_back(descriptor);
+    }
+    return result;
+}
+
+bool PluginHostProcess::sidechainBusMetadataTruncated() const noexcept {
+    const auto* area = sharedMemory.area();
+    return area != nullptr && isReady()
+        && area->sidechainBusMetadataTruncated != 0;
+}
+
 std::vector<PluginHostProcess::ParameterValue>
 PluginHostProcess::parameterValuesForSlot(size_t slotIndex) const {
     std::vector<ParameterValue> result;

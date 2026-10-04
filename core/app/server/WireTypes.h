@@ -348,13 +348,22 @@ struct WPluginParameterInfo {
     bool automatable = true;
 };
 
+struct WPluginSidechainBus {
+    uint32_t busIndex = 0;
+    uint32_t channelCount = 0;
+    std::string name;
+    bool enabled = false;
+};
+
 struct WPluginParameterList {
     std::string stripId;
     std::string slotId;
     std::vector<WPluginParameterInfo> parameters;
+    std::vector<WPluginSidechainBus> sidechainBuses;
     std::string loadState = "loading";
     std::string loadError;
     bool truncated = false;
+    bool sidechainBusMetadataTruncated = false;
 };
 
 struct WPluginParameterValue {

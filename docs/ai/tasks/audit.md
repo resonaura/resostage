@@ -1622,7 +1622,7 @@ sidechain endpoints/routing remain open.
 
 Commits `4e124bb7` and `491335ca` add project-format-v12 sidechain slot
 bindings, DAG validation/topological order, and a bounded live/offline audio
-feed to JUCE auxiliary input buses. The live-host ABI is v10 and transports at
+feed to JUCE auxiliary input buses. The live-host ABI is v11 and transports at
 most eight block-sized stereo feeds without callback allocation. Source mute,
 solo and automation mute are respected. Per-plugin preset storage/state was
 also added in `48817310`; do not repeat that work.
@@ -1641,9 +1641,28 @@ The plugin-presets, sidechain-model/audio and UI-visualization blocks have
 separate commits (`48817310`, `4e124bb7`, `491335ca`, and `3ed580f2`).
 
 Still open before claiming sidechain complete: slot-aware PDC (ordinary send
-PDC does not align a plugin sidechain), actual auxiliary-bus capability
-discovery, undoable UI route authoring with exact graph publication results,
+PDC does not align a plugin sidechain), undoable UI route authoring with exact
+graph publication results,
 real AU/VST3 sidechain fixtures, active-playback edits, bypass/fault behavior,
 and acoustic live/offline parity. No hardware or real sidechain-capable plugin
 was exercised. Preserve the last-good graph and unchanged healthy helpers on
 route edits; never restart transport as a workaround.
+
+### Follow-up — hosted auxiliary-bus discovery (2026-10-03)
+
+The previous status is superseded for capability discovery only. Live helpers
+now publish fixed-capacity per-slot auxiliary input-bus metadata before Ready;
+the Core parameter metadata endpoint returns bus index, name, channel count,
+enabled state and a truncation flag. Offline/in-process discovery uses the
+same metadata model without toggling a bus. The shared-memory ABI is v11.
+Focused API tests passed 16/16; full UI passed 917/917 across 138 files;
+TypeScript and production UI build passed; optimized Core/helper build and
+native CTest passed; changed-file lint and diff check passed. The existing
+macOS AU-host fixture exercises the empty-or-populated metadata contract, but
+no known sidechain-capable vendor fixture has been tested.
+
+Still open: exact undoable sidechain route authoring/graph-publication results,
+slot-aware PDC, capability validation in the UI, real AU/VST3 sidechain signal
+tests, active-playback edits, and acoustic live/offline parity. A loading,
+failed, stale-generation or truncated catalog is inconclusive about bus
+support. Preserve unchanged healthy helpers and transport during route changes.

@@ -22,7 +22,7 @@ namespace resostage::plugin_host {
 // header free of JUCE, STL containers, pointers, and platform handles: the
 // mapped area is a byte-level process boundary, not a shared object graph.
 inline constexpr uint32_t kMagic = 0x52535048; // "RSPH"
-inline constexpr uint32_t kProtocolVersion = 10;
+inline constexpr uint32_t kProtocolVersion = 11;
 inline constexpr size_t kSlotCount = 3;
 inline constexpr uint32_t kMaximumBlockSamples = 8192;
 inline constexpr uint32_t kMaximumMidiEventsPerBlock = 512;
@@ -31,6 +31,8 @@ inline constexpr uint32_t kMaximumParameterEventsPerBlock = 256;
 inline constexpr uint32_t kMaximumPluginSlotsPerChain = 128;
 inline constexpr uint32_t kMaximumSidechainFeedsPerChain = 8;
 inline constexpr uint32_t kMaximumSidechainInputBusIndex = 32;
+inline constexpr uint32_t kMaximumSidechainBusDescriptorsPerChain =
+    kMaximumPluginSlotsPerChain * kMaximumSidechainInputBusIndex;
 inline constexpr uint32_t kMaximumParameterDescriptorsPerChain = 2048;
 inline constexpr uint32_t kControlEventQueueCapacity = 2048;
 // One callback of asynchronous headroom was too fragile when macOS briefly
@@ -123,6 +125,16 @@ struct ParameterDescriptor {
     char name[64]{};
     char label[16]{};
     char parameterId[128]{};
+};
+
+// Immutable startup capability published by the helper. Bus index zero is
+// the processor's main input; only auxiliary inputs are listed here.
+struct SidechainBusDescriptor {
+    uint16_t slotIndex = 0;
+    uint16_t busIndex = 0;
+    uint16_t channelCount = 0;
+    uint16_t enabled = 0;
+    char name[64]{};
 };
 
 struct alignas(16) ControlEventCell {
@@ -218,6 +230,10 @@ struct alignas(64) SharedArea {
     uint8_t parameterMetadataTruncated = 0;
     std::array<ParameterDescriptor, kMaximumParameterDescriptorsPerChain>
         parameterDescriptors{};
+    uint32_t sidechainBusDescriptorCount = 0;
+    uint8_t sidechainBusMetadataTruncated = 0;
+    std::array<SidechainBusDescriptor,
+               kMaximumSidechainBusDescriptorsPerChain> sidechainBusDescriptors{};
     // Helper parameter listeners publish latest normalized values directly.
     // These are independent scalars, not a multi-field DSP snapshot; Core's
     // HTTP thread can read them without calling or blocking vendor code.
@@ -355,6 +371,8 @@ static_assert(std::is_trivially_copyable_v<MidiEvent>);
 static_assert(std::is_standard_layout_v<ParameterEvent>);
 static_assert(std::is_trivially_copyable_v<ParameterEvent>);
 static_assert(std::is_trivially_copyable_v<ParameterDescriptor>);
+static_assert(std::is_standard_layout_v<SidechainBusDescriptor>);
+static_assert(std::is_trivially_copyable_v<SidechainBusDescriptor>);
 static_assert(std::is_standard_layout_v<ControlEventCell>);
 
 /** Predictive wake is one coalesced chain edge, regardless of its insert count. */

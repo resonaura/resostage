@@ -364,6 +364,11 @@ MainComponent::MainComponent(std::string ipcSocketPath_, uint16_t webPort, bool 
                                                    parameter.steps, parameter.parameterId,
                                                    parameter.currentValue, parameter.automatable});
                 }
+                for (const auto& bus : bank->sidechainBusesForSlot(stripId, slotId))
+                    response.sidechainBuses.push_back({bus.busIndex, bus.channelCount,
+                                                       bus.name, bus.enabled});
+                response.sidechainBusMetadataTruncated =
+                    bank->sidechainBusMetadataTruncated(stripId, slotId);
             }
         }
         std::string json;

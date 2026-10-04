@@ -48,9 +48,11 @@ Continue from open items in `performance.md`, `automation.md`, `audio-flow.md`
 and `audit.md`. Per-plugin preset persistence is implemented in commit
 `48817310`. Sidechain has a persisted graph model, bounded live/offline feeds
 to plug-in auxiliary input buses, and read-only Signal Flow visualization
-(commits `4e124bb7`, `491335ca` and `3ed580f2`). It is still incomplete: there
-is no bus capability catalog or undoable UI route authoring, no slot-aware PDC,
-and no real AU/VST3 acoustic acceptance. Do not push.
+(commits `4e124bb7`, `491335ca` and `3ed580f2`). A follow-up now publishes a
+bounded aux-input bus capability snapshot from the host (ABI v11) and exposes
+it alongside plug-in parameters. It is still incomplete: no undoable UI route
+authoring, no slot-aware PDC, and no real AU/VST3 acoustic acceptance. Do not
+push.
 
 Verified implementation block — persisted plug-in automation identity: source now
 stores the exact strip ID with each plug-in automation target and carries it
@@ -1020,14 +1022,26 @@ acceptance and does not implement sidechain route authoring. Do not push.
 Latest sidechain continuation (2026-10-03): `4e124bb7` persists one source,
 aux input bus and channel mode per plug-in slot with graph cycle rejection;
 `491335ca` passes up to eight independent block-local feeds through the
-renderer, PluginProcessorBank, ABI-v10 helper and JUCE auxiliary buses. The
+renderer, PluginProcessorBank, helper and JUCE auxiliary buses. The
 `3ed580f2` adds a distinct sidechain edge collection to the explicit
 mixgraph API and dashed, labeled, curved edges in the Settings Signal Flow
 diagram. Verification: full UI 917/917 across 138 files, TypeScript and
 production UI build, changed-file lint, optimized Core/helper build, native
 CTest 1/1 and diff check passed. No real plugin/device sidechain test ran.
-Still open: slot-aware PDC, aux-bus capability discovery, undoable UI route
-authoring/validation, exact graph-publication result handling on route edits,
+Still open: slot-aware PDC, undoable UI route authoring/validation, exact
+graph-publication result handling on route edits,
 real AU/VST3 active-playback and offline parity tests, and mounted visual
 acceptance. Continue from `audio-flow.md`; do not claim complete support or
 push.
+
+Latest sidechain metadata follow-up (2026-10-03): helper ABI v11 publishes a
+bounded immutable auxiliary-input bus catalog per plug-in slot. Core exposes
+bus index, channel count, name, enabled state and truncation alongside the
+existing plug-in parameter metadata; discovery runs off the callback and does
+not toggle buses. Full UI 917/917, focused API 16/16, TypeScript and production
+build, Core/helper build and native CTest passed. A test host contract checks
+the catalog shape, but no known sidechain-capable vendor was exercised. The
+next sidechain work is authoring/validation with exact history and playback
+graph outcomes, then slot-aware PDC and real live/offline acoustic tests.
+Loading or failed plugin state and truncated metadata are inconclusive; do not
+silently present them as unsupported. Do not push.

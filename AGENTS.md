@@ -604,11 +604,15 @@ Preserve these rules:
   rejected before allocation and counted by the bank. Complete channel-wide
   32/48-event panic bursts take priority over pending musical packets. Offline
   non-realtime banks retain full SysEx/growing buffers; never use that mode in
-  a live callback. The live-host shared-memory ABI is version 10; each audio
+  a live callback. The live-host shared-memory ABI is version 11; each audio
   frame carries at most eight fixed-size stereo sidechain feeds tagged with
   the target plug-in slot, auxiliary input bus and channel mode. Inactive feeds
   are zero-filled, and helper processing consumes only the declared sample
-  count. This bounded ABI payload never allocates in Core's audio callback.
+  count. Before publishing Ready, the helper also publishes a bounded,
+  immutable per-slot catalog of auxiliary input bus indices, names, channel
+  counts and enabled state; Core exposes it with plug-in parameter metadata.
+  The audio callback never enumerates buses or allocates for this metadata.
+  This bounded ABI payload never allocates in Core's audio callback.
   Fixed per-slot power/bypass mailboxes coalesce latest-state controls
   independently of the parameter queue. Helper DSP owns power counters/envelopes; other threads
   publish atomic intents. Explicit parking is not cancelled by automatic wake.
@@ -734,7 +738,10 @@ Preserve these rules:
 - Plug-in parameter metadata is enumerated only inside the isolated plug-in
   host and copied into a fixed-capacity shared-memory table before the host
   publishes `Ready`. Core exposes that immutable table through the plug-in
-  parameter HTTP endpoint; the HTTP thread must never inspect vendor objects.
+  parameter HTTP endpoint together with the similarly bounded auxiliary-input
+  bus catalog; the HTTP thread must never inspect vendor objects. A truncated
+  catalog or host state other than `loaded` is not evidence that a bus is
+  unsupported.
   Plug-in descriptor and latest-value GET endpoints take `slotId` and accept
   `stripId` for exact chain identity. New UI consumers must send and verify
   `(stripId, slotId)` because imported legacy projects may contain duplicate

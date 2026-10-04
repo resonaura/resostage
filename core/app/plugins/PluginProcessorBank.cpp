@@ -2252,6 +2252,76 @@ PluginProcessorBank::parametersForSlot(const std::string& stripId,
     return result;
 }
 
+std::vector<PluginProcessorBank::SidechainBusInfo>
+PluginProcessorBank::sidechainBusesForSlot(const std::string& slotId) const {
+    return sidechainBusesForSlot({}, slotId);
+}
+
+std::vector<PluginProcessorBank::SidechainBusInfo>
+PluginProcessorBank::sidechainBusesForSlot(const std::string& stripId,
+                                           const std::string& slotId) const {
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return {};
+    const auto& chain = *chains[location.stripIndex];
+    const auto& node = chain.nodes[location.slotIndex];
+    std::vector<SidechainBusInfo> result;
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr) {
+        const auto descriptors = chain.hostedProcess->process
+            ->sidechainBusDescriptorsForSlot(location.slotIndex);
+        result.reserve(descriptors.size());
+        for (const auto& descriptor : descriptors) {
+            const auto nameEnd = std::find(std::begin(descriptor.name),
+                                           std::end(descriptor.name), '\0');
+            result.push_back({descriptor.busIndex, descriptor.channelCount,
+                std::string(std::begin(descriptor.name), nameEnd),
+                descriptor.enabled != 0});
+        }
+        return result;
+    }
+    if (node == nullptr || node->instance == nullptr)
+        return result;
+
+    // Bus enumeration is deliberately outside processChain/audio callbacks.
+    // Use the current layout, falling back to the default layout for a
+    // currently disabled auxiliary bus, without toggling vendor state.
+    auto& processor = *node->instance;
+    const int busCount = std::min<int>(
+        processor.getBusCount(true),
+        static_cast<int>(plugin_host::kMaximumSidechainInputBusIndex + 1));
+    result.reserve(static_cast<size_t>(std::max(0, busCount - 1)));
+    for (int busIndex = 1; busIndex < busCount; ++busIndex) {
+        auto* bus = processor.getBus(true, busIndex);
+        if (bus == nullptr)
+            continue;
+        auto layout = bus->getCurrentLayout();
+        if (layout.isDisabled())
+            layout = bus->getDefaultLayout();
+        const int channelCount = layout.size();
+        if (channelCount <= 0)
+            continue;
+        result.push_back({static_cast<uint32_t>(busIndex),
+                          static_cast<uint32_t>(channelCount),
+                          bus->getName().toStdString(), bus->isEnabled()});
+    }
+    return result;
+}
+
+bool PluginProcessorBank::sidechainBusMetadataTruncated(
+    const std::string& stripId, const std::string& slotId) const noexcept {
+    const auto location = findSlot(stripId, slotId);
+    if (!location.unique())
+        return false;
+    const auto& chain = *chains[location.stripIndex];
+    if (chain.hostedProcess != nullptr && chain.hostedProcess->process != nullptr)
+        return chain.hostedProcess->process->sidechainBusMetadataTruncated();
+    const auto& node = chain.nodes[location.slotIndex];
+    if (node == nullptr || node->instance == nullptr)
+        return false;
+    return node->instance->getBusCount(true)
+        > static_cast<int>(plugin_host::kMaximumSidechainInputBusIndex + 1);
+}
+
 std::vector<PluginProcessorBank::ParameterValue>
 PluginProcessorBank::parameterValuesForSlot(const std::string& slotId) const {
     return parameterValuesForSlot({}, slotId);

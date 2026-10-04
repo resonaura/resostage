@@ -163,7 +163,7 @@ The bounded audio path is wired through `MixRenderer` and
 `PluginProcessorBank`: each destination processor receives up to eight
 block-local source views, and the selected JUCE auxiliary input bus receives
 automatic stereo/mono mapping or the explicit mono-sum/left/right mode. The
-live-host shared-memory ABI is v10; each audio slot carries the bounded samples
+live-host shared-memory ABI is v11; each audio slot carries the bounded samples
 and descriptors, and the helper reads only the current block's sample count.
 Offline rendering uses the same renderer and in-process plug-in bank. Sidechain
 audio remains independent from the destination's normal insert input and obeys
@@ -176,7 +176,7 @@ pass on a focused rerun (2/2, 78 assertions). One earlier direct full-binary run
 transiently failed their editor open/close requests after the helpers were
 ready and had rendered audio; keep that flaky observation separate from
 sidechain work. This is not yet complete user-facing support: sidechain-path
-PDC/alignment, bus-capability discovery, route-authoring and validation UI,
+PDC/alignment, route-authoring and validation UI,
 and real AU/VST sidechain fixtures remain open.
 Unsupported bus bindings warn during bank preparation and degrade to the
 normal plug-in path; do not claim full compatibility until the remaining
@@ -196,11 +196,28 @@ with labels identifying the plug-in, bus and channel mode. Focused bus paths
 include sidechain edges but continue excluding configured MIDI paths. The
 ordinary graph and MIDI edge semantics are unchanged; older Core responses
 without `sidechainEdges` remain valid. This is inspection only: users cannot
-create/change a route from the graph yet, no aux-bus capability catalog is
-published, and a configured but unsupported plug-in bus is still a runtime
-warning rather than a UI validation error.
+create/change a route from the graph yet, and a configured but unsupported
+plug-in bus is still a runtime warning rather than a UI validation error.
 
 Focused Signal Flow model/layout tests passed (32 tests); full UI passed 917
 tests in 138 files. TypeScript, production UI build, changed-file lint,
 optimized Core/helper build, native CTest (1/1), and `git diff --check` passed.
 Packaged/remote response and visual theme/density checks remain open.
+
+## Auxiliary bus capability discovery (2026-10-03)
+
+The live helper now publishes a bounded immutable list of each hosted slot's
+auxiliary input buses before its Ready state. It includes stable slot-local bus
+index, channel count, display name and enabled state; the main input is
+excluded. The Core parameter metadata endpoint returns this alongside existing
+plug-in parameter descriptors, with a truncation flag and optional UI typing
+for compatibility with older Core builds. In-process/offline banks use the
+same non-realtime bus inspection and do not toggle buses merely to discover
+them. The callback does not enumerate buses or allocate.
+
+The shared-memory layout is ABI v11. Helper-generation replacement naturally
+replaces this capability snapshot; clients must not infer "no sidechain bus"
+while `loadState` is loading/failed, and must check the truncation flag before
+treating an absent entry as conclusive. This discovery does not yet expose
+route authoring or prove that a vendor can process the bus audibly. Unsupported
+saved bindings remain an explicit preparation warning.

@@ -121,6 +121,15 @@ export interface PluginParameterList {
   /** A missing target is conclusive only after loaded, complete metadata. */
   truncated: boolean;
   parameters: PluginParameterInfo[];
+  /** Auxiliary audio inputs discovered inside the isolated/in-process host. */
+  sidechainBuses?: Array<{
+    busIndex: number;
+    channelCount: number;
+    name: string;
+    enabled: boolean;
+  }>;
+  /** True when the bounded helper snapshot omitted one or more bus entries. */
+  sidechainBusMetadataTruncated?: boolean;
 }
 
 export interface PluginParameterValues {

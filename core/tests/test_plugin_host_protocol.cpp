@@ -848,6 +848,15 @@ TEST_CASE("isolated helper loads a real macOS Audio Unit and opens its editor") 
     const auto compactValues = host.parameterValuesForSlot(0);
     REQUIRE(compactValues.size() == metadata.size());
     CHECK_FALSE(host.parameterMetadataTruncated());
+    CHECK_FALSE(host.sidechainBusMetadataTruncated());
+    const auto sidechainBuses = host.sidechainBusDescriptorsForSlot(0);
+    for (const auto& bus : sidechainBuses) {
+        CHECK(bus.slotIndex == 0);
+        CHECK(bus.busIndex > 0);
+        CHECK(bus.busIndex <= kMaximumSidechainInputBusIndex);
+        CHECK(bus.channelCount > 0);
+        CHECK(bus.name[0] != '\0');
+    }
     for (size_t i = 0; i < metadata.size(); ++i) {
         CHECK(metadata[i].name[0] != '\0');
         CHECK(std::string_view(metadata[i].parameterId).starts_with("id:"));

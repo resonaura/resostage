@@ -420,6 +420,47 @@ void PluginHostRuntime::publishParameterDescriptors(
     }
 }
 
+void PluginHostRuntime::publishSidechainBusDescriptors(
+    plugin_host::SharedArea& area) const noexcept {
+    area.sidechainBusDescriptorCount = 0;
+    area.sidechainBusMetadataTruncated = 0;
+    if (builtBank.bank == nullptr || projectLoader.project().tracks.empty())
+        return;
+
+    const auto& slots = projectLoader.project().tracks.front().plugins;
+    try {
+        for (size_t slotIndex = 0; slotIndex < slots.size(); ++slotIndex) {
+            if (builtBank.bank->sidechainBusMetadataTruncated(
+                    projectLoader.project().tracks.front().effectiveStripId(),
+                    slots[slotIndex].id))
+                area.sidechainBusMetadataTruncated = 1;
+            const auto buses = builtBank.bank->sidechainBusesForSlot(
+                projectLoader.project().tracks.front().effectiveStripId(),
+                slots[slotIndex].id);
+            for (const auto& bus : buses) {
+                if (area.sidechainBusDescriptorCount
+                    >= plugin_host::kMaximumSidechainBusDescriptorsPerChain) {
+                    area.sidechainBusMetadataTruncated = 1;
+                    return;
+                }
+                auto& descriptor = area.sidechainBusDescriptors[
+                    area.sidechainBusDescriptorCount++];
+                descriptor.slotIndex = static_cast<uint16_t>(slotIndex);
+                descriptor.busIndex = static_cast<uint16_t>(bus.busIndex);
+                descriptor.channelCount = static_cast<uint16_t>(
+                    std::min<uint32_t>(bus.channelCount,
+                        std::numeric_limits<uint16_t>::max()));
+                descriptor.enabled = bus.enabled ? 1 : 0;
+                juce::String(bus.name).copyToUTF8(
+                    descriptor.name, sizeof(descriptor.name));
+            }
+        }
+    } catch (...) {
+        // Capability metadata is optional and must never prevent audio startup.
+        area.sidechainBusMetadataTruncated = 1;
+    }
+}
+
 void PluginHostRuntime::applyPowerRequests(plugin_host::SharedArea& area) noexcept {
     if (builtBank.bank == nullptr)
         return;
