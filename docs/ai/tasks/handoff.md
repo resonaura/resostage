@@ -230,10 +230,11 @@ preservation during playback, and detached-curve restoration after package save
 plus fresh Core-process reopen. The expanded acceptance is in
 `scripts/verification/editor-state.mjs` and passed against the optimized Core
 binary. This is backend verification, not UI workflow or physical-audio proof.
-This does not complete the requested foldable automation pseudo-track UI: the
-current Timeline still exposes one active lane selector/overlay per track.
-Continue UI work in a separate tested block. Do not delete automation.md; it
-contains unfinished UI/history/selection/geometry acceptance.
+The old statement that Timeline still exposes one active lane is superseded by
+commit `08a06a39 Add foldable automation pseudo-tracks`: simultaneous lane rows,
+chevrons, one add action and shared row geometry are implemented. Remaining
+browser/Core history, save/reopen and vendor metadata acceptance are in
+`automation.md`; do not delete that task file yet.
 
 Plug-in retry source audit: a retry increments a project-wide loading-session
 generation, while `PluginProcessorBank` reuses healthy chains by stable strip
@@ -924,9 +925,9 @@ Core-generated ID is resolved by target once the authoritative state arrives.
 
 Focused UI tests: 14/14. Full UI: 849 tests across 129 files. `tsc -b`,
 production UI build, changed-file lint and `git diff --check` passed. This does
-not implement the requested independent foldable pseudo-track rows, multi-lane
-simultaneous display, collapse-state persistence, virtualized row geometry or
-browser-driven cache save/reopen; these remain the next automation block.
+not itself implement the requested independent foldable pseudo-track rows;
+those were added later in commit `08a06a39`, with their current behavior and
+remaining Core/browser acceptance documented above and in `automation.md`.
 
 ### Completed block — shared stereo peak hold across Timeline, Inspector and Mixer (2026-10-03)
 
@@ -962,3 +963,12 @@ pre-existing warnings, native `ResoStage` / test targets built and CTest passed
 1/1, and `git diff --check` passed. No physical MIDI-device capture was run.
 Direct MIDI controller event editing and device acceptance remain open. Commit
 this block in English; do not push.
+
+Automation verification follow-up (2026-10-03): the old handoff statements
+claiming single-lane editing were corrected. Current code has independent
+foldable automation rows; the chevron regression verifies it sends the exact
+project/epoch/song/lane key. Six focused automation test files passed 60/60,
+the full UI passed 904/904 across 138 files, TypeScript and changed-test lint
+passed, and `git diff --check` passed. No production source changed in this
+verification pass. Browser/Core save/reopen and two-lane history acceptance
+remain open as detailed in `automation.md`.

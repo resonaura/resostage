@@ -159,6 +159,12 @@ IDs remain unverified. See [automation.md](automation.md) for the detailed
 geometry and policy contract. This closes the first pseudo-row UI slice, not
 the whole automation workflow.
 
+Follow-up verification adds a chevron regression for the exact scoped
+project/epoch/song/lane key. The focused automation editing/overlay/control/
+layout suite passed 60 tests across six files; the full UI suite passed 904
+tests across 138 files, TypeScript passed, changed-test lint passed, and
+`git diff --check` passed. No production source changed in this follow-up.
+
 ### Latest continuation addendum — plug-in editor identity (2026-10-03)
 
 Core editor creation/open/close now requires both stable strip and slot IDs;
@@ -202,9 +208,12 @@ track gain/pan/mute, unique enabled sends, and MIDI CC/pitch bend for MIDI track
 The Timeline selector now reliably rebinds its current lane through the exact
 Core mutation, resolves a Core-generated lane ID from the selected target after
 the state echo, and uses the cache for curve detach/restore. With no lane, the
-selected target remains preview-only until explicit `+` creation. The UI still
-edits/displays only one lane at a time and has not become independent foldable
-automation pseudo-tracks. This remains a backend plus partial-UI subset.
+selected target remains preview-only until explicit `+` creation. Independent
+foldable pseudo-track rows and shared sidebar/body/gesture geometry are
+implemented; the initial-audit claim that only one lane is displayed is
+superseded by the addendum above and `automation.md`. Remaining UI acceptance is
+real Core Undo/Redo and save/reopen, plug-in metadata churn, and differing
+per-song target IDs.
 
 Latest verification for this block: `cmake --build core/build --target
 resostage_engine_tests ResoStage -j4` passed; `ctest --test-dir core/build
@@ -1308,10 +1317,12 @@ acceptance is split into [automation.md](automation.md),
 
 ### Confirmed implementation gaps from the initial source audit
 
-- Timeline automation currently has one selected lane overlay per track row.
-  AutomationTrackControls selects an existing lane/target in one selector; it
-  does not render one independent foldable pseudo-track row per lane or retain
-  a project-owned curve cache when rebinding a lane target.
+- At the initial audit revision, Timeline automation showed only one selected
+  lane overlay and lacked both foldable pseudo-track rows and target curve
+  caching. Both implementation gaps are now closed by the v11 target cache and
+  commit `08a06a39 Add foldable automation pseudo-tracks`; see the latest
+  continuation addendum above. Browser/Core history, save/reopen and real plug-in
+  metadata acceptance remain open.
 - Shared Knob supports double-click reset. A common rotary RMB menu and a
   typed safe-continuous MIDI Learn catalogue have now been implemented for
   track/bus/master/click pan and track/click send level. Remaining: expose the
@@ -1370,14 +1381,16 @@ acceptance is split into [automation.md](automation.md),
    structural/telemetry data, then make all controls read the same live value
    without treating UI easing as audio authority. Avoid a full-state JSON
    rebuild at telemetry frequency and keep remote/local epoch handling.
-3. Implement independent foldable automation pseudo-tracks and target-change
-   cache only after defining a bounded portable schema/history transaction and
-   migration. A cache restore is a real project mutation, not a UI illusion.
+3. Foldable automation pseudo-tracks and the bounded v11 target-change cache
+   are implemented with native migration/history and UI geometry coverage.
+   Finish real Core/browser Undo/Redo and save/reopen, plug-in metadata churn,
+   and per-song target identity acceptance; do not recreate the completed rows.
 4. Introduce shared rotary context-menu/reset/MIDI-learn policy with an
    explicit eligibility type/catalogue; retain each control's true default.
-5. Integrate MIDI CC/pedal overlays and shared peak/clip state in independent
-   tested blocks; add regression coverage for the existing BPM/signature
-   header editor and its active-song routing.
+5. MIDI CC/pedal overlays, bounded all-CC live capture, shared peak/clip state,
+   and the active-song BPM/signature editor have implementation coverage.
+   Remaining acceptance is physical MIDI-device capture, mounted surfaces,
+   and packaged/remote active-song behavior.
 6. Extend mixer entry to Audio Flow and design true plugin sidechain support
    only after measuring graph and helper ABI constraints. Sidechain is not
    complete when only its edge is visualized.

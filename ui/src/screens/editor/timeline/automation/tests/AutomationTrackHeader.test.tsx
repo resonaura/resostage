@@ -101,4 +101,28 @@ describe("AutomationTrackHeader", () => {
     expect(container.querySelector("button[aria-label='Expand automation lane 2']")?.getAttribute("aria-expanded")).toBe("false");
     expect((container.firstElementChild as HTMLElement).style.height).toBe("124px");
   });
+
+  it("sends the project/song-scoped lane key from the chevron", () => {
+    const onToggleLane = vi.fn();
+    const scope = "project:epoch:song";
+    act(() => root.render(createElement(AutomationTrackHeader, {
+      height: 56,
+      visible: true,
+      songIndex: 0,
+      track,
+      lanes,
+      activeLaneId: "lane-1",
+      onSelectLane: vi.fn(),
+      collapseScope: scope,
+      collapsedLaneKeys: new Set<string>(),
+      onToggleLane,
+    })));
+
+    const collapse = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='Collapse automation lane 1']",
+    );
+    expect(collapse).not.toBeNull();
+    act(() => collapse?.click());
+    expect(onToggleLane).toHaveBeenCalledWith(`${scope}\u0000lane-1`);
+  });
 });

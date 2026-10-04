@@ -120,6 +120,14 @@ empty baseline rather than rendering an unrelated lane. Region-scope automation
 is governed by its separate model/UI and is not made multi-row by this
 track-scope change.
 
+Follow-up regression on 2026-10-03 verifies that the fold chevron sends the
+exact project/epoch/song/lane-scoped key to Timeline's collapse-state owner.
+The focused automation editing/overlay/control/layout suite passed 60 tests
+across six files. The full UI suite passed 904 tests across 138 files;
+TypeScript and changed-test lint passed. Production build remains covered by
+the original pseudo-row implementation verification above; this follow-up only
+changed a test and task documentation.
+
 ### Implemented subset — gain/pan automation reaches live controls (2026-10-03)
 
 Core now publishes evaluated gain and pan for track, click, main, and aux
