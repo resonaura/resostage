@@ -7,13 +7,14 @@
 import { useEffect, useRef, useState } from "react";
 import { builder } from "@/lib/state/api";
 import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
-import type { MidiClipEventRow, MidiNoteRow, WebUiState } from "@/lib/state/types";
+import type { MidiClipEventRow, MidiNoteRow, MidiUmpEventRow, WebUiState } from "@/lib/state/types";
 
 export interface PendingMidiRegionCreation {
   songIndex: number;
   trackId: string;
   notes: MidiNoteRow[];
   events: MidiClipEventRow[];
+  umpEvents: MidiUmpEventRow[];
   followupEdit: boolean;
   startedAt: number;
   completion: Promise<void>;
@@ -79,6 +80,7 @@ export function useMidiRegionEditorState(state: WebUiState) {
             regionId: created.id,
             notes: pending.notes,
             events: pending.events,
+            umpEvents: pending.umpEvents,
           }).then(pending.resolve, pending.reject);
         } else pending.resolve();
       } else if (Date.now() - pending.startedAt > 30_000) {

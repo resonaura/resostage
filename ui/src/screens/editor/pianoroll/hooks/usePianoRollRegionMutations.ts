@@ -6,7 +6,7 @@
 
 import { useCallback } from "react";
 import { builder } from "@/lib/state/api";
-import type { MidiClipEventRow, MidiNoteRow, MidiRegionRow, WebUiState } from "@/lib/state/types";
+import type { MidiClipEventRow, MidiNoteRow, MidiRegionRow, MidiUmpEventRow, WebUiState } from "@/lib/state/types";
 import type { PendingMidiRegionCreation } from "@/screens/editor/hooks/useMidiRegionEditorState";
 
 interface PianoRollRegionMutationOptions {
@@ -19,6 +19,7 @@ interface PianoRollRegionMutationOptions {
 type MidiRegionContentPatch = {
   notes?: MidiNoteRow[];
   events?: MidiClipEventRow[];
+  umpEvents?: MidiUmpEventRow[];
 };
 
 /** Owns reliable MIDI region content writes shared by note and event editors. */
@@ -35,6 +36,7 @@ export function usePianoRollRegionMutations({
       if (pending) {
         if (patch.notes) pending.notes = patch.notes;
         if (patch.events) pending.events = patch.events;
+        if (patch.umpEvents) pending.umpEvents = patch.umpEvents;
         pending.followupEdit = true;
         return pending.completion;
       }
@@ -47,11 +49,13 @@ export function usePianoRollRegionMutations({
       });
       const notes = patch.notes ?? activeRegion.notes;
       const events = patch.events ?? activeRegion.events ?? [];
+      const umpEvents = patch.umpEvents ?? activeRegion.umpEvents ?? [];
       pendingMidiRegionCreates.set(activeRegion.id, {
         songIndex: state.songIndex,
         trackId: activeRegion.trackId,
         notes,
         events,
+        umpEvents,
         followupEdit: false,
         startedAt: Date.now(),
         completion,
@@ -72,6 +76,7 @@ export function usePianoRollRegionMutations({
         color: activeRegion.color,
         notes,
         events,
+        umpEvents,
       }).catch((error: unknown) => {
         pendingMidiRegionCreates.delete(activeRegion.id);
         reject(error instanceof Error ? error : new Error(String(error)));
@@ -131,5 +136,8 @@ export function usePianoRollRegionMutations({
   const handleEventsChange = useCallback((events: MidiClipEventRow[]): Promise<void> =>
     submitContent({ events }), [submitContent]);
 
-  return { handleNotesChange, handleEventsChange };
+  const handleUmpEventsChange = useCallback((umpEvents: MidiUmpEventRow[]): Promise<void> =>
+    submitContent({ umpEvents }), [submitContent]);
+
+  return { handleNotesChange, handleEventsChange, handleUmpEventsChange };
 }

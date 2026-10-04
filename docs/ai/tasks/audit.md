@@ -1813,3 +1813,28 @@ across 143 files; TypeScript and production build passed. Repository lint exited
 0 with 12 existing unrelated warnings; `git diff --check` passed. This does not
 verify preview appearance on a physical display or UMP output to native MIDI
 2.0 endpoints, which remain unsupported.
+
+### Latest continuation — MIDI 2.0 controller editing (2026-10-04)
+
+The Piano Roll's MIDI 2.0 toolbar action now opens a demand-loaded semantic
+editor for recognized Channel Voice CC and channel Pitch Bend UMP packets. It
+adds, edits, and removes packets using source beat, group, channel, CC index,
+and the exact unsigned 32-bit value. It only changes those selected semantic
+fields. Unknown, malformed, and reserved compound CC packets remain untouched.
+If the source region changes while the dialog is open, Save is disabled until
+the editor reloads the authoritative snapshot.
+
+`usePianoRollUmpEventDraft` uses the shared typed
+`usePianoRollReliableCollectionDraft` lifecycle also used for MIDI 1.0 event
+drafts. HTTP admission stays separate from authoritative Core echo; rejected
+drafts support explicit retry/discard and stale sessions retire at history/
+project boundaries. Region mutations carry `umpEvents`
+through existing updates and provisional-region creation/follow-up, without
+merging MIDI 1.0 `events` and UMP.
+
+Focused packet/editor/draft/mutation tests passed 49/49; full UI Vitest passed
+976 tests across 146 files. TypeScript, production build, lint and `git diff
+--check` passed. Lint still has 12 unrelated existing warnings. No native UMP
+device or manual Electron visual acceptance was done. Group/channel-specific
+canvas lanes, direct value gestures, broader codec fixtures and native UMP
+transport remain open.

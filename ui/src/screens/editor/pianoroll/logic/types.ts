@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, ProjectCycleRow, SongRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, MidiUmpEventRow, ProjectCycleRow, SongRow } from "@/lib/state/types";
 
 export type PianoRollTool = "select" | "draw" | "erase" | "brush" | "slice";
 
@@ -154,6 +154,7 @@ export interface PianoRollProps {
   /** Reliable admission; the editor keeps its draft until a matching Core snapshot. */
   onNotesChange: (notes: MidiNoteRow[]) => void | Promise<void>;
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
+  onUmpEventsChange?: (events: MidiUmpEventRow[]) => void | Promise<void>;
   onRegionChange?: (region: MidiRegionRow) => void;
   canUndo?: boolean;
   canRedo?: boolean;

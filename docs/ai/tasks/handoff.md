@@ -1228,3 +1228,35 @@ edit reserved compound CCs, flatten to MIDI 1.0, or claim native MIDI 2.0 live
 endpoint support: Core's current JUCE/external bridge performs its documented
 legacy translation. Continue with focused logic, history/rejection and loop
 tests, then full UI verification and the remaining UMP/device acceptance.
+
+### Latest continuation — Piano Roll MIDI 2.0 semantic controller editor (2026-10-04)
+
+The Piano Roll now has a demand-loaded UMP editor for recognized, well-formed
+two-word MIDI 2.0 Channel Voice CC and channel Pitch Bend packets. It can add,
+edit, and delete these packets with source beat, group, channel, CC index, and
+the exact unsigned 32-bit data word. Unsupported, malformed, reserved compound
+CC, and other UMP packets remain opaque and are preserved unchanged. The modal
+detects a region snapshot change and blocks stale saves until the user reloads.
+
+Edits use a separate reliable UMP draft, backed by the shared typed
+`usePianoRollReliableCollectionDraft` lifecycle also used by MIDI 1.0 raw events.
+Format-specific copy/equality and state stay separate. Drafts retire on
+history/project identity boundaries, preserve rejected edits for explicit
+retry/discard, and wait for the complete authoritative region echo. MIDI 1.0
+`events` remain separate.
+The exact region mutation carries UMP data when editing a provisional region
+and through its durable-ID follow-up. Loading the editor is deferred until its
+toolbar action rather than included as a static Piano Roll import.
+
+Verification: focused editor/packet/draft/mutation tests passed 49/49; full UI
+Vitest passed 976 tests in 146 files; TypeScript, production UI build, lint, and
+`git diff --check` passed. Lint reports 12 warnings in pre-existing unrelated
+files. The production build emits the editor and packet logic as lazy chunks;
+this is a build-size observation, not a runtime performance benchmark. No
+manual Electron visual or physical MIDI 2.0 endpoint acceptance was performed.
+
+Remaining MIDI 2.0 work includes group/channel-specific canvas lanes and direct
+32-bit lane gestures, broader codec/conformance fixtures, native UMP device
+I/O and capability negotiation, and device acceptance. Do not claim full native
+MIDI 2.0 compatibility; live plugin/external dispatch still uses the documented
+MIDI 1.0 adaptation path.

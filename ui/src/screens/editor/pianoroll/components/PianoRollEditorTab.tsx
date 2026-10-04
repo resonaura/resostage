@@ -121,7 +121,7 @@ function PianoRollActiveView({
     return songBeats - activeRegion.startBeats;
   }, [getLivePlayheadAbsolute, tempoMap, activeRegion.startBeats]);
 
-  const { handleNotesChange, handleEventsChange } = usePianoRollRegionMutations({
+  const { handleNotesChange, handleEventsChange, handleUmpEventsChange } = usePianoRollRegionMutations({
     state,
     activeRegion,
     midiRegions,
@@ -183,6 +183,7 @@ function PianoRollActiveView({
         }}
         onNotesChange={handleNotesChange}
         onEventsChange={handleEventsChange}
+        onUmpEventsChange={handleUmpEventsChange}
         projectCycle={state.cycle}
         projectSongIndex={state.songIndex}
         projectSong={currentSong}

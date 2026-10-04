@@ -855,3 +855,31 @@ read-only for now: no MIDI 1.0 draft, MIDI 1.0 automation curve, or reconstructe
 packet is sent when the user clicks them. Reserved compound CCs and unknown UMP
 types remain opaque. Exact packet editing and group-aware authoring are still
 open work, not a completed MIDI 2.0 editor.
+
+### Piano Roll MIDI 2.0 semantic event editor (2026-10-04)
+
+The UMP toolbar action opens a lazy-loaded dialog for two-word MIDI 2.0 Channel
+Voice CC and channel Pitch Bend. Its semantic fields are source beat, group,
+channel, CC index, and unsigned 32-bit data value. Existing packet words are
+retained; moving in time changes only beat, while changing group/channel/index
+updates only those header bits and an explicit value edit changes only word 1.
+New CC/Pitch Bend packets are formed with the correct type/status and safe
+default values. Reserved compound CC, malformed packets and other UMP types
+cannot be edited and remain in their original collection. The editor refuses
+oversized collections and detects a stale region snapshot before save.
+
+Submission uses `usePianoRollUmpEventDraft` and `usePianoRollRegionMutations`,
+not the MIDI 1.0 event collection. Both typed MIDI event hooks share the
+`usePianoRollReliableCollectionDraft` lifecycle while keeping their format
+specific copy/equality behavior separate. Drafts are copied, project/region/
+history fenced, retained across rejection, explicitly retryable/discardable,
+and considered confirmed only after a matching complete Core region echo. New/provisional
+regions carry UMP packets through creation and durable-ID follow-up. The preview
+lanes still show normalized legacy display values and do not imply native UMP
+device/plugin output. Remaining work: group-aware preview lanes, direct canvas
+gestures, broader codec/conformance fixtures, and native UMP I/O.
+
+Focused packet/editor/draft/mutation tests passed 49/49; full UI passed 976
+tests across 146 files; TypeScript, production build, lint and `git diff
+--check` passed. Lint has 12 pre-existing unrelated warnings. No physical
+device or manual Electron acceptance was performed.

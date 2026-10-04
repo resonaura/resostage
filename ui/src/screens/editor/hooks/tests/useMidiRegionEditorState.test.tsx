@@ -150,6 +150,7 @@ describe("useMidiRegionEditorState", () => {
       trackId: "track-inst-1",
       notes: [makeNote(1, 60, 0, 1, 0.8)],
       events: [],
+      umpEvents: [],
       followupEdit: false,
       startedAt: Date.now(),
       completion,
@@ -204,6 +205,7 @@ describe("useMidiRegionEditorState", () => {
       trackId: "track-inst-1",
       notes: followupNotes,
       events: followupEvents,
+      umpEvents: [],
       followupEdit: true,
       startedAt: Date.now(),
       completion,
@@ -230,6 +232,7 @@ describe("useMidiRegionEditorState", () => {
       regionId: "durable-region-1",
       notes: followupNotes,
       events: followupEvents,
+      umpEvents: [],
     });
   });
 
@@ -253,6 +256,7 @@ describe("useMidiRegionEditorState", () => {
       trackId: "track-inst-1",
       notes: [],
       events: [],
+      umpEvents: [],
       followupEdit: false,
       startedAt: Date.now(),
       completion,
@@ -293,6 +297,7 @@ describe("useMidiRegionEditorState", () => {
       trackId: "track-inst-1",
       notes: [],
       events: [],
+      umpEvents: [],
       followupEdit: false,
       startedAt: Date.now(),
       completion,

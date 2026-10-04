@@ -1,6 +1,6 @@
 # MIDI 2.0 Support: Implemented Scope and Remaining Work
 
-Status reviewed against file codecs, project schema, and live bridge: 2026-10-01.
+Status reviewed against file codecs, project schema, Piano Roll editor, and live bridge: 2026-10-04.
 
 This document describes the MIDI 2.0 work currently present in ResoStage and
 the gaps that remain before calling the application end-to-end MIDI 2.0
@@ -49,7 +49,12 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - Piano Roll can discover and preview recognized MIDI 2.0 Channel Voice CC and
   channel Pitch Bend packets in separate UMP lanes. The visual lane scales the
   32-bit packet value to the existing 7-bit/14-bit display range only; stored
-  packet words are not changed. This is preview-only, not yet UMP authoring.
+  packet words are not changed by preview. Its MIDI 2.0 event dialog can add,
+  edit and delete recognized CC/Pitch Bend packets through the exact MIDI-region
+  history transaction. Time edits retain the 32-bit data word; group, channel,
+  CC index and full unsigned 32-bit value are explicit fields. Unknown, malformed
+  and reserved packets are not editable and remain unchanged. Pending region
+  creation also carries its UMP collection through the follow-up update.
 
 ## Known limitations
 
@@ -76,8 +81,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay
-  opaque. UMP lanes are read-only; editing, group-aware filtering and exact
-  32-bit gesture authoring remain open.
+  opaque. Lane gestures are still preview-only; semantic editing is through the
+  UMP event dialog and uses source beat positions. Per-group/channel lane
+  filtering, direct 32-bit canvas gestures, multi-event selection and curve/
+  smoothing tools remain open.
 - The importer has focused unit coverage but no maintained conformance corpus
   from other DAWs and no broad cross-application round-trip certification.
 
@@ -103,12 +110,12 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
    Specify exact handling for note-off attributes and overlapping same-pitch
    notes; extend the project note model only where round-trip requirements
    justify it.
-2. **Finish Piano Roll MIDI 2.0 UMP authoring:** add bounded editing for the
-   recognized controller messages without modifying packet type, group,
-   channel, reserved bits or unrelated UMP data. Preserve full 32-bit values
-   when moving in time, make value changes explicit, and keep unknown/reserved
-   packets lossless and read-only. Route edits through the exact MIDI-region
-   history/acknowledgement path.
+2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor
+   for recognized CC/Pitch Bend packets is implemented. Add group/channel-aware
+   lane filtering and direct lane gestures only with tests proving that a
+   time-only edit preserves every non-time field, values remain full 32-bit,
+   unknown/reserved packets remain untouched, and mutations use the exact
+   MIDI-region history/acknowledgement path.
 3. **Finish MIDI 1.0 interoperability:** maintain Format 0/1/2 fixtures,
    validate SMPTE timing and tempo/meter maps against independent files, and
    improve the `.mid` loss report so every supported conversion and every

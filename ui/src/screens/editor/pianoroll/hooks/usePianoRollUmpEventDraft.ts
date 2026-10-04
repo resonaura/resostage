@@ -4,18 +4,17 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import type { MidiClipEventRow } from "@/lib/state/types";
-import { sameEditableMidiEvents } from "@/screens/editor/pianoroll/logic/controllerLane";
+import type { MidiUmpEventRow } from "@/lib/state/types";
+import {
+  copyPianoRollUmpEvents,
+  sameEditablePianoRollUmpEvents,
+} from "@/screens/editor/pianoroll/logic/umpControllerEditing";
 import {
   usePianoRollReliableCollectionDraft,
 } from "@/screens/editor/pianoroll/hooks/usePianoRollReliableCollectionDraft";
 
-function copyEvents(events: MidiClipEventRow[]): MidiClipEventRow[] {
-  return events.map((event) => ({ ...event, data: [...event.data] }));
-}
-
-/** Retains raw MIDI 1.0 event edits until a complete authoritative region echo. */
-export function usePianoRollMidiEventDraft({
+/** Keeps exact UMP words until Core publishes their authoritative region echo. */
+export function usePianoRollUmpEventDraft({
   regionId,
   resetKey,
   events,
@@ -24,8 +23,8 @@ export function usePianoRollMidiEventDraft({
 }: {
   regionId: string;
   resetKey?: string;
-  events: MidiClipEventRow[];
-  onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
+  events: MidiUmpEventRow[];
+  onEventsChange?: (events: MidiUmpEventRow[]) => void | Promise<void>;
   confirmationTimeoutMs?: number;
 }) {
   const draft = usePianoRollReliableCollectionDraft({
@@ -33,12 +32,12 @@ export function usePianoRollMidiEventDraft({
     resetKey,
     value: events,
     onChange: onEventsChange,
-    copy: copyEvents,
-    equals: sameEditableMidiEvents,
+    copy: copyPianoRollUmpEvents,
+    equals: sameEditablePianoRollUmpEvents,
     confirmationTimeoutMs,
-    unavailableMessage: "Raw MIDI event editing is unavailable for this region.",
-    confirmationMessage: "Core has not confirmed this MIDI event edit. It may still be queued; wait before retrying.",
-    rejectionMessage: "Core rejected this MIDI event edit. Your draft is preserved.",
+    unavailableMessage: "MIDI 2.0 event editing is unavailable for this region.",
+    confirmationMessage: "Core has not confirmed this MIDI 2.0 edit. It may still be queued; wait before retrying.",
+    rejectionMessage: "Core rejected this MIDI 2.0 edit. Your draft is preserved.",
   });
 
   return {

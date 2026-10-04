@@ -4,7 +4,7 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PianoRollCanvas } from "@/screens/editor/pianoroll/components/PianoRollCanvas";
 import { PianoRollToolbar } from "@/screens/editor/pianoroll/components/PianoRollToolbar";
 import { getRegionActivePitches } from "@/lib/midi/activeMidiPitches";
@@ -30,6 +30,7 @@ import { usePianoRollControllerEventSelection } from "@/screens/editor/pianoroll
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
 import { usePianoRollNoteDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteDraft";
 import { usePianoRollMidiEventDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollMidiEventDraft";
+import { usePianoRollUmpEventDraft } from "@/screens/editor/pianoroll/hooks/usePianoRollUmpEventDraft";
 import type {
   GridSnapValue,
   PianoRollBottomLane,
@@ -39,6 +40,11 @@ import type {
   PianoRollViewport,
   ScaleMode,
 } from "@/screens/editor/pianoroll/logic/types";
+
+const LazyPianoRollUmpControllerEditor = lazy(async () => {
+  const module = await import("@/screens/editor/pianoroll/components/PianoRollUmpControllerEditor");
+  return { default: module.PianoRollUmpControllerEditor };
+});
 
 const DEFAULT_VIEWPORT: PianoRollViewport = {
   pixelsPerBeat: 80,
@@ -69,6 +75,7 @@ export function PianoRoll({
   onSeek,
   onNotesChange,
   onEventsChange,
+  onUmpEventsChange,
   onRegionChange,
   canUndo = false,
   canRedo = false,
@@ -115,16 +122,26 @@ export function PianoRoll({
     events: regionEvents,
     onEventsChange,
   });
+  const regionUmpEvents = useMemo(() => region.umpEvents ?? [], [region.umpEvents]);
+  const { editableEvents: editableUmpEvents, commitEvents: commitUmpEvents,
+    discardDraft: discardUmpDraft, retryDraft: retryUmpDraft,
+    error: umpEditError, canRetry: canRetryUmpDraft } = usePianoRollUmpEventDraft({
+    regionId: region.id,
+    resetKey,
+    events: regionUmpEvents,
+    onEventsChange: onUmpEventsChange,
+  });
+  const [umpEditorOpen, setUmpEditorOpen] = useState(false);
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
   const [controllerLaneMode, setControllerLaneMode] = useState<PianoRollControllerLaneMode>("events");
   const bottomLaneOptions = useMemo(() => {
     return pianoRollLaneOptions(
       collectPianoRollControllerNumbers(regionEvents),
       bottomLane,
-      collectPianoRollUmpControllerNumbers(region.umpEvents ?? []),
-      hasPianoRollUmpPitchBend(region.umpEvents ?? []),
+      collectPianoRollUmpControllerNumbers(editableUmpEvents),
+      hasPianoRollUmpPitchBend(editableUmpEvents),
     );
-  }, [regionEvents, region.umpEvents, bottomLane]);
+  }, [regionEvents, editableUmpEvents, bottomLane]);
   const [loopLengthDraft, setLoopLengthDraft] = useState<string | null>(null);
   useEffect(() => subscribeHistoryBoundary(() => {
     setLoopLengthDraft(null);
@@ -290,8 +307,9 @@ export function PianoRoll({
     ...region,
     notes: editableNotes,
     events: editableEvents,
+    umpEvents: editableUmpEvents,
     ...(loopLengthDraft !== null ? { loopLengthBeats: previewLoopLength } : {}),
-  }), [region, editableNotes, editableEvents, loopLengthDraft, previewLoopLength]);
+  }), [region, editableNotes, editableEvents, editableUmpEvents, loopLengthDraft, previewLoopLength]);
 
   const noteActions = usePianoRollNoteActions({
     selectedNoteIds,
@@ -465,6 +483,7 @@ export function PianoRoll({
         onSplitAtPlayhead={handleSplitAtPlayhead}
         bottomLane={bottomLane}
         bottomLaneOptions={bottomLaneOptions}
+        onEditUmpEvents={onUmpEventsChange ? () => setUmpEditorOpen(true) : undefined}
         onBottomLaneChange={(lane) => {
           setBottomLane(lane);
           if (isPianoRollUmpControllerLane(lane)) setControllerLaneMode("events");
@@ -499,6 +518,18 @@ export function PianoRoll({
         onCatchOnSeekChange={setCatchOnSeek}
       />
 
+      {umpEditorOpen && onUmpEventsChange && (
+        <Suspense fallback={null}>
+          <LazyPianoRollUmpControllerEditor
+            isOpen
+            onOpenChange={setUmpEditorOpen}
+            events={editableUmpEvents}
+            defaultBeat={region.clipOffsetBeats}
+            onSave={commitUmpEvents}
+          />
+        </Suspense>
+      )}
+
       {noteEditError && (
         <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
           <span className="min-w-0 flex-1">{noteEditError}</span>
@@ -512,6 +543,14 @@ export function PianoRoll({
           <span className="min-w-0 flex-1">{eventEditError}</span>
           <Button size="sm" variant="secondary" isDisabled={!canRetryEventDraft} onPress={retryEventDraft}>Retry</Button>
           <Button size="sm" variant="ghost" onPress={discardEventDraft}>Discard draft</Button>
+        </div>
+      )}
+
+      {umpEditError && (
+        <div role="alert" className="flex shrink-0 items-center gap-2 border-b border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+          <span className="min-w-0 flex-1">{umpEditError}</span>
+          <Button size="sm" variant="secondary" isDisabled={!canRetryUmpDraft} onPress={retryUmpDraft}>Retry</Button>
+          <Button size="sm" variant="ghost" onPress={discardUmpDraft}>Discard draft</Button>
         </div>
       )}
 

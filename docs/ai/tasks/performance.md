@@ -460,3 +460,13 @@ The Piano Roll CC lane picker now uses the same explicit bounded index scan
 instead of `regionEvents.slice(0, 16_384)`. It preserves the prior first-16,384
 event behavior and collects the same controller IDs without an intermediate
 prefix array. Its regression test spies on the event array's `slice()` method.
+
+## Piano Roll MIDI 2.0 editor loading (2026-10-04)
+
+The semantic UMP event dialog is dynamically imported only after the Piano Roll
+toolbar action opens it. The production build emits the modal and packet editor
+as separate lazy chunks (5.08 KB and 15.49 KB raw in this build; 6.87 KB
+combined gzip). The dialog code therefore is not statically pulled into the
+Piano Roll import graph. This is a bundle-splitting observation, not a measured
+startup, runtime, or audio-callback performance improvement. Full UI/build/lint
+status is recorded in the newest `handoff.md` block.

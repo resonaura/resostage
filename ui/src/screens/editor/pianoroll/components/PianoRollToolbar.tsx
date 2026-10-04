@@ -165,6 +165,12 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
             )}
           </>
         )}
+        {props.onEditUmpEvents && (
+          <Button size="sm" isIconOnly variant="default-soft"
+            aria-label="Edit MIDI 2.0 UMP events" onPress={props.onEditUmpEvents}>
+            <span className="text-[9px] font-bold tracking-tight">UMP</span>
+          </Button>
+        )}
         <Separator orientation="vertical" />
         <PianoRollFollowControl followMode={props.followMode} onCycleFollowMode={props.onCycleFollowMode}
           catchOnPlay={props.catchOnPlay} onCatchOnPlayChange={props.onCatchOnPlayChange}

@@ -9,7 +9,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { builder } from "@/lib/state/api";
-import type { MidiClipEventRow, MidiNoteRow, MidiRegionRow, WebUiState } from "@/lib/state/types";
+import type { MidiClipEventRow, MidiNoteRow, MidiRegionRow, MidiUmpEventRow, WebUiState } from "@/lib/state/types";
 import { usePianoRollRegionMutations } from "@/screens/editor/pianoroll/hooks/usePianoRollRegionMutations";
 import type { PendingMidiRegionCreation } from "@/screens/editor/hooks/useMidiRegionEditorState";
 
@@ -81,6 +81,17 @@ describe("Piano Roll region content mutations", () => {
     expect(builder.midiRegionAdd).not.toHaveBeenCalled();
   });
 
+  it("writes UMP edits through the same exact region-history update route", async () => {
+    const umpEvents: MidiUmpEventRow[] = [{ beat: 2, wordCount: 2, words: [0x40b04a00, 0x1234_5678] }];
+    await act(async () => result.handleUmpEventsChange(umpEvents));
+    expect(builder.midiRegionUpdate).toHaveBeenCalledWith({
+      songIndex: 0,
+      regionId: "saved-region",
+      umpEvents,
+    });
+    expect(builder.midiRegionAdd).not.toHaveBeenCalled();
+  });
+
   it("creates a provisional region with event data and folds pending edits into its follow-up", () => {
     const note: MidiNoteRow = {
       id: 1,
@@ -103,15 +114,18 @@ describe("Piano Roll region content mutations", () => {
     render();
 
     const events: MidiClipEventRow[] = [{ beat: 1.25, status: 0xb0, data: [64, 127] }];
+    const umpEvents: MidiUmpEventRow[] = [{ beat: 2.5, wordCount: 2, words: [0x40b04a00, 0x8765_4321] }];
     let completion!: Promise<void>;
     act(() => { completion = result.handleEventsChange(events); });
     const create = pending.get("provisional-region");
     expect(create?.completion).toBe(completion);
     expect(create?.notes).toEqual([note]);
     expect(create?.events).toEqual(events);
+    expect(create?.umpEvents).toEqual([]);
     expect(builder.midiRegionAdd).toHaveBeenCalledWith(expect.objectContaining({
       notes: [note],
       events,
+      umpEvents: [],
     }));
 
     const updatedNote = { ...note, velocity: 0.75 };
@@ -121,5 +135,10 @@ describe("Piano Roll region content mutations", () => {
     expect(create?.followupEdit).toBe(true);
     expect(create?.events).toEqual(events);
     expect(create?.notes[0].midi2?.velocity).toBe(49_151);
+
+    let umpFollowup!: Promise<void>;
+    act(() => { umpFollowup = result.handleUmpEventsChange(umpEvents); });
+    expect(umpFollowup).toBe(completion);
+    expect(create?.umpEvents).toEqual(umpEvents);
   });
 });

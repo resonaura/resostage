@@ -58,6 +58,7 @@ export interface PianoRollToolbarProps {
   bottomLane?: PianoRollBottomLane;
   bottomLaneOptions?: readonly SelectOption[];
   onBottomLaneChange?: (lane: PianoRollBottomLane) => void;
+  onEditUmpEvents?: () => void;
   controllerLaneMode?: PianoRollControllerLaneMode;
   onControllerLaneModeChange?: (mode: PianoRollControllerLaneMode) => void;
   pixelsPerBeat?: number;
