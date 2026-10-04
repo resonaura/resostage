@@ -16,6 +16,14 @@ const MAX_BYTES = 32 * 1024 * 1024;
 const MAX_TRACKS = 256;
 const MAX_EVENTS = 200_000;
 
+export interface MidiMeterEvent {
+  beat: number;
+  numerator: number;
+  denominator: number;
+  /** MIDI time-signature notation field: count of 1/32 notes per quarter note. */
+  thirtySecondsPerQuarter?: number;
+}
+
 export interface ImportedMidiTrack {
   name: string;
   notes: MidiNoteRow[];
@@ -30,7 +38,7 @@ export interface ImportedMidiTrack {
   }>;
   /** Format 2 stores an independent tempo and meter map per sequence. */
   tempoEvents?: Array<{ beat: number; bpm: number }>;
-  meterEvents?: Array<{ beat: number; numerator: number; denominator: number }>;
+  meterEvents?: MidiMeterEvent[];
   durationBeats: number;
 }
 
@@ -41,7 +49,7 @@ export interface ImportedMidiFile {
   numerator?: number;
   denominator?: number;
   tempoEvents: Array<{ beat: number; bpm: number }>;
-  meterEvents: Array<{ beat: number; numerator: number; denominator: number }>;
+  meterEvents: MidiMeterEvent[];
 }
 
 class Reader {
@@ -149,7 +157,11 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           const denominator = 2 ** data[1];
           result.numerator ??= numerator;
           result.denominator ??= denominator;
-          const meter = { beat: musicalPosition(tick), numerator, denominator };
+          const thirtySecondsPerQuarter = data[3] ?? 8;
+          const meter: MidiMeterEvent = {
+            beat: musicalPosition(tick), numerator, denominator,
+            ...(thirtySecondsPerQuarter !== 8 ? { thirtySecondsPerQuarter } : {}),
+          };
           trackMeterEvents.push(meter);
           if (format !== 2) result.meterEvents.push(meter);
         }
@@ -352,7 +364,7 @@ export interface MidiExportOptions {
   fromProjectStart: boolean;
   expandLoops: boolean;
   tempoEvents?: Array<{ beat: number; bpm: number }>;
-  meterEvents?: Array<{ beat: number; numerator: number; denominator: number }>;
+  meterEvents?: MidiMeterEvent[];
 }
 
 function umpEventToMidi1(words: number[], wordCount: number): { status: number; data: number[] } | null {
@@ -419,8 +431,12 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
     const denomPower = Math.log2(event.denominator);
     if (!Number.isInteger(denomPower) || denomPower < 0 || denomPower > 7)
       throw new Error("MIDI meter denominator must be a power of two");
+    const thirtySecondsPerQuarter = event.thirtySecondsPerQuarter ?? 8;
+    if (!Number.isInteger(thirtySecondsPerQuarter)
+        || thirtySecondsPerQuarter < 0 || thirtySecondsPerQuarter > 0xff)
+      throw new Error("MIDI meter 1/32-note count must be an unsigned 8-bit integer");
     metaEvents.push({ tick: Math.max(0, Math.round((event.beat - origin) * PPQN)), order: 1,
-      bytes: [0xff, 0x58, 4, event.numerator & 0xff, denomPower, 24, 8] });
+      bytes: [0xff, 0x58, 4, event.numerator & 0xff, denomPower, 24, thirtySecondsPerQuarter] });
   }
   metaEvents.sort((a, b) => a.tick - b.tick || a.order - b.order);
   const tempoTrack: number[] = [];
@@ -678,7 +694,8 @@ export function writeSongsMidiFile(songs: SongRow[], options: MidiSongExportOpti
       meterEvents.push({ beat: beatOffset, numerator: song.tsNum || 4, denominator: song.tsDen || 4 });
     for (const point of signatures)
       if (point.beat >= 0 && point.beat <= durationBeats)
-        meterEvents.push({ beat: beatOffset + point.beat, numerator: point.numerator, denominator: point.denominator });
+        meterEvents.push({ beat: beatOffset + point.beat, numerator: point.numerator,
+          denominator: point.denominator, thirtySecondsPerQuarter: point.thirtySecondsPerQuarter });
     for (const region of song.midiRegions ?? []) {
       if (options.trackIds && !options.trackIds.has(region.trackId)) continue;
       const name = trackNames.get(region.trackId) ?? region.trackId;

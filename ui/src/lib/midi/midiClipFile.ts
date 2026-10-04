@@ -298,7 +298,9 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
         const numerator = numeratorField === 0 ? 256 : numeratorField;
         const denominatorPower = (words[1] >>> 16) & 0xff;
         if (denominatorPower >= 1 && denominatorPower <= 7) {
-          meterEvents.push({ beat, numerator, denominator: 2 ** denominatorPower });
+          const thirtySecondsPerQuarter = (words[1] >>> 8) & 0xff;
+          meterEvents.push({ beat, numerator, denominator: 2 ** denominatorPower,
+            ...(thirtySecondsPerQuarter !== 8 ? { thirtySecondsPerQuarter } : {}) });
         } else {
           // Preserve non-standard and currently unsupported denominators as
           // opaque UMP instead of misrepresenting or silently dropping them.
@@ -641,11 +643,16 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     if (!Number.isInteger(item.numerator) || item.numerator < 1 || item.numerator > 256
         || !Number.isInteger(power) || power < 1 || power > 7)
       throw new Error("MIDI Clip cannot encode this time signature as standard Set Time Signature Flex Data");
+    const thirtySecondsPerQuarter = item.thirtySecondsPerQuarter ?? 8;
+    if (!Number.isInteger(thirtySecondsPerQuarter)
+        || thirtySecondsPerQuarter < 0 || thirtySecondsPerQuarter > 0xff)
+      throw new Error("MIDI Clip 1/32-note count must be an unsigned 8-bit integer");
     // Unlike Set Tempo, Set Time Signature is bar-positioned, not restricted
     // to the 24 MIDI Clock pulses per quarter. Preserve the full output DCTPQ grid
     // so short bars such as 1/128 are not displaced by MIDI Clock quantization.
     const quantizedBeat = Math.max(0, clipTicksForBeat(beat) / TPQ);
-    const word1 = (((item.numerator & 0xff) << 24) | ((power & 0xff) << 16) | (8 << 8)) >>> 0;
+    const word1 = (((item.numerator & 0xff) << 24) | ((power & 0xff) << 16)
+      | (thirtySecondsPerQuarter << 8)) >>> 0;
     appendEvent({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], priority: -1, order: order++ });
   }
   if (!events.length) throw new Error("No MIDI events to export");

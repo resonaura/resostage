@@ -516,6 +516,7 @@ std::string WebServer::buildStateJson(const char* view) const {
                 wSp.numerator = sp.numerator;
                 wSp.denominator = sp.denominator;
                 wSp.bar = sp.bar;
+                wSp.thirtySecondsPerQuarter = sp.thirtySecondsPerQuarter;
                 wSong.signaturePoints.push_back(std::move(wSp));
             }
 

@@ -107,7 +107,12 @@ export function ImportMidiDialog({
           timeSeconds: midiSecondsAtBeat(sourceTempoEvents, point.beat),
           curve: 0,
         }));
-        const meterByBeat = new Map<number, { beat: number; numerator: number; denominator: number }>();
+        const meterByBeat = new Map<number, {
+          beat: number;
+          numerator: number;
+          denominator: number;
+          thirtySecondsPerQuarter?: number;
+        }>();
         meterByBeat.set(0, {
           beat: 0,
           numerator: sourceSong.numerator ?? 4,

@@ -463,6 +463,8 @@ export interface SignaturePointRow {
   numerator: number;
   denominator: number;
   bar: number;
+  /** Preserves the MIDI time-signature 1/32-notes-per-quarter notation field. */
+  thirtySecondsPerQuarter?: number;
 }
 
 export interface SongRow {

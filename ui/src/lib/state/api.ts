@@ -1221,7 +1221,8 @@ export const builder = {
     clickName?: string;
     clickSends: { busId: string; level: number; enabled: boolean }[];
     tempoPoints?: { beat: number; bpm: number; timeSeconds: number; curve: number }[];
-    signaturePoints?: { beat: number; numerator: number; denominator: number; bar: number }[];
+    signaturePoints?: { beat: number; numerator: number; denominator: number; bar: number;
+      thirtySecondsPerQuarter?: number }[];
   }) => postEditorMutation("/api/v1/builder/song/update", patch),
 
   trackAdd: (

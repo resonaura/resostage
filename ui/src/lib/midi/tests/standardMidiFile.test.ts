@@ -49,12 +49,14 @@ describe("Standard MIDI File", () => {
   it("round-trips a MIDI region with tempo and meter", () => {
     const bytes = writeStandardMidiFile([{ name: "Piano", regions: [region] }], {
       bpm: 123, numerator: 3, denominator: 4,
+      meterEvents: [{ beat: 0, numerator: 3, denominator: 4, thirtySecondsPerQuarter: 12 }],
       fromProjectStart: true, expandLoops: true,
     });
     const parsed = parseStandardMidiFile(bytes);
     expect(parsed.bpm).toBeCloseTo(123, 3);
     expect(parsed.numerator).toBe(3);
     expect(parsed.denominator).toBe(4);
+    expect(parsed.meterEvents[0].thirtySecondsPerQuarter).toBe(12);
     expect(parsed.tracks[1].name).toBe("Piano");
     expect(parsed.tracks[1].notes[0]).toMatchObject({
       pitch: 60, startBeats: 8.5, durationBeats: 1.5,
@@ -79,6 +81,7 @@ describe("Standard MIDI File", () => {
     const song: SongRow = {
       name: "MIDI 2", bpm: 120, tsNum: 4, tsDen: 4, mode: "auto", endSeconds: 2,
       click: false, clickBusId: "", clickSends: [],
+      signaturePoints: [{ beat: 0, numerator: 4, denominator: 4, bar: 1, thirtySecondsPerQuarter: 13 }],
       regions: [], midiRegions: [midi2Region], events: [],
     };
     const bytes = writeSongsMidiFile([song], {
@@ -95,6 +98,7 @@ describe("Standard MIDI File", () => {
     });
     expect(parsed.tempoEvents[0].bpm).toBeCloseTo(120, 3);
     expect(parsed.meterEvents[0]).toMatchObject({ numerator: 4, denominator: 4 });
+    expect(parsed.meterEvents[0].thirtySecondsPerQuarter).toBe(13);
   });
 
   it("uses the MIDI Association bit-scaling rule for ordinary 7-bit velocity in .midi2", () => {

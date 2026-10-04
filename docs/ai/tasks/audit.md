@@ -2223,6 +2223,19 @@ of a gap exceeding budget. Focused MIDI Clip tests passed 30/30; full UI passed
 and `git diff --check` passed. Standard: [UMP & MIDI 2.0 Protocol v1.1.1
 §7.2.3.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 
+### Latest continuation — preserve MIDI time-signature notation field (2026-10-04)
+
+The MIDI 2.0 Set Time Signature Number of 1/32 Notes byte was being discarded
+when recognized meter Flex Data was normalized into project signature points.
+It now survives MIDI Clip and Standard MIDI File import/export, import-time
+song meter updates, Core project JSON, builder updates and telemetry as
+`SignaturePoint::thirtySecondsPerQuarter` (default 8, byte range 0–255). It is
+metadata only and does not change `SignatureMap` bar arithmetic. Core round-trip,
+MIDI Clip and SMF tests cover non-default values. Focused MIDI codec tests
+53/53; full UI 1,052/1,052 across 151 files; Core engine tests and full
+`ResoStage` target build passed. The loss item is resolved; off-grid timing
+recommendations and independent DAW fixtures remain open.
+
 ### Latest continuation — reject lossy MIDI Clip Set Tempo clamping (2026-10-04)
 
 The writer previously clamped out-of-range BPM to the nearest representable

@@ -53,8 +53,9 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   remain supported.
 - Project schema version 6 introduced MIDI 2.0 note fields and timed opaque UMP
   packets on MIDI regions; current format 15 retains them, optional MIDI Clip
-  configuration-section identity, separate release attributes, and source
-  presentation order for simultaneous note edges and opaque sequence UMP.
+  configuration-section identity, separate release attributes, source
+  presentation order for simultaneous note edges and opaque sequence UMP, and
+  the optional `thirtySecondsPerQuarter` signature-point field.
   Readable additive older
   formats receive defaults; other older files require `pnpm migrate`. UI state and
   project serialization carry these fields so unsupported UMP packets can
@@ -134,11 +135,12 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   raw file blob. JR Clock/Timestamp are retained opaquely; their sender-clock
   domain is not mapped to project time or playback scheduling. Project v15
   preserves source order for simultaneous normalized note edges and opaque
-  sequence packets; extracted
-  tempo/meter Flex Data is still normalized through project tempo/meter state.
-  Configuration-header section identity is persisted, but its elapsed DCS
-  timing is intentionally flattened to beat zero. Before DCTPQ, only complete
-  MIDI-CI Set Profile On SysEx7 messages are accepted and retained as opaque
+  sequence packets. Tempo/meter Flex Data is normalized through project maps,
+  while the Set Time Signature 1/32-notes-per-quarter field is preserved by
+  each song signature point. Configuration-header section identity is
+  persisted, but its elapsed DCS timing is intentionally flattened to beat
+  zero. Before DCTPQ, only complete MIDI-CI Set Profile On SysEx7 messages are
+  accepted and retained as opaque
   packets; the profile payload is not interpreted and no MIDI-CI negotiation
   is performed.
 - `.mid` remains inherently lossy for data without a MIDI 1.0 equivalent.
@@ -368,10 +370,10 @@ instead of silently filtering or wrapping them.
 The specification gives a numerator range of 1–256 in an 8-bit field; decoding
 byte zero as 256 is an implementation inference from that range and field
 width, not a separately stated encoding rule. The Number of 1/32 Notes field
-is still normalized to the export default (8) and is not retained for supported
-time signatures. Set Tempo 1/24-quarter placement and Set Time Signature bar-
-boundary placement are not yet validated on import; add reference fixtures
-before claiming complete Flex Data conformance.
+is preserved in MIDI meter events and persisted song signature points; legacy
+projects default it to 8. Set Tempo 1/24-quarter placement and Set Time
+Signature bar-boundary placement are not yet validated on import; add reference
+fixtures before claiming complete Flex Data conformance.
 
 Rules follow [UMP & MIDI 2.0 Protocol v1.1.1 §§7.5.3–7.5.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 Focused MIDI Clip tests passed 27/27; the full UI passed 1,048/1,048 across
@@ -427,3 +429,19 @@ Focused MIDI Clip tests passed 31/31; full UI passed 1,052/1,052 across
 151 files; TypeScript/production build, changed-file lint, and `git diff --check`
 passed. Broader cross-application MIDI Clip fixtures remain an open validation
 gap; do not claim complete MIDI 2.0 interoperability.
+
+### Latest continuation — preserve time-signature notation metadata (2026-10-04)
+
+The MIDI Set Time Signature `Number of 1/32 Notes` byte now round-trips through
+MIDI Clip Flex Data, MIDI 1.0 `FF 58` events, import tempo-map application,
+Core project JSON, builder commands, and UI telemetry. It is stored as the
+optional `thirtySecondsPerQuarter` signature-point field, defaults to 8 for
+older projects/files, and is deliberately excluded from `SignatureMap` bar
+arithmetic. Both writers validate the byte range instead of truncating. Tests
+cover non-default values through both codecs and a Core project save/load.
+Focused MIDI codec tests passed 53/53; full UI passed 1,052/1,052 across
+151 files; Core engine tests and the `ResoStage` build passed.
+
+This closes the metadata-loss item, not the whole timing audit. The importer
+still preserves recommended off-grid tempo/meter events instead of rejecting
+them, and no independent DAW-generated MIDI Clip corpus is maintained.

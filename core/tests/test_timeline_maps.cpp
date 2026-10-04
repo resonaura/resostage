@@ -240,7 +240,7 @@ TEST_CASE("ProjectJson: DAW TrackKind, stripId, and MIDI round-trip serializatio
 
     song.signaturePoints = {
         {0.0, 4, 4, 1},
-        {16.0, 7, 8, 5}
+        {16.0, 7, 8, 5, 11}
     };
 
     p.songs.push_back(song);
@@ -290,6 +290,7 @@ TEST_CASE("ProjectJson: DAW TrackKind, stripId, and MIDI round-trip serializatio
     CHECK(s.signaturePoints[1].numerator == 7);
     CHECK(s.signaturePoints[1].denominator == 8);
     CHECK(s.signaturePoints[1].bar == 5);
+    CHECK(s.signaturePoints[1].thirtySecondsPerQuarter == 11);
 }
 
 TEST_CASE("ProjectJson: backward compatibility with projects missing DAW fields") {

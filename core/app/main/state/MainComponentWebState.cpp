@@ -411,6 +411,7 @@ void MainComponent::publishWebState() {
             spr.numerator = sp.numerator;
             spr.denominator = sp.denominator;
             spr.bar = sp.bar;
+            spr.thirtySecondsPerQuarter = sp.thirtySecondsPerQuarter;
             row.signaturePoints.push_back(std::move(spr));
         }
 

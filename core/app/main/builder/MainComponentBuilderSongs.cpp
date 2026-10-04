@@ -316,6 +316,9 @@ void MainComponent::builderSongUpdate(const std::string& json) {
                 || point.numerator <= 0 || point.denominator <= 0)
                 continue;
             getInt(pointValue, "bar", point.bar);
+            getInt(pointValue, "thirtySecondsPerQuarter", point.thirtySecondsPerQuarter);
+            if (point.thirtySecondsPerQuarter < 0 || point.thirtySecondsPerQuarter > 255)
+                continue;
             importedPoints.push_back(point);
         }
         SignatureMap normalized(s.timeSignature.numerator, s.timeSignature.denominator,
@@ -340,4 +343,3 @@ void MainComponent::builderSongUpdate(const std::string& json) {
 }
 
 } // namespace resostage
-

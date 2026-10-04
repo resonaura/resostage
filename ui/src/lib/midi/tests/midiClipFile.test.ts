@@ -299,8 +299,8 @@ describe("MIDI Clip File framing and resource bounds", () => {
       [{ name: "Short bars", regions: [region] }],
       { bpm: 120, numerator: 1, denominator: 128,
         meterEvents: [
-          { beat: 0, numerator: 1, denominator: 128 },
-          { beat: 1 / 32, numerator: 2, denominator: 4 },
+          { beat: 0, numerator: 1, denominator: 128, thirtySecondsPerQuarter: 13 },
+          { beat: 1 / 32, numerator: 2, denominator: 4, thirtySecondsPerQuarter: 11 },
         ],
         fromProjectStart: true, expandLoops: false },
     );
@@ -310,8 +310,8 @@ describe("MIDI Clip File framing and resource bounds", () => {
     const parsed = parseMidiClipFile(bytes);
 
     expect(parsed.meterEvents).toEqual([
-      { beat: 0, numerator: 1, denominator: 128 },
-      { beat: 1 / 32, numerator: 2, denominator: 4 },
+      { beat: 0, numerator: 1, denominator: 128, thirtySecondsPerQuarter: 13 },
+      { beat: 1 / 32, numerator: 2, denominator: 4, thirtySecondsPerQuarter: 11 },
     ]);
   });
 

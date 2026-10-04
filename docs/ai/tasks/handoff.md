@@ -1582,5 +1582,20 @@ gaps and fast rejection of an over-budget gap. Focused tests 30/30; full UI
 1,051/1,051 across 151 files; TypeScript/build, changed-file lint and
 `git diff --check` passed. Source: [UMP & MIDI 2.0 Protocol v1.1.1 §7.2.3.1]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
-Commit this block in English, do not push; next inspect Set Tempo resolution,
-tempo range handling, and broader reference-file coverage.
+Latest continuation — Set Tempo encoding limits (2026-10-04): exporting BPM
+now rejects invalid events and conversion outside the protocol's unsigned
+32-bit 10-nanosecond-per-quarter-note range rather than clamping and silently
+changing tempo. Boundary tests cover minimum/maximum representable units and
+out-of-range BPM. Focused MIDI Clip 31/31; full UI 1,052/1,052; build, lint and
+`git diff --check` passed. Source: UMP & MIDI 2.0 Protocol v1.1.1 §7.5.3.
+
+Latest continuation — preserve Set Time Signature 1/32-note field
+(2026-10-04): the byte now round-trips through MIDI Clip and Standard MIDI
+File codecs, song meter import, project JSON, builder updates and telemetry as
+`thirtySecondsPerQuarter` (default 8 for older data). `SignatureMap` bar math
+does not use the field. Focused MIDI codec 53/53; full UI 1,052/1,052; Core
+engine tests and `ResoStage` build passed. AGENTS.md and
+docs/MIDI2_REMAINING_WORK.md describe the additive persisted field. Remaining:
+validate timing recommendations carefully and seek independent MIDI Clip
+fixtures; do not claim complete interoperability. Continue with one tested,
+English-committed block at a time; do not push.

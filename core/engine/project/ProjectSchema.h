@@ -691,6 +691,7 @@ struct SignaturePoint {
     int numerator = 4;
     int denominator = 4;
     int bar = 1;                  // 1-based bar number
+    int thirtySecondsPerQuarter = 8; // MIDI time-signature notation field.
 };
 
 // What the transport does when a song reaches its end. Serialized as
