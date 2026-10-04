@@ -57,7 +57,15 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   creation also carries its UMP collection through the follow-up update. UMP
   controller preview has independent Group and Channel filters, defaults to
   All, discovers choices only from recognized packets in the selected lane,
-  and clears stale selections when a source group/channel disappears.
+  and clears stale selections when a source group/channel disappears. In
+  Events mode, Draw creates recognized CC/Pitch Bend packets, Select/Draw can
+  move a point or a Shift/platform-primary multi-selection, and Erase,
+  double-click, and Delete remove only selected/targeted recognized packets.
+  These gestures edit `umpEvents` through the separate reliable region draft;
+  time movement retains the complete 32-bit data value and value movement maps
+  vertical pointer displacement across the full UMP word range. New point
+  drafts can be moved before first commit. Trim/loop occurrences map back to
+  source beats. Opaque and reserved packets remain unchanged.
 
 ## Known limitations
 
@@ -84,10 +92,11 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay
-  opaque. Group/channel filters scope the preview; canvas gestures are still
-  read-only, while semantic editing is through the UMP event dialog and uses
-  source beat positions. Direct 32-bit canvas gestures, multi-event selection
-  and curve/smoothing tools remain open.
+  opaque. Group/channel filters scope the preview and canvas gestures. Direct
+  editing supports point creation, move/value editing, multi-selection and
+  deletion, but does not yet provide UMP curve/smoothing transforms, marquee
+  selection, or raw event cut/copy. The semantic event dialog remains available
+  for exact field entry.
 - The importer has focused unit coverage but no maintained conformance corpus
   from other DAWs and no broad cross-application round-trip certification.
 
@@ -113,12 +122,13 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
    Specify exact handling for note-off attributes and overlapping same-pitch
    notes; extend the project note model only where round-trip requirements
    justify it.
-2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor
-   and group/channel preview filters for recognized CC/Pitch Bend packets are
-   implemented. Add direct lane gestures only with tests proving that a
-   time-only edit preserves every non-time field, values remain full 32-bit,
-   unknown/reserved packets remain untouched, and mutations use the exact
-   MIDI-region history/acknowledgement path.
+2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor,
+   group/channel preview filters, and direct point gestures for recognized
+   CC/Pitch Bend packets are implemented. Next add bounded curve/smoothing
+   transforms with exact-word and packet-preservation tests, then consider
+   marquee and clipboard actions only if they can retain packet identity and
+   history semantics. Keep MIDI 1.0 `events` and UMP `umpEvents` separate and
+   use the exact MIDI-region history/acknowledgement path.
 3. **Finish MIDI 1.0 interoperability:** maintain Format 0/1/2 fixtures,
    validate SMPTE timing and tempo/meter maps against independent files, and
    improve the `.mid` loss report so every supported conversion and every

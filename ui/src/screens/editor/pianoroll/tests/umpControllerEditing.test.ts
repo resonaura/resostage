@@ -8,8 +8,13 @@ import { describe, expect, it } from "vitest";
 import type { MidiUmpEventRow } from "@/lib/state/types";
 import {
   applyPianoRollUmpControllerDraft,
+  createPianoRollUmpControllerEvent,
   createPianoRollUmpControllerDraftRow,
+  editPianoRollUmpControllerPoints,
+  pianoRollUmpValueFromDisplayValue,
+  pianoRollUmpValueFromY,
   readPianoRollUmpControllerDraft,
+  removePianoRollUmpControllerEvents,
   sameEditablePianoRollUmpEvents,
   validatePianoRollUmpControllerDraft,
 } from "@/screens/editor/pianoroll/logic/umpControllerEditing";
@@ -129,6 +134,57 @@ describe("Piano Roll MIDI 2.0 controller editing", () => {
       .toBe(2_000_000);
     expect(applyPianoRollUmpControllerDraft(source, [{ ...row, beat: 2_000_001 }]))
       .toBeNull();
+  });
+
+  it("maps controller display values to full-resolution MIDI 2.0 values", () => {
+    expect(pianoRollUmpValueFromDisplayValue("umpCc74", 0)).toBe(0);
+    expect(pianoRollUmpValueFromDisplayValue("umpCc74", 127)).toBe(0xffff_ffff);
+    expect(pianoRollUmpValueFromDisplayValue("umpPitchBend", -8192)).toBe(0);
+    expect(pianoRollUmpValueFromDisplayValue("umpPitchBend", 0)).toBe(0x8000_0000);
+    expect(pianoRollUmpValueFromDisplayValue("umpPitchBend", 8191)).toBeLessThan(0xffff_ffff);
+    expect(pianoRollUmpValueFromDisplayValue("umpCc6", 64)).toBeNull();
+  });
+
+  it("maps lane coordinates to the complete unsigned UMP range", () => {
+    expect(pianoRollUmpValueFromY(28, 10, 100)).toBe(0xffff_ffff);
+    expect(pianoRollUmpValueFromY(94, 10, 100)).toBe(0);
+    expect(pianoRollUmpValueFromY(61, 10, 100)).toBeGreaterThan(0);
+    expect(pianoRollUmpValueFromY(61, 10, 100)).toBeLessThan(0xffff_ffff);
+  });
+
+  it("edits only recognized UMP point values and beats", () => {
+    const original = cc(1, 74, 0x1234_5678, 3, 9);
+    original.words.push(0xaabb_ccdd);
+    const opaque = { beat: 2, wordCount: 1, words: [0x1000_0000] };
+    const source = [original, opaque];
+    const updated = editPianoRollUmpControllerPoints(source, [{
+      sourceIndex: 0, beat: 3.25, value: 0xfedc_ba98,
+    }]);
+
+    expect(updated).not.toBeNull();
+    expect(updated?.[0]).toEqual({
+      ...original, beat: 3.25, words: [original.words[0], 0xfedc_ba98, 0xaabb_ccdd],
+    });
+    expect(updated?.[1]).toBe(opaque);
+    expect(original.beat).toBe(1);
+    expect(editPianoRollUmpControllerPoints(source, [{
+      sourceIndex: 1, beat: 3, value: 1,
+    }])).toBeNull();
+  });
+
+  it("creates and removes direct UMP points without altering opaque entries", () => {
+    const source = [cc(1, 74, 0x1234_5678, 2, 3), { beat: 2, wordCount: 1, words: [0x1000_0000] }];
+    const created = createPianoRollUmpControllerEvent(source, "umpCc74", 3.5, 0xffff_ffff, 5, 12);
+    expect(created).toEqual([
+      ...source,
+      { beat: 3.5, words: [((0x4 << 28) | (5 << 24) | (0x0b << 20)
+        | (12 << 16) | (74 << 8)) >>> 0, 0xffff_ffff], wordCount: 2 },
+    ]);
+    expect(createPianoRollUmpControllerEvent(source, "umpCc6", 3, 1, 0, 0)).toBeNull();
+    expect(removePianoRollUmpControllerEvents(created!, [0])).toEqual([
+      source[1], created![2],
+    ]);
+    expect(removePianoRollUmpControllerEvents(created!, [1])).toBeNull();
   });
 
   it("compares full UMP words while tolerating Core event ordering", () => {

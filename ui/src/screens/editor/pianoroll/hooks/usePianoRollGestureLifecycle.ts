@@ -6,13 +6,14 @@
 
 import { useCallback, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
-import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiUmpEventRow } from "@/lib/state/types";
 import { beginCancellableDrag, type CancellableDrag } from "@/lib/interaction/dragCancel";
 import { subscribeHistoryBoundary } from "@/lib/state/historyNavigation";
 import type {
   DraggingState,
   PianoRollControllerGesture,
   PianoRollMidiEventGesture,
+  PianoRollUmpControllerGesture,
   PianoRollPendingAutomationCommit,
   PianoRollVelocityPaintState,
 } from "@/screens/editor/pianoroll/logic/types";
@@ -22,8 +23,10 @@ export interface PianoRollGestureSnapshot {
   pendingNotes: MidiNoteRow[] | null;
   lanes: AutomationLaneRow[] | null;
   events?: MidiClipEventRow[] | null;
+  umpEvents?: MidiUmpEventRow[] | null;
   selection: Set<number>;
   controllerEventSelection: Set<number>;
+  umpControllerEventSelection?: Set<number>;
 }
 
 interface PianoRollGestureLifecycleOptions {
@@ -34,15 +37,18 @@ interface PianoRollGestureLifecycleOptions {
   pendingAutomationCommitRef: MutableRefObject<PianoRollPendingAutomationCommit | null>;
   controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
   midiEventGestureRef: MutableRefObject<PianoRollMidiEventGesture | null>;
+  umpControllerGestureRef: MutableRefObject<PianoRollUmpControllerGesture | null>;
   velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
   stopAutoScroll: () => void;
   setLocalNotes: (notes: MidiNoteRow[] | null) => void;
   setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
   setLocalEvents: (events: MidiClipEventRow[] | null) => void;
+  setLocalUmpEvents: (events: MidiUmpEventRow[] | null) => void;
   setHoveredPitch: (pitch: number | null) => void;
   onSelectionChange: (ids: Set<number>) => void;
   setControllerEventSelection: (indices: Set<number>) => void;
+  setUmpControllerEventSelection: (indices: Set<number>) => void;
 }
 
 /**
@@ -77,6 +83,7 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
     current.draggingRef.current = null;
     current.controllerGestureRef.current = null;
     current.midiEventGestureRef.current = null;
+    current.umpControllerGestureRef.current = null;
     current.velocityPaintRef.current = null;
     current.lastDragDetentRef.current = null;
     current.setHoveredPitch(null);
@@ -94,8 +101,10 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
       current.setLocalNotes(snapshot.notes);
       current.setControllerPreview(snapshot.lanes);
       current.setLocalEvents(snapshot.events ?? null);
+      current.setLocalUmpEvents(snapshot.umpEvents ?? null);
       current.onSelectionChange(snapshot.selection);
       current.setControllerEventSelection(snapshot.controllerEventSelection);
+      current.setUmpControllerEventSelection(snapshot.umpControllerEventSelection ?? new Set());
     });
   }, [clearGesture, endGesture]);
 
@@ -114,9 +123,12 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
     current.pendingCommitRef.current = null;
     current.pendingAutomationCommitRef.current = null;
     current.midiEventGestureRef.current = null;
+    current.umpControllerGestureRef.current = null;
     current.setLocalNotes(null);
     current.setControllerPreview(null);
     current.setLocalEvents(null);
+    current.setLocalUmpEvents(null);
+    current.setUmpControllerEventSelection(new Set());
   }), [clearGesture, endGesture]);
 
   useLayoutEffect(() => {
@@ -127,9 +139,12 @@ export function usePianoRollGestureLifecycle(options: PianoRollGestureLifecycleO
     current.pendingCommitRef.current = null;
     current.pendingAutomationCommitRef.current = null;
     current.midiEventGestureRef.current = null;
+    current.umpControllerGestureRef.current = null;
     current.setLocalNotes(null);
     current.setControllerPreview(null);
     current.setLocalEvents(null);
+    current.setLocalUmpEvents(null);
+    current.setUmpControllerEventSelection(new Set());
     return () => {
       handleRef.current?.end();
       handleRef.current = null;

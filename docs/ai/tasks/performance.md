@@ -477,3 +477,17 @@ trim/loop projection. This avoids an unbounded option scan or temporary source
 array copy. It is not a profiler result or proof of frame-time improvement; the
 Piano Roll still performs its existing bounded decode/projection work when
 rendering.
+
+## Piano Roll MIDI 2.0 point gestures — bounded interaction work (2026-10-04)
+
+Direct UMP point gestures reject source collections above 16,384 before deep
+copy. The shared projector remains capped at 12,000 visible events and 1,200
+loop passes. Pointer moves clone only the collection's reference array and
+replace selected packet objects; gesture-change detection compares selected
+source indexes and does not sort the full event list at pointer rate. The
+reliable draft still compares complete collections at commit/echo boundaries.
+
+This is a complexity/bounds review, not a performance result. Full UI Vitest
+passed 992 tests across 146 files and the staged production build passed; no
+canvas frame-time, heap, or real-device profile was run. Do not claim a measured
+Piano Roll performance improvement from these changes.

@@ -8,7 +8,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import type { MutableRefObject } from "react";
 import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
 import { triggerHaptic } from "@/lib/interaction/haptics";
-import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, MidiUmpEventRow } from "@/lib/state/types";
 import {
   editControllerPoint,
   generateNoteId,
@@ -24,7 +24,17 @@ import {
   indexControllerEventSourcesByBeat,
   MAX_EDITABLE_CONTROLLER_EVENTS,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
-import { isPianoRollUmpControllerLane } from "@/screens/editor/pianoroll/logic/umpControllerLane";
+import {
+  buildPianoRollUmpControllerProjection,
+  isPianoRollUmpControllerLane,
+  MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS,
+} from "@/screens/editor/pianoroll/logic/umpControllerLane";
+import {
+  copyPianoRollUmpEvents,
+  createPianoRollUmpControllerEvent,
+  pianoRollUmpValueFromY,
+  removePianoRollUmpControllerEvents,
+} from "@/screens/editor/pianoroll/logic/umpControllerEditing";
 import { snapPitchToScale } from "@/screens/editor/pianoroll/logic/scales";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import {
@@ -41,6 +51,7 @@ import type {
   PianoRollBottomLane,
   PianoRollControllerGesture,
   PianoRollMidiEventGesture,
+  PianoRollUmpControllerGesture,
   PianoRollControllerLaneMode,
   PianoRollTool,
   ScaleMode,
@@ -57,6 +68,7 @@ interface PianoRollPointerDownHandlerOptions {
   localAutomationLanesRef: MutableRefObject<AutomationLaneRow[] | null>;
   controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
   midiEventGestureRef: MutableRefObject<PianoRollMidiEventGesture | null>;
+  umpControllerGestureRef: MutableRefObject<PianoRollUmpControllerGesture | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
   lastSingleSelectedDurationRef: MutableRefObject<number | null>;
   isFollowSuspendedRef: MutableRefObject<boolean>;
@@ -69,6 +81,8 @@ interface PianoRollPointerDownHandlerOptions {
   selectedNoteIds: Set<number>;
   selectedControllerEventIndices: Set<number>;
   onControllerEventSelectionChange: (indices: Set<number>) => void;
+  selectedUmpControllerEventIndices: Set<number>;
+  onUmpControllerEventSelectionChange: (indices: Set<number>) => void;
   tool: PianoRollTool;
   snap: GridSnapValue;
   snapToScale: boolean;
@@ -83,11 +97,15 @@ interface PianoRollPointerDownHandlerOptions {
   setHoveredPitch: (pitch: number | null) => void;
   setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
   setLocalEvents: (events: MidiClipEventRow[] | null) => void;
+  setLocalUmpEvents: (events: MidiUmpEventRow[] | null) => void;
   onSeek?: (beats: number) => void;
   onSelectionChange: (ids: Set<number>) => void;
   onNotesChange: (notes: MidiNoteRow[]) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
+  onUmpEventsChange?: (events: MidiUmpEventRow[]) => void | Promise<void>;
+  umpGroupFilter?: number | null;
+  umpChannelFilter?: number | null;
   startAutoScroll: () => void;
 }
 
@@ -101,6 +119,7 @@ export function createPianoRollPointerDownHandler({
   localAutomationLanesRef,
   controllerGestureRef,
   midiEventGestureRef,
+  umpControllerGestureRef,
   lastDragDetentRef,
   lastSingleSelectedDurationRef,
   isFollowSuspendedRef,
@@ -113,6 +132,8 @@ export function createPianoRollPointerDownHandler({
   selectedNoteIds,
   selectedControllerEventIndices,
   onControllerEventSelectionChange,
+  selectedUmpControllerEventIndices,
+  onUmpControllerEventSelectionChange,
   tool,
   snap,
   snapToScale,
@@ -127,11 +148,15 @@ export function createPianoRollPointerDownHandler({
   setHoveredPitch,
   setControllerPreview,
   setLocalEvents,
+  setLocalUmpEvents,
   onSeek,
   onSelectionChange,
   onNotesChange,
   onRegionChange,
   onEventsChange,
+  onUmpEventsChange,
+  umpGroupFilter = null,
+  umpChannelFilter = null,
   startAutoScroll,
 }: PianoRollPointerDownHandlerOptions) {
   // ── Pointer Down Interaction ───────────────────────────────────────────
@@ -205,7 +230,143 @@ export function createPianoRollPointerDownHandler({
         };
       } else if (controllerLaneMode === "events") {
         if (isPianoRollUmpControllerLane(bottomLane)) {
-          canvas.releasePointerCapture(e.pointerId);
+          const sourceEvents = region.umpEvents ?? [];
+          if (!onUmpEventsChange || x < viewport.keyWidth
+              || sourceEvents.length > MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS) {
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+          const beforeEvents = copyPianoRollUmpEvents(sourceEvents);
+          const displayBeat = clampControllerDisplayBeat(
+            xToBeat(x), region.durationBeats, snap,
+          );
+          const projection = buildPianoRollUmpControllerProjection(
+            { ...region, umpEvents: beforeEvents }, bottomLane, 0, region.durationBeats,
+            umpGroupFilter, umpChannelFilter,
+          );
+          if (projection.truncated) {
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+          const pitchBend = bottomLane === "umpPitchBend";
+          let hit: typeof projection.events[number] | null = null;
+          let nearestDistance = 8;
+          for (const projected of projection.events) {
+            const px = viewport.keyWidth
+              + (projected.beat - viewport.scrollBeats) * viewport.pixelsPerBeat;
+            const py = controllerYFromValue(projected.value, gridBottom, height, pitchBend);
+            const distance = Math.hypot(px - x, py - y);
+            if (distance <= nearestDistance) {
+              nearestDistance = distance;
+              hit = projected;
+            }
+          }
+
+          onSelectionChange(new Set());
+          onControllerEventSelectionChange(new Set());
+          if (tool === "erase" && hit) {
+            const removed = removePianoRollUmpControllerEvents(
+              beforeEvents, [hit.sourceEventIndex],
+            );
+            if (removed) {
+              onUmpControllerEventSelectionChange(new Set());
+              void onUmpEventsChange(removed);
+              triggerHaptic("generic");
+            }
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+
+          if (!hit && tool !== "draw") {
+            onUmpControllerEventSelectionChange(new Set());
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+
+          const visibleIndices = new Set(projection.events.map((event) => event.sourceEventIndex));
+          const currentSelection = new Set(
+            [...selectedUmpControllerEventIndices].filter((index) => visibleIndices.has(index)),
+          );
+          if (hit && (e.shiftKey || isPrimaryModifier(e))) {
+            if (currentSelection.has(hit.sourceEventIndex))
+              currentSelection.delete(hit.sourceEventIndex);
+            else currentSelection.add(hit.sourceEventIndex);
+            onUmpControllerEventSelectionChange(currentSelection);
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+
+          let latestEvents = beforeEvents;
+          let selectedPoints: PianoRollUmpControllerGesture["selectedPoints"] = [];
+          let anchorBeat = displayBeat;
+          const anchorValue = pianoRollUmpValueFromY(y, gridBottom, height);
+          let changed = false;
+          if (!hit) {
+            latestEvents = createPianoRollUmpControllerEvent(
+              beforeEvents,
+              bottomLane,
+              sourceBeatAt(displayBeat),
+              anchorValue,
+              umpGroupFilter ?? 0,
+              umpChannelFilter ?? 0,
+            ) ?? beforeEvents;
+            if (latestEvents === beforeEvents) {
+              canvas.releasePointerCapture(e.pointerId);
+              return;
+            }
+            const sourceIndex = latestEvents.length - 1;
+            selectedPoints = [{
+              sourceIndex,
+              displayBeat,
+              rawValue: latestEvents[sourceIndex].words[1],
+            }];
+            onUmpControllerEventSelectionChange(new Set([sourceIndex]));
+            setLocalUmpEvents(latestEvents);
+            changed = true;
+          } else {
+            anchorBeat = displayBeat;
+            const selection = currentSelection.has(hit.sourceEventIndex)
+              ? currentSelection
+              : new Set([hit.sourceEventIndex]);
+            onUmpControllerEventSelectionChange(selection);
+            const closestBySource = new Map<number, typeof hit>();
+            for (const projected of projection.events) {
+              if (!selection.has(projected.sourceEventIndex)) continue;
+              const previous = closestBySource.get(projected.sourceEventIndex);
+              if (!previous || Math.abs(projected.beat - hit.beat)
+                  < Math.abs(previous.beat - hit.beat))
+                closestBySource.set(projected.sourceEventIndex, projected);
+            }
+            selectedPoints = [...selection].flatMap((sourceIndex) => {
+              const projected = closestBySource.get(sourceIndex);
+              return projected ? [{
+                sourceIndex,
+                displayBeat: projected.beat,
+                rawValue: beforeEvents[sourceIndex].words[1],
+              }] : [];
+            });
+          }
+
+          if (selectedPoints.length === 0) {
+            canvas.releasePointerCapture(e.pointerId);
+            return;
+          }
+          umpControllerGestureRef.current = {
+            beforeEvents,
+            latestEvents,
+            selectedPoints,
+            anchorBeat,
+            anchorRawValue: anchorValue,
+            changed,
+          };
+          draggingRef.current = {
+            type: "umpEvent",
+            startPointerX: x,
+            startPointerY: y,
+            startBeat: anchorBeat,
+            startPitch: 0,
+            initialNotesSnapshot: new Map(),
+          };
           return;
         }
         if (!onEventsChange || x < viewport.keyWidth) {

@@ -1856,3 +1856,30 @@ warnings, none in changed files. No manual Electron visual or physical UMP
 device acceptance was performed. Direct 32-bit lane gestures, multi-event
 selection/curve tools, codec conformance fixtures and native UMP transport
 remain open.
+
+### Latest continuation — direct Piano Roll UMP point gestures (2026-10-04)
+
+Recognized MIDI 2.0 CC/Pitch Bend lanes now support Draw-to-create, direct
+point movement/value edits, Shift/platform-primary multi-selection, group
+movement, Erase, double-click removal, Select All and Delete. Gesture previews
+stay in the UMP collection and commit through the exact UMP region draft; they
+never convert into MIDI 1.0 channel events. Trim/loop display occurrences map
+back to their source beat. Horizontal movement preserves the original data
+word exactly; vertical edits map pointer position across the full 32-bit UMP
+range. Newly drawn packets can be dragged before the first commit. The existing
+group/channel filters constrain selection and creation; unsupported/reserved
+packets remain unchanged. Oversized source collections reject before copying.
+
+Pointer-frequency change detection compares only selected stable source
+indices rather than sorting the whole UMP collection on every move. The
+collection and projected events remain bounded by the existing 16,384 source,
+12,000 projected-event and 1,200 loop-pass caps. This is a bounded source-level
+design; no frame-time benchmark was performed.
+
+Focused controller/gesture/UMP draft checks passed 29/29; full UI Vitest passed
+992 tests across 146 files; `tsc -b`, staged production UI build, lint and
+`git diff --check` passed. Lint still reports 12 existing warnings outside
+changed files. No manual Electron visual or native UMP-device acceptance was
+performed. Remaining: UMP curve/smoothing transforms, range marquee and raw
+event cut/copy, codec conformance fixtures, native UMP endpoint transport and
+physical/manual acceptance. This does not establish end-to-end MIDI 2.0 support.

@@ -1274,3 +1274,24 @@ acknowledgement/retry. Broader codec conformance fixtures and native UMP I/O /
 capability negotiation also remain open. Do not claim full native MIDI 2.0
 compatibility: live plugin/external dispatch still uses the documented MIDI
 1.0 adaptation path.
+
+### Latest continuation — direct Piano Roll UMP point gestures (2026-10-04)
+
+Recognized MIDI 2.0 CC/Pitch Bend lane events can now be drawn, moved, adjusted
+vertically, multi-selected, and deleted. These remain in `umpEvents`; the
+separate UMP reliable draft uses the existing exact MIDI-region mutation and
+history path. Source indices are filter-scoped, unsupported/reserved packets
+are excluded, source trim/loop timing is respected, newly added points may move
+before first commit, and horizontal movement preserves the complete original
+32-bit value and all additional packet words. Oversized collections reject
+before copying. Pointer movement avoids whole-collection sorting; no UI frame
+benchmark was run.
+
+Verification: focused controller/gesture/UMP draft tests 29/29; full UI
+Vitest 992/992 across 146 files; TypeScript, staged production build, lint and
+`git diff --check` passed. Lint still emits 12 unrelated existing warnings.
+No manual visual or hardware UMP acceptance was performed. Continue with
+bounded UMP curve/smoothing transforms, then assess marquee and clipboard
+semantics, codec conformance fixtures and native UMP transport. See
+`docs/MIDI2_REMAINING_WORK.md`; end-to-end MIDI 2.0 compatibility is still not
+implemented. Do not push.

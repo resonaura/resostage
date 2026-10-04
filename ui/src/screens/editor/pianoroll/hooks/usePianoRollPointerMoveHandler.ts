@@ -8,7 +8,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { RULER_HEIGHT } from "@/screens/editor/timeline/ruler/logic/constants";
 import { triggerHaptic } from "@/lib/interaction/haptics";
-import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, MidiUmpEventRow } from "@/lib/state/types";
 import {
   editControllerPoint,
   resolveDrawNoteDuration,
@@ -26,6 +26,10 @@ import {
   sampleControllerPaintSegment,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
 import {
+  editPianoRollUmpControllerPoints,
+  pianoRollUmpValueFromY,
+} from "@/screens/editor/pianoroll/logic/umpControllerEditing";
+import {
   boundedNoteMove,
   boundedNoteResize,
   findNotesInMarquee,
@@ -38,6 +42,7 @@ import type {
   PianoRollBottomLane,
   PianoRollControllerGesture,
   PianoRollMidiEventGesture,
+  PianoRollUmpControllerGesture,
   PianoRollControllerLaneMode,
   PianoRollTool,
   PianoRollViewport,
@@ -53,6 +58,7 @@ interface PianoRollPointerMoveHandlerOptions {
   velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
   midiEventGestureRef: MutableRefObject<PianoRollMidiEventGesture | null>;
+  umpControllerGestureRef: MutableRefObject<PianoRollUmpControllerGesture | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
   spatialIndex: MutableRefObject<SpatialNoteIndex>;
   viewport: PianoRollViewport;
@@ -72,11 +78,13 @@ interface PianoRollPointerMoveHandlerOptions {
   setLocalNotes: Dispatch<SetStateAction<MidiNoteRow[] | null>>;
   setControllerPreview: (lanes: AutomationLaneRow[] | null) => void;
   setLocalEvents: (events: MidiClipEventRow[] | null) => void;
+  setLocalUmpEvents: (events: MidiUmpEventRow[] | null) => void;
   onSelectionChange: (ids: Set<number>) => void;
   onControllerEventSelectionChange: (indices: Set<number>) => void;
   onSeek?: (beats: number) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
+  onUmpEventsChange?: (events: MidiUmpEventRow[]) => void | Promise<void>;
   render: () => void;
 }
 
@@ -89,6 +97,7 @@ export function createPianoRollPointerMoveHandler({
   velocityPaintRef,
   controllerGestureRef,
   midiEventGestureRef,
+  umpControllerGestureRef,
   lastDragDetentRef,
   spatialIndex,
   viewport,
@@ -108,11 +117,13 @@ export function createPianoRollPointerMoveHandler({
   setLocalNotes,
   setControllerPreview,
   setLocalEvents,
+  setLocalUmpEvents,
   onSelectionChange,
   onControllerEventSelectionChange,
   onSeek,
   onRegionChange,
   onEventsChange,
+  onUmpEventsChange,
   render,
 }: PianoRollPointerMoveHandlerOptions) {
   // ── Pointer Move Interaction ───────────────────────────────────────────
@@ -192,6 +203,47 @@ export function createPianoRollPointerMoveHandler({
         paint.lastBeat = beat;
         if (changed) setLocalNotes(paint.notes.map((note) => ({ ...note })));
       }
+      return;
+    }
+
+    // ── Dragging: MIDI 2.0 UMP Controller Points ─────────────────────────
+    if (dragging.type === "umpEvent" && controllerLaneMode === "events"
+        && onUmpEventsChange) {
+      const gesture = umpControllerGestureRef.current;
+      if (!gesture) return;
+      const displayBeat = clampControllerDisplayBeat(
+        xToBeat(x), region.durationBeats, snap,
+      );
+      const pointerValue = pianoRollUmpValueFromY(y, gridBottom, height);
+      const deltaBeat = displayBeat - gesture.anchorBeat;
+      const deltaValue = pointerValue - gesture.anchorRawValue;
+      const edits = gesture.selectedPoints.flatMap((point) => {
+        const targetBeat = clampControllerDisplayBeat(
+          point.displayBeat + deltaBeat, region.durationBeats, snap,
+        );
+        const value = Math.max(0, Math.min(0xffff_ffff, point.rawValue + deltaValue));
+        return [{
+          sourceIndex: point.sourceIndex,
+          beat: sourceBeatAt(targetBeat),
+          value,
+        }];
+      });
+      // The latest draft is the source for the next move so a point created on
+      // pointer-down can be dragged before it has an authoritative source index.
+      const updated = editPianoRollUmpControllerPoints(gesture.latestEvents, edits);
+      if (!updated) return;
+      gesture.latestEvents = updated;
+      // Only selected packets can change in this gesture. Compare those stable
+      // source indexes instead of sorting the whole bounded collection at
+      // pointer-event frequency.
+      gesture.changed = updated.length !== gesture.beforeEvents.length
+        || gesture.selectedPoints.some(({ sourceIndex }) => {
+          const before = gesture.beforeEvents[sourceIndex];
+          const after = updated[sourceIndex];
+          return !before || !after || before.beat !== after.beat
+            || before.words[1] !== after.words[1];
+        });
+      setLocalUmpEvents(updated);
       return;
     }
 

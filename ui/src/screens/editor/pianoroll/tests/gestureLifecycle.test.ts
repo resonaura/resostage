@@ -9,12 +9,13 @@ import { act, createElement } from "react";
 import type { MutableRefObject } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiUmpEventRow } from "@/lib/state/types";
 import { activeDragCount } from "@/lib/interaction/dragCancel";
 import { usePianoRollGestureLifecycle } from "@/screens/editor/pianoroll/hooks/usePianoRollGestureLifecycle";
 import type {
   DraggingState, PianoRollControllerGesture,
-  PianoRollMidiEventGesture, PianoRollPendingAutomationCommit, PianoRollVelocityPaintState,
+  PianoRollMidiEventGesture, PianoRollUmpControllerGesture,
+  PianoRollPendingAutomationCommit, PianoRollVelocityPaintState,
 } from "@/screens/editor/pianoroll/logic/types";
 
 const ref = <T,>(current: T): MutableRefObject<T> => ({ current });
@@ -35,8 +36,10 @@ describe("Piano Roll gesture lifecycle", () => {
   let lanes: AutomationLaneRow[] | null;
   let localNotes: MidiNoteRow[] | null;
   let localEvents: MidiClipEventRow[] | null;
+  let localUmpEvents: MidiUmpEventRow[] | null;
   let selection: Set<number>;
   let controllerEventSelection: Set<number>;
+  let umpControllerEventSelection: Set<number>;
   let capture: Set<number>;
 
   function Harness({ regionId }: { regionId: string }) {
@@ -50,8 +53,10 @@ describe("Piano Roll gesture lifecycle", () => {
     lanes = null;
     localNotes = null;
     localEvents = null;
+    localUmpEvents = null;
     selection = new Set();
     controllerEventSelection = new Set();
+    umpControllerEventSelection = new Set();
     const canvas = {
       hasPointerCapture: (id: number) => capture.has(id),
       releasePointerCapture: vi.fn((id: number) => capture.delete(id)),
@@ -64,15 +69,18 @@ describe("Piano Roll gesture lifecycle", () => {
       pendingAutomationCommitRef: ref<PianoRollPendingAutomationCommit | null>(null),
       controllerGestureRef: ref<PianoRollControllerGesture | null>(null),
       midiEventGestureRef: ref<PianoRollMidiEventGesture | null>(null),
+      umpControllerGestureRef: ref<PianoRollUmpControllerGesture | null>(null),
       velocityPaintRef: ref<PianoRollVelocityPaintState | null>(null),
       lastDragDetentRef: ref<string | null>(null),
       stopAutoScroll: vi.fn(),
       setLocalNotes: (next) => { localNotes = next; },
       setControllerPreview: (next) => { lanes = next; },
       setLocalEvents: (next) => { localEvents = next; },
+      setLocalUmpEvents: (next) => { localUmpEvents = next; },
       setHoveredPitch: vi.fn(),
       onSelectionChange: (next) => { selection = next; },
       setControllerEventSelection: (next) => { controllerEventSelection = next; },
+      setUmpControllerEventSelection: (next) => { umpControllerEventSelection = next; },
     };
     container = document.createElement("div");
     document.body.append(container);
@@ -94,9 +102,10 @@ describe("Piano Roll gesture lifecycle", () => {
     localNotes = notes;
     lanes = [];
     localEvents = [{ beat: 1, status: 0xb0, data: [64, 127] }];
+    localUmpEvents = [{ beat: 1, wordCount: 1, words: [0x1000_0000] }];
     lifecycle.beginGesture(7, {
-      notes: null, pendingNotes: null, lanes: null, events: null,
-      selection: new Set(), controllerEventSelection: new Set(),
+      notes: null, pendingNotes: null, lanes: null, events: null, umpEvents: null,
+      selection: new Set(), controllerEventSelection: new Set(), umpControllerEventSelection: new Set(),
     });
     expect(activeDragCount()).toBe(1);
 
@@ -108,6 +117,7 @@ describe("Piano Roll gesture lifecycle", () => {
     expect(localNotes).toBeNull();
     expect(lanes).toBeNull();
     expect(localEvents).toBeNull();
+    expect(localUmpEvents).toBeNull();
     expect(capture.size).toBe(0);
     expect(options.stopAutoScroll).toHaveBeenCalled();
     expect(activeDragCount()).toBe(0);
@@ -119,6 +129,8 @@ describe("Piano Roll gesture lifecycle", () => {
     lifecycle.beginGesture(8, {
       notes, pendingNotes: notes, lanes: null, selection: new Set([1]),
       controllerEventSelection: new Set([2, 3]),
+      umpControllerEventSelection: new Set([4]),
+      umpEvents: [{ beat: 1, wordCount: 1, words: [0x1000_0000] }],
     });
     options.pendingCommitRef.current = [{ ...notes[0], startBeats: 4 }];
     localNotes = options.pendingCommitRef.current;
@@ -131,6 +143,8 @@ describe("Piano Roll gesture lifecycle", () => {
     expect(options.pendingCommitRef.current).toBe(notes);
     expect([...selection]).toEqual([1]);
     expect([...controllerEventSelection]).toEqual([2, 3]);
+    expect([...umpControllerEventSelection]).toEqual([4]);
+    expect(localUmpEvents).toEqual([{ beat: 1, wordCount: 1, words: [0x1000_0000] }]);
     expect(options.draggingRef.current).toBeNull();
     expect(capture.size).toBe(0);
     expect(activeDragCount()).toBe(0);

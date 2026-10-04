@@ -5,8 +5,9 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import type { MidiRegionRow } from "@/lib/state/types";
+import type { MidiRegionRow, MidiUmpEventRow } from "@/lib/state/types";
 import { drawPianoRollBottomLane } from "@/screens/editor/pianoroll/logic/render/bottomLane";
+import type { PianoRollBottomLane } from "@/screens/editor/pianoroll/logic/types";
 
 function region(events: NonNullable<MidiRegionRow["events"]>): MidiRegionRow {
   return {
@@ -56,8 +57,10 @@ const theme = {
 function draw(
   ctx: CanvasRenderingContext2D,
   midiRegion: MidiRegionRow,
-  lane: "cc74" | "pitchBend",
+  lane: PianoRollBottomLane,
   selectedControllerEventIndices = new Set<number>(),
+  umpGroupFilter: number | null = null,
+  umpChannelFilter: number | null = null,
 ) {
   drawPianoRollBottomLane({
     context: ctx,
@@ -76,6 +79,8 @@ function draw(
     },
     bottomLane: lane,
     controllerLaneMode: "events",
+    umpGroupFilter,
+    umpChannelFilter,
     timeVisibleNotes: [],
     selectedNoteIds: new Set(),
     selectedControllerEventIndices,
@@ -116,5 +121,23 @@ describe("Piano Roll raw controller canvas preview", () => {
 
     expect(ctx.arc).toHaveBeenCalledWith(94, expect.any(Number), 4.25, 0, Math.PI * 2);
     expect(ctx.arc).toHaveBeenCalledWith(94, expect.any(Number), 5.25, 0, Math.PI * 2);
+  });
+
+  it("renders only the selected UMP Group and Channel without changing packet data", () => {
+    const umpEvent = (beat: number, group: number, channel: number): MidiUmpEventRow => ({
+      beat,
+      wordCount: 2,
+      words: [((0x4 << 28) | (group << 24) | (0x0b << 20)
+        | (channel << 16) | (74 << 8)) >>> 0, 0x8000_0000],
+    });
+    const source = [umpEvent(2, 2, 3), umpEvent(4, 5, 3)];
+    const originalWords = source.map((event) => [...event.words]);
+    const midiRegion = { ...region([]), umpEvents: source };
+    const ctx = context();
+    draw(ctx, midiRegion, "umpCc74", new Set(), 2, 3);
+
+    expect(ctx.arc).toHaveBeenCalledOnce();
+    expect(ctx.arc).toHaveBeenCalledWith(94, expect.any(Number), 2.5, 0, Math.PI * 2);
+    expect(source.map((event) => event.words)).toEqual(originalWords);
   });
 });

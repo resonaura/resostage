@@ -68,6 +68,7 @@ export interface DraggingState {
     | "slice"
     | "cc"
     | "midiEvent"
+    | "umpEvent"
     | "playhead";
   startPointerX: number;
   startPointerY: number;
@@ -124,6 +125,23 @@ export interface PianoRollMidiEventGesture {
   changed: boolean;
   lastBeat: number;
   lastValue: number;
+}
+
+/** Snapshot for direct edits to recognized UMP controller points. */
+export interface PianoRollUmpControllerGesture {
+  beforeEvents: MidiUmpEventRow[];
+  latestEvents: MidiUmpEventRow[];
+  /** Displayed region occurrence and exact original data word per source packet. */
+  selectedPoints: Array<{
+    sourceIndex: number;
+    displayBeat: number;
+    /** Original full-resolution UMP data word, not its rounded lane display value. */
+    rawValue: number;
+  }>;
+  anchorBeat: number;
+  /** Full-resolution cursor value at pointer-down, used to retain 32-bit precision. */
+  anchorRawValue: number;
+  changed: boolean;
 }
 
 /** Expected Core acknowledgement for the last region automation edit. */

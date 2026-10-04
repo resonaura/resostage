@@ -4,8 +4,8 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, SongRow } from "@/lib/state/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, MidiUmpEventRow, SongRow } from "@/lib/state/types";
 import type { TimelineFollowMode } from "@/screens/editor/timeline/toolbar/logic/types";
 import type { CycleLocators } from "@/screens/editor/timeline/cycle/hooks/useCycleState";
 import {
@@ -23,12 +23,14 @@ import { usePianoRollViewportGestures } from "@/screens/editor/pianoroll/hooks/u
 import { usePianoRollGestureLifecycle } from "@/screens/editor/pianoroll/hooks/usePianoRollGestureLifecycle";
 import { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import { sameEditableMidiEvents } from "@/screens/editor/pianoroll/logic/controllerLane";
+import { sameEditablePianoRollUmpEvents } from "@/screens/editor/pianoroll/logic/umpControllerEditing";
 import type {
   DraggingState,
   GridSnapValue,
   PianoRollBottomLane,
   PianoRollControllerGesture,
   PianoRollMidiEventGesture,
+  PianoRollUmpControllerGesture,
   PianoRollControllerLaneMode,
   PianoRollPendingAutomationCommit,
   PianoRollTool,
@@ -51,13 +53,17 @@ interface PianoRollCanvasProps {
   onSelectionChange: (ids: Set<number>) => void;
   selectedControllerEventIndices: Set<number>;
   onControllerEventSelectionChange: (indices: Set<number>) => void;
+  selectedUmpControllerEventIndices: Set<number>;
+  onUmpControllerEventSelectionChange: (indices: Set<number>) => void;
   onNotesChange: (notes: MidiNoteRow[]) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
+  onUmpEventsChange?: (events: MidiUmpEventRow[]) => void | Promise<void>;
   bottomLane?: PianoRollBottomLane;
   controllerLaneMode?: PianoRollControllerLaneMode;
   umpGroupFilter?: number | null;
   umpChannelFilter?: number | null;
+  umpEditStatus?: string;
   eventEditStatus?: string;
   playheadBeats?: number;
   getLivePlayheadBeats?: () => number;
@@ -96,13 +102,17 @@ export function PianoRollCanvas({
   onSelectionChange,
   selectedControllerEventIndices,
   onControllerEventSelectionChange,
+  selectedUmpControllerEventIndices,
+  onUmpControllerEventSelectionChange,
   onNotesChange,
   onRegionChange,
   onEventsChange,
+  onUmpEventsChange,
   bottomLane = "velocity",
   controllerLaneMode = "events",
   umpGroupFilter = null,
   umpChannelFilter = null,
+  umpEditStatus = "idle",
   eventEditStatus = "idle",
   playheadBeats,
   getLivePlayheadBeats,
@@ -144,8 +154,15 @@ export function PianoRollCanvas({
     localEventsRef.current = events;
     setLocalEventsState(events);
   }, []);
-  const renderedRegion = localEvents
-    ? { ...region, events: localEvents }
+  const [localUmpEvents, setLocalUmpEventsState] = useState<MidiUmpEventRow[] | null>(null);
+  const localUmpEventsRef = useRef<MidiUmpEventRow[] | null>(null);
+  const setLocalUmpEvents = useCallback((events: MidiUmpEventRow[] | null) => {
+    localUmpEventsRef.current = events;
+    setLocalUmpEventsState(events);
+  }, []);
+  const renderedRegion = localEvents || localUmpEvents
+    ? { ...region, ...(localEvents ? { events: localEvents } : {}),
+      ...(localUmpEvents ? { umpEvents: localUmpEvents } : {}) }
     : region;
   const notesToRender = localNotes || region.notes;
   const pendingCommitRef = useRef<MidiNoteRow[] | null>(null);
@@ -159,6 +176,7 @@ export function PianoRollCanvas({
   const pendingAutomationCommitRef = useRef<PianoRollPendingAutomationCommit | null>(null);
   const controllerGestureRef = useRef<PianoRollControllerGesture | null>(null);
   const midiEventGestureRef = useRef<PianoRollMidiEventGesture | null>(null);
+  const umpControllerGestureRef = useRef<PianoRollUmpControllerGesture | null>(null);
   const velocityPaintRef = useRef<PianoRollVelocityPaintState | null>(null);
 
   // When authoritative region.notes updates from parent (e.g. edit commit, undo, delete),
@@ -176,6 +194,15 @@ export function PianoRollCanvas({
   }, [region.events, eventEditStatus, setLocalEvents]);
 
   useEffect(() => setLocalEvents(null), [region.id, setLocalEvents]);
+
+  useEffect(() => {
+    const local = localUmpEventsRef.current;
+    if (local && (umpEditStatus === "idle"
+        || sameEditablePianoRollUmpEvents(local, region.umpEvents ?? [])))
+      setLocalUmpEvents(null);
+  }, [region.umpEvents, umpEditStatus, setLocalUmpEvents]);
+
+  useEffect(() => setLocalUmpEvents(null), [region.id, setLocalUmpEvents]);
 
   useEffect(() => {
     const pending = pendingAutomationCommitRef.current;
@@ -247,15 +274,18 @@ export function PianoRollCanvas({
       pendingAutomationCommitRef,
       controllerGestureRef,
       midiEventGestureRef,
+      umpControllerGestureRef,
       velocityPaintRef,
       lastDragDetentRef,
       stopAutoScroll,
       setLocalNotes,
       setControllerPreview,
       setLocalEvents,
+      setLocalUmpEvents,
       setHoveredPitch,
       onSelectionChange,
       setControllerEventSelection: onControllerEventSelectionChange,
+      setUmpControllerEventSelection: onUmpControllerEventSelectionChange,
     });
 
   usePianoRollPlayheadFollow({
@@ -276,6 +306,10 @@ export function PianoRollCanvas({
   });
 
   // ── Render Loop ────────────────────────────────────────────────────────
+  const selectedControllerEventsForRender = useMemo(() => new Set([
+    ...selectedControllerEventIndices,
+    ...selectedUmpControllerEventIndices,
+  ]), [selectedControllerEventIndices, selectedUmpControllerEventIndices]);
   const { canvasSize, render } = usePianoRollCanvasRenderer({
     canvasRef,
     containerRef,
@@ -294,7 +328,7 @@ export function PianoRollCanvas({
     showGhostNotes,
     companionRegions,
     selectedNoteIds,
-    selectedControllerEventIndices,
+    selectedControllerEventIndices: selectedControllerEventsForRender,
     activeMidiPitches,
     timeSignatureNumerator,
     hoveredPitch,
@@ -323,6 +357,7 @@ export function PianoRollCanvas({
     localAutomationLanesRef,
     controllerGestureRef,
     midiEventGestureRef,
+    umpControllerGestureRef,
     lastDragDetentRef,
     lastSingleSelectedDurationRef,
     isFollowSuspendedRef,
@@ -335,6 +370,8 @@ export function PianoRollCanvas({
     selectedNoteIds,
     selectedControllerEventIndices,
     onControllerEventSelectionChange,
+    selectedUmpControllerEventIndices,
+    onUmpControllerEventSelectionChange,
     tool,
     snap,
     snapToScale,
@@ -349,11 +386,15 @@ export function PianoRollCanvas({
     setHoveredPitch,
     setControllerPreview,
     setLocalEvents,
+    setLocalUmpEvents,
     onSeek,
     onSelectionChange,
     onNotesChange,
     onRegionChange,
     onEventsChange,
+    onUmpEventsChange,
+    umpGroupFilter,
+    umpChannelFilter,
     startAutoScroll,
   });
 
@@ -365,6 +406,7 @@ export function PianoRollCanvas({
     velocityPaintRef,
     controllerGestureRef,
     midiEventGestureRef,
+    umpControllerGestureRef,
     lastDragDetentRef,
     spatialIndex,
     viewport,
@@ -384,11 +426,13 @@ export function PianoRollCanvas({
     setLocalNotes,
     setControllerPreview,
     setLocalEvents,
+    setLocalUmpEvents,
     onSelectionChange,
     onControllerEventSelectionChange,
     onSeek,
     onRegionChange,
     onEventsChange,
+    onUmpEventsChange,
     render,
   });
 
@@ -402,8 +446,10 @@ export function PianoRollCanvas({
     pendingAutomationCommitRef,
     controllerGestureRef,
     midiEventGestureRef,
+    umpControllerGestureRef,
     localAutomationLanesRef,
     localEventsRef,
+    setLocalUmpEvents,
     velocityPaintRef,
     lastDragDetentRef,
     localNotes,
@@ -425,6 +471,10 @@ export function PianoRollCanvas({
     onSelectionChange,
     onRegionChange,
     onEventsChange,
+    onUmpEventsChange,
+    umpGroupFilter,
+    umpChannelFilter,
+    onUmpControllerEventSelectionChange,
   });
 
   return (
@@ -456,8 +506,10 @@ export function PianoRollCanvas({
             pendingNotes: pendingCommitRef.current,
             lanes: localAutomationLanesRef.current,
             events: localEvents,
+            umpEvents: localUmpEvents,
             selection: new Set(selectedNoteIds),
             controllerEventSelection: new Set(selectedControllerEventIndices),
+            umpControllerEventSelection: new Set(selectedUmpControllerEventIndices),
           };
           handlePointerDown(event);
           if (event.button === 0 && draggingRef.current)

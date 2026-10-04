@@ -10,7 +10,7 @@ import type {
 } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { triggerHaptic } from "@/lib/interaction/haptics";
-import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow } from "@/lib/state/types";
+import type { AutomationLaneRow, MidiClipEventRow, MidiNoteRow, MidiRegionRow, MidiUmpEventRow } from "@/lib/state/types";
 import { DEFAULT_NOTE_VELOCITY } from "@/screens/editor/pianoroll/logic/canvasUtils";
 import {
   buildPianoRollControllerProjection,
@@ -18,6 +18,15 @@ import {
   removeControllerEvent,
   sameEditableMidiEvents,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
+import {
+  buildPianoRollUmpControllerProjection,
+  isPianoRollUmpControllerLane,
+  MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS,
+} from "@/screens/editor/pianoroll/logic/umpControllerLane";
+import {
+  removePianoRollUmpControllerEvents,
+  sameEditablePianoRollUmpEvents,
+} from "@/screens/editor/pianoroll/logic/umpControllerEditing";
 import { controllerYFromValue } from "@/screens/editor/pianoroll/logic/canvasUtils";
 import type { SpatialNoteIndex } from "@/screens/editor/pianoroll/logic/spatialIndex";
 import type {
@@ -25,6 +34,7 @@ import type {
   PianoRollBottomLane,
   PianoRollControllerGesture,
   PianoRollMidiEventGesture,
+  PianoRollUmpControllerGesture,
   PianoRollControllerLaneMode,
   PianoRollPendingAutomationCommit,
   PianoRollViewport,
@@ -38,7 +48,9 @@ interface PianoRollPointerEndHandlerOptions {
   pendingAutomationCommitRef: MutableRefObject<PianoRollPendingAutomationCommit | null>;
   controllerGestureRef: MutableRefObject<PianoRollControllerGesture | null>;
   midiEventGestureRef: MutableRefObject<PianoRollMidiEventGesture | null>;
+  umpControllerGestureRef: MutableRefObject<PianoRollUmpControllerGesture | null>;
   localEventsRef: MutableRefObject<MidiClipEventRow[] | null>;
+  setLocalUmpEvents: (events: MidiUmpEventRow[] | null) => void;
   localAutomationLanesRef: MutableRefObject<AutomationLaneRow[] | null>;
   velocityPaintRef: MutableRefObject<PianoRollVelocityPaintState | null>;
   lastDragDetentRef: MutableRefObject<string | null>;
@@ -61,6 +73,10 @@ interface PianoRollPointerEndHandlerOptions {
   onSelectionChange: (ids: Set<number>) => void;
   onRegionChange?: (region: MidiRegionRow) => void;
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
+  onUmpEventsChange?: (events: MidiUmpEventRow[]) => void | Promise<void>;
+  umpGroupFilter?: number | null;
+  umpChannelFilter?: number | null;
+  onUmpControllerEventSelectionChange: (indices: Set<number>) => void;
 }
 
 /** Commits, cancels, or finalizes a Piano Roll pointer gesture. */
@@ -71,7 +87,9 @@ export function createPianoRollPointerEndHandlers({
   pendingAutomationCommitRef,
   controllerGestureRef,
   midiEventGestureRef,
+  umpControllerGestureRef,
   localEventsRef,
+  setLocalUmpEvents,
   localAutomationLanesRef,
   velocityPaintRef,
   lastDragDetentRef,
@@ -94,6 +112,10 @@ export function createPianoRollPointerEndHandlers({
   onSelectionChange,
   onRegionChange,
   onEventsChange,
+  onUmpEventsChange,
+  umpGroupFilter = null,
+  umpChannelFilter = null,
+  onUmpControllerEventSelectionChange,
 }: PianoRollPointerEndHandlerOptions) {
   // ── Pointer Up Interaction ─────────────────────────────────────────────
   const handlePointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -131,6 +153,15 @@ export function createPianoRollPointerEndHandlers({
         } else if (midiEventGestureRef.current.added) {
           setLocalEvents(null);
         }
+      } else if (dragging.type === "umpEvent" && umpControllerGestureRef.current?.changed
+                 && onUmpEventsChange) {
+        const gesture = umpControllerGestureRef.current;
+        if (gesture && !sameEditablePianoRollUmpEvents(
+          gesture.latestEvents, gesture.beforeEvents,
+        )) {
+          void onUmpEventsChange(gesture.latestEvents);
+          triggerHaptic("generic");
+        }
       } else if (dragging.type === "cc" && controllerGestureRef.current?.changed &&
                  localAutomationLanesRef.current && onRegionChange) {
         const lanes = localAutomationLanesRef.current;
@@ -146,10 +177,12 @@ export function createPianoRollPointerEndHandlers({
       }
       pendingCommitRef.current = null;
       setLocalNotes(null);
+      setLocalUmpEvents(null);
     }
     draggingRef.current = null;
     controllerGestureRef.current = null;
     midiEventGestureRef.current = null;
+    umpControllerGestureRef.current = null;
     velocityPaintRef.current = null;
     setHoveredPitch(null);
     render();
@@ -166,11 +199,13 @@ export function createPianoRollPointerEndHandlers({
     // running RAF loop behind. The authoritative notes were not committed.
     setLocalNotes(null);
     setLocalEvents(null);
+    setLocalUmpEvents(null);
     pendingCommitRef.current = null;
     if (controllerGestureRef.current)
       setControllerPreview(controllerGestureRef.current.beforeLanes);
     controllerGestureRef.current = null;
     midiEventGestureRef.current = null;
+    umpControllerGestureRef.current = null;
     draggingRef.current = null;
     velocityPaintRef.current = null;
     lastDragDetentRef.current = null;
@@ -178,6 +213,43 @@ export function createPianoRollPointerEndHandlers({
   };
 
   const handleDoubleClick = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (isPianoRollUmpControllerLane(bottomLane) && onUmpEventsChange) {
+      const canvas = canvasRef.current;
+      const source = region.umpEvents ?? [];
+      if (!canvas || source.length > MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const gridBottom = rect.height - viewport.velocityLaneHeight;
+      if (y < gridBottom || x < viewport.keyWidth) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const projection = buildPianoRollUmpControllerProjection(
+        region, bottomLane, 0, region.durationBeats, umpGroupFilter, umpChannelFilter,
+      );
+      if (projection.truncated) return;
+      const isPitchBend = bottomLane === "umpPitchBend";
+      let hitIndex = -1;
+      let nearestDistance = 8;
+      for (const projected of projection.events) {
+        const px = viewport.keyWidth
+          + (projected.beat - viewport.scrollBeats) * viewport.pixelsPerBeat;
+        const py = controllerYFromValue(projected.value, gridBottom, rect.height, isPitchBend);
+        const distance = Math.hypot(px - x, py - y);
+        if (distance <= nearestDistance) {
+          nearestDistance = distance;
+          hitIndex = projected.sourceEventIndex;
+        }
+      }
+      if (hitIndex < 0) return;
+      const updated = removePianoRollUmpControllerEvents(source, [hitIndex]);
+      if (updated) {
+        onUmpControllerEventSelectionChange(new Set());
+        void onUmpEventsChange(updated);
+        triggerHaptic("generic");
+      }
+      return;
+    }
     if (bottomLane !== "velocity" && controllerLaneMode === "events" && onEventsChange) {
       const canvas = canvasRef.current;
       if (!canvas || (region.events?.length ?? 0) > MAX_EDITABLE_CONTROLLER_EVENTS) return;

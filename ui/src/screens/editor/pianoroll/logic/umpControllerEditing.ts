@@ -5,7 +5,11 @@
  */
 
 import type { MidiUmpEventRow } from "@/lib/state/types";
-import { MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS } from "@/screens/editor/pianoroll/logic/umpControllerLane";
+import {
+  isPianoRollUmpControllerLane,
+  MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS,
+} from "@/screens/editor/pianoroll/logic/umpControllerLane";
+import type { PianoRollBottomLane } from "@/screens/editor/pianoroll/logic/types";
 
 export type PianoRollUmpControllerKind = "cc" | "pitchBend";
 
@@ -31,6 +35,12 @@ const MIDI2_PITCH_BEND_STATUS = 0x0e;
 const UINT32_MAX = 0xffff_ffff;
 const MAX_SOURCE_BEAT = 1_000_000;
 const RESERVED_COMPOUND_CC = new Set([0, 6, 32, 38, 88, 98, 99, 100, 101]);
+
+export interface PianoRollUmpControllerPointEdit {
+  sourceIndex: number;
+  beat: number;
+  value: number;
+}
 
 function isUint32(value: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= UINT32_MAX;
@@ -233,6 +243,100 @@ export function copyPianoRollUmpEvents(events: MidiUmpEventRow[]): MidiUmpEventR
   return events.map((event) => Array.isArray(event?.words)
     ? { ...event, words: [...event.words] }
     : event);
+}
+
+/** Converts the existing controller-lane display value back to a 32-bit UMP value. */
+export function pianoRollUmpValueFromDisplayValue(
+  lane: PianoRollBottomLane,
+  displayValue: number,
+): number | null {
+  if (!Number.isFinite(displayValue) || !isPianoRollUmpControllerLane(lane)) return null;
+  if (lane === "umpPitchBend") {
+    const clamped = Math.max(-8192, Math.min(8191, displayValue));
+    return Math.max(0, Math.min(UINT32_MAX,
+      Math.round(0x8000_0000 + clamped / 16_384 * 0x1_0000_0000)));
+  }
+  const controller = Number(lane.slice(5));
+  if (!Number.isInteger(controller) || controller < 0 || controller > 127
+      || RESERVED_COMPOUND_CC.has(controller)) return null;
+  const clamped = Math.max(0, Math.min(127, displayValue));
+  return Math.round(clamped / 127 * UINT32_MAX);
+}
+
+/** Maps a controller-lane vertical coordinate directly to the full UMP word. */
+export function pianoRollUmpValueFromY(
+  y: number,
+  gridBottom: number,
+  height: number,
+): number {
+  const top = gridBottom + 18;
+  const bottom = height - 6;
+  const normalized = Math.max(0, Math.min(1, (bottom - y) / Math.max(1, bottom - top)));
+  return Math.round(normalized * UINT32_MAX);
+}
+
+/** Changes only beat and word 1 for valid source packets; every other word survives. */
+export function editPianoRollUmpControllerPoints(
+  source: MidiUmpEventRow[],
+  edits: PianoRollUmpControllerPointEdit[],
+): MidiUmpEventRow[] | null {
+  if (source.length > MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS || edits.length === 0) return null;
+  const seen = new Set<number>();
+  const next = source.slice();
+  for (const edit of edits) {
+    if (!Number.isInteger(edit.sourceIndex) || edit.sourceIndex < 0
+        || edit.sourceIndex >= source.length || seen.has(edit.sourceIndex)
+        || !Number.isFinite(edit.beat) || edit.beat < 0
+        || !isUint32(edit.value)) return null;
+    const original = source[edit.sourceIndex];
+    if (!original || !decodeKind(original)) return null;
+    if (edit.beat > MAX_SOURCE_BEAT && edit.beat !== original.beat) return null;
+    seen.add(edit.sourceIndex);
+    const words = [...original.words];
+    words[1] = edit.value >>> 0;
+    next[edit.sourceIndex] = { ...original, beat: edit.beat, words };
+  }
+  return next;
+}
+
+/** Creates a standard CC/Pitch Bend packet without touching existing UMP data. */
+export function createPianoRollUmpControllerEvent(
+  source: MidiUmpEventRow[],
+  lane: PianoRollBottomLane,
+  beat: number,
+  value: number,
+  group: number,
+  channel: number,
+): MidiUmpEventRow[] | null {
+  if (source.length >= MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS
+      || !Number.isFinite(beat) || beat < 0 || beat > MAX_SOURCE_BEAT
+      || !isUint32(value) || !Number.isInteger(group) || group < 0 || group > 15
+      || !Number.isInteger(channel) || channel < 0 || channel > 15
+      || !isPianoRollUmpControllerLane(lane)) return null;
+  const pitchBend = lane === "umpPitchBend";
+  const controller = pitchBend ? 0 : Number(lane.slice(5));
+  if (!Number.isInteger(controller) || controller < 0 || controller > 127
+      || (!pitchBend && RESERVED_COMPOUND_CC.has(controller))) return null;
+  const status = pitchBend ? MIDI2_PITCH_BEND_STATUS : MIDI2_CC_STATUS;
+  const header = ((MIDI2_MESSAGE_TYPE << 28) | (group << 24) | (status << 20)
+    | (channel << 16) | (controller << 8)) >>> 0;
+  return [...source, { beat, words: [header, value >>> 0], wordCount: 2 }];
+}
+
+/** Deletes recognized controller packets only; opaque UMP entries are retained. */
+export function removePianoRollUmpControllerEvents(
+  source: MidiUmpEventRow[],
+  sourceIndices: number[],
+): MidiUmpEventRow[] | null {
+  if (source.length > MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS || sourceIndices.length === 0)
+    return null;
+  const removals = new Set<number>();
+  for (const index of sourceIndices) {
+    if (!Number.isInteger(index) || index < 0 || index >= source.length
+        || removals.has(index) || !decodeKind(source[index])) return null;
+    removals.add(index);
+  }
+  return source.filter((_event, index) => !removals.has(index));
 }
 
 export function createPianoRollUmpControllerDraftRow(

@@ -885,3 +885,23 @@ Focused packet/editor/draft/mutation tests passed 49/49; full UI passed 976
 tests across 146 files; TypeScript, production build, lint and `git diff
 --check` passed. Lint has 12 pre-existing unrelated warnings. No physical
 device or manual Electron acceptance was performed.
+
+### Latest continuation — direct Piano Roll UMP point gestures (2026-10-04)
+
+The recognized UMP controller lanes now use a separate gesture state and
+reliable UMP event draft. Draw creates a 2-word CC/Pitch Bend packet; Select or
+Draw drags points; Shift/platform-primary toggles selection; selected points
+move together; Erase, double-click and Delete remove only recognized packets.
+The Group/Channel filter scopes discovery, selection and point creation. A
+drawn point can be moved before its first commit. Loop/trim occurrences map to
+source beats; time-only edits preserve all 32 value bits, group/channel and
+extra packet words. Vertical gestures update only the MIDI 2.0 data word using
+the full unsigned range. Unknown/reserved data is never flattened or rewritten.
+Oversized collections fail closed before deep copy, and frame-rate change
+detection visits only selected source indexes rather than sorting all events.
+
+Focused controller/gesture/draft tests passed 29/29; full UI passed 992/992
+across 146 files; TypeScript, staged production build, lint and `git diff
+--check` passed. The 12 lint warnings are existing and outside changed files.
+No manual visual or device acceptance was done. UMP curve/smoothing, marquee,
+cut/copy, codec conformance and native UMP transport remain open.

@@ -23,9 +23,11 @@ import {
 import {
   collectPianoRollUmpControllerDimensions,
   collectPianoRollUmpControllerNumbers,
+  collectPianoRollUmpControllerSourceIndices,
   hasPianoRollUmpPitchBend,
   isPianoRollUmpControllerLane,
 } from "@/screens/editor/pianoroll/logic/umpControllerLane";
+import { removePianoRollUmpControllerEvents } from "@/screens/editor/pianoroll/logic/umpControllerEditing";
 import { usePianoRollNoteActions } from "@/screens/editor/pianoroll/hooks/usePianoRollNoteActions";
 import { usePianoRollControllerEventSelection } from "@/screens/editor/pianoroll/hooks/usePianoRollControllerEventSelection";
 import { usePianoRollCommands } from "@/screens/editor/pianoroll/hooks/usePianoRollCommands";
@@ -105,6 +107,8 @@ export function PianoRoll({
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<number>>(
     new Set(),
   );
+  const [selectedUmpControllerEventIndices, setSelectedUmpControllerEventIndices] =
+    useState<Set<number>>(new Set());
   const authoritativeNoteIdsRef = useRef({
     regionId: region.id,
     resetKey,
@@ -126,7 +130,7 @@ export function PianoRoll({
   const regionUmpEvents = useMemo(() => region.umpEvents ?? [], [region.umpEvents]);
   const { editableEvents: editableUmpEvents, commitEvents: commitUmpEvents,
     discardDraft: discardUmpDraft, retryDraft: retryUmpDraft,
-    error: umpEditError, canRetry: canRetryUmpDraft } = usePianoRollUmpEventDraft({
+    error: umpEditError, canRetry: canRetryUmpDraft, status: umpEditStatus } = usePianoRollUmpEventDraft({
     regionId: region.id,
     resetKey,
     events: regionUmpEvents,
@@ -176,7 +180,18 @@ export function PianoRoll({
   useEffect(() => {
     setUmpGroupFilter(null);
     setUmpChannelFilter(null);
+    setSelectedUmpControllerEventIndices(new Set());
   }, [region.id, resetKey]);
+
+  const umpSelectionSnapshotRef = useRef({ regionId: region.id, resetKey, events: editableUmpEvents });
+  useEffect(() => {
+    const previous = umpSelectionSnapshotRef.current;
+    if (previous.regionId !== region.id || previous.resetKey !== resetKey
+        || previous.events !== editableUmpEvents) {
+      setSelectedUmpControllerEventIndices(new Set());
+    }
+    umpSelectionSnapshotRef.current = { regionId: region.id, resetKey, events: editableUmpEvents };
+  }, [region.id, resetKey, editableUmpEvents]);
 
   useEffect(() => {
     if (umpGroupFilter !== null && !umpDimensions.groups.has(umpGroupFilter)) {
@@ -382,8 +397,8 @@ export function PianoRoll({
   const {
     selectedControllerEventIndices,
     setSelectedControllerEventIndices,
-    handleDeleteSelected,
-    handleSelectAll,
+    handleDeleteSelected: handleDeleteMidi1Events,
+    handleSelectAll: handleSelectMidi1All,
     canShapeSelectedControllerEvents,
     handleSetSelectedCurve,
     handleSmoothSelectedEvents,
@@ -403,7 +418,41 @@ export function PianoRoll({
   });
   useEffect(() => subscribeHistoryBoundary(() => {
     setSelectedControllerEventIndices(new Set());
+    setSelectedUmpControllerEventIndices(new Set());
   }), [setSelectedControllerEventIndices]);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (isPianoRollUmpControllerLane(bottomLane)
+        && selectedUmpControllerEventIndices.size > 0) {
+      const visibleIndices = new Set(collectPianoRollUmpControllerSourceIndices(
+        editableUmpEvents, bottomLane, umpGroupFilter, umpChannelFilter,
+      ));
+      const next = removePianoRollUmpControllerEvents(
+        editableUmpEvents,
+        [...selectedUmpControllerEventIndices].filter((index) => visibleIndices.has(index)),
+      );
+      if (next) commitUmpEvents(next);
+      setSelectedUmpControllerEventIndices(new Set());
+      return;
+    }
+    handleDeleteMidi1Events();
+  }, [bottomLane, selectedUmpControllerEventIndices, editableUmpEvents,
+    umpGroupFilter, umpChannelFilter, commitUmpEvents, handleDeleteMidi1Events]);
+
+  const handleSelectAll = useCallback(() => {
+    if (isPianoRollUmpControllerLane(bottomLane)) {
+      const indices = collectPianoRollUmpControllerSourceIndices(
+        editableUmpEvents, bottomLane, umpGroupFilter, umpChannelFilter,
+      );
+      setSelectedNoteIds(new Set());
+      setSelectedControllerEventIndices(new Set());
+      setSelectedUmpControllerEventIndices(new Set(indices));
+      return;
+    }
+    setSelectedUmpControllerEventIndices(new Set());
+    handleSelectMidi1All();
+  }, [bottomLane, editableUmpEvents, umpGroupFilter, umpChannelFilter,
+    setSelectedControllerEventIndices, handleSelectMidi1All]);
 
   const handleUndo = useCallback(() => {
     discardDraft();
@@ -501,7 +550,9 @@ export function PianoRoll({
           })
         }
         selectedCount={selectedNoteIds.size}
-        selectedControllerEventCount={hasEditableControllerLane ? selectedControllerEventIndices.size : 0}
+        selectedControllerEventCount={hasEditableControllerLane
+          ? selectedControllerEventIndices.size
+          : isPianoRollUmpControllerLane(bottomLane) ? selectedUmpControllerEventIndices.size : 0}
         canShapeSelectedControllerEvents={canShapeSelectedControllerEvents}
         onControllerEventCurve={handleSetSelectedCurve}
         onSmoothSelectedControllerEvents={handleSmoothSelectedEvents}
@@ -529,13 +580,18 @@ export function PianoRoll({
         onUmpGroupFilterChange={(group) => {
           setUmpGroupFilter(group);
           setUmpChannelFilter(null);
+          setSelectedUmpControllerEventIndices(new Set());
         }}
-        onUmpChannelFilterChange={setUmpChannelFilter}
+        onUmpChannelFilterChange={(channel) => {
+          setUmpChannelFilter(channel);
+          setSelectedUmpControllerEventIndices(new Set());
+        }}
         onEditUmpEvents={onUmpEventsChange ? () => setUmpEditorOpen(true) : undefined}
         onBottomLaneChange={(lane) => {
           setBottomLane(lane);
           setUmpGroupFilter(null);
           setUmpChannelFilter(null);
+          setSelectedUmpControllerEventIndices(new Set());
           if (isPianoRollUmpControllerLane(lane)) setControllerLaneMode("events");
         }}
         controllerLaneMode={controllerLaneMode}
@@ -620,6 +676,8 @@ export function PianoRoll({
           onSelectionChange={setSelectedNoteIds}
           selectedControllerEventIndices={selectedControllerEventIndices}
           onControllerEventSelectionChange={setSelectedControllerEventIndices}
+          selectedUmpControllerEventIndices={selectedUmpControllerEventIndices}
+          onUmpControllerEventSelectionChange={setSelectedUmpControllerEventIndices}
           onNotesChange={commitNotes}
           onRegionChange={onRegionChange}
           bottomLane={bottomLane}
@@ -628,6 +686,8 @@ export function PianoRoll({
           controllerLaneMode={controllerLaneMode}
           eventEditStatus={eventEditStatus}
           onEventsChange={onEventsChange ? commitEvents : undefined}
+          umpEditStatus={umpEditStatus}
+          onUmpEventsChange={onUmpEventsChange ? commitUmpEvents : undefined}
           playheadBeats={playheadBeats}
           getLivePlayheadBeats={getLivePlayheadBeats}
           activeMidiPitches={activeMidiPitches}

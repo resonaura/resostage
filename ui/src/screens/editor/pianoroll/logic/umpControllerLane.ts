@@ -118,6 +118,28 @@ export function collectPianoRollUmpControllerDimensions(
   return dimensions;
 }
 
+/** Return only source indices visible in the selected, supported UMP lane. */
+export function collectPianoRollUmpControllerSourceIndices(
+  events: MidiUmpEventRow[],
+  lane: PianoRollBottomLane,
+  groupFilter: number | null = null,
+  channelFilter: number | null = null,
+): number[] {
+  const descriptor = describeLane(lane);
+  if (!descriptor) return [];
+  const indices: number[] = [];
+  const count = Math.min(events.length, MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS);
+  for (let index = 0; index < count; index += 1) {
+    const event = events[index];
+    if (!event) continue;
+    const decoded = decodeEvent(event, index, descriptor);
+    if (!decoded || (groupFilter !== null && decoded.group !== groupFilter)
+        || (channelFilter !== null && decoded.channel !== channelFilter)) continue;
+    indices.push(index);
+  }
+  return indices;
+}
+
 /** Discover only standard MIDI 2.0 CCs with a defined MIDI 1.0 fallback. */
 export function collectPianoRollUmpControllerNumbers(
   events: MidiUmpEventRow[],
