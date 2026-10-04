@@ -139,8 +139,8 @@ passed 21/21; UI TypeScript and changed-file lint passed; full UI and
 production-build results are recorded in the latest audit/handoff entry. This
 bounds the optimizer's crossing work, not React Flow's O(E) rendering, and
 does not prove dense-graph visual legibility or manual interaction quality.
-Sidechain port authoring remains unimplemented; graph visualization is tracked
-separately below.
+Sidechain route authoring now exists in the plug-in-chain modal; see the final
+follow-up below. Signal Flow itself remains a read-only graph.
 
 ## Sidechain model and graph foundation (2026-10-03)
 
@@ -176,8 +176,7 @@ pass on a focused rerun (2/2, 78 assertions). One earlier direct full-binary run
 transiently failed their editor open/close requests after the helpers were
 ready and had rendered audio; keep that flaky observation separate from
 sidechain work. This is not yet complete user-facing support: sidechain-path
-PDC/alignment, route-authoring and validation UI,
-and real AU/VST sidechain fixtures remain open.
+PDC/alignment and real AU/VST sidechain fixtures remain open.
 Unsupported bus bindings warn during bank preparation and degrade to the
 normal plug-in path; do not claim full compatibility until the remaining
 stages and acceptance tests pass.
@@ -218,6 +217,33 @@ them. The callback does not enumerate buses or allocate.
 The shared-memory layout is ABI v11. Helper-generation replacement naturally
 replaces this capability snapshot; clients must not infer "no sidechain bus"
 while `loadState` is loading/failed, and must check the truncation flag before
-treating an absent entry as conclusive. This discovery does not yet expose
-route authoring or prove that a vendor can process the bus audibly. Unsupported
-saved bindings remain an explicit preparation warning.
+treating an absent entry as conclusive. This discovery does not prove that a
+vendor can process the bus audibly. Unsupported saved bindings remain an
+explicit preparation warning.
+
+## Undoable sidechain route authoring — implemented subset (2026-10-03)
+
+`POST /api/v1/plugins/slot/sidechain` is project-epoch-fenced and participates
+in the exact editor mutation result/history path. The UI exposes source, aux
+bus and channel-map selectors on each effect slot in the shared Plugin Chain
+modal. Sources are stable rendered audio/instrument tracks and project buses;
+self, MIDI-only rows, duplicate aliases and direct-output lanes are excluded.
+The UI requests capabilities for the exact `(stripId, slotId)` and current
+host generation. Missing/truncated/loading metadata is not guessed as support;
+a saved unavailable route remains visible and can be disconnected even when
+the plug-in failed or is missing.
+
+Core accepts a set only for a loaded effect and a bus present in that exact
+instance's capability catalog. It builds a candidate `MixGraph` before opening
+history, so unsupported sources/buses, feedback cycles and feed-limit failures
+do not create partial history edits. Only explicit JSON `sidechain: null`
+disconnects; an omitted field is malformed. The authoritative route is
+published in plug-in slot telemetry. UI does not mark a route saved until the
+exact project+playback result confirms it.
+
+Verification: focused source/API tests and the full UI (920 tests), TypeScript,
+production build, changed-file lint, optimized Core/helper build, native CTest
+1/1 and diff check passed. Commit `ceff8ac3` contains this block. No sidechain-
+capable AU/VST3 vendor or physical audio output was tested. Still open:
+slot-aware sidechain PDC, active-playback/helper-failure acceptance and real
+live/offline audio parity with a known sidechain-capable AU/VST3.

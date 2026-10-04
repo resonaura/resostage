@@ -1041,7 +1041,18 @@ existing plug-in parameter metadata; discovery runs off the callback and does
 not toggle buses. Full UI 917/917, focused API 16/16, TypeScript and production
 build, Core/helper build and native CTest passed. A test host contract checks
 the catalog shape, but no known sidechain-capable vendor was exercised. The
-next sidechain work is authoring/validation with exact history and playback
-graph outcomes, then slot-aware PDC and real live/offline acoustic tests.
-Loading or failed plugin state and truncated metadata are inconclusive; do not
-silently present them as unsupported. Do not push.
+route authoring/validation with exact history and playback graph outcomes is
+implemented below. Loading or failed plugin state and truncated metadata are
+inconclusive; do not silently present them as unsupported. Do not push.
+
+Latest sidechain route-authoring block (2026-10-03): commit `ceff8ac3` adds an
+exact, project-fenced `/api/v1/plugins/slot/sidechain` transaction; UI controls
+in each effect slot load bus capabilities by exact strip/slot and host
+generation. Core rejects unsupported buses/sources and cycles before opening
+history, and publishes the persisted route back through slot telemetry. Explicit
+`null` disconnects; a missing route field is rejected. Full UI 920/920,
+TypeScript, production UI build, changed-file lint, optimized Core/helper build,
+CTest 1/1 and diff check passed. Do not push. Still open: sidechain PDC,
+real vendor signal-path tests, active-playback/helper-failure behavior and
+acoustic live/offline parity. Continue from `audio-flow.md`; do not claim full
+sidechain compatibility without real AU/VST3 audio evidence.
