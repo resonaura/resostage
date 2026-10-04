@@ -2466,3 +2466,16 @@ Focused SMF tests passed 58/58; full UI passed 1,093/1,093 across 151 files;
 TypeScript, production build, changed-file oxlint, and `git diff --check`
 passed. This is defensive handling of
 tolerated real-time bytes, not endorsement as standard SMF track data.
+
+Latest codec correction — standard MIDI 2.0 RPN field layouts (2026-10-04):
+MIDI 1.0 ⇄ MIDI 2.0 conversion now uses the fixed 7+7-bit Pitch Bend Range
+layout for RPN 0x0000 and the specified top-seven-bit integer layout for
+RPN 0x0002, 0x0003, 0x0004, and 0x0006. This prevents generic min/center/max
+scaling from populating reserved bits for coarse tuning, tuning program/bank,
+MPE MCM, or Pitch Bend Range. Standard MIDI File export ignores the reserved
+low bits and writes zero Data Entry LSB for the seven-bit values. Tests cover
+all five RPNs in both directions, including nonzero reserved input bits.
+Focused MIDI tests passed 95/95 across two files; full UI passed 1,095/1,095
+across 151 files; TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed. Basis: [UMP & MIDI 2.0 Protocol v1.1.1 §7.4.7.1]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

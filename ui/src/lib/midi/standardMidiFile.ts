@@ -694,7 +694,16 @@ function umpEventToMidi1(words: number[], wordCount: number): Midi1EventFromUmp 
     // MIDI 1.0 represents one MIDI 2.0 RPN/NRPN value as a four-message
     // selector + Data Entry sequence. The two unused UMP bits must be zero.
     if ((first & 0x8080) !== 0) return null;
-    const value14 = scale32To14(value32);
+    // Standard RPNs have declared integer layouts instead of the generic
+    // min/center/max value range. Ignore their reserved low bits when
+    // translating back to MIDI 1.0, and emit a zero Data Entry LSB for the
+    // seven-bit forms.
+    const isSpecialRpn = status === 0x2 && data1 === 0;
+    const value14 = isSpecialRpn && data2 === 0
+      ? scale32To14(value32)
+      : isSpecialRpn && [2, 3, 4, 6].includes(data2)
+        ? ((value32 >>> 25) << 7)
+        : scale32To14(value32);
     const selectorStatus = 0xb0 | channel;
     const selectorMsb = status === 0x2 ? 101 : 99;
     const selectorLsb = status === 0x2 ? 100 : 98;

@@ -1785,3 +1785,16 @@ tests passed 58/58; full UI passed 1,093/1,093 across 151 files; TypeScript,
 production build, changed-file oxlint, and `git diff --check` passed. Review
 and commit in English without pushing. This is recovery support for tolerated files, not a claim that
 real-time events are valid SMF track events.
+
+Latest verified continuation — standard MIDI 2.0 RPN field layouts
+(2026-10-04): MIDI 1.0→MIDI 2.0 uses exact fixed-width values for RPN 0x0000
+(Pitch Bend Range) and RPN 0x0002/0x0003/0x0004/0x0006, leaving reserved low
+bits zero. MIDI 2.0→MIDI 1.0 reads only each field's defined bits and emits a
+zero Data Entry LSB for seven-bit RPNs. Generic RPN/NRPN values retain
+Appendix D.1 min/center/max scaling. Tests cover each special RPN in both
+directions and verify reserved low bits do not leak into MIDI 1.0 data.
+Focused MIDI tests: 95/95 across two files; full UI: 1,095/1,095 across 151
+files; TypeScript, production build, changed-file oxlint and `git diff --check`
+passed. Review this block, commit in English, and do not push. Primary basis:
+[UMP & MIDI 2.0 Protocol v1.1.1 §7.4.7.1]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

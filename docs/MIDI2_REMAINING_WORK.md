@@ -99,14 +99,19 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   Data Entry MSB, or end-of-track; CC 38 is optional. The legal RPN null
   selection is ignored, while unmatched Bank Select, orphan/incomplete Data
   Entry, and incomplete parameter selection are reported rather than encoded
-  as ordinary MIDI 2.0 CCs. Both directions use Appendix D.1 min/center/max
-  scaling. During MIDI Clip export, selected raw MIDI 1.0 events are projected
+  as ordinary MIDI 2.0 CCs. Ordinary RPN/NRPN values use Appendix D.1
+  min/center/max scaling in both directions. Standard RPN 0x0000 uses its
+  7+7-bit Pitch Bend Range layout, while RPN 0x0002/0x0003/0x0004/0x0006 use
+  their defined top-seven-bit integer fields with reserved low bits
+  zero-extended or ignored as specified. During MIDI Clip export, selected raw
+  MIDI 1.0 events are projected
   through region trim/loop placement, ordered on the merged output timeline,
   then translated as one channel-state stream. Bank, RPN/NRPN, and SysEx
   continuation state can therefore span selected regions, tracks, and
   concatenated songs. Simultaneous events have deterministic order by output
   tick, selected track/region order, loop occurrence, and source event order.
   Loss analysis uses the same beat-offset track selection and loop setting.
+  These field layouts follow [UMP & MIDI 2.0 Protocol v1.1.1 §7.4.7.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 - Standard MIDI File import folds MIDI Association CA-031 CC 88 High Resolution
   Velocity Prefix into the next Note On/Off velocity on the same channel;
   other MIDI messages may intervene, each note edge consumes the prefix

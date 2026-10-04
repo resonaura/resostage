@@ -457,10 +457,28 @@ function midi1ParameterToUmp(
   index: number,
   value14: number,
 ): number[] {
-  const value32 = upscale14To32(value14);
+  const value32 = upscaleMidi1ParameterTo32(type, bank, index, value14);
   const status = type === "rpn" ? 0x2 : 0x3;
   const first = ((4 << 28) | (status << 20) | (channel << 16) | (bank << 8) | index) >>> 0;
   return [first, value32];
+}
+
+/**
+ * MIDI 2.0 Protocol §7.4.7.1 defines fixed-width data fields for several RPNs.
+ * These are integer/structured values, not ranges, so generic min/center/max
+ * scaling would populate bits receivers are required to ignore.
+ */
+function upscaleMidi1ParameterTo32(
+  type: "rpn" | "nrpn",
+  bank: number,
+  index: number,
+  value14: number,
+): number {
+  if (type === "rpn" && bank === 0) {
+    if (index === 0) return (value14 << 18) >>> 0;
+    if ([2, 3, 4, 6].includes(index)) return (((value14 >>> 7) & 0x7f) << 25) >>> 0;
+  }
+  return upscale14To32(value14);
 }
 
 /** MIDI 2.0 Appendix D.1.3 min/center/max upscaling for a 14-bit value. */

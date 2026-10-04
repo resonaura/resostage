@@ -604,6 +604,21 @@ describe("Standard MIDI File", () => {
     expect(converted.unsupportedEventCount).toBe(0);
   });
 
+  it("zero-extends the fixed-width MIDI 2.0 values for standard integer RPNs", () => {
+    const events = (index: number, msb = 65, lsb = 91) => midi1EventsToUmps([
+      { beat: 0, status: 0xb0, data: [101, 0] },
+      { beat: 0, status: 0xb0, data: [100, index] },
+      { beat: 1, status: 0xb0, data: [6, msb] },
+      { beat: 1, status: 0xb0, data: [38, lsb] },
+    ]);
+
+    expect(events(0, 127, 127).events[0]?.words).toEqual([0x40200000, 0xfffc0000]);
+    expect(events(1).events[0]?.words).toEqual([0x40200001, 0x836c1b60]);
+    for (const index of [2, 3, 4, 6]) {
+      expect(events(index).events[0]?.words).toEqual([0x40200000 | index, 0x82000000]);
+    }
+  });
+
   it("converts NRPN per channel and flushes a 7-bit Data Entry MSB at its original beat", () => {
     const converted = midi1EventsToUmps([
       { beat: 0, status: 0xb0, data: [101, 0] },
@@ -789,6 +804,41 @@ describe("Standard MIDI File", () => {
       { beat: 1.5, status: 0xb5, data: [38, 0] },
     ]);
     expect(analyzeMidi1ExportLoss([{ name: "Parameters", regions: [source] }]).unsupportedUmpEvents).toBe(0);
+  });
+
+  it("translates standard integer RPNs from their defined MIDI 2.0 data fields", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 6,
+      notes: [],
+      umpEvents: [0, 1, 2, 3, 4, 6].map((index, order) => ({
+        beat: order + 0.5,
+        words: [
+          0x40200000 | index,
+          index === 0 ? 0xfffc1234 : index === 1 ? 0x836c1b60 : 0x82012345,
+        ],
+        wordCount: 2,
+      })),
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile([{ name: "Integer RPNs", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+
+    const expectedParameterEvents = [0, 1, 2, 3, 4, 6].flatMap((index, order) => {
+      const beat = order + 0.5;
+      const valueMsb = index === 0 ? 127 : 65;
+      const valueLsb = index === 0 ? 127 : index === 1 ? 91 : 0;
+      return [
+        { beat, status: 0xb0, data: [101, 0] },
+        { beat, status: 0xb0, data: [100, index] },
+        { beat, status: 0xb0, data: [6, valueMsb] },
+        { beat, status: 0xb0, data: [38, valueLsb] },
+      ];
+    });
+    expect(parsed.tracks[1].events?.filter((event) => (event.status & 0xf0) === 0xb0))
+      .toEqual(expectedParameterEvents);
+    expect(analyzeMidi1ExportLoss([{ name: "Integer RPNs", regions: [source] }]).unsupportedUmpEvents).toBe(0);
   });
 
   it("rejects malformed MIDI 2.0 Program Change reserved bits and invalid absent-bank fields", () => {
