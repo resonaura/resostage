@@ -10,6 +10,7 @@
 #include "audio/graph/MixLatency.h"
 #include "audio/graph/MixRenderer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -71,6 +72,33 @@ void processTestEdgeDelay(void* context,
     }
 }
 
+struct SidechainCapture {
+    uint32_t pluginSlotIndex = 0;
+    uint32_t inputBusIndex = 0;
+    SidechainChannelMode channelMode = SidechainChannelMode::Automatic;
+    bool active = false;
+    float left = 0.0f;
+    float right = 0.0f;
+    uint32_t count = 0;
+};
+
+void captureSidechain(void* context, float*, float*, int,
+                      const MixSidechainInput* inputs,
+                      uint32_t inputCount) noexcept {
+    auto& capture = *static_cast<SidechainCapture*>(context);
+    capture.count = inputCount;
+    if (inputCount == 0 || inputs == nullptr)
+        return;
+    capture.pluginSlotIndex = inputs[0].pluginSlotIndex;
+    capture.inputBusIndex = inputs[0].inputBusIndex;
+    capture.channelMode = inputs[0].channelMode;
+    capture.active = inputs[0].active;
+    if (inputs[0].left != nullptr && inputs[0].right != nullptr) {
+        capture.left = inputs[0].left[0];
+        capture.right = inputs[0].right[0];
+    }
+}
+
 Project twoTrackProject() {
     Project p;
     p.main.channels = 2;
@@ -106,7 +134,8 @@ struct MixResult {
 
 MixResult runMix(const MixGraph& graph, const std::vector<std::pair<std::string, std::pair<float, float>>>& sources) {
     MixRenderer renderer;
-    renderer.prepare(48000.0, kBlock, graph.strips.size(), graph.edges.size());
+    renderer.prepare(48000.0, kBlock, graph.strips.size(),
+                     std::max(graph.edges.size(), graph.sidechainEdges.size()));
 
     std::vector<float> left(kBlock, 0.0f);
     std::vector<float> right(kBlock, 0.0f);
@@ -637,6 +666,44 @@ TEST_CASE("renderer: strip processors run post-input-sum and pre-fader") {
     CHECK(renderer.levels(track).peakR == doctest::Approx(0.125f));
 }
 
+TEST_CASE("renderer delivers independent post-fader sidechain views to insert processors") {
+    Project project = twoTrackProject();
+    PluginSlot slot;
+    slot.id = "destination-compressor";
+    slot.plugin.identifier = "test:compressor";
+    slot.plugin.name = "Test Compressor";
+    slot.sidechain = PluginSidechainRoute{
+        "audio::track:2", 1, SidechainChannelMode::Right};
+    project.tracks[0].plugins.push_back(slot);
+
+    const MixGraph graph = buildMixGraph(project, stereoOut());
+    const uint32_t source = graph.find("audio::track:2");
+    const uint32_t destination = graph.find("audio::track:1");
+    REQUIRE(source < destination);
+    REQUIRE(graph.sidechainEdges.size() == 1);
+
+    MixRenderer renderer;
+    renderer.prepare(48000.0, kBlock, graph.strips.size(),
+                     std::max(graph.edges.size(), graph.sidechainEdges.size()));
+    SidechainCapture capture;
+    std::vector<MixStripProcessor> processors(graph.strips.size());
+    processors[destination] = {&capture, nullptr, captureSidechain};
+    renderer.beginBlock(graph, kBlock);
+    std::fill_n(renderer.sourceChannel(source, 0), kBlock, 0.25f);
+    std::fill_n(renderer.sourceChannel(source, 1), kBlock, 0.75f);
+    renderer.process(graph, kBlock, {processors.data(), processors.size()});
+
+    CHECK(capture.count == 1);
+    CHECK(capture.pluginSlotIndex == 0);
+    CHECK(capture.inputBusIndex == 1);
+    CHECK(capture.channelMode == SidechainChannelMode::Right);
+    CHECK(capture.active);
+    CHECK(capture.left == doctest::Approx(0.25f));
+    CHECK(capture.right == doctest::Approx(0.75f));
+    CHECK(renderer.postChannel(destination, 0)[0] == doctest::Approx(0.0f));
+    CHECK(renderer.postChannel(destination, 1)[0] == doctest::Approx(0.0f));
+}
+
 TEST_CASE("latency plan aligns every input at a summing strip") {
     const MixGraph graph = buildMixGraph(twoTrackProject(), stereoOut());
     const uint32_t first = graph.find("audio::track:1");
@@ -801,4 +868,3 @@ TEST_CASE("renderer: SendTap PreFader, PostFader, and PostPan signal behavior") 
     CHECK(renderer.postChannel(send3, 0)[0] == doctest::Approx(0.5f).epsilon(1e-3));
     CHECK(renderer.postChannel(send3, 1)[0] == doctest::Approx(0.0f).epsilon(1e-3));
 }
-

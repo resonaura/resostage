@@ -22,13 +22,15 @@ namespace resostage::plugin_host {
 // header free of JUCE, STL containers, pointers, and platform handles: the
 // mapped area is a byte-level process boundary, not a shared object graph.
 inline constexpr uint32_t kMagic = 0x52535048; // "RSPH"
-inline constexpr uint32_t kProtocolVersion = 9;
+inline constexpr uint32_t kProtocolVersion = 10;
 inline constexpr size_t kSlotCount = 3;
 inline constexpr uint32_t kMaximumBlockSamples = 8192;
 inline constexpr uint32_t kMaximumMidiEventsPerBlock = 512;
 inline constexpr uint32_t kMaximumMidiEventBytes = 16;
 inline constexpr uint32_t kMaximumParameterEventsPerBlock = 256;
 inline constexpr uint32_t kMaximumPluginSlotsPerChain = 128;
+inline constexpr uint32_t kMaximumSidechainFeedsPerChain = 8;
+inline constexpr uint32_t kMaximumSidechainInputBusIndex = 32;
 inline constexpr uint32_t kMaximumParameterDescriptorsPerChain = 2048;
 inline constexpr uint32_t kControlEventQueueCapacity = 2048;
 // One callback of asynchronous headroom was too fragile when macOS briefly
@@ -128,15 +130,27 @@ struct alignas(16) ControlEventCell {
     ParameterEvent event{};
 };
 
+struct SidechainFeedFrame {
+    uint32_t pluginSlotIndex = 0;
+    uint32_t inputBusIndex = 1;
+    uint8_t channelMode = 0;
+    uint8_t active = 0;
+    std::array<uint8_t, 2> reserved{};
+    std::array<float, kMaximumBlockSamples> left{};
+    std::array<float, kMaximumBlockSamples> right{};
+};
+
 struct alignas(64) AudioSlot {
     std::atomic<uint32_t> state{static_cast<uint32_t>(SlotState::Empty)};
     uint32_t numSamples = 0;
     uint32_t midiEventCount = 0;
     uint32_t parameterEventCount = 0;
+    uint32_t sidechainFeedCount = 0;
     uint64_t sequence = 0;
     TransportSnapshot transport{};
     std::array<MidiEvent, kMaximumMidiEventsPerBlock> midiEvents{};
     std::array<ParameterEvent, kMaximumParameterEventsPerBlock> parameterEvents{};
+    std::array<SidechainFeedFrame, kMaximumSidechainFeedsPerChain> sidechainFeeds{};
     // Planar stereo arrays stay private to the helper's adapter; right begins
     // at configuredMaximumBlock in each array. Vendor code is always given
     // helper-owned JUCE buffers, never mapped shared memory.
@@ -503,10 +517,12 @@ inline AudioSlot* tryBeginWrite(SharedArea& area, uint64_t sequence) noexcept {
 
 inline bool publishInput(AudioSlot& slot, uint32_t numSamples,
                          uint32_t midiEventCount,
-                         uint32_t parameterEventCount) noexcept {
+                         uint32_t parameterEventCount,
+                         uint32_t sidechainFeedCount = 0) noexcept {
     if (numSamples == 0 || numSamples > kMaximumBlockSamples
         || midiEventCount > kMaximumMidiEventsPerBlock
-        || parameterEventCount > kMaximumParameterEventsPerBlock) {
+        || parameterEventCount > kMaximumParameterEventsPerBlock
+        || sidechainFeedCount > kMaximumSidechainFeedsPerChain) {
         slot.state.store(static_cast<uint32_t>(SlotState::Empty),
                          std::memory_order_release);
         return false;
@@ -514,6 +530,7 @@ inline bool publishInput(AudioSlot& slot, uint32_t numSamples,
     slot.numSamples = numSamples;
     slot.midiEventCount = midiEventCount;
     slot.parameterEventCount = parameterEventCount;
+    slot.sidechainFeedCount = sidechainFeedCount;
     slot.state.store(static_cast<uint32_t>(SlotState::Ready),
                      std::memory_order_release);
     return true;

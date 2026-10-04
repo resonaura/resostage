@@ -504,6 +504,15 @@ Preserve these rules:
   - `PostFader`: Taps signal post-fader and post-mute, pre-pan.
   - `PostPan`: Taps signal post-fader, post-mute, and post-pan (stereo distribution to destination bus).
   Change schema, builder, renderer, serialization, UI, and tests together.
+- Plug-in sidechain dependencies participate in the same acyclic processing
+  order but never sum into the destination's ordinary mix input. The renderer
+  passes block-local post-output source views to the owning plug-in slot; the
+  live helper copies only the active block into bounded shared-memory feeds,
+  then JUCE maps those feeds to the selected auxiliary input bus. Do not retain
+  callback pointers or allocate while handling them. Sidechain path-delay
+  compensation is not yet implemented: ordinary send-edge PDC does not imply
+  sidechain alignment. Keep this limitation explicit until a slot-aware PDC
+  plan and regression coverage land.
 - Track pan law is persisted per track (`0dB` legacy balance, `-3dB` constant power,
   `-4.5dB` broadcast, or `-6dB` constant voltage). Missing values resolve to the
   legacy balance law; format v7 plus `scripts/migrate.mjs` preserves old mixes.
@@ -595,9 +604,13 @@ Preserve these rules:
   rejected before allocation and counted by the bank. Complete channel-wide
   32/48-event panic bursts take priority over pending musical packets. Offline
   non-realtime banks retain full SysEx/growing buffers; never use that mode in
-  a live callback. The live-host shared-memory ABI is version 9; fixed per-slot
-  power/bypass mailboxes coalesce latest-state controls independently of the
-  parameter queue. Helper DSP owns power counters/envelopes; other threads
+  a live callback. The live-host shared-memory ABI is version 10; each audio
+  frame carries at most eight fixed-size stereo sidechain feeds tagged with
+  the target plug-in slot, auxiliary input bus and channel mode. Inactive feeds
+  are zero-filled, and helper processing consumes only the declared sample
+  count. This bounded ABI payload never allocates in Core's audio callback.
+  Fixed per-slot power/bypass mailboxes coalesce latest-state controls
+  independently of the parameter queue. Helper DSP owns power counters/envelopes; other threads
   publish atomic intents. Explicit parking is not cancelled by automatic wake.
   Plug-in editor bypass buttons publish only a bounded per-slot intent paired
   with the exact bypass-state token shown by that window. Core's message-thread

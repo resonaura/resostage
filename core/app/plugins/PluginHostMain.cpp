@@ -120,7 +120,9 @@ bool validFrame(const resostage::plugin_host::AudioSlot& slot,
     if (slot.numSamples == 0 || slot.numSamples > maximumBlockSamples
         || slot.midiEventCount > resostage::plugin_host::kMaximumMidiEventsPerBlock
         || slot.parameterEventCount
-            > resostage::plugin_host::kMaximumParameterEventsPerBlock)
+            > resostage::plugin_host::kMaximumParameterEventsPerBlock
+        || slot.sidechainFeedCount
+            > resostage::plugin_host::kMaximumSidechainFeedsPerChain)
         return false;
     for (uint32_t i = 0; i < slot.midiEventCount; ++i) {
         const auto& event = slot.midiEvents[i];
@@ -138,6 +140,20 @@ bool validFrame(const resostage::plugin_host::AudioSlot& slot,
             && event.normalizedValue != 0.0f
             && event.normalizedValue != 1.0f)
             return false;
+    }
+    for (uint32_t i = 0; i < slot.sidechainFeedCount; ++i) {
+        const auto& feed = slot.sidechainFeeds[i];
+        if (feed.pluginSlotIndex
+                >= resostage::plugin_host::kMaximumPluginSlotsPerChain
+            || feed.inputBusIndex == 0
+            || feed.inputBusIndex
+                > resostage::plugin_host::kMaximumSidechainInputBusIndex
+            || feed.channelMode > 3 || feed.active > 1)
+            return false;
+        for (uint32_t previous = 0; previous < i; ++previous)
+            if (slot.sidechainFeeds[previous].pluginSlotIndex
+                == feed.pluginSlotIndex)
+                return false;
     }
     return true;
 }

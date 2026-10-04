@@ -6,6 +6,7 @@
 
 #include "PluginProcessorBank.h"
 #include "PluginHostProcess.h"
+#include "audio/graph/MixMath.h"
 #include "PluginMIDIBuffer.h"
 #include "PluginPaths.h"
 #include "PluginPresetStore.h"
@@ -109,6 +110,14 @@ const std::vector<PluginSlot>* slotsForStrip(const Project& project,
         case StripKind::OutputLane: return nullptr;
     }
     return nullptr;
+}
+
+int requestedSidechainBusIndex(const PluginSlot& slot) noexcept {
+    if (!slot.sidechain.has_value() || slot.sidechain->inputBusIndex == 0
+        || slot.sidechain->inputBusIndex
+            > plugin_host::kMaximumSidechainInputBusIndex)
+        return -1;
+    return static_cast<int>(slot.sidechain->inputBusIndex);
 }
 
 const TrackDef* trackForStrip(const Project& project, const MixStrip& strip) {
@@ -373,6 +382,8 @@ struct PluginProcessorBank::Node {
     std::atomic<bool> stateCaptureRequested{false};
     std::atomic<uint32_t> activeCalls{0};
     int requiredChannels = 2;
+    int requestedSidechainBusIndex = -1;
+    int sidechainBusIndex = -1;
     juce::AudioBuffer<float> buffer;
     PluginSlotPowerTracker powerTracker;
 };
@@ -797,7 +808,9 @@ void PluginProcessorBank::injectAllSoundOff() noexcept {
 }
 
 void PluginProcessorBank::processChain(void* context, float* left, float* right,
-                                       int numSamples) noexcept {
+                                       int numSamples,
+                                       const MixSidechainInput* sidechains,
+                                       uint32_t sidechainCount) noexcept {
     auto& chain = *static_cast<StripChain*>(context);
     if (chain.hostedProcess != nullptr
         && chain.hostedProcess->process != nullptr) {
@@ -821,7 +834,8 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
 
         (void)chain.hostedProcess->process->processBlock(
             left, right, static_cast<uint32_t>(numSamples), chain.hostedMidiEvents.data(),
-            midiCopy.copied, nullptr, 0, transport, chain.hasInstrument);
+            midiCopy.copied, nullptr, 0, transport, sidechains, sidechainCount,
+            chain.hasInstrument);
         chain.midi.clear();
         if (chain.activePluginIndexTelemetry != nullptr)
             chain.activePluginIndexTelemetry->store(
@@ -839,10 +853,22 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
 
     uint32_t nodeIndex = 0;
     for (auto& node : chain.nodes) {
+        const uint32_t pluginSlotIndex = nodeIndex;
         if (chain.activePluginIndexTelemetry != nullptr)
             chain.activePluginIndexTelemetry->store(nodeIndex,
                                                      std::memory_order_release);
         ++nodeIndex;
+        const MixSidechainInput* nodeSidechain = nullptr;
+        for (uint32_t feedIndex = 0;
+             sidechains != nullptr && feedIndex < sidechainCount; ++feedIndex) {
+            const auto& feed = sidechains[feedIndex];
+            if (feed.pluginSlotIndex == pluginSlotIndex
+                && feed.inputBusIndex
+                    == static_cast<uint32_t>(std::max(node->sidechainBusIndex, 0))) {
+                nodeSidechain = &feed;
+                break;
+            }
+        }
         if (node->missingInstrument
             || (node->instrument && node->faulted.load(std::memory_order_relaxed))) {
             chain.audio.setDataToReferTo(stereoChannels, 2, numSamples);
@@ -867,6 +893,17 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
                 if (std::abs(left[i]) > 1.0e-5f || std::abs(right[i]) > 1.0e-5f) {
                     hasAudioInput = true;
                     break;
+                }
+            }
+            if (!hasAudioInput && nodeSidechain != nullptr
+                && nodeSidechain->active && nodeSidechain->left != nullptr
+                && nodeSidechain->right != nullptr) {
+                for (int i = 0; i < numSamples; ++i) {
+                    if (std::abs(nodeSidechain->left[i]) > 1.0e-5f
+                        || std::abs(nodeSidechain->right[i]) > 1.0e-5f) {
+                        hasAudioInput = true;
+                        break;
+                    }
                 }
             }
         }
@@ -931,7 +968,104 @@ void PluginProcessorBank::processChain(void* context, float* left, float* right,
                     left[i] = 0.5f * (left[i] + right[i]);
             }
 
-            if (node->requiredChannels > 2) {
+            if (node->sidechainBusIndex > 0) {
+                const int samplesToProcess = std::min(
+                    numSamples, node->buffer.getNumSamples());
+                if (samplesToProcess <= 0) {
+                    restoreCurrentMidi();
+                    node->activeCalls.fetch_sub(1, std::memory_order_acq_rel);
+                    continue;
+                }
+                for (int channel = 0; channel < node->requiredChannels; ++channel)
+                    std::fill_n(node->buffer.getWritePointer(channel),
+                                samplesToProcess, 0.0f);
+
+                auto& instance = *node->instance;
+                const int mainInputChannels = instance.getChannelCountOfBus(true, 0);
+                for (int channel = 0; channel < mainInputChannels; ++channel) {
+                    const int bufferChannel =
+                        instance.getChannelIndexInProcessBlockBuffer(true, 0, channel);
+                    if (bufferChannel < 0 || bufferChannel >= node->requiredChannels)
+                        continue;
+                    float* destination = node->buffer.getWritePointer(bufferChannel);
+                    if (mainInputChannels == 1) {
+                        for (int sample = 0; sample < samplesToProcess; ++sample)
+                            destination[sample] = mix_math::monoSum(left[sample],
+                                                                   right[sample]);
+                    } else if (channel == 0 || channel == 1) {
+                        const float* source = channel == 0 ? left : right;
+                        std::memcpy(destination, source,
+                                    sizeof(float) * static_cast<size_t>(samplesToProcess));
+                    }
+                }
+
+                const int sidechainChannels = instance.getChannelCountOfBus(
+                    true, node->sidechainBusIndex);
+                for (int channel = 0; channel < sidechainChannels; ++channel) {
+                    const int bufferChannel = instance.getChannelIndexInProcessBlockBuffer(
+                        true, node->sidechainBusIndex, channel);
+                    if (bufferChannel < 0 || bufferChannel >= node->requiredChannels)
+                        continue;
+                    float* destination = node->buffer.getWritePointer(bufferChannel);
+                    if (nodeSidechain == nullptr || !nodeSidechain->active
+                        || nodeSidechain->left == nullptr
+                        || nodeSidechain->right == nullptr)
+                        continue;
+                    for (int sample = 0; sample < samplesToProcess; ++sample) {
+                        const float sourceLeft = nodeSidechain->left[sample];
+                        const float sourceRight = nodeSidechain->right[sample];
+                        switch (nodeSidechain->channelMode) {
+                            case SidechainChannelMode::MonoSum:
+                                destination[sample] = mix_math::monoSum(
+                                    sourceLeft, sourceRight);
+                                break;
+                            case SidechainChannelMode::Left:
+                                destination[sample] = sourceLeft;
+                                break;
+                            case SidechainChannelMode::Right:
+                                destination[sample] = sourceRight;
+                                break;
+                            case SidechainChannelMode::Automatic:
+                            default:
+                                if (sidechainChannels == 1)
+                                    destination[sample] = mix_math::monoSum(
+                                        sourceLeft, sourceRight);
+                                else if (channel == 0)
+                                    destination[sample] = sourceLeft;
+                                else if (channel == 1)
+                                    destination[sample] = sourceRight;
+                                break;
+                        }
+                    }
+                }
+
+                juce::AudioBuffer<float> activeBuffer(
+                    node->buffer.getArrayOfWritePointers(),
+                    node->requiredChannels, samplesToProcess);
+                if (node->bypassed.load(std::memory_order_relaxed))
+                    instance.processBlockBypassed(activeBuffer, chain.midi.buffer());
+                else
+                    instance.processBlock(activeBuffer, chain.midi.buffer());
+
+                const int mainOutputChannels = instance.getChannelCountOfBus(false, 0);
+                const int outputLeftChannel = mainOutputChannels > 0
+                    ? instance.getChannelIndexInProcessBlockBuffer(false, 0, 0) : -1;
+                const int outputRightChannel = mainOutputChannels > 1
+                    ? instance.getChannelIndexInProcessBlockBuffer(false, 0, 1)
+                    : outputLeftChannel;
+                if (outputLeftChannel >= 0
+                    && outputLeftChannel < node->requiredChannels)
+                    std::memcpy(left, node->buffer.getReadPointer(outputLeftChannel),
+                                sizeof(float) * static_cast<size_t>(samplesToProcess));
+                else
+                    std::fill_n(left, samplesToProcess, 0.0f);
+                if (outputRightChannel >= 0
+                    && outputRightChannel < node->requiredChannels)
+                    std::memcpy(right, node->buffer.getReadPointer(outputRightChannel),
+                                sizeof(float) * static_cast<size_t>(samplesToProcess));
+                else
+                    std::copy_n(left, samplesToProcess, right);
+            } else if (node->requiredChannels > 2) {
                 const int samplesToProcess = std::min(numSamples, node->buffer.getNumSamples());
                 if (samplesToProcess <= 0) {
                     restoreCurrentMidi();
@@ -1085,7 +1219,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                             && node->slotId == slot.id
                             && node->pluginIdentifier == slot.plugin.identifier
                             && node->instrument == slot.plugin.instrument
-                            && node->stateResource == slot.stateResource;
+                            && node->stateResource == slot.stateResource
+                            && node->requestedSidechainBusIndex
+                                == requestedSidechainBusIndex(slot);
                     }
                     if (identical) {
                         retainedChain = candidate.get();
@@ -1126,7 +1262,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                     bank->hasAnyPlugins = true;
                     bank->maximumLatencySamples = std::max(
                         bank->maximumLatencySamples, chain->latencySamples);
-                    bank->processorEntries[stripIndex] = {chain.get(), processChain};
+                    bank->processorEntries[stripIndex] = {
+                        chain.get(), nullptr, processChain};
                     stripProcessorLatencies[stripIndex] =
                         static_cast<uint32_t>(chain->latencySamples);
                     stripProcessorTails[stripIndex] = chain->tailSeconds;
@@ -1157,7 +1294,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                             && node->slotId == slot.id
                             && node->pluginIdentifier == slot.plugin.identifier
                             && node->instrument == slot.plugin.instrument
-                            && node->stateResource == slot.stateResource;
+                            && node->stateResource == slot.stateResource
+                            && node->requestedSidechainBusIndex
+                                == requestedSidechainBusIndex(slot);
                     }
                     if (identical) {
                         reusableChain = candidate.get();
@@ -1379,7 +1518,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 [](const auto& node) { return node != nullptr && node->instrument; });
             bank->maximumLatencySamples = std::max(
                 bank->maximumLatencySamples, chain->latencySamples);
-            bank->processorEntries[stripIndex] = {chain.get(), processChain};
+            bank->processorEntries[stripIndex] = {
+                chain.get(), nullptr, processChain};
             stripProcessorLatencies[stripIndex] =
                 static_cast<uint32_t>(chain->latencySamples);
             stripProcessorTails[stripIndex] = chain->tailSeconds;
@@ -1405,7 +1545,9 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                                 && candidate->slotId == slot.id
                                 && candidate->pluginIdentifier == slot.plugin.identifier
                                 && candidate->instrument == slot.plugin.instrument
-                                && candidate->stateResource == slot.stateResource;
+                                && candidate->stateResource == slot.stateResource
+                                && candidate->requestedSidechainBusIndex
+                                    == requestedSidechainBusIndex(slot);
                         });
                     if (previous != previousChain->nodes.end()) {
                         reusableNode = *previous;
@@ -1458,6 +1600,7 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             node->slotId = slot.id;
             node->pluginIdentifier = slot.plugin.identifier;
             node->stateResource = slot.stateResource;
+            node->requestedSidechainBusIndex = requestedSidechainBusIndex(slot);
             node->bypassed.store(slot.bypassed, std::memory_order_relaxed);
             PluginPowerFlags pflags;
             pflags.keepAwake = slot.keepAwake;
@@ -1489,12 +1632,25 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
                 node->instance->setNonRealtime(nonRealtime);
                 node->instance->setPlayConfigDetails(slot.plugin.instrument ? 0 : 2, 2,
                                                       sampleRate, maximumBlockSize);
+                if (node->requestedSidechainBusIndex > 0) {
+                    auto* sidechainBus = node->instance->getBus(
+                        true, node->requestedSidechainBusIndex);
+                    if (sidechainBus != nullptr && sidechainBus->enable(true)
+                        && sidechainBus->getNumberOfChannels() > 0) {
+                        node->sidechainBusIndex =
+                            node->requestedSidechainBusIndex;
+                    } else {
+                        result.warnings.push_back(
+                            "Plug-in sidechain input bus is unavailable: "
+                            + slot.plugin.name);
+                    }
+                }
                 node->instance->prepareToPlay(sampleRate, maximumBlockSize);
 
                 const int ins = node->instance->getTotalNumInputChannels();
                 const int outs = node->instance->getTotalNumOutputChannels();
                 node->requiredChannels = std::max(2, std::max(ins, outs));
-                if (node->requiredChannels > 2) {
+                if (node->requiredChannels > 2 || node->sidechainBusIndex > 0) {
                     node->buffer.setSize(node->requiredChannels, std::max(512, maximumBlockSize));
                     node->buffer.clear();
                 }
@@ -1570,7 +1726,8 @@ PluginProcessorBank::BuildResult PluginProcessorBank::build(
             [](const auto& node) { return node != nullptr && node->instrument; });
         bank->maximumLatencySamples = std::max(bank->maximumLatencySamples,
                                                chain->latencySamples);
-        bank->processorEntries[stripIndex] = {chain.get(), processChain};
+        bank->processorEntries[stripIndex] = {
+            chain.get(), nullptr, processChain};
         stripProcessorLatencies[stripIndex] =
             static_cast<uint32_t>(chain->latencySamples);
         stripProcessorTails[stripIndex] = chain->tailSeconds;

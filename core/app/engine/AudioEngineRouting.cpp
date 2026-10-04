@@ -325,7 +325,8 @@ void AudioEngine::publishRoutingSnapshot(bool markProjectDirty) {
     const uint32_t clickStrip = graph->find("audio::click");
     std::vector<LoadedBus> rows = buildBusRows(*graph);
     const size_t needed = graph->strips.size() + 16;
-    const size_t neededEdges = graph->edges.size() + 32;
+    const size_t neededEdges = std::max(graph->edges.size(),
+                                        graph->sidechainEdges.size()) + 32;
     bool processorLayoutChanged = false;
     bool routingLayoutChanged = false;
     bool latencyLayoutChanged = false;

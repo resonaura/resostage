@@ -95,7 +95,8 @@ void operator delete[](void* ptr, const std::nothrow_t&) noexcept {
 
 namespace {
 
-void benchInsertProcessor(void* /*context*/, float* left, float* right, int numSamples) noexcept {
+void benchInsertProcessor(void* /*context*/, float* left, float* right,
+                          int numSamples) noexcept {
     // Typical light insert processing: 2-band biquad / gain math
     for (int i = 0; i < numSamples; ++i) {
         left[i] = (left[i] * 0.95f) + 0.01f;
@@ -264,6 +265,7 @@ TEST_CASE("MixRenderer process timing across block sizes") {
     master.channels = 2;
     master.gainLinear = 1.0f;
     master.audible = true;
+
     graph.strips.push_back(master);
 
     // Wire tracks to master and sends
@@ -339,6 +341,7 @@ TEST_CASE("MixRenderer with 8 insert plug-in chains performance") {
     master.channels = 2;
     master.gainLinear = 1.0f;
     master.audible = true;
+
     graph.strips.push_back(master);
 
     for (uint32_t t = 0; t < 8; ++t) {
@@ -436,6 +439,17 @@ TEST_CASE("MixRenderer allocator probe: zero heap allocation during block render
     master.gainLinear = 1.0f;
     master.audible = true;
 
+    // Exercise the renderer's bounded per-destination sidechain view assembly
+    // under the allocator probe below, in addition to the ordinary send edges.
+    for (uint32_t source = 0; source < kMaximumSidechainFeedsPerStrip; ++source) {
+        graph.sidechainEdges.push_back({
+            source, 8, source, 1, SidechainChannelMode::Automatic, true});
+    }
+    std::stable_sort(graph.edges.begin(), graph.edges.end(),
+                     [](const MixEdge& left, const MixEdge& right) {
+                         return left.to < right.to;
+                     });
+
     // Set up strip processors
     std::vector<MixStripProcessor> stripProcessors(graph.strips.size());
     for (auto& proc : stripProcessors) {
@@ -458,7 +472,8 @@ TEST_CASE("MixRenderer allocator probe: zero heap allocation during block render
     delayBank->applyTo(procView);
 
     MixRenderer renderer;
-    renderer.prepare(48000.0, 512, graph.strips.size(), graph.edges.size());
+    renderer.prepare(48000.0, 512, graph.strips.size(),
+                     std::max(graph.edges.size(), graph.sidechainEdges.size()));
 
 #if !defined(_MSC_VER)
     // Verify probe is sensitive to heap allocations:

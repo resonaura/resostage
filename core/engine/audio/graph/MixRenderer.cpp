@@ -32,11 +32,13 @@ void MixRenderer::prepare(double sampleRate, int maxBlockSize, size_t maxStrips,
     automationOverrides.assign(stripCapacity, AutomationOverride{});
     automationEdgeOverrides.assign(edgeCapacity, AutomationEdgeOverride{});
     edgeSmoothers.assign(edgeCapacity, -1.0f);
+    sidechainScratch.assign(edgeCapacity, MixSidechainInput{});
 }
 
 bool MixRenderer::canRender(const MixGraph& graph, int numSamples) const {
     return graph.strips.size() <= stripCapacity && maxBlock > 0
            && graph.edges.size() <= edgeCapacity
+           && graph.sidechainEdges.size() <= edgeCapacity
            && numSamples > 0 && numSamples <= maxBlock;
 }
 
@@ -168,6 +170,7 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
     // the strip sweep -- each strip's inputs are finished before it is
     // processed, and each strip is processed before it is used as an input.
     size_t edgeCursor = 0;
+    size_t sidechainCursor = 0;
 
     for (uint32_t s = 0; s < graph.strips.size(); ++s) {
         const MixStrip& strip = graph.strips[s];
@@ -293,6 +296,28 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
                 smoothed = targetEdgeGain;
         }
 
+        const size_t sidechainStart = sidechainCursor;
+        while (sidechainCursor < graph.sidechainEdges.size()
+               && graph.sidechainEdges[sidechainCursor].to == s) {
+            const MixSidechainEdge& edge = graph.sidechainEdges[sidechainCursor];
+            if (edge.from < graph.strips.size()
+                && sidechainCursor < sidechainScratch.size()) {
+                const auto& sourceAutomation = automationOverrides[edge.from];
+                const bool sourceMutedByAutomation = sourceAutomation.muteActive
+                    && sourceAutomation.mute;
+                sidechainScratch[sidechainCursor] = {
+                    edge.pluginSlotIndex,
+                    edge.inputBusIndex,
+                    edge.channelMode,
+                    postRow(edge.from, 0),
+                    postRow(edge.from, 1),
+                    edge.active && !sourceMutedByAutomation};
+            }
+            ++sidechainCursor;
+        }
+        const uint32_t stripSidechainCount = static_cast<uint32_t>(
+            sidechainCursor - sidechainStart);
+
         // Input conditioning (gain trim and polarity inversion).
         // Applied pre-insert so insert plugins and pre-fader sends hear the conditioned signal.
         const float targetTrim = strip.trimLinear;
@@ -336,7 +361,13 @@ void MixRenderer::process(const MixGraph& graph, int numSamples,
         // pre-fader send hears the insert chain but still bypasses fader/mute.
         if (processors.strips != nullptr && s < processors.count) {
             const auto& processor = processors.strips[s];
-            if (processor.process != nullptr)
+            if (processor.processWithSidechains != nullptr) {
+                const MixSidechainInput* inputs = stripSidechainCount > 0
+                    ? sidechainScratch.data() + sidechainStart : nullptr;
+                processor.processWithSidechains(
+                    processor.context, destL, destR, span, inputs,
+                    stripSidechainCount);
+            } else if (processor.process != nullptr)
                 processor.process(processor.context, destL, destR, span);
         }
 

@@ -68,7 +68,8 @@ struct MockInstrumentSynth {
     }
 };
 
-void runMockInstrument(void* context, float* left, float* right, int numSamples) noexcept {
+void runMockInstrument(void* context, float* left, float* right,
+                       int numSamples) noexcept {
     auto* synth = static_cast<MockInstrumentSynth*>(context);
     synth->process(left, right, numSamples);
 }

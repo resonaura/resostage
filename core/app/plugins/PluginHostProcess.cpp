@@ -441,6 +441,19 @@ bool PluginHostProcess::processBlock(
     uint32_t parameterEventCount,
     const plugin_host::TransportSnapshot& transport,
     bool muteOnMiss) noexcept {
+    return processBlock(left, right, numSamples, midiEvents, midiEventCount,
+                        parameterEvents, parameterEventCount, transport,
+                        nullptr, 0, muteOnMiss);
+}
+
+bool PluginHostProcess::processBlock(
+    float* left, float* right, uint32_t numSamples,
+    const plugin_host::MidiEvent* midiEvents, uint32_t midiEventCount,
+    const plugin_host::ParameterEvent* parameterEvents,
+    uint32_t parameterEventCount,
+    const plugin_host::TransportSnapshot& transport,
+    const MixSidechainInput* sidechains, uint32_t sidechainCount,
+    bool muteOnMiss) noexcept {
     auto* area = sharedMemory.area();
     if (area == nullptr || left == nullptr || right == nullptr
         || numSamples == 0 || numSamples > maximumBlockSize
@@ -478,11 +491,23 @@ bool PluginHostProcess::processBlock(
     const bool eventCountsValid =
         midiEventCount <= plugin_host::kMaximumMidiEventsPerBlock
         && parameterEventCount <= plugin_host::kMaximumParameterEventsPerBlock
+        && sidechainCount <= plugin_host::kMaximumSidechainFeedsPerChain
         && (midiEventCount == 0 || midiEvents != nullptr)
-        && (parameterEventCount == 0 || parameterEvents != nullptr);
+        && (parameterEventCount == 0 || parameterEvents != nullptr)
+        && (sidechainCount == 0 || sidechains != nullptr);
+    bool sidechainsValid = eventCountsValid;
+    for (uint32_t i = 0; sidechainsValid && i < sidechainCount; ++i) {
+        const auto& feed = sidechains[i];
+        sidechainsValid = feed.pluginSlotIndex < area->pluginSlotCount
+            && feed.inputBusIndex > 0
+            && feed.inputBusIndex <= plugin_host::kMaximumSidechainInputBusIndex
+            && static_cast<uint8_t>(feed.channelMode)
+                <= static_cast<uint8_t>(SidechainChannelMode::Right)
+            && (!feed.active || (feed.left != nullptr && feed.right != nullptr));
+    }
 
     bool inputPublished = false;
-    if (eventCountsValid && area->hostState.load(std::memory_order_acquire)
+    if (sidechainsValid && area->hostState.load(std::memory_order_acquire)
             == static_cast<uint32_t>(plugin_host::HostState::Ready)) {
         plugin_host::AudioSlot* input =
             plugin_host::tryBeginWrite(*area, inputSequence);
@@ -495,12 +520,28 @@ bool PluginHostProcess::processBlock(
             if (parameterEventCount != 0)
                 std::copy_n(parameterEvents, parameterEventCount,
                              input->parameterEvents.data());
+            for (uint32_t i = 0; i < sidechainCount; ++i) {
+                const auto& source = sidechains[i];
+                auto& destination = input->sidechainFeeds[i];
+                destination.pluginSlotIndex = source.pluginSlotIndex;
+                destination.inputBusIndex = source.inputBusIndex;
+                destination.channelMode = static_cast<uint8_t>(source.channelMode);
+                destination.active = source.active ? 1 : 0;
+                if (source.active) {
+                    std::copy_n(source.left, numSamples, destination.left.data());
+                    std::copy_n(source.right, numSamples, destination.right.data());
+                } else {
+                    std::fill_n(destination.left.data(), numSamples, 0.0f);
+                    std::fill_n(destination.right.data(), numSamples, 0.0f);
+                }
+            }
             const size_t count = static_cast<size_t>(numSamples);
             std::copy_n(left, count, input->input.data());
             std::copy_n(right, count,
                         input->input.data() + maximumBlockSize);
             inputPublished = plugin_host::publishInput(
-                *input, numSamples, midiEventCount, totalParameterEvents);
+                *input, numSamples, midiEventCount, totalParameterEvents,
+                sidechainCount);
             if (inputPublished)
                 inputPublished = sharedMemory.signalWake();
             if (!inputPublished) {

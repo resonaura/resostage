@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "audio/graph/MixGraph.h"
 #include "PluginHostSharedMemory.h"
 
 #include <juce_core/juce_core.h>
@@ -92,6 +93,15 @@ public:
                       const plugin_host::ParameterEvent* parameterEvents,
                       uint32_t parameterEventCount,
                       const plugin_host::TransportSnapshot& transport,
+                      bool muteOnMiss = true) noexcept;
+    bool processBlock(float* left, float* right, uint32_t numSamples,
+                      const plugin_host::MidiEvent* midiEvents,
+                      uint32_t midiEventCount,
+                      const plugin_host::ParameterEvent* parameterEvents,
+                      uint32_t parameterEventCount,
+                      const plugin_host::TransportSnapshot& transport,
+                      const MixSidechainInput* sidechains,
+                      uint32_t sidechainCount,
                       bool muteOnMiss = true) noexcept;
     /** Bounded shared-memory MPMC control ingress; never waits for the helper. */
     bool enqueueParameterEvent(

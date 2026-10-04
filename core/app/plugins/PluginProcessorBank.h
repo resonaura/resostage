@@ -287,7 +287,9 @@ private:
     bool setPluginParameterOnNode(StripChain& chain, Node& node, size_t slotIndex,
                                   int paramIndex, float value) noexcept;
     static void processChain(void* context, float* left, float* right,
-                             int numSamples) noexcept;
+                             int numSamples,
+                             const MixSidechainInput* sidechains,
+                             uint32_t sidechainCount) noexcept;
     void audioProcessorParameterChanged(juce::AudioProcessor*, int,
                                         float) override;
     void audioProcessorChanged(

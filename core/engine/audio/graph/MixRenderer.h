@@ -49,8 +49,12 @@ struct StripLevels {
 struct MixStripProcessor {
     using Process = void (*)(void* context, float* left, float* right,
                              int numSamples) noexcept;
+    using ProcessWithSidechains = void (*)(
+        void* context, float* left, float* right, int numSamples,
+        const MixSidechainInput* sidechains, uint32_t sidechainCount) noexcept;
     void* context = nullptr;
     Process process = nullptr;
+    ProcessWithSidechains processWithSidechains = nullptr;
 };
 
 // Optional per-edge delay prepared together with the strip processors. It
@@ -186,6 +190,7 @@ private:
     std::vector<float> edgeDelayScratch;
     std::vector<StripLevels> stripLevels;
     std::vector<Smoother> stripSmoothers;
+    std::vector<MixSidechainInput> sidechainScratch;
     std::vector<AutomationOverride> automationOverrides;
     std::vector<AutomationEdgeOverride> automationEdgeOverrides;
     // Glide state for edge gains, keyed by edge index. Rebuilt implicitly

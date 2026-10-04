@@ -621,6 +621,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
         if (slots == nullptr)
             continue;
         const size_t slotCount = std::min<size_t>(slots->size(), 128);
+        uint32_t acceptedFeeds = 0;
         for (uint32_t slotIndex = 0; slotIndex < slotCount; ++slotIndex) {
             const PluginSlot& slot = (*slots)[slotIndex];
             if (!slot.sidechain.has_value() || slot.plugin.instrument
@@ -631,6 +632,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
                 continue;
             const uint32_t source = graph.find(slot.sidechain->sourceStripId);
             if (source >= processableStripCount || source == destination
+                || acceptedFeeds >= kMaximumSidechainFeedsPerStrip
                 || hasPath(dependencyGraph, destination, source))
                 continue;
 
@@ -638,6 +640,7 @@ MixGraph buildMixGraph(const Project& project, const OutputLaneConfig& outputs) 
                 source, destination, slotIndex, slot.sidechain->inputBusIndex,
                 slot.sidechain->channelMode, graph.strips[source].audible});
             dependencyGraph[source].push_back(destination);
+            ++acceptedFeeds;
         }
     }
 

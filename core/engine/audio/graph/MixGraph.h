@@ -160,6 +160,20 @@ struct MixSidechainEdge {
     bool active = true;
 };
 
+inline constexpr uint32_t kMaximumSidechainFeedsPerStrip = 8;
+
+// Audio-thread view delivered with the destination strip's processor callback.
+// The source points into renderer-owned rows that remain valid for this block;
+// consumers must not retain it or allocate while copying it to plug-in buses.
+struct MixSidechainInput {
+    uint32_t pluginSlotIndex = 0;
+    uint32_t inputBusIndex = 1;
+    SidechainChannelMode channelMode = SidechainChannelMode::Automatic;
+    const float* left = nullptr;
+    const float* right = nullptr;
+    bool active = true;
+};
+
 // The device side of the graph -- everything buildMixGraph needs to know
 // about the sound card, with no JUCE types involved.
 struct OutputLaneConfig {

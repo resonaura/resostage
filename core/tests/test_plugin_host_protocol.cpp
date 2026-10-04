@@ -209,7 +209,13 @@ TEST_CASE("plug-in host frames transfer ownership without waiting or overwriting
     request->midiEvents[0].size = 3;
     request->midiEvents[0].data[0] = 0x90;
     request->parameterEvents[0] = {1, 0, 7, 0.75f};
-    REQUIRE(publishInput(*request, 4, 1, 1));
+    request->sidechainFeeds[0].pluginSlotIndex = 1;
+    request->sidechainFeeds[0].inputBusIndex = 2;
+    request->sidechainFeeds[0].channelMode = 3;
+    request->sidechainFeeds[0].active = 1;
+    request->sidechainFeeds[0].left[0] = 0.125f;
+    request->sidechainFeeds[0].right[0] = -0.25f;
+    REQUIRE(publishInput(*request, 4, 1, 1, 1));
 
     CHECK(tryBeginWrite(area, kSlotCount) == nullptr);
     CHECK(tryBeginProcess(area, 1) == nullptr);
@@ -220,6 +226,12 @@ TEST_CASE("plug-in host frames transfer ownership without waiting or overwriting
     CHECK(processing->midiEvents[0].sampleOffset == 2);
     CHECK(processing->parameterEventCount == 1);
     CHECK(processing->parameterEvents[0].parameterIndex == 7);
+    CHECK(processing->sidechainFeedCount == 1);
+    CHECK(processing->sidechainFeeds[0].pluginSlotIndex == 1);
+    CHECK(processing->sidechainFeeds[0].inputBusIndex == 2);
+    CHECK(processing->sidechainFeeds[0].channelMode == 3);
+    CHECK(processing->sidechainFeeds[0].left[0] == doctest::Approx(0.125f));
+    CHECK(processing->sidechainFeeds[0].right[0] == doctest::Approx(-0.25f));
 
     processing->output[0] = processing->input[0] * 2.0f;
     processing->output[1] = processing->input[1] * 2.0f;
@@ -259,6 +271,13 @@ TEST_CASE("plug-in host rejects malformed frames and releases their slot") {
     REQUIRE(slot != nullptr);
     CHECK_FALSE(publishInput(*slot, 1, 0,
                              kMaximumParameterEventsPerBlock + 1));
+    CHECK(slot->state.load(std::memory_order_acquire)
+          == static_cast<uint32_t>(SlotState::Empty));
+
+    slot = tryBeginWrite(area, 0);
+    REQUIRE(slot != nullptr);
+    CHECK_FALSE(publishInput(*slot, 1, 0, 0,
+                             kMaximumSidechainFeedsPerChain + 1));
     CHECK(slot->state.load(std::memory_order_acquire)
           == static_cast<uint32_t>(SlotState::Empty));
 }

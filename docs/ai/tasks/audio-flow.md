@@ -139,7 +139,7 @@ passed 21/21; UI TypeScript and changed-file lint passed; full UI and
 production-build results are recorded in the latest audit/handoff entry. This
 bounds the optimizer's crossing work, not React Flow's O(E) rendering, and
 does not prove dense-graph visual legibility or manual interaction quality.
-Sidechain ports/edges and real plugin-input routing remain unimplemented.
+Sidechain port authoring and visualization remain unimplemented.
 
 ## Sidechain model and graph foundation (2026-10-03)
 
@@ -153,21 +153,30 @@ from ordinary audio routes, rejects missing/self/instrument/invalid-bus
 references from the render graph, rejects sidechain feedback cycles against
 both ordinary routing and previously accepted sidechain dependencies, and
 publishes source mute/solo audibility with each edge. The processor-capable
-strips are stably topologically ordered; output lanes remain
-last. The processor-layout key includes graph indices and the selected plugin
-bus layout. A source edit that changes topological order must rebind the
-index-based processor table; unchanged vendor chains should still be reused by
-stable identity rather than relaunched. That helper-generation behavior still
-needs a dedicated integration regression during realtime wiring.
+strips are stably topologically ordered; output lanes remain last. The
+processor-layout key includes graph indices and the selected plugin bus index.
+A source edit that changes topological order rebinds the index-based processor
+table, while unchanged vendor chains are reused by stable identity.
 
-Serialization, format migration and graph tests pass (3 migration tests; 21
-graph tests/141 assertions). CTest passes 1/1, and the two real-macOS-AU
-editor-window integration cases pass on a focused rerun (2/2, 78 assertions).
-One earlier direct full-binary run transiently failed their editor open/close
-requests after the helpers were ready and had rendered audio; this remains a
-flaky observation to watch, not a sidechain regression or a resolved diagnosis.
-This is only the persisted-model/graph-preparation milestone: the renderer does
-not yet feed those edges to plug-in auxiliary buses, and no UI authoring,
-shared-memory transport, bus capability discovery, sidechain visualization,
-offline parity or real AU/VST validation is implemented. Do not describe the
-feature as available until those stages and the acceptance tests above pass.
+The bounded audio path is wired through `MixRenderer` and
+`PluginProcessorBank`: each destination processor receives up to eight
+block-local source views, and the selected JUCE auxiliary input bus receives
+automatic stereo/mono mapping or the explicit mono-sum/left/right mode. The
+live-host shared-memory ABI is v10; each audio slot carries the bounded samples
+and descriptors, and the helper reads only the current block's sample count.
+Offline rendering uses the same renderer and in-process plug-in bank. Sidechain
+audio remains independent from the destination's normal insert input and obeys
+source mute/solo plus automation mute. The callback path must remain
+allocation-free.
+
+Serialization, migration, graph, protocol, renderer and allocator tests pass;
+CTest passes 1/1. The two real-macOS-AU editor-window integration cases also
+pass on a focused rerun (2/2, 78 assertions). One earlier direct full-binary run
+transiently failed their editor open/close requests after the helpers were
+ready and had rendered audio; keep that flaky observation separate from
+sidechain work. This is not yet complete user-facing support: sidechain-path
+PDC/alignment, bus-capability discovery, route-authoring and validation UI,
+audio-flow visualization, and real AU/VST sidechain fixtures remain open.
+Unsupported bus bindings warn during bank preparation and degrade to the
+normal plug-in path; do not claim full compatibility until the remaining
+stages and acceptance tests pass.

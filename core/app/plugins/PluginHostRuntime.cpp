@@ -464,7 +464,9 @@ void PluginHostRuntime::publishPowerStates(plugin_host::SharedArea& area) const 
 bool PluginHostRuntime::process(plugin_host::AudioSlot& block) noexcept {
     if (builtBank.bank == nullptr || block.numSamples == 0
         || block.numSamples > plugin_host::kMaximumBlockSamples
-        || block.midiEventCount > plugin_host::kMaximumMidiEventsPerBlock)
+        || block.midiEventCount > plugin_host::kMaximumMidiEventsPerBlock
+        || block.sidechainFeedCount
+            > plugin_host::kMaximumSidechainFeedsPerChain)
         return false;
 
     auto& processorBank = *builtBank.bank;
@@ -517,11 +519,36 @@ bool PluginHostRuntime::process(plugin_host::AudioSlot& block) noexcept {
     const MixProcessorView view = processorBank.processorView(
         builtBank.delayBank.get());
     if (view.strips == nullptr || view.count == 0
-        || view.strips[0].process == nullptr)
+        || (view.strips[0].process == nullptr
+            && view.strips[0].processWithSidechains == nullptr))
         return true;
-    view.strips[0].process(view.strips[0].context, block.output.data(),
-                           block.output.data() + planeStride,
-                           static_cast<int>(block.numSamples));
+    std::array<MixSidechainInput,
+               plugin_host::kMaximumSidechainFeedsPerChain> sidechains{};
+    for (uint32_t index = 0; index < block.sidechainFeedCount; ++index) {
+        const auto& feed = block.sidechainFeeds[index];
+        if (feed.pluginSlotIndex >= track.plugins.size()
+            || feed.channelMode
+                > static_cast<uint8_t>(SidechainChannelMode::Right))
+            return false;
+        sidechains[index] = {
+            feed.pluginSlotIndex,
+            feed.inputBusIndex,
+            static_cast<SidechainChannelMode>(feed.channelMode),
+            feed.left.data(),
+            feed.right.data(),
+            feed.active != 0};
+    }
+    if (view.strips[0].processWithSidechains != nullptr) {
+        view.strips[0].processWithSidechains(
+            view.strips[0].context, block.output.data(),
+            block.output.data() + planeStride,
+            static_cast<int>(block.numSamples), sidechains.data(),
+            block.sidechainFeedCount);
+    } else {
+        view.strips[0].process(view.strips[0].context, block.output.data(),
+                               block.output.data() + planeStride,
+                               static_cast<int>(block.numSamples));
+    }
     return true;
 }
 
