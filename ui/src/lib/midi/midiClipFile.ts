@@ -619,7 +619,10 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     if (!Number.isInteger(item.numerator) || item.numerator < 1 || item.numerator > 256
         || !Number.isInteger(power) || power < 1 || power > 7)
       throw new Error("MIDI Clip cannot encode this time signature as standard Set Time Signature Flex Data");
-    const quantizedBeat = Math.max(0, Math.round(beat * 24) / 24);
+    // Unlike Set Tempo, Set Time Signature is bar-positioned, not restricted
+    // to the 24 MIDI Clock pulses per quarter. Preserve the full output DCTPQ grid
+    // so short bars such as 1/128 are not displaced by MIDI Clock quantization.
+    const quantizedBeat = Math.max(0, Math.round(beat * TPQ) / TPQ);
     const word1 = (((item.numerator & 0xff) << 24) | ((power & 0xff) << 16) | (8 << 8)) >>> 0;
     appendEvent({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], priority: -1, order: order++ });
   }

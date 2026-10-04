@@ -294,6 +294,23 @@ describe("MIDI Clip File framing and resource bounds", () => {
     }
   });
 
+  it("keeps short bar-boundary meter changes on the full DCTPQ grid", () => {
+    const parsed = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "Short bars", regions: [region] }],
+      { bpm: 120, numerator: 1, denominator: 128,
+        meterEvents: [
+          { beat: 0, numerator: 1, denominator: 128 },
+          { beat: 1 / 32, numerator: 2, denominator: 4 },
+        ],
+        fromProjectStart: true, expandLoops: false },
+    ));
+
+    expect(parsed.meterEvents).toEqual([
+      { beat: 0, numerator: 1, denominator: 128 },
+      { beat: 1 / 32, numerator: 2, denominator: 4 },
+    ]);
+  });
+
   it("preserves distinct MIDI 2.0 Note-On and Note-Off attributes", () => {
     const parsed = parseMidiClipFile(framedClip([
       dcs(0), [0x4090_3c01, 0x9234_abcd],

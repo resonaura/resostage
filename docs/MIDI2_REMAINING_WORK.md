@@ -391,3 +391,20 @@ Focused MIDI Clip tests passed 28/28; full UI passed 1,049/1,049 across
 151 files; TypeScript/production build, changed-file lint and `git diff --check`
 passed. This validates framing only; timing placement and independent
 cross-application fixtures remain open.
+
+### Latest continuation — retain MIDI Clip meter tick precision (2026-10-04)
+
+Set Time Signature events are no longer rounded to the 24 MIDI Clock pulses
+per quarter. Unlike Set Tempo, their recommended locations are bar boundaries;
+short bars may begin between MIDI Clock pulses. Export rounds these events only
+to the output file's DCTPQ tick grid. A `1/128` bar followed by a signature
+change at `1/32` beat now round-trips at that exact tick instead of shifting to
+`1/24` beat. The writer still uses fixed DCTPQ=960, so source positions finer
+than 1/960 beat are not representable exactly; dynamic TPQ selection remains
+open. Import still preserves off-boundary input rather than enforcing a
+recommended (not `shall`) placement rule.
+
+This follows [MIDI Clip File v1.0 §7.1.2](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf) and [UMP & MIDI 2.0 Protocol v1.1.1 §§7.5.3–7.5.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Focused MIDI Clip tests passed 29/29; full UI passed 1,050/1,050 across
+151 files; TypeScript/production build, changed-file lint, and `git diff --check`
+passed.

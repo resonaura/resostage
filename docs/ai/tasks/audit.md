@@ -2190,3 +2190,20 @@ Basis: [UMP & MIDI 2.0 Protocol v1.1.1 §7.1.10–7.1.11 and Appendix F]
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 Timing placement and cross-application fixtures remain unverified; do not claim
 complete MIDI Clip interoperability.
+
+### Latest continuation — Set Time Signature output precision (2026-10-04)
+
+Confirmed the format distinguishes the recommended timing grids: Set Tempo
+sequence messages should land on MIDI Clock positions (1/24 quarter); Set Time
+Signature changes should land at bar boundaries. The writer had incorrectly
+rounded both to 1/24, shifting a valid 1/128 bar boundary at 1/32 beat to 1/24.
+Set Time Signature now rounds to the output DCTPQ tick grid; a round-trip test
+checks 1/32 beat exactly. The writer remains fixed at 960 TPQ, so finer input
+positions are still rounded; dynamic TPQ and bar-boundary validation remain
+open. This placement is a `should` recommendation, not a reason to reject
+otherwise preservable imports. Focused codec tests passed 29/29; full UI passed
+1,050/1,050 across 151 files; TypeScript/production build, changed-file lint
+and `git diff --check` passed. Sources: [MIDI Clip File v1.0 §7.1.2]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf),
+[UMP & MIDI 2.0 Protocol v1.1.1 §§7.5.3–7.5.4]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

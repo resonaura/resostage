@@ -1545,3 +1545,19 @@ both invalid forms and nonzero reserved fields. Focused tests 28/28; full UI
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 Next audit timing-event positions versus MIDI Clock/bar recommendations and
 independent file fixtures; commit each verified block in English, do not push.
+
+Latest continuation — MIDI Clip time-signature tick precision (2026-10-04):
+Set Time Signature is no longer quantized to the 1/24 MIDI Clock grid; output
+preserves it on the DCTPQ tick grid. A 1/128 bar change at 1/32 beat now
+round-trips exactly. Set Tempo remains MIDI-Clock-quantized. DCTPQ remains
+fixed at 960, so finer source positions are rounded; dynamic TPQ and bar
+boundary validation remain open. The placement rule is a `should` in MIDI Clip
+File v1.0 §7.1.2, so import keeps off-boundary data rather than rejecting it.
+Focused codec tests 29/29; full UI 1,050/1,050 across 151 files; build,
+changed-file lint and `git diff --check` passed. Sources:
+[MIDI Clip File v1.0 §7.1.2]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-116-U_v1-0_MIDI_Clip_File_Specification.pdf),
+[UMP & MIDI 2.0 Protocol v1.1.1 §§7.5.3–7.5.4]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Commit this verified block in English, do not push, then continue MIDI Clip
+precision/conformance work.
