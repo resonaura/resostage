@@ -1778,3 +1778,21 @@ build, TypeScript, full lint (exit 0; 12 pre-existing warnings) and
 27/27 after the malformed-lane, invalid-loop and read-only selection guards.
 No physical MIDI device or manual visual acceptance was performed. Remaining
 raw-event gaps are freehand painting, curve tools and MIDI 2.0 UMP authoring.
+
+### Latest continuation — MIDI controller curve and smoothing tools (2026-10-04)
+
+Selected MIDI 1.0 CC and pitch-bend Events-lane points can now be shaped to a
+linear, curve-up or curve-down value trajectory, or smoothed with two bounded,
+time-weighted passes. The shared curve evaluator is also used by Timeline
+automation interpolation, keeping the curve law consistent. Event beat,
+channel, trailing bytes and unselected events are preserved. Pedal switch CC64–69
+are deliberately excluded from curve/smoothing transforms so binary pedal
+states are not turned into invalid intermediate values. Changes use the
+existing reliable MIDI-region event transaction and therefore one history edit.
+
+Focused controller, hook and Timeline-curve tests passed 51/51; full UI Vitest
+passed 959 tests across 143 files; `tsc -b` and production UI build passed.
+Repository lint exited 0 with 12 existing warnings outside changed files;
+`git diff --check` passed. No manual visual, hardware or performance-profile
+acceptance was performed. Remaining Piano Roll MIDI 2.0 UMP authoring and
+manual/device acceptance are open; continue with the next item in `handoff.md`.

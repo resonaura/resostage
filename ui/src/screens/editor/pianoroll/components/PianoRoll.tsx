@@ -319,6 +319,9 @@ export function PianoRoll({
     setSelectedControllerEventIndices,
     handleDeleteSelected,
     handleSelectAll,
+    canShapeSelectedControllerEvents,
+    handleSetSelectedCurve,
+    handleSmoothSelectedEvents,
   } = usePianoRollControllerEventSelection({
     regionId: region.id,
     resetKey,
@@ -434,6 +437,9 @@ export function PianoRoll({
         }
         selectedCount={selectedNoteIds.size}
         selectedControllerEventCount={hasEditableControllerLane ? selectedControllerEventIndices.size : 0}
+        canShapeSelectedControllerEvents={canShapeSelectedControllerEvents}
+        onControllerEventCurve={handleSetSelectedCurve}
+        onSmoothSelectedControllerEvents={handleSmoothSelectedEvents}
         onQuantize={handleQuantize}
         onHumanize={handleHumanize}
         onLegato={handleLegato}

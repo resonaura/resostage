@@ -825,3 +825,22 @@ Full repository lint exited 0 with 12 existing warnings outside this change.
 profile was performed. Remaining controller-event work: curve tools, MIDI 2.0
 UMP authoring, and physical/manual acceptance. Keep automation points as their
 separate region-automation model.
+
+### Piano Roll selected controller-event curves and smoothing (2026-10-04)
+
+The Piano Roll toolbar exposes bounded linear, curve-up, curve-down and
+smoothing transforms for a selection of raw MIDI 1.0 CC or pitch-bend events.
+Transforms operate on selected points' existing beats, preserve first and last
+values, process channels independently, and preserve event status/channel and
+trailing bytes. Smoothing uses two time-weighted passes and keeps each channel's
+endpoints fixed. Switch pedal CC64–69 are not eligible because their model is
+binary (0/127), not continuous. Curves share the same evaluator as Timeline
+automation interpolation. A no-op, invalid or oversized transform fails
+closed; successful edits go through the reliable region update/history path.
+
+Focused controller/hook/shared-curve suites passed 51/51; the full UI suite
+passed 959 tests across 143 files, TypeScript and production build passed, and
+full lint exited 0 with 12 existing unrelated warnings. `git diff --check`
+passed. No physical-device or manual visual acceptance was run. MIDI 2.0 UMP
+authoring remains open; raw-event cut/copy and range marquee are separate
+unimplemented editing affordances.

@@ -1171,3 +1171,31 @@ lint exits 0 with 12 existing warnings outside the changed files;
 was done. Continue from the next open audit item: raw-event curve tools, MIDI
 2.0 UMP authoring, then remaining automation/plugin acceptance tasks. Commit in
 English; do not push.
+
+### Latest continuation — MIDI controller-event curve transforms (2026-10-04)
+
+Selected raw CC and pitch-bend events now have Linear, Curve up, Curve down and
+Smooth selected values actions in a dedicated Piano Roll toolbar menu. Curve
+shaping preserves selected point times and endpoints, applies independently
+per MIDI channel and reuses the Timeline/Core curve law. Smoothing performs two
+bounded time-weighted passes with fixed endpoints. Both preserve the original
+event channel, extra event bytes and every unselected event. CC64–69 pedal
+switches are excluded to protect their binary state. A successful transform
+commits through the same exact MIDI-region event path as direct edits; empty,
+invalid, over-cap or no-op transforms do not commit.
+
+The shared evaluator lives under editor-level logic; Timeline automation now
+imports/re-exports it so Piano Roll and Timeline use one formula. Transform
+selection/availability and execution are separated from the drawing/gesture
+module, keeping `controllerLane.ts` at 555 lines rather than expanding its
+editing responsibilities further.
+
+Verification for this block: focused controller/hook/automation tests 51/51;
+full UI Vitest 959/959 across 143 files; TypeScript and production UI build
+passed; repository lint exited 0 with 12 existing warnings in unrelated files;
+`git diff --check` passed. No manual UI/device test or performance profile was
+performed. Next: inspect existing UMP/MIDI 2.0 data paths and implement only a
+lossless, bounded authoring interaction that is compatible with imported event
+round-trip; do not flatten 32-bit MIDI 2.0 values into MIDI 1.0 controls. Then
+continue remaining automation/plugin acceptance listed in `audit.md`. Commit
+verified blocks in English and do not push.

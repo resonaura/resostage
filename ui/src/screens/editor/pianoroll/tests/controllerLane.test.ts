@@ -21,6 +21,11 @@ import {
   sampleControllerPaintSegment,
   sameEditableMidiEvents,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
+import {
+  controllerEventTransformAvailability,
+  shapeControllerEventSelection,
+  smoothControllerEventSelection,
+} from "@/screens/editor/pianoroll/logic/controllerEventTransforms";
 import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
 
 function region(overrides: Partial<MidiRegionRow> = {}): MidiRegionRow {
@@ -256,6 +261,57 @@ describe("Piano Roll raw MIDI controller lanes", () => {
       status: 0xe2,
       data: [0, 96, 8],
     }]);
+  });
+
+  it("shapes selected CC values with the shared curve law and keeps event identity data", () => {
+    const source = [
+      { beat: 1, status: 0xb2, data: [74, 20, 9] },
+      { beat: 2, status: 0xb2, data: [74, 120, 8] },
+      { beat: 3, status: 0xb2, data: [74, 80, 7] },
+      cc(2, 11, 64, 2),
+    ];
+    expect(controllerEventTransformAvailability(source, [0, 1, 2], "cc74"))
+      .toEqual({ curve: true, smooth: true });
+    expect(shapeControllerEventSelection(source, [0, 1, 2], "cc74", 0)).toEqual([
+      source[0],
+      { beat: 2, status: 0xb2, data: [74, 50, 8] },
+      source[2],
+      source[3],
+    ]);
+    expect(shapeControllerEventSelection(source, [0, 1, 2], "cc74", 0.5)?.[1].data[1])
+      .toBe(62);
+    expect(shapeControllerEventSelection(source, [0, 1, 2], "cc74", 1.1)).toBeNull();
+  });
+
+  it("smooths selected values while keeping endpoint times, channels and pedal safety", () => {
+    const source = [
+      cc(0, 74, 0, 1),
+      { beat: 1, status: 0xb1, data: [74, 120, 6] },
+      cc(2, 74, 0, 1),
+    ];
+    const smoothed = smoothControllerEventSelection(source, [0, 1, 2], "cc74");
+    expect(smoothed).toEqual([
+      source[0],
+      { beat: 1, status: 0xb1, data: [74, 30, 6] },
+      source[2],
+    ]);
+    expect(shapeControllerEventSelection([
+      cc(0, 64, 0), cc(1, 64, 127), cc(2, 64, 127),
+    ], [0, 1, 2], "cc64", 0.5)).toBeNull();
+    expect(controllerEventTransformAvailability([
+      cc(0, 64, 0), cc(1, 64, 127), cc(2, 64, 127),
+    ], [0, 1, 2], "cc64")).toEqual({ curve: false, smooth: false });
+  });
+
+  it("shapes pitch-bend values in signed 14-bit space", () => {
+    const middle = pitchBend(2, 8_191, 4);
+    middle.data.push(3);
+    const source = [pitchBend(1, -8_192, 4), middle, pitchBend(3, -8_192, 4)];
+    expect(shapeControllerEventSelection(source, [0, 1, 2], "pitchBend", 0)).toEqual([
+      source[0],
+      { beat: 2, status: 0xe4, data: [0, 0, 3] },
+      source[2],
+    ]);
   });
 
   it("keeps looped event groups inside the visible source loop window", () => {

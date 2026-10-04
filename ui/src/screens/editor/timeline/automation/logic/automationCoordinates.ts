@@ -8,6 +8,9 @@ import type {
   AutomationHitResult,
   AutomationPointViewModel,
 } from "@/screens/editor/timeline/automation/logic/types";
+import { evaluateEditorCurve } from "@/screens/editor/logic/curveShape";
+
+export { evaluateEditorCurve as evaluateCurve } from "@/screens/editor/logic/curveShape";
 
 export function clamp(val: number, min: number, max: number): number {
   if (!Number.isFinite(val)) return min;
@@ -91,21 +94,6 @@ export function pixelToValue(
 }
 
 /**
- * Deterministic curve shaping matching ResoStage C++ AutomationCurve:
- * w = u^(2^(-curve * 2))
- * curve in [-1, +1]: -1 = exponential/concave, 0 = linear, +1 = logarithmic/convex.
- */
-export function evaluateCurve(u: number, curve: number): number {
-  const safeU = clamp01(u);
-  if (safeU <= 0) return 0;
-  if (safeU >= 1) return 1;
-  const safeCurve = clamp(Number.isFinite(curve) ? curve : 0, -1, 1);
-  if (Math.abs(safeCurve) < 1e-6) return safeU;
-  const exponent = Math.pow(2.0, -safeCurve * 2.0);
-  return Math.pow(safeU, exponent);
-}
-
-/**
  * Evaluates automation value at a specific musical beat time between two points.
  */
 export function interpolateAutomationValue(
@@ -118,7 +106,7 @@ export function interpolateAutomationValue(
   const dt = p2.timeBeats - p1.timeBeats;
   if (dt < 1e-6) return p1.value;
   const u = (timeBeats - p1.timeBeats) / dt;
-  const shaped = evaluateCurve(u, p1.curve);
+  const shaped = evaluateEditorCurve(u, p1.curve);
   return p1.value + shaped * (p2.value - p1.value);
 }
 

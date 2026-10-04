@@ -98,6 +98,40 @@ describe("usePianoRollControllerEventSelection", () => {
     expect(setSelectedNoteIds).toHaveBeenCalledWith(new Set());
   });
 
+  it("commits shaped controller events through the region event callback", () => {
+    const source: MidiClipEventRow[] = [
+      { beat: 1, status: 0xb0, data: [74, 0] },
+      { beat: 2, status: 0xb0, data: [74, 120] },
+      { beat: 3, status: 0xb0, data: [74, 80] },
+    ];
+    act(() => root.render(createElement(Harness, { authoritativeEvents: source })));
+    act(() => result.setSelectedControllerEventIndices(new Set([0, 1, 2])));
+    act(() => result.handleSetSelectedCurve(0));
+
+    expect(commitEvents).toHaveBeenCalledOnce();
+    expect(commitEvents.mock.calls[0][0]).toEqual([
+      source[0],
+      { beat: 2, status: 0xb0, data: [74, 40] },
+      source[2],
+    ]);
+  });
+
+  it("commits smoothed selected controller values through the same callback", () => {
+    const source: MidiClipEventRow[] = [
+      { beat: 1, status: 0xb0, data: [74, 0] },
+      { beat: 2, status: 0xb0, data: [74, 120] },
+      { beat: 3, status: 0xb0, data: [74, 0] },
+    ];
+    act(() => root.render(createElement(Harness, { authoritativeEvents: source })));
+    act(() => result.setSelectedControllerEventIndices(new Set([0, 1, 2])));
+    act(() => result.handleSmoothSelectedEvents());
+
+    expect(commitEvents).toHaveBeenCalledOnce();
+    expect(commitEvents.mock.calls[0][0][1].data[1]).toBe(30);
+    expect(commitEvents.mock.calls[0][0][0]).toEqual(source[0]);
+    expect(commitEvents.mock.calls[0][0][2]).toEqual(source[2]);
+  });
+
   it("selects notes instead when controller editing is not active", () => {
     act(() => root.render(createElement(Harness, { mode: "automation", canEditControllerEvents: false })));
     act(() => result.handleSelectAll());

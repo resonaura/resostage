@@ -16,6 +16,7 @@ import { PianoRollFollowControl } from "@/screens/editor/pianoroll/components/Pi
 import { PianoRollZoomControl } from "@/screens/editor/pianoroll/components/PianoRollZoomControl";
 import { PianoRollOptions } from "@/screens/editor/pianoroll/toolbar/components/PianoRollOptions";
 import { PianoRollTransforms } from "@/screens/editor/pianoroll/toolbar/components/PianoRollTransforms";
+import { PianoRollControllerEventTransforms } from "@/screens/editor/pianoroll/toolbar/components/PianoRollControllerEventTransforms";
 import { PIANO_ROLL_LANE_OPTIONS, PIANO_ROLL_SNAP_OPTIONS } from "@/screens/editor/pianoroll/toolbar/logic/options";
 import type { PianoRollToolbarProps } from "@/screens/editor/pianoroll/toolbar/logic/types";
 import type { GridSnapValue, PianoRollBottomLane, PianoRollControllerLaneMode, PianoRollTool } from "@/screens/editor/pianoroll/logic/types";
@@ -129,6 +130,16 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
         <PianoRollTransforms onQuantize={props.onQuantize} onHumanize={props.onHumanize}
           onLegato={props.onLegato} onOverlapTrim={props.onOverlapTrim}
           onTranspose={props.onTranspose} snapEnabled={snapEnabled} />
+        {props.canShapeSelectedControllerEvents && props.onControllerEventCurve &&
+          props.onSmoothSelectedControllerEvents && (
+          <>
+            <Separator orientation="vertical" />
+            <PianoRollControllerEventTransforms
+              onSetCurve={props.onControllerEventCurve}
+              onSmooth={props.onSmoothSelectedControllerEvents}
+            />
+          </>
+        )}
         <PianoRollOptions {...props} />
         {props.onBottomLaneChange && (
           <>

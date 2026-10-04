@@ -4,13 +4,18 @@
  * Licensed under the GNU General Public License v3.0 or later; see LICENSE.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { MidiClipEventRow, MidiNoteRow } from "@/lib/state/types";
 import {
   collectControllerEventSourceIndices,
   removeControllerEvents,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
+import {
+  controllerEventTransformAvailability,
+  shapeControllerEventSelection,
+  smoothControllerEventSelection,
+} from "@/screens/editor/pianoroll/logic/controllerEventTransforms";
 import type { PianoRollBottomLane, PianoRollControllerLaneMode } from "@/screens/editor/pianoroll/logic/types";
 
 interface UsePianoRollControllerEventSelectionOptions {
@@ -110,11 +115,49 @@ export function usePianoRollControllerEventSelection({
     setSelectedNoteIds,
   ]);
 
+  const transformAvailability = useMemo(() => canEditControllerEvents
+    ? controllerEventTransformAvailability(
+      editableEvents,
+      [...selectedControllerEventIndices],
+      bottomLane,
+    )
+    : { curve: false, smooth: false }, [
+    canEditControllerEvents,
+    editableEvents,
+    selectedControllerEventIndices,
+    bottomLane,
+  ]);
+
+  const handleSetSelectedCurve = useCallback((curve: number) => {
+    if (!canEditControllerEvents) return;
+    const next = shapeControllerEventSelection(
+      editableEvents,
+      [...selectedControllerEventIndices],
+      bottomLane,
+      curve,
+    );
+    if (next) commitEvents(next);
+  }, [canEditControllerEvents, editableEvents, selectedControllerEventIndices, bottomLane, commitEvents]);
+
+  const handleSmoothSelectedEvents = useCallback(() => {
+    if (!canEditControllerEvents) return;
+    const next = smoothControllerEventSelection(
+      editableEvents,
+      [...selectedControllerEventIndices],
+      bottomLane,
+    );
+    if (next) commitEvents(next);
+  }, [canEditControllerEvents, editableEvents, selectedControllerEventIndices, bottomLane, commitEvents]);
+
   return {
     selectedControllerEventIndices,
     setSelectedControllerEventIndices,
     handleDeleteSelected,
     handleSelectAll,
+    canShapeSelectedControllerEvents: transformAvailability.curve,
+    canSmoothSelectedControllerEvents: transformAvailability.smooth,
+    handleSetSelectedCurve,
+    handleSmoothSelectedEvents,
     hasSelection: selectedControllerEventIndices.size > 0 || selectedNoteIds.size > 0,
   };
 }
