@@ -683,3 +683,16 @@ validated encoded bytes. A regression exercises the over-limit boundary.
 Focused Standard MIDI tests passed 63/63; full UI passed 1,098/1,098 across
 151 files; TypeScript, production build, changed-file oxlint, and
 `git diff --check` passed.
+
+### Latest continuation — bound Standard MIDI export bytes and allocation (2026-10-04)
+
+Standard MIDI export now enforces the same 32 MiB whole-file ceiling as
+import. It accounts encoded event bytes as events are admitted, preflights each
+track's exact size before allocation, and writes directly into bounded
+`Uint8Array` track/file buffers. Large raw SysEx and sequencer-specific meta
+payloads remain referenced until final serialization, so loop expansion does
+not duplicate their source arrays or build an oversized nested number array.
+A regression uses loop-expanded raw SysEx to verify early rejection over the
+file-size limit. Focused Standard MIDI tests passed 64/64; full UI passed
+1,099/1,099 across 151 files; TypeScript, production build, changed-file
+oxlint, and `git diff --check` passed.

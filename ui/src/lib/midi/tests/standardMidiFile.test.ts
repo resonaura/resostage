@@ -1124,6 +1124,27 @@ describe("Standard MIDI File", () => {
     expect(sourceOnly.tracks[1].notes).toHaveLength(1);
   });
 
+  it("bounds loop-expanded raw MIDI payloads to the parser file-size limit", () => {
+    const repeatedPayload = Array(1_000_000).fill(0);
+    const looped: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 40,
+      clipOffsetBeats: 0,
+      loop: true,
+      loopStartBeats: 0,
+      loopLengthBeats: 1,
+      notes: [],
+      events: [{ beat: 0.25, status: 0xf7, data: repeatedPayload }],
+      umpEvents: [],
+    };
+
+    expect(() => writeStandardMidiFile([{ name: "Large loop", regions: [looped] }], {
+      bpm: 120, numerator: 4, denominator: 4,
+      fromProjectStart: true, expandLoops: true,
+    })).toThrow(/32 MiB file size limit/);
+  });
+
   it("exports only the trimmed MIDI loop source window", () => {
     const trimmed: MidiRegionRow = {
       ...region,

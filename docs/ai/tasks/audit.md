@@ -2510,3 +2510,12 @@ file-wide ceiling. Repeated loop occurrences reuse the encoded bytes of a raw
 source event. Focused Standard MIDI tests passed 63/63; full UI passed
 1,098/1,098 across 151 files. TypeScript, production build, changed-file
 oxlint and `git diff --check` passed.
+
+Latest SMF memory-bound audit (2026-10-04): export now enforces the parser's
+32 MiB whole-file ceiling. It accounts event bytes on admission, preflights
+exact track size before allocation, retains raw SysEx/meta payload references
+until serialization, and writes bounded `Uint8Array` output rather than
+flattening large nested number arrays. Loop expansion of a large SysEx event
+rejects as soon as the output budget is exceeded. Focused Standard MIDI tests
+passed 64/64; full UI passed 1,099/1,099 across 151 files. TypeScript,
+production build, changed-file oxlint and `git diff --check` passed.

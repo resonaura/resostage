@@ -1832,3 +1832,13 @@ validated raw event bytes. Focused Standard MIDI tests: 63/63; full UI:
 1,098/1,098 across 151 files; TypeScript, production build, changed-file
 oxlint, and `git diff --check` passed. Review and commit in English; do not
 push. Continue the interoperability audit from `docs/MIDI2_REMAINING_WORK.md`.
+
+Latest verified continuation — bound Standard MIDI export bytes and memory
+(2026-10-04): export now enforces the parser's 32 MiB whole-file cap, accounts
+event bytes as they are admitted, and preflights each track's exact size before
+allocation. Raw SysEx/meta payloads remain referenced until direct writing to
+bounded `Uint8Array` output, avoiding large nested number-array copies during
+loop expansion. Focused Standard MIDI tests: 64/64; full UI: 1,099/1,099
+across 151 files; TypeScript, production build, changed-file oxlint, and
+`git diff --check` passed. Review and commit in English; do not push. Continue
+the interoperability audit from `docs/MIDI2_REMAINING_WORK.md`.

@@ -23,6 +23,18 @@ const MAX_TRACKS = 256;
 const MAX_EVENTS = 200_000;
 
 type MidiRegionEvent = NonNullable<MidiRegionRow["events"]>[number];
+type SmfByteSequence = number[] | {
+  prefix: number[];
+  payload: number[];
+  payloadStart: number;
+  payloadLength: number;
+};
+
+interface SmfOutputEvent {
+  tick: number;
+  order: number;
+  bytes: SmfByteSequence;
+}
 
 export interface MidiMeterEvent {
   beat: number;
@@ -353,7 +365,23 @@ function vlq(value: number): number[] {
   return out;
 }
 
-function rawSmfEventBytes(event: MidiRegionEvent): number[] {
+function smfByteSequenceLength(bytes: SmfByteSequence): number {
+  return Array.isArray(bytes) ? bytes.length : bytes.prefix.length + bytes.payloadLength;
+}
+
+function writeSmfByteSequence(target: Uint8Array, offset: number, bytes: SmfByteSequence): number {
+  if (Array.isArray(bytes)) {
+    target.set(bytes, offset);
+    return offset + bytes.length;
+  }
+  target.set(bytes.prefix, offset);
+  offset += bytes.prefix.length;
+  const end = bytes.payloadStart + bytes.payloadLength;
+  for (let index = bytes.payloadStart; index < end; index++) target[offset++] = bytes.payload[index];
+  return offset;
+}
+
+function rawSmfEventBytes(event: MidiRegionEvent): SmfByteSequence {
   if (!Number.isInteger(event.status) || event.status < 0x80 || event.status > 0xff)
     throw new Error("MIDI export contains an invalid event status byte");
   if (!Array.isArray(event.data) || event.data.some((byte) =>
@@ -361,13 +389,29 @@ function rawSmfEventBytes(event: MidiRegionEvent): number[] {
     throw new Error("MIDI export contains an invalid event data byte");
 
   if (event.status === 0xff) {
-    const [metaType, ...payload] = event.data;
+    const metaType = event.data[0];
     if (metaType === undefined) throw new Error("MIDI meta event is missing its type byte");
     if (metaType === 0x2f) throw new Error("End-of-Track cannot be exported as a MIDI region event");
-    return [0xff, metaType, ...vlq(payload.length), ...payload];
+    const payloadLength = event.data.length - 1;
+    if (payloadLength > MAX_BYTES)
+      throw new Error("MIDI export exceeds the 32 MiB file size limit");
+    return {
+      prefix: [0xff, metaType, ...vlq(payloadLength)],
+      payload: event.data,
+      payloadStart: 1,
+      payloadLength,
+    };
   }
-  if (event.status === 0xf0 || event.status === 0xf7)
-    return [event.status, ...vlq(event.data.length), ...event.data];
+  if (event.status === 0xf0 || event.status === 0xf7) {
+    if (event.data.length > MAX_BYTES)
+      throw new Error("MIDI export exceeds the 32 MiB file size limit");
+    return {
+      prefix: [event.status, ...vlq(event.data.length)],
+      payload: event.data,
+      payloadStart: 0,
+      payloadLength: event.data.length,
+    };
+  }
 
   if (event.status >= 0xf0) {
     const length = event.status === 0xf1 || event.status === 0xf3 ? 1
@@ -813,15 +857,16 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
   // the writer never creates a file that its own parser must reject.
   const maxContentEvents = MAX_EVENTS - 1 - (tracks.length * 2);
   let contentEventCount = 0;
-  const appendEvent = (
-    target: Array<{ tick: number; order: number; bytes: number[] }>,
-    event: { tick: number; order: number; bytes: number[] },
-  ) => {
+  let contentEventBytes = 0;
+  const appendEvent = <T extends SmfOutputEvent>(target: T[], event: T) => {
     if (++contentEventCount > maxContentEvents)
       throw new Error(`MIDI export exceeds the ${MAX_EVENTS.toLocaleString("en-US")} total event limit`);
+    contentEventBytes += smfByteSequenceLength(event.bytes);
+    if (contentEventBytes > MAX_BYTES)
+      throw new Error("MIDI export exceeds the 32 MiB file size limit");
     target.push(event);
   };
-  const rawEventBytesByIdentity = new WeakMap<object, number[]>();
+  const rawEventBytesByIdentity = new WeakMap<object, SmfByteSequence>();
   const earliest = tracks.reduce((minimum, track) => track.regions.reduce(
     (value, region) => Math.min(value, region.startBeats), minimum,
   ), Infinity);
@@ -869,9 +914,9 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
     metaTick = event.tick;
   }
   tempoTrack.push(0, 0xff, 0x2f, 0);
-  const chunks = [chunk("MTrk", tempoTrack)];
+  const chunks: Array<number[] | Uint8Array> = [chunk("MTrk", tempoTrack)];
   for (const track of tracks) {
-    const events: Array<{ tick: number; order: number; bytes: number[] }> = [];
+    const events: SmfOutputEvent[] = [];
     for (const region of track.regions) {
       if (region.muted) continue;
       const loopLength = region.loopLengthBeats > 0 ? region.loopLengthBeats : region.durationBeats;
@@ -931,7 +976,7 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
           ? Math.min(100_000, Math.ceil(region.durationBeats / loopLength))
           : 1;
         if (region.loop && !midiRegionContainsLoopSourceBeat(region, event.beat)) continue;
-        let bytes: number[] | undefined;
+        let bytes: SmfByteSequence | undefined;
         for (let repeat = 0; repeat < repeats; repeat++) {
           const relative = options.expandLoops && region.loop && loopLength > 0
             ? midiRegionLoopOccurrence(region, event.beat) + repeat * loopLength
@@ -981,20 +1026,54 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
       }
     }
     events.sort((a, b) => a.tick - b.tick || a.order - b.order);
-    const nameBytes = Array.from(new TextEncoder().encode(track.name.slice(0, 128)));
-    const body = [0, 0xff, 0x03, ...vlq(nameBytes.length), ...nameBytes];
+    const nameBytes = new TextEncoder().encode(track.name.slice(0, 128));
+    const namePrefix = [0, 0xff, 0x03, ...vlq(nameBytes.length)];
+    let bodyLength = namePrefix.length + nameBytes.length;
     let lastTick = 0;
     for (const event of events) {
-      body.push(...vlq(event.tick - lastTick), ...event.bytes);
+      bodyLength += vlq(event.tick - lastTick).length + smfByteSequenceLength(event.bytes);
       lastTick = event.tick;
     }
-    body.push(0, 0xff, 0x2f, 0);
-    chunks.push(chunk("MTrk", body));
+    bodyLength += 4;
+    const trackChunkLength = 8 + bodyLength;
+    const bytesBeforeTrack = 14 + chunks.reduce((length, item) => length + item.length, 0);
+    if (bytesBeforeTrack + trackChunkLength > MAX_BYTES)
+      throw new Error("MIDI export exceeds the 32 MiB file size limit");
+
+    // After the size preflight, write directly into the bounded track chunk.
+    // Raw SysEx/meta payloads stay as references until this single final copy.
+    const trackChunk = new Uint8Array(trackChunkLength);
+    trackChunk.set([0x4d, 0x54, 0x72, 0x6b], 0);
+    trackChunk.set(u32(bodyLength), 4);
+    let offset = 8;
+    trackChunk.set(namePrefix, offset);
+    offset += namePrefix.length;
+    trackChunk.set(nameBytes, offset);
+    offset += nameBytes.length;
+    lastTick = 0;
+    for (const event of events) {
+      const deltaBytes = vlq(event.tick - lastTick);
+      trackChunk.set(deltaBytes, offset);
+      offset += deltaBytes.length;
+      offset = writeSmfByteSequence(trackChunk, offset, event.bytes);
+      lastTick = event.tick;
+    }
+    if (offset + 4 !== trackChunk.length)
+      throw new Error("MIDI export track size preflight mismatch");
+    trackChunk.set([0, 0xff, 0x2f, 0], offset);
+    chunks.push(trackChunk);
   }
-  return Uint8Array.from([
-    ...chunk("MThd", [...u16(1), ...u16(chunks.length), ...u16(PPQN)]),
-    ...chunks.flat(),
-  ]);
+  const header = chunk("MThd", [...u16(1), ...u16(chunks.length), ...u16(PPQN)]);
+  const outputLength = header.length + chunks.reduce((length, item) => length + item.length, 0);
+  if (outputLength > MAX_BYTES) throw new Error("MIDI export exceeds the 32 MiB file size limit");
+  const output = new Uint8Array(outputLength);
+  output.set(header, 0);
+  let outputOffset = header.length;
+  for (const item of chunks) {
+    output.set(item, outputOffset);
+    outputOffset += item.length;
+  }
+  return output;
 }
 
 /**
