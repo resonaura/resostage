@@ -1519,3 +1519,19 @@ build, changed-file lint, and `git diff --check` passed. Official basis:
 Review and commit in English, do not push, then continue specific MIDI Clip
 conformance gaps. Keep JR support described as opaque file preservation, not
 complete live MIDI 2.0 support.
+
+Latest continuation — MIDI Clip timing Flex Data (2026-10-04): parser validates
+Set Tempo and Set Time Signature format/address/channel fields, positive tempo
+units, and reserved data; zero or unsupported time-signature denominator
+exponents remain opaque rather than being coerced. Export rejects
+unrepresentable project meters, and an opaque config-header meter is preserved
+at sequence beat zero to keep output framing parseable. Focused MIDI Clip tests
+passed 27/27; full UI passed 1,048/1,048 across 151 files; TypeScript/build,
+changed-file lint, and `git diff --check` passed. Source:
+[UMP & MIDI 2.0 Protocol v1.1.1 §§7.5.3–7.5.4]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Numerator raw zero → 256 is an implementation inference from the spec's
+1–256 range in an 8-bit field; find independent fixtures. Also preserve the
+Number of 1/32 Notes field and validate timing/bar-boundary placement before
+claiming complete Flex Data support. Commit this verified block in English,
+do not push, then continue conformance work.

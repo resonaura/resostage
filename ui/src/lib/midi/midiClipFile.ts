@@ -26,6 +26,39 @@ function packetWords(messageType: number): number {
   throw new Error("Invalid UMP message type");
 }
 
+function isSetTempoFlexMessage(words: number[]): boolean {
+  return words.length === 4 && (words[0] >>> 28) === 0xd
+    && ((words[0] >>> 8) & 0xff) === 0 && (words[0] & 0xff) === 0;
+}
+
+function isSetTimeSignatureFlexMessage(words: number[]): boolean {
+  return words.length === 4 && (words[0] >>> 28) === 0xd
+    && ((words[0] >>> 8) & 0xff) === 0 && (words[0] & 0xff) === 1;
+}
+
+function validateTimingFlexMessage(words: number[]): void {
+  const word0 = words[0];
+  const isTempo = isSetTempoFlexMessage(words);
+  const isTimeSignature = isSetTimeSignatureFlexMessage(words);
+  if (!isTempo && !isTimeSignature) return;
+
+  const name = isTempo ? "Set Tempo" : "Set Time Signature";
+  const format = (word0 >>> 22) & 0x3;
+  const address = (word0 >>> 20) & 0x3;
+  const channel = (word0 >>> 16) & 0xf;
+  if (format !== 0 || address !== 1 || channel !== 0)
+    throw new Error(`MIDI 2.0 clip ${name} has an invalid format, address, or reserved channel`);
+
+  if (isTempo) {
+    if (words[1] === 0)
+      throw new Error("MIDI 2.0 clip Set Tempo has a zero time-per-quarter-note value");
+    if (words[2] !== 0 || words[3] !== 0)
+      throw new Error("MIDI 2.0 clip Set Tempo has nonzero reserved data");
+  } else if ((words[1] & 0xff) !== 0 || words[2] !== 0 || words[3] !== 0) {
+    throw new Error("MIDI 2.0 clip Set Time Signature has nonzero reserved data");
+  }
+}
+
 class ClipReader {
   offset = 0;
   readonly bytes: Uint8Array;
@@ -159,10 +192,10 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
       }
     }
     const inProfileConfigurationHeader = !hasDctpq && !started && type === 3;
-    const flexStatusBank = (first >>> 8) & 0xff;
-    const flexStatus = first & 0xff;
-    const preDctpqTempoOrMeter = type === 0xd && words.length === 4
-      && flexStatusBank === 0 && (flexStatus === 0 || flexStatus === 1);
+    const isSetTempo = isSetTempoFlexMessage(words);
+    const isSetTimeSignature = isSetTimeSignatureFlexMessage(words);
+    if (isSetTempo || isSetTimeSignature) validateTimingFlexMessage(words);
+    const preDctpqTempoOrMeter = isSetTempo || isSetTimeSignature;
     const configurationTempoOrMeter = hasDctpq && !started && preDctpqTempoOrMeter;
     if (!hasDctpq && !started && !inProfileConfigurationHeader && !preDctpqTempoOrMeter)
       throw new Error("Only MIDI Clip profile configuration may precede DCTPQ");
@@ -206,10 +239,8 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     const word0 = words[0];
     const type = word0 >>> 28;
     const beat = relativeTicks / tpq;
-    const flexStatusBank = (word0 >>> 8) & 0xff;
-    const flexStatus = word0 & 0xff;
-    const isSetTempo = type === 0xd && flexStatusBank === 0 && flexStatus === 0 && words.length === 4;
-    const isSetTimeSignature = type === 0xd && flexStatusBank === 0 && flexStatus === 1 && words.length === 4;
+    const isSetTempo = isSetTempoFlexMessage(words);
+    const isSetTimeSignature = isSetTimeSignatureFlexMessage(words);
     if (inConfigurationHeader) {
       if (isSetTempo) {
         if (configurationTempoSeen)
@@ -237,13 +268,25 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
     if (type === 0xd) {
       if (isSetTempo) {
         const units = words[1];
-        if (units > 0) tempoEvents.push({ beat, bpm: 6_000_000_000 / units });
+        tempoEvents.push({ beat, bpm: 6_000_000_000 / units });
         continue;
       } else if (isSetTimeSignature) {
-        const numerator = (words[1] >>> 24) & 0xff;
+        // The protocol defines a 1–256 range in an 8-bit field; zero therefore
+        // encodes the maximum value of 256.
+        const numeratorField = (words[1] >>> 24) & 0xff;
+        const numerator = numeratorField === 0 ? 256 : numeratorField;
         const denominatorPower = (words[1] >>> 16) & 0xff;
-        if (numerator > 0 && denominatorPower <= 7)
+        if (denominatorPower >= 1 && denominatorPower <= 7) {
           meterEvents.push({ beat, numerator, denominator: 2 ** denominatorPower });
+        } else {
+          // Preserve non-standard and currently unsupported denominators as
+          // opaque UMP instead of misrepresenting or silently dropping them.
+          // A configuration-header meter cannot stay in the header by itself:
+          // its normalized Set Tempo is emitted in sequence data. Keep this
+          // opaque meter at sequence beat zero so export remains parseable.
+          rawEvents.push({ beat, words, wordCount: words.length,
+            ...(inSequence || isSetTimeSignature ? { presentationOrder } : {}) });
+        }
         continue;
       }
     }
@@ -552,7 +595,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     appendEvent({ beat: quantizedBeat, words: [0xd0100000, units >>> 0, 0, 0], priority: -2, order: order++ });
   }
   const rawMeterEvents = [...(options.meterEvents ?? [{ beat: 0, numerator: options.numerator, denominator: options.denominator }])]
-    .filter((item) => Number.isFinite(item.beat) && item.numerator > 0 && Number.isInteger(item.denominator))
+    .filter((item) => Number.isFinite(item.beat))
     .sort((a, b) => a.beat - b.beat);
   const effectiveMeter = rawMeterEvents.filter((item) => item.beat <= origin + 1e-9).at(-1)
     ?? { beat: origin, numerator: options.numerator, denominator: options.denominator };
@@ -564,7 +607,9 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
     const beat = item.beat;
     if (beat < -1e-9) continue;
     const power = Math.log2(item.denominator);
-    if (!Number.isInteger(power) || power < 0 || power > 7) continue;
+    if (!Number.isInteger(item.numerator) || item.numerator < 1 || item.numerator > 256
+        || !Number.isInteger(power) || power < 1 || power > 7)
+      throw new Error("MIDI Clip cannot encode this time signature as standard Set Time Signature Flex Data");
     const quantizedBeat = Math.max(0, Math.round(beat * 24) / 24);
     const word1 = (((item.numerator & 0xff) << 24) | ((power & 0xff) << 16) | (8 << 8)) >>> 0;
     appendEvent({ beat: quantizedBeat, words: [0xd0100001, word1, 0, 0], priority: -1, order: order++ });

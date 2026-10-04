@@ -193,6 +193,88 @@ describe("MIDI Clip File framing and resource bounds", () => {
     ]);
   });
 
+  it("validates Set Tempo and Set Time Signature Flex Data fields", () => {
+    const invalid = [
+      { message: /Set Tempo has an invalid format, address, or reserved channel/,
+        words: [0xd050_0000, 50_000_000, 0, 0] },
+      { message: /Set Time Signature has an invalid format, address, or reserved channel/,
+        words: [0xd000_0001, 0x0402_0800, 0, 0] },
+      { message: /Set Tempo has an invalid format, address, or reserved channel/,
+        words: [0xd011_0000, 50_000_000, 0, 0] },
+      { message: /Set Tempo has nonzero reserved data/,
+        words: [0xd010_0000, 50_000_000, 1, 0] },
+      { message: /Set Time Signature has nonzero reserved data/,
+        words: [0xd010_0001, 0x0402_0801, 0, 0] },
+      { message: /Set Tempo has a zero time-per-quarter-note value/,
+        words: [0xd010_0000, 0, 0, 0] },
+    ];
+
+    for (const fixture of invalid) {
+      expect(() => parseMidiClipFile(framedClip([
+        dcs(0), fixture.words,
+      ]))).toThrow(fixture.message);
+    }
+
+    expect(() => parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960), dcs(0), [0xd010_0001, 0x0402_0800, 0, 1],
+      dcs(0), start, dcs(0), end,
+    ]))).toThrow(/Set Time Signature has nonzero reserved data/);
+  });
+
+  it("round-trips the 256-beat numerator and retains unsupported denominator data opaquely", () => {
+    const maximumNumerator = parseMidiClipFile(framedClip([
+      dcs(0), [0xd010_0001, 0x0002_0800, 0, 0],
+    ]));
+    expect(maximumNumerator.meterEvents).toEqual([{ beat: 0, numerator: 256, denominator: 4 }]);
+
+    const maximumRoundTrip = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "256 beats", regions: [region] }],
+      { bpm: 120, numerator: 256, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+    expect(maximumRoundTrip.meterEvents).toEqual([{ beat: 0, numerator: 256, denominator: 4 }]);
+
+    const nonstandardDenominator = [0xd010_0001, 0x0400_0800, 0, 0];
+    const opaque = parseMidiClipFile(framedClip([dcs(0), nonstandardDenominator]));
+    expect(opaque.meterEvents).toEqual([]);
+    expect(opaque.tracks[0].umpEvents).toEqual([{
+      beat: 0, words: nonstandardDenominator, wordCount: 4, presentationOrder: 0,
+    }]);
+
+    const unsupportedPower = [0xd010_0001, 0x0408_0800, 0, 0];
+    const opaquePower = parseMidiClipFile(framedClip([dcs(0), unsupportedPower]));
+    expect(opaquePower.tracks[0].umpEvents).toEqual([{
+      beat: 0, words: unsupportedPower, wordCount: 4, presentationOrder: 0,
+    }]);
+
+    const unsupportedConfigurationMeter = [0xd010_0001, 0x0400_0800, 0, 0];
+    const importedConfiguration = parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960), dcs(0), setTempo120,
+      dcs(0), unsupportedConfigurationMeter,
+      dcs(0), start, dcs(0), end,
+    ]));
+    const reimported = parseMidiClipFile(writeMidiClipFile(
+      [{ name: "Opaque configuration meter", regions: [{ ...region,
+        umpEvents: importedConfiguration.tracks[0].umpEvents }] }],
+      { bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false },
+    ));
+    expect(reimported.tracks[0].umpEvents?.map(({ words }) => words))
+      .toContainEqual(unsupportedConfigurationMeter);
+  });
+
+  it("rejects time signatures the normalized project meter cannot encode", () => {
+    for (const meter of [
+      { numerator: 0, denominator: 4 },
+      { numerator: 257, denominator: 4 },
+      { numerator: 4, denominator: 1 },
+      { numerator: 4, denominator: 3 },
+    ]) {
+      expect(() => writeMidiClipFile(
+        [{ name: "Invalid meter", regions: [region] }],
+        { bpm: 120, ...meter, fromProjectStart: true, expandLoops: false },
+      )).toThrow(/cannot encode this time signature/);
+    }
+  });
+
   it("preserves distinct MIDI 2.0 Note-On and Note-Off attributes", () => {
     const parsed = parseMidiClipFile(framedClip([
       dcs(0), [0x4090_3c01, 0x9234_abcd],

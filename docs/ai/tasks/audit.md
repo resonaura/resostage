@@ -2154,3 +2154,26 @@ across 151 files; TypeScript/production build and changed-file lint passed;
 §§2.1.3 and 7.2–7.2.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 This preserves data only, not JR-clock playback semantics. Do not claim full
 MIDI 2.0 compatibility or push.
+
+### Latest continuation — MIDI Clip timing Flex Data validation (2026-10-04)
+
+Audited Set Tempo/Set Time Signature Flex Data against UMP & MIDI 2.0 Protocol
+v1.1.1 §§7.5.3–7.5.4. Parsing now validates format 0, address 1 (Group),
+reserved channel zero, nonzero tempo units, and zero reserved data. Time
+signature exponent 1–7 is normalized to denominator 2–128. Exponent 0 (the
+protocol's non-standard denominator marker) and unsupported larger exponents
+are kept as opaque UMP. An opaque non-standard meter originally in the receiver
+configuration header is moved to sequence beat zero so exporting the normalized
+tempo plus that meter cannot produce a configuration header missing its paired
+tempo. Export rejects invalid/unrepresentable project meters rather than
+silently dropping them or wrapping a numerator.
+
+The specification states numerator 1–256 in an 8-bit field; interpreting raw
+zero as 256 is explicitly an implementation inference pending a reference-file
+fixture. Supported time-signature packets still lose their Number of 1/32 Notes
+metadata, which the exporter defaults to 8. Import does not yet validate that
+Set Tempo occurs at a 1/24-quarter boundary or that Set Time Signature occurs
+at a bar boundary. Focused codec tests passed 27/27, full UI passed 1,048/1,048
+across 151 files, UI TypeScript/production build and changed-file lint passed,
+and `git diff --check` passed. Do not claim complete MIDI Clip/Flex Data
+conformance.

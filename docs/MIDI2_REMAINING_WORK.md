@@ -350,3 +350,31 @@ Focused MIDI Clip tests passed 24/24; the full UI passed 1,045/1,045 across
 151 files; TypeScript/production build and changed-file lint passed.
 `git diff --check` passed. This is opaque file preservation, not live JR timestamp
 scheduling or complete MIDI 2.0 interoperability.
+
+### Latest continuation — validate MIDI Clip timing Flex Data (2026-10-04)
+
+Set Tempo and Set Time Signature now require the Flex Data complete-message
+format, Group addressing, and reserved channel zero. Set Tempo's time-per-
+quarter value must be nonzero, and reserved data bytes for both timing messages
+must be zero. Supported time signatures map denominator exponents 1–7 to
+project denominators 2–128. Exponent zero (the specification's non-standard
+denominator marker) and exponents beyond the application's supported range
+remain opaque UMP instead of being misread or discarded. If such a meter came
+from the configuration header, it is retained as an opaque sequence event at
+beat zero so a later export does not create a malformed incomplete
+configuration header. Export now rejects unsupported/invalid project meters
+instead of silently filtering or wrapping them.
+
+The specification gives a numerator range of 1–256 in an 8-bit field; decoding
+byte zero as 256 is an implementation inference from that range and field
+width, not a separately stated encoding rule. The Number of 1/32 Notes field
+is still normalized to the export default (8) and is not retained for supported
+time signatures. Set Tempo 1/24-quarter placement and Set Time Signature bar-
+boundary placement are not yet validated on import; add reference fixtures
+before claiming complete Flex Data conformance.
+
+Rules follow [UMP & MIDI 2.0 Protocol v1.1.1 §§7.5.3–7.5.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+Focused MIDI Clip tests passed 27/27; the full UI passed 1,048/1,048 across
+151 files; TypeScript/production build, changed-file lint, and `git diff --check`
+passed. This remains file-codec support, not live UMP scheduling or complete
+MIDI 2.0 interoperability.
