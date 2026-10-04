@@ -2619,4 +2619,9 @@ maps start at SMF defaults 120 BPM and 4/4 when no beat-zero event exists, and
 later changes remain at their source beat. This also corrects late first
 tempo/meter events in Format 0/1. Focused import timing/batch/SMF tests: 82/82;
 full UI: 1,121/1,121 across 153 files; TypeScript, production build,
-changed-file oxlint and `git diff --check` passed.
+changed-file oxlint and `git diff --check` passed. Follow-up audit found the
+song's legacy `tsNum`/`tsDen` fields also need to match the imported beat-zero
+signature because timeline/grid consumers still read them. The importer now
+updates both legacy values from the normalized beat-zero signature; focused
+tests (82/82), production build, changed-file oxlint and `git diff --check`
+pass.

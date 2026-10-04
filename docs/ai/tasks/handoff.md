@@ -1942,7 +1942,7 @@ Latest verified MIDI Format 2 timing fix (2026-10-04): the “use MIDI tempo”
 path now constructs tempo and meter from the selected sequence only. If that
 sequence has no beat-zero timing event, its start uses 120 BPM / 4/4 instead of
 another Format 2 sequence's value; later map events stay at their source beat.
-This also handles late first timing events in Format 0/1. Focused timing/batch/
-SMF tests: 82/82; full UI: 1,121/1,121 across 153 files; TypeScript,
-production build, changed-file oxlint and `git diff --check` passed. Commit
-separately in English without pushing, then continue the MIDI audit.
+This also handles late first timing events in Format 0/1. The legacy song
+meter fields are now derived from the same initial meter map for old consumers.
+Focused import timing/batch/SMF tests: 82/82; production build and changed-file
+oxlint passed. Commit in English without pushing, then continue the MIDI audit.

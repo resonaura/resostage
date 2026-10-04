@@ -834,6 +834,8 @@ When importing with the project-tempo update choice, the initial BPM and meter
 are now derived only from the selected sequence's own maps. Missing beat-zero
 events use the SMF defaults (120 BPM and 4/4), rather than borrowing Format 2
 track 1's values or promoting a later event to beat zero. The same rule keeps
-later Format 0/1 tempo and meter changes at their actual beats. Focused timing,
-batch, and SMF tests passed 82/82; full UI passed 1,121/1,121 across 153 files;
-TypeScript, production build, changed-file oxlint and `git diff --check` passed.
+later Format 0/1 tempo and meter changes at their actual beats. The legacy song
+time-signature fields are updated from the same beat-zero meter so existing
+timeline/grid consumers agree with the imported signature map. Focused timing,
+batch, and SMF tests passed 82/82 with the legacy-field consistency change;
+TypeScript, production build, changed-file oxlint, and `git diff --check` passed.

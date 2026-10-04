@@ -111,7 +111,9 @@ export function ImportMidiDialog({
         activeTempoSong = { ...song, bpm, tempoPoints, signaturePoints };
         await builder.songUpdate({
           index: target?.songIndex ?? state.songIndex,
-          name: song.name, bpm, mode: song.mode, tsNum: song.tsNum, tsDen: song.tsDen,
+          name: song.name, bpm, mode: song.mode,
+          tsNum: signaturePoints[0]?.numerator ?? 4,
+          tsDen: signaturePoints[0]?.denominator ?? 4,
           click: song.click, clickBusId: song.clickBusId, clickSends: song.clickSends,
           tempoPoints, signaturePoints,
         });
