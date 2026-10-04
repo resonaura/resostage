@@ -1069,8 +1069,9 @@ uses the same renderer and sidechain scratch capacity. If a late sidechain
 would need delaying audio synthesized inside a MIDI instrument chain, Core
 does not fake alignment; it leaves the feed unpadded and warns. A complete
 solution needs per-slot main-path delay. Focused tests cover plan/renderer
-behavior, delay memory/ring reuse and this instrument edge case; full native
-CTest and optimized Core/helper build must be rerun before this block is
-committed. No real sidechain-capable AU/VST3 acoustic test was run.
+behavior, delay memory/ring reuse, stale-sample isolation after a source edit,
+and this instrument edge case; full native CTest passes. The optimized
+Core/helper build passed for the implementation commit. No real
+sidechain-capable AU/VST3 acoustic test was run.
 Active-playback/helper failure and live/offline parity remain open. Do not
 push.

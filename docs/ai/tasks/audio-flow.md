@@ -217,8 +217,8 @@ same non-realtime bus inspection and do not toggle buses merely to discover
 them. The callback does not enumerate buses or allocate.
 
 At this historical stage, the shared-memory layout was ABI v11.
-Helper-generation replacement naturally
-replaces this capability snapshot; clients must not infer "no sidechain bus"
+Helper-generation replacement naturally replaces this capability snapshot;
+clients must not infer "no sidechain bus"
 while `loadState` is loading/failed, and must check the truncation flag before
 treating an absent entry as conclusive. This discovery does not prove that a
 vendor can process the bus audibly. Unsupported saved bindings remain an
@@ -277,8 +277,9 @@ This is bounded best-effort PDC, not full compensation for every
 instrument/sidechain topology.
 
 Focused plan/renderer/delay-bank tests cover early and late source paths,
-direct-stream alignment, ring-history reuse, and the instrument-generated
-audio limitation. Re-run native tests and optimized Core/helper build before
-continuing. No real sidechain-capable AU/VST3 device test or offline render
-capture was performed; acoustic parity and active-playback edit acceptance
-remain open.
+direct-stream alignment, unchanged-ring history reuse, zeroed history after a
+sidechain source edit, and the instrument-generated audio limitation. The full
+native CTest passes after both PDC commits, and the optimized Core/helper build
+passed for the implementation commit. No real sidechain-capable AU/VST3 device
+test or offline render capture was performed; acoustic parity and active-playback
+edit acceptance remain open.

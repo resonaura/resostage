@@ -331,6 +331,61 @@ TEST_CASE("Dynamic PDC reports late sources that cannot align to instrument audi
     CHECK(view.sidechainEdgeDelays[0].process == nullptr);
 }
 
+TEST_CASE("Dynamic PDC never carries buffered samples across sidechain source edits") {
+    MixGraph graph;
+    graph.strips.resize(3);
+    graph.strips[0].id = "audio::track:source-a";
+    graph.strips[1].id = "audio::track:source-b";
+    graph.strips[2].id = "audio::track:destination";
+    graph.sidechainEdges.push_back({
+        .from = 0, .to = 2, .pluginSlotIndex = 1,
+        .inputBusIndex = 1,
+        .channelMode = SidechainChannelMode::Automatic,
+        .active = true,
+        .pluginSlotId = "compressor"});
+
+    const std::vector<uint32_t> stripLatency{0, 0, 4};
+    const std::vector<std::vector<uint32_t>> slotLatency{
+        {}, {}, {4, 0}};
+    std::vector<std::string> warnings;
+    auto previous = PluginDelayBank::build(
+        graph, stripLatency, 48000.0, warnings, nullptr, slotLatency, 8);
+    REQUIRE(warnings.empty());
+    MixProcessorView previousView;
+    previous->applyTo(previousView);
+    REQUIRE(previousView.sidechainEdgeDelays[0].process != nullptr);
+
+    std::array<float, 4> impulse{1.0f, 0.0f, 0.0f, 0.0f};
+    const float* oldLeft = nullptr;
+    const float* oldRight = nullptr;
+    previousView.sidechainEdgeDelays[0].process(
+        previousView.sidechainEdgeDelays[0].context,
+        impulse.data(), impulse.data(), static_cast<int>(impulse.size()), true,
+        &oldLeft, &oldRight);
+    REQUIRE(oldLeft != nullptr);
+
+    graph.sidechainEdges[0].from = 1;
+    auto next = PluginDelayBank::build(
+        graph, stripLatency, 48000.0, warnings, previous.get(), slotLatency, 8);
+    REQUIRE(warnings.empty());
+    MixProcessorView nextView;
+    next->applyTo(nextView);
+    REQUIRE(nextView.sidechainEdgeDelays[0].process != nullptr);
+    CHECK(nextView.sidechainEdgeDelays[0].context
+          != previousView.sidechainEdgeDelays[0].context);
+
+    std::array<float, 4> silence{};
+    const float* newLeft = nullptr;
+    const float* newRight = nullptr;
+    nextView.sidechainEdgeDelays[0].process(
+        nextView.sidechainEdgeDelays[0].context,
+        silence.data(), silence.data(), static_cast<int>(silence.size()), true,
+        &newLeft, &newRight);
+    REQUIRE(newLeft != nullptr);
+    CHECK(newLeft[0] == doctest::Approx(0.0f));
+    CHECK(newRight[0] == doctest::Approx(0.0f));
+}
+
 TEST_CASE("Dynamic PDC: builder never reads samples concurrently written by audio") {
     MixGraph graph;
     graph.strips.resize(3);
