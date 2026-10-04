@@ -162,7 +162,7 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
                   {lossReport.nonzeroGroupUmpEvents > 0 && <li>{lossReport.nonzeroGroupUmpEvents} UMP event(s) use a group other than 0; Standard MIDI has no group field</li>}
                   {lossReport.invalidUmpSysExMessages > 0 && <li>{lossReport.invalidUmpSysExMessages} SysEx7 UMP message(s) are incomplete, interrupted, or have invalid continuation ordering</li>}
                   {lossReport.zeroVelocityNoteOns > 0 && <li>{lossReport.zeroVelocityNoteOns} MIDI 2.0 zero-velocity Note On attack(s) will be raised to velocity 1 so MIDI 1.0 does not interpret them as Note Off</li>}
-                  {lossReport.quantizedVelocities > 0 && <li>{lossReport.quantizedVelocities} note(s) have velocity values that will be quantized to 7 bits</li>}
+                  {lossReport.quantizedVelocities > 0 && <li>{lossReport.quantizedVelocities} note(s) have velocity values that exceed MIDI 1.0's 14-bit high-resolution range</li>}
                   {lossReport.unsupportedUmpEvents > 0 && <li>{lossReport.unsupportedUmpEvents} UMP-only event(s) have no implemented MIDI 1.0 conversion</li>}
                 </ul>
                 <label className="flex items-start gap-2 text-foreground/80">

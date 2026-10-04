@@ -29,6 +29,15 @@ function sysex7Ump(status: number, payload: number[], group = 0): number[] {
   ];
 }
 
+function smfWithTrackEvents(events: number[]): Uint8Array {
+  return Uint8Array.from([
+    0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 1, 0xe0,
+    0x4d, 0x54, 0x72, 0x6b, (events.length >>> 24) & 0xff,
+    (events.length >>> 16) & 0xff, (events.length >>> 8) & 0xff, events.length & 0xff,
+    ...events,
+  ]);
+}
+
 const region: MidiRegionRow = {
   id: "r1", trackId: "t1", name: "Pattern", startBeats: 8,
   durationBeats: 4, clipOffsetBeats: 0, loop: false, loopLengthBeats: 4,
@@ -75,6 +84,150 @@ describe("Standard MIDI File", () => {
     expect(parsed.tracks[1].notes[0]).toMatchObject({
       pitch: 60, startBeats: 8.5, durationBeats: 1.5,
     });
+  });
+
+  it("folds MIDI 1.0 CC 88 into one-shot 14-bit note-edge velocities", () => {
+    const parsed = parseStandardMidiFile(smfWithTrackEvents([
+      0, 0xb0, 88, 25,
+      0, 0xb0, 1, 64,
+      0, 0x90, 60, 64,
+      0, 0xb0, 88, 63,
+      1, 0x80, 60, 32,
+      0, 0xff, 0x2f, 0,
+    ]));
+    const note = parsed.tracks[0].notes[0];
+
+    expect(note).toMatchObject({
+      pitch: 60,
+      channel: 0,
+      velocity: 64 / 127,
+      releaseVelocity: 32 / 127,
+      midi2: {
+        group: 0,
+        velocity: 0x8064,
+        releaseVelocity: 0x40fc,
+        attributeType: 0,
+        attributeData: 0,
+      },
+    });
+    expect(parsed.tracks[0].events).toEqual([{ beat: 0, status: 0xb0, data: [1, 64] }]);
+
+    const clip = writeMidiClipFile([{ name: "Hi-res", regions: [{
+      ...region, startBeats: 0, durationBeats: 4, events: parsed.tracks[0].events,
+      notes: parsed.tracks[0].notes,
+    }] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    });
+    expect(parseStandardMidiFile(clip).tracks[0].notes[0].midi2).toMatchObject({
+      velocity: 0x8064,
+      releaseVelocity: 0x40fc,
+    });
+  });
+
+  it("keeps CC 88 channel-scoped and consumes one prefix for only one note edge", () => {
+    const parsed = parseStandardMidiFile(smfWithTrackEvents([
+      0, 0xb0, 88, 25,
+      0, 0xb0, 1, 64,
+      0, 0x91, 67, 90,
+      0, 0x90, 60, 64,
+      0, 0x90, 61, 64,
+      1, 0x80, 60, 32,
+      0, 0x80, 61, 32,
+      0, 0x81, 67, 32,
+      0, 0xff, 0x2f, 0,
+    ]));
+    const notes = parsed.tracks[0].notes;
+
+    expect(notes.map((note) => note.pitch)).toEqual([60, 61, 67]);
+    expect(notes[0].midi2?.velocity).toBe(0x8064);
+    expect(notes[1].midi2).toBeUndefined();
+    expect(notes[2].midi2).toBeUndefined();
+  });
+
+  it("uses CC 88 for MIDI 2.0-to-MIDI 1.0 velocity export and discloses 14-bit quantization", () => {
+    const highResolution: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [{
+        ...region.notes[0],
+        startBeats: 0.5,
+        durationBeats: 1,
+        midi2: { group: 0, velocity: 0x9234, releaseVelocity: 0x4567,
+          attributeType: 0, attributeData: 0 },
+      }],
+    };
+    const tracks = [{ name: "Hi-res", regions: [highResolution] }];
+    const parsed = parseStandardMidiFile(writeStandardMidiFile(tracks, {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+
+    expect(parsed.tracks[1].notes[0].midi2).toMatchObject({
+      velocity: 0x9234,
+      releaseVelocity: 0x4564,
+    });
+    expect(parsed.tracks[1].events?.filter((event) => event.data[0] === 88)).toEqual([]);
+    expect(analyzeMidi1ExportLoss(tracks)).toMatchObject({ quantizedVelocities: 1 });
+  });
+
+  it("keeps very low nonzero MIDI 2.0 Note On velocity from becoming MIDI 1.0 Note Off", () => {
+    const lowVelocity: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [{
+        ...region.notes[0],
+        midi2: { group: 0, velocity: 1, releaseVelocity: 0,
+          attributeType: 0, attributeData: 0 },
+      }],
+    };
+    const tracks = [{ name: "Low", regions: [lowVelocity] }];
+    const parsed = parseStandardMidiFile(writeStandardMidiFile(tracks, {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+
+    expect(parsed.tracks[1].notes).toHaveLength(1);
+    expect(parsed.tracks[1].notes[0].velocity).toBe(1 / 127);
+    expect(analyzeMidi1ExportLoss(tracks)).toMatchObject({ quantizedVelocities: 1, zeroVelocityNoteOns: 0 });
+  });
+
+  it("adds CC 88 when converting raw MIDI 2.0 Note UMPs to an SMF note", () => {
+    const source: MidiRegionRow = {
+      ...region,
+      startBeats: 0,
+      durationBeats: 4,
+      notes: [],
+      umpEvents: [
+        { beat: 0.5, words: [0x40903c00, 0x92340000], wordCount: 2 },
+        { beat: 1.5, words: [0x40803c00, 0x45670000], wordCount: 2 },
+      ],
+    };
+    const parsed = parseStandardMidiFile(writeStandardMidiFile([{ name: "UMP note", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    }));
+
+    expect(parsed.tracks[1].notes[0].midi2).toMatchObject({
+      velocity: 0x9234,
+      releaseVelocity: 0x4564,
+    });
+    expect(parsed.tracks[1].events?.filter((event) => event.data[0] === 88)).toEqual([]);
+    expect(analyzeMidi1ExportLoss([{ name: "UMP note", regions: [source] }]).quantizedVelocities).toBe(1);
+  });
+
+  it("ignores a CC 88 prefix before a zero-velocity Note On used as Note Off", () => {
+    const parsed = parseStandardMidiFile(smfWithTrackEvents([
+      0, 0xb0, 88, 25,
+      0, 0x90, 60, 64,
+      0, 0xb0, 88, 99,
+      1, 0x90, 60, 0,
+      0, 0xff, 0x2f, 0,
+    ]));
+
+    expect(parsed.tracks[0].notes[0].midi2).toMatchObject({
+      velocity: 0x8064,
+      releaseVelocity: 0,
+    });
+    expect(parsed.tracks[0].events).toEqual([]);
   });
 
   it("preserves malformed time-signature meta payloads as ordinary MIDI events", () => {
@@ -430,9 +583,10 @@ describe("Standard MIDI File", () => {
       { beat: 0.25, status: 0xb0, data: [32, 4] },
       { beat: 0.5, status: 0xb0, data: [101, 0] },
       { beat: 0.75, status: 0xb0, data: [6, 12] },
+      { beat: 1, status: 0xb0, data: [88, 25] },
     ]);
     expect(converted.events).toEqual([]);
-    expect(converted.unsupportedEventCount).toBe(3);
+    expect(converted.unsupportedEventCount).toBe(4);
   });
 
   it("converts complete MIDI 1.0 RPN data entry to a MIDI 2.0 Registered Controller", () => {

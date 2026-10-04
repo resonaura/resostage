@@ -1714,3 +1714,18 @@ prior handoff note that RPN/NRPN conversion was open. Next: implement CC 88
 High Resolution Velocity Prefix by associating it with note edges, preserving
 source ordering and lossy-export analysis; do not treat CC 88 as a generic CC.
 Commit in English; do not push.
+
+Latest verified continuation — MIDI 1.0 High Resolution Velocity Prefix
+(2026-10-04): CC 88 is now paired with the next same-channel SMF Note On/Off,
+with arbitrary intervening messages, one-shot consumption, and the CA-031
+velocity-zero Note On exception. Matched 14-bit attack/release values are
+upscaled to the note's MIDI 2.0 data; MIDI 2.0 `.mid` export downscales to
+14-bit and emits CC 88 only when its low seven bits carry information. Loss
+analysis warns when 16-bit MIDI 2.0 values are quantized beyond that range.
+Orphan prefixes stay raw and are reported if converted to MIDI Clip. Focused
+MIDI tests 86/86; full UI 1,086/1,086 across 151 files; TypeScript, production
+build, changed-file oxlint and `git diff --check` passed. Sources: MIDI
+Association CA-031 and UMP & MIDI 2.0 Protocol v1.1.1 §§D.1/D.2.1. This closes
+the file-codec CC 88 task only; live input, MIDI Clip note-edge encoding and
+cross-DAW certification remain out of scope. Continue with another bounded
+interoperability gap; commit verified work in English and do not push.

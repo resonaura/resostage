@@ -94,17 +94,25 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   RPN/NRPN UMPs expand to the ordered MIDI 1.0 selector MSB, selector LSB,
   Data Entry MSB, and Data Entry LSB messages; reserved address bits are
   rejected. In the reverse direction, MIDI 1.0 CC 0/32 are accumulated per
-  channel and folded into the next Program Change, while RPN/NRPN CC sequences
-  are assembled per channel and converted using Appendix D.1 min/center/max
-  scaling. Unmatched Bank Select, orphan Data Entry, null/incomplete parameter
-  sequences, and the high-resolution velocity prefix are never mislabeled as
-  ordinary MIDI 2.0 CCs. Bank and parameter state is scoped to each source
-  region during MIDI Clip export and is not yet shared across DAW regions.
-  RPN/NRPN conversion has per-channel selector/data state, emits the prior
-  Data Entry value when the next selector or MSB closes it, supports the
-  optional LSB, ignores the legal RPN null selection, and reports orphan or
-  incomplete Data Entry. Values use the default MIDI 2.0 min/center/max
-  scaling in both directions.
+  channel and folded into the next Program Change. RPN/NRPN CC sequences are
+  assembled per channel: CC 6 is buffered until CC 38, a following selector or
+  Data Entry MSB, or end-of-track; CC 38 is optional. The legal RPN null
+  selection is ignored, while unmatched Bank Select, orphan/incomplete Data
+  Entry, and incomplete parameter selection are reported rather than encoded
+  as ordinary MIDI 2.0 CCs. Both directions use Appendix D.1 min/center/max
+  scaling. Bank and parameter state is scoped to each source region during
+  MIDI Clip export and is not yet shared across DAW regions.
+- Standard MIDI File import folds MIDI Association CA-031 CC 88 High Resolution
+  Velocity Prefix into the next Note On/Off velocity on the same channel;
+  other MIDI messages may intervene, each note edge consumes the prefix
+  once, and a zero-velocity Note On used as Note Off ignores it. Matched
+  prefixes are stored in the note's MIDI 2.0 16-bit velocity fields; unpaired
+  CC 88 remains a raw event and is reported when MIDI Clip export cannot map it.
+  MIDI 2.0 note-to-SMF export emits CC 88 when the 14-bit value has a nonzero
+  low component, preserving the MIDI 1.0 high-resolution representation.
+  Conversion from 16-bit to 14-bit velocity is included in the export loss
+  analysis. Reference: [MIDI Association CA-031](https://midi.org/high-resolution-velocity-prefix)
+  and UMP & MIDI 2.0 Protocol v1.1.1 §D.2.1.
 - Exporting a subset from a nonzero timeline origin carries the effective
   tempo and meter at that origin into beat zero of the exported clip.
 - MIDI Clip export follows region mute, trim and loop placement. At an exact
@@ -187,13 +195,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   semantics, vendor-specific translations, and arbitrary system/meta events
   are not synthesized automatically. An SMF F7 event without an open F0 is
   ambiguous between a continuation and an escape event; ResoStage does not
-  guess. MIDI 1.0 High Resolution Velocity Prefix (CC 88) is currently
-  reported as unsupported, not converted: SMF parsing normalizes note events
-  separately from raw controller events, so correct prefix association needs
-  persisted source ordering and note-edge representation rather than a
-  controller-only conversion. Bank and RPN/NRPN state is scoped to each region
-  during MIDI Clip export. MPE/vendor encodings are not synthesized
-  automatically.
+  guess. An unpaired MIDI 1.0 CC 88 prefix remains unrepresentable in the MIDI
+  Clip event stream and is disclosed; successfully matched prefixes are attached
+  to notes. Bank and RPN/NRPN state is scoped to each region during MIDI Clip
+  export. MPE/vendor encodings are not synthesized automatically.
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay

@@ -2388,3 +2388,22 @@ production build, changed-file oxlint and `git diff --check` passed. Basis:
 (https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
 This closes the earlier RPN/NRPN gap. CC 88 High Resolution Velocity Prefix
 still needs note-edge integration; do not encode it as a generic CC.
+
+Latest verified continuation — MIDI 1.0 High Resolution Velocity Prefix
+(2026-10-04): Standard MIDI File import now associates CC 88 with the next
+Note On/Off event on the same channel, allowing intervening messages and
+consuming one prefix once. Velocity-zero Note On consumes but ignores the
+prefix, preserving its Note Off meaning. Matched edge values are scaled from
+14-bit to MIDI 2.0 16-bit and attached to note data; an edge without CC 88
+retains ordinary MIDI 1.0 scaling. MIDI 2.0 note export emits CC 88 when the
+14-bit downscaled velocity has a nonzero low component, and the `.mid` loss
+report counts values outside the representable 14-bit range. Unmatched CC 88
+remains a raw event, disclosed when exporting to MIDI Clip. Regression tests
+cover channel isolation, one-shot behavior, interspersed messages, both note
+edges, velocity-zero Note On, low nonzero MIDI 2.0 attacks, export/import, and
+loss reporting. Focused MIDI tests passed 86/86; full UI passed 1,086/1,086
+across 151 files; TypeScript, production build, changed-file oxlint and
+`git diff --check` passed. Basis: [MIDI Association CA-031](https://midi.org/high-resolution-velocity-prefix)
+and [UMP & MIDI 2.0 Protocol v1.1.1 §§D.1 and D.2.1](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
+This is file-codec support, not a claim that live MIDI or MIDI Clip can carry
+CC 88's note-edge modifier as an independent event.

@@ -133,7 +133,16 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
     const events: ImportedMidiTrack["events"] = [];
     const trackTempoEvents: NonNullable<ImportedMidiTrack["tempoEvents"]> = [];
     const trackMeterEvents: NonNullable<ImportedMidiTrack["meterEvents"]> = [];
-    const held = new Map<number, Array<{ tick: number; velocity: number }>>();
+    const held = new Map<number, Array<{
+      tick: number;
+      velocity: number;
+      velocity14?: number;
+    }>>();
+    const pendingVelocityPrefixByChannel = new Map<number, {
+      value: number;
+      event: NonNullable<ImportedMidiTrack["events"]>[number];
+    }>();
+    const consumedVelocityPrefixes = new Set<NonNullable<ImportedMidiTrack["events"]>[number]>();
     while (reader.offset < trackEnd) {
       if (++totalEventCount > MAX_EVENTS) throw new Error("MIDI file has too many events");
       tick += reader.vlq();
@@ -210,21 +219,37 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
       const data2 = kind === 0xc0 || kind === 0xd0 ? 0 : reader.byte();
       if (reader.offset > trackEnd) throw new Error("MIDI event exceeds track chunk");
       if (kind !== 0x80 && kind !== 0x90) {
-        events.push({ beat: musicalPosition(tick), status,
-          data: kind === 0xc0 || kind === 0xd0 ? [data1] : [data1, data2] });
+        const event = { beat: musicalPosition(tick), status,
+          data: kind === 0xc0 || kind === 0xd0 ? [data1] : [data1, data2] };
+        events.push(event);
+        if (kind === 0xb0 && data1 === 88 && data2 <= 0x7f) {
+          const supersededPrefix = pendingVelocityPrefixByChannel.get(channel);
+          if (supersededPrefix) consumedVelocityPrefixes.add(supersededPrefix.event);
+          pendingVelocityPrefixByChannel.set(channel, { value: data2, event });
+        }
         continue;
       }
       const key = channel * 128 + data1;
       if (kind === 0x90 && data2 > 0) {
+        const prefix = pendingVelocityPrefixByChannel.get(channel);
+        pendingVelocityPrefixByChannel.delete(channel);
+        if (prefix) consumedVelocityPrefixes.add(prefix.event);
         const queue = held.get(key) ?? [];
-        queue.push({ tick, velocity: data2 });
+        queue.push({ tick, velocity: data2,
+          ...(prefix ? { velocity14: (data2 << 7) | prefix.value } : {}) });
         held.set(key, queue);
       } else {
+        const prefix = pendingVelocityPrefixByChannel.get(channel);
+        pendingVelocityPrefixByChannel.delete(channel);
         const start = held.get(key)?.shift();
         if (!start) {
           events.push({ beat: musicalPosition(tick), status, data: [data1, data2] });
           continue;
         }
+        if (prefix) consumedVelocityPrefixes.add(prefix.event);
+        const releaseVelocity14 = kind === 0x80 && prefix
+          ? (data2 << 7) | prefix.value
+          : undefined;
         notes.push({
           id: nextId++,
           pitch: data1,
@@ -234,6 +259,7 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
           velocity: start.velocity / 127,
           releaseVelocity: data2 / 127,
           probability: 1,
+          midi2: midi1NoteMidi2Data(start.velocity14, releaseVelocity14, start.velocity, data2),
         });
       }
     }
@@ -244,10 +270,12 @@ export function parseStandardMidiFile(bytes: Uint8Array): ImportedMidiFile {
         startBeats: musicalPosition(start.tick),
         durationBeats: Math.max(0, musicalPosition(tick) - musicalPosition(start.tick)),
         velocity: start.velocity / 127, releaseVelocity: 0, probability: 1,
+        midi2: midi1NoteMidi2Data(start.velocity14, undefined, start.velocity, 0),
       });
     }
     notes.sort((a, b) => a.startBeats - b.startBeats || a.pitch - b.pitch);
-    result.tracks.push({ name, notes, events, tempoEvents: trackTempoEvents, meterEvents: trackMeterEvents,
+    const retainedEvents = events.filter((event) => !consumedVelocityPrefixes.has(event));
+    result.tracks.push({ name, notes, events: retainedEvents, tempoEvents: trackTempoEvents, meterEvents: trackMeterEvents,
       durationBeats: musicalPosition(tick) });
     reader.offset = trackEnd;
   }
@@ -349,6 +377,33 @@ function scaleMidi1VelocityToMidi2(value: number): number {
   return ((value << 9) | (repeated << 3) | (repeated >>> 3)) & 0xffff;
 }
 
+/** MIDI 2.0 Appendix D.1.3 min/center/max upscaling from 14 to 16 bits. */
+function scaleMidi1HighResolutionVelocityToMidi2(value: number): number {
+  const shifted = (value << 2) & 0xffff;
+  if (value <= 0x2000) return shifted;
+  return shifted | ((value & 0x1fff) >>> 11);
+}
+
+function midi1NoteMidi2Data(
+  attackVelocity14: number | undefined,
+  releaseVelocity14: number | undefined,
+  attackVelocity7: number,
+  releaseVelocity7: number,
+): MidiNoteRow["midi2"] {
+  if (attackVelocity14 === undefined && releaseVelocity14 === undefined) return undefined;
+  return {
+    group: 0,
+    velocity: attackVelocity14 === undefined
+      ? scaleMidi1VelocityToMidi2(attackVelocity7)
+      : scaleMidi1HighResolutionVelocityToMidi2(attackVelocity14),
+    releaseVelocity: releaseVelocity14 === undefined
+      ? scaleMidi1VelocityToMidi2(releaseVelocity7)
+      : scaleMidi1HighResolutionVelocityToMidi2(releaseVelocity14),
+    attributeType: 0,
+    attributeData: 0,
+  };
+}
+
 function regionContainsExportSourceBeat(region: MidiRegionRow, beat: number): boolean {
   if (!Number.isFinite(beat)
       || (region.loop && !midiRegionContainsLoopSourceBeat(region, beat))) return false;
@@ -412,8 +467,8 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
       // In UMP MIDI 2.0, zero is a valid Note On attack. MIDI 1.0 interprets
       // velocity-zero Note On as Note Off, so the exporter raises it to 1.
       if (on === 0) report.zeroVelocityNoteOns++;
-      if ((on !== 0 && scaleMidi1VelocityToMidi2(on >>> 9) !== on)
-        || scaleMidi1VelocityToMidi2(off >>> 9) !== off)
+      if ((on !== 0 && scaleMidi1HighResolutionVelocityToMidi2(Math.max(0x80, on >>> 2)) !== on)
+        || scaleMidi1HighResolutionVelocityToMidi2(off >>> 2) !== off)
         report.quantizedVelocities++;
     }
     const selectedUmpEvents = (region.umpEvents ?? []).filter((event) =>
@@ -445,7 +500,7 @@ export function analyzeMidi1ExportLoss(tracks: MidiExportTrack[]): Midi1LossRepo
         const value = event.words[1] >>> 0;
         const velocity = value >>> 16;
         if (status === 9 && velocity === 0) report.zeroVelocityNoteOns++;
-        else if (scaleMidi1VelocityToMidi2(velocity >>> 9) !== velocity)
+        else if (scaleMidi1HighResolutionVelocityToMidi2(Math.max(0x80, velocity >>> 2)) !== velocity)
           report.quantizedVelocities++;
         if ((first & 0xff) !== 0 || (value & 0xffff) !== 0)
           report.noteAttributes++;
@@ -610,10 +665,19 @@ function umpEventToMidi1(words: number[], wordCount: number): Midi1EventFromUmp 
       ],
     };
   }
-  if (status === 0x8) return { status: statusByte, data: [data1, scale32To7(value32)], group };
-  if (status === 0x9) return {
-    status: statusByte, data: [data1, Math.max(1, scale32To7(value32))], group,
-  };
+  if (status === 0x8 || status === 0x9) {
+    const velocity16 = value32 >>> 16;
+    const velocity14 = status === 0x9 ? Math.max(0x80, velocity16 >>> 2) : velocity16 >>> 2;
+    const velocityLsb = velocity14 & 0x7f;
+    return {
+      status: statusByte,
+      data: [data1, status === 0x9 ? Math.max(1, velocity14 >>> 7) : velocity14 >>> 7],
+      group,
+      ...(velocityLsb !== 0 ? {
+        precedingMessages: [{ status: 0xb0 | channel, data: [88, velocityLsb] }],
+      } : {}),
+    };
+  }
   if (status === 0xa) return { status: statusByte, data: [data1, scale32To7(value32)], group };
   if (status === 0xb) return { status: statusByte, data: [data1, scale32To7(value32)], group };
   if (status === 0xd) return { status: statusByte, data: [scale32To7(value32)], group };
@@ -712,16 +776,36 @@ export function writeStandardMidiFile(tracks: MidiExportTrack[], options: MidiEx
             relative + Math.min(note.durationBeats, availableInLoop),
           ) - origin) * PPQN));
           const pitch = Math.max(0, Math.min(127, Math.round(note.pitch)));
-          const midi1Velocity = note.midi2 ? note.midi2.velocity >>> 9 : Math.round(note.velocity * 127);
-          const velocity = Math.max(1, Math.min(127, midi1Velocity));
           const channel = Math.max(0, Math.min(15, Math.round(note.channel ?? 0)));
           const isInstantaneous = end === start;
+          const attackVelocity14 = note.midi2
+            ? Math.max(0, Math.min(0xffff, Math.round(note.midi2.velocity))) >>> 2
+            : undefined;
+          const midi1Velocity = attackVelocity14 === undefined
+            ? Math.round(note.velocity * 127)
+            : Math.max(0x80, attackVelocity14) >>> 7;
+          const velocity = Math.max(1, Math.min(127, midi1Velocity));
+          const attackVelocityLsb = attackVelocity14 === undefined
+            ? 0
+            : Math.max(0x80, attackVelocity14) & 0x7f;
+          const attackOrder = isInstantaneous ? 2 : 4;
+          if (attackVelocityLsb !== 0)
+            events.push({ tick: start, order: attackOrder, bytes: [0xb0 | channel, 88, attackVelocityLsb] });
           events.push({ tick: start, order: isInstantaneous ? 2 : 4,
             bytes: [0x90 | channel, pitch, velocity] });
-          const midi1ReleaseVelocity = note.midi2 ? note.midi2.releaseVelocity >>> 9 : Math.round(note.releaseVelocity * 127);
+          const releaseVelocity14 = note.midi2
+            ? Math.max(0, Math.min(0xffff, Math.round(note.midi2.releaseVelocity))) >>> 2
+            : undefined;
+          const midi1ReleaseVelocity = releaseVelocity14 === undefined
+            ? Math.round(note.releaseVelocity * 127)
+            : releaseVelocity14 >>> 7;
+          const releaseVelocityLsb = releaseVelocity14 === undefined ? 0 : releaseVelocity14 & 0x7f;
+          const releaseOrder = isInstantaneous ? 3 : 0;
+          if (releaseVelocityLsb !== 0)
+            events.push({ tick: end, order: releaseOrder, bytes: [0xb0 | channel, 88, releaseVelocityLsb] });
           events.push({ tick: end, order: isInstantaneous ? 3 : 0,
             bytes: [0x80 | channel, pitch, Math.max(0, Math.min(127, midi1ReleaseVelocity))] });
-          totalEvents += 2;
+          totalEvents += 2 + Number(attackVelocityLsb !== 0) + Number(releaseVelocityLsb !== 0);
           if (events.length > MAX_EVENTS || totalEvents > 400_000)
             throw new Error("MIDI export exceeds event limit");
         }
