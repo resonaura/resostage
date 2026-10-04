@@ -118,44 +118,57 @@ function isPropertyExchangePrefix(prefix: number[]): boolean {
     && prefix[3] <= 0x3f;
 }
 
-/** Reject MIDI-CI Property Exchange SysEx7 messages from sequence data. */
-export function assertNoMidiClipPropertyExchange(sequencePackets: number[][]): void {
+function validateSysEx7Messages(
+  packets: number[][],
+  scope: "sequence" | "receiver configuration",
+  rejectPropertyExchange: boolean,
+): void {
   const active = new Map<number, SysEx7MessageState>();
 
-  for (const words of sequencePackets) {
+  for (const words of packets) {
     if ((words[0] >>> 28) !== 3) continue;
     const { group, status, bytes } = sysEx7Payload(words);
     const current = active.get(group);
 
     if (status === 0) {
       if (current)
-        throw new Error("MIDI Clip sequence has a complete SysEx7 packet before its previous message ended");
+        throw new Error(`MIDI Clip ${scope} has a complete SysEx7 packet before its previous message ended`);
       const complete = { byteCount: 0, prefix: [] as number[] };
       appendPayload(complete, bytes);
-      if (isPropertyExchangePrefix(complete.prefix))
+      if (rejectPropertyExchange && isPropertyExchangePrefix(complete.prefix))
         throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
       continue;
     }
 
     if (status === 1) {
       if (current)
-        throw new Error("MIDI Clip sequence has a SysEx7 start before its previous message ended");
+        throw new Error(`MIDI Clip ${scope} has a SysEx7 start before its previous message ended`);
       const started = { byteCount: 0, prefix: [] as number[] };
       appendPayload(started, bytes);
-      if (isPropertyExchangePrefix(started.prefix))
+      if (rejectPropertyExchange && isPropertyExchangePrefix(started.prefix))
         throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
       active.set(group, started);
       continue;
     }
 
     if (!current)
-      throw new Error("MIDI Clip sequence has a SysEx7 continuation without a matching start");
+      throw new Error(`MIDI Clip ${scope} has a SysEx7 continuation without a matching start`);
     appendPayload(current, bytes);
-    if (isPropertyExchangePrefix(current.prefix))
+    if (rejectPropertyExchange && isPropertyExchangePrefix(current.prefix))
       throw new Error("MIDI-CI Property Exchange messages are not allowed in MIDI Clip Sequence Data");
     if (status === 3) active.delete(group);
   }
 
   if (active.size > 0)
-    throw new Error("MIDI Clip sequence contains an incomplete SysEx7 message");
+    throw new Error(`MIDI Clip ${scope} contains an incomplete SysEx7 message`);
+}
+
+/** Validate SysEx7 framing in receiver setup without interpreting its payload. */
+export function validateMidiClipReceiverConfigurationPackets(packets: number[][]): void {
+  validateSysEx7Messages(packets, "receiver configuration", false);
+}
+
+/** Reject MIDI-CI Property Exchange SysEx7 messages from sequence data. */
+export function assertNoMidiClipPropertyExchange(sequencePackets: number[][]): void {
+  validateSysEx7Messages(sequencePackets, "sequence", true);
 }

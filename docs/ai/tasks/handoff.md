@@ -1888,3 +1888,11 @@ UI: 1,108/1,108 across 151 files; TypeScript, production build, changed-file
 oxlint and diff check passed. The rule follows UMP & MIDI 2.0 Protocol v1.1.1
 §7.3. Review and commit in English without pushing, then continue the MIDI Clip
 and Standard MIDI File codec audit.
+
+Latest verified receiver-configuration SysEx7 validation (2026-10-04): MIDI
+Clip import and export now validate status/count, 7-bit bytes, zero padding,
+and complete/start/continue/end framing for SysEx7 in the receiver header
+after DCTPQ. Sequence-specific Property Exchange rejection remains scoped to
+sequence data. Focused MIDI Clip tests: 38/38; full UI: 1,109/1,109 across
+151 files; TypeScript, production build, changed-file oxlint and diff check
+passed. Review/commit in English without pushing, then continue the codec audit.

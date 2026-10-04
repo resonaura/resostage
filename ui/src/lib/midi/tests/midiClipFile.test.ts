@@ -639,6 +639,43 @@ describe("MIDI Clip File framing and resource bounds", () => {
       .toBeGreaterThan(roundTrip.tracks[0].umpEvents?.[3].presentationOrder ?? -1);
   });
 
+  it("validates receiver-configuration SysEx7 packet framing on import and export", () => {
+    const valid = sysex7Packet(0, 0, [0x41, 0x42]);
+    const parsed = parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960),
+      dcs(0), valid,
+      dcs(0), start,
+      dcs(0), end,
+    ]));
+    expect(parsed.tracks[0].umpEvents).toContainEqual({
+      beat: 0, words: valid, wordCount: 2, configurationHeader: true,
+    });
+
+    const invalidPadding = sysex7Packet(0, 0, [0x41]);
+    invalidPadding[1] |= 1;
+    const invalidConfiguration = [
+      { packets: [sysex7Packet(0, 0, [1, 2, 3, 4, 5, 6, 7])], message: /invalid status or byte count/ },
+      { packets: [invalidPadding], message: /invalid data or nonzero padding/ },
+      { packets: [sysex7Packet(0, 1, [0x41])], message: /receiver configuration contains an incomplete SysEx7 message/ },
+    ];
+    for (const fixture of invalidConfiguration) {
+      expect(() => parseMidiClipFile(makeClip([
+        dcs(0), dctpq(960),
+        ...fixture.packets.flatMap((packet) => [dcs(0), packet]),
+        dcs(0), start,
+        dcs(0), end,
+      ]))).toThrow(fixture.message);
+    }
+
+    const source: MidiRegionRow = {
+      ...region,
+      umpEvents: [{ beat: 0, words: invalidPadding, wordCount: 2, configurationHeader: true }],
+    };
+    expect(() => writeMidiClipFile([{ name: "Invalid receiver setup", regions: [source] }], {
+      bpm: 120, numerator: 4, denominator: 4, fromProjectStart: true, expandLoops: false,
+    })).toThrow(/invalid data or nonzero padding/);
+  });
+
   it("rejects profile prefixes that are not complete MIDI-CI Set Profile On messages", () => {
     const profile = setProfileOnPackets();
     const profileOff = sysex7Packet(0, 0,

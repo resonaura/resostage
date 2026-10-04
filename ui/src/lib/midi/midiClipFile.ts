@@ -9,6 +9,7 @@ import type { ImportedMidiFile, ImportedMidiTrack, MidiExportOptions, MidiExport
 import { midiRegionContainsLoopSourceBeat, midiRegionLoopOccurrence } from "@/lib/midi/midiRegionTiming";
 import {
   assertNoMidiClipPropertyExchange,
+  validateMidiClipReceiverConfigurationPackets,
   validateMidiClipProfilePackets,
 } from "@/lib/midi/midiClipProfile";
 
@@ -235,6 +236,9 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
   }
   if (!tpq) throw new Error("MIDI 2.0 clip is missing DCTPQ");
   if (!started || !ended) throw new Error("MIDI 2.0 clip is missing Start/End of Clip markers");
+  validateMidiClipReceiverConfigurationPackets(packets
+    .filter((packet) => packet.inConfigurationHeader && (packet.words[0] >>> 28) === 3)
+    .map((packet) => packet.words));
   validateMidiClipProfilePackets(packets
     .filter((packet) => packet.inProfileConfigurationHeader)
     .map((packet) => packet.words));
@@ -1108,6 +1112,7 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   events.sort(compareClipEvents);
   profileConfigurationPackets.sort((a, b) => a.order - b.order);
   receiverConfigurationPackets.sort((a, b) => a.order - b.order);
+  validateMidiClipReceiverConfigurationPackets(receiverConfigurationPackets.map((packet) => packet.words));
   validateMidiClipProfilePackets(profileConfigurationPackets.map((packet) => packet.words));
   assertNoMidiClipPropertyExchange(events.map((event) => event.words));
 

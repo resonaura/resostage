@@ -757,3 +757,14 @@ tests passed 37/37; full UI passed 1,108/1,108 across 151 files; TypeScript,
 production build, changed-file oxlint, and `git diff --check` passed. Basis:
 [UMP & MIDI 2.0 Protocol v1.1.1 §7.3](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf)
 and the MIDI 1.0 channel-voice data-byte rules.
+
+### Latest continuation — validate receiver-configuration SysEx7 (2026-10-04)
+
+MIDI Clip parsing and export now validate SysEx7 packet status, byte count,
+7-bit payload, zero padding, and complete/start/continue/end framing in the
+receiver configuration header after DCTPQ. Previously, unlike sequence and
+profile-prefix packets, malformed receiver-setup SysEx7 could be retained or
+written. Regressions cover valid preservation plus bad count, padding, and an
+unfinished message on both import/export paths. Focused MIDI Clip tests passed
+38/38; full UI passed 1,109/1,109 across 151 files; TypeScript, production
+build, changed-file oxlint, and `git diff --check` passed.

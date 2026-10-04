@@ -2560,3 +2560,12 @@ and dropped the original UMP. Tests cover both byte positions. Focused MIDI
 Clip tests passed 37/37; full UI passed 1,108/1,108 across 151 files;
 TypeScript, production build, changed-file oxlint and `git diff --check`
 passed. Basis: UMP & MIDI 2.0 Protocol v1.1.1 §7.3.
+
+Latest MIDI Clip receiver-header validation (2026-10-04): receiver
+configuration SysEx7 packets after DCTPQ now receive the same structural
+validation as sequence SysEx7, without applying sequence-specific Property
+Exchange policy. Invalid packet status/count, 7-bit payload, nonzero padding,
+and incomplete fragment sequences reject on import and export. Tests cover
+valid round-trip and these failures. Focused MIDI Clip tests passed 38/38;
+full UI passed 1,109/1,109 across 151 files; TypeScript, production build,
+changed-file oxlint and `git diff --check` passed.
