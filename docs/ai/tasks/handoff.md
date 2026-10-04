@@ -1255,8 +1255,22 @@ files. The production build emits the editor and packet logic as lazy chunks;
 this is a build-size observation, not a runtime performance benchmark. No
 manual Electron visual or physical MIDI 2.0 endpoint acceptance was performed.
 
-Remaining MIDI 2.0 work includes group/channel-specific canvas lanes and direct
-32-bit lane gestures, broader codec/conformance fixtures, native UMP device
-I/O and capability negotiation, and device acceptance. Do not claim full native
-MIDI 2.0 compatibility; live plugin/external dispatch still uses the documented
-MIDI 1.0 adaptation path.
+### Latest continuation — UMP preview Group/Channel filters (2026-10-04)
+
+Recognized UMP CC/Pitch Bend preview lanes now provide independent Group and
+Channel selectors with All as the default. Choice discovery is bounded and
+lane-specific. Group changes clear Channel; stale selections are reset when
+source edits remove their group/channel. Projection filters packets before
+applying the same trimmed/looped region timing. No packet data is mutated and
+the existing semantic event dialog remains the only UMP editor.
+
+Verification: focused controller-lane tests 24/24, full UI 977/977 across 146
+files, TypeScript, staged production build, repository lint (12 pre-existing
+warnings) and `git diff --check` passed. No manual Electron or native-device
+acceptance was performed. Continue with direct 32-bit lane gestures only after
+designing an explicit gesture/selection model that cannot accidentally edit
+opaque UMP; test exact preservation of all untouched packet words and history
+acknowledgement/retry. Broader codec conformance fixtures and native UMP I/O /
+capability negotiation also remain open. Do not claim full native MIDI 2.0
+compatibility: live plugin/external dispatch still uses the documented MIDI
+1.0 adaptation path.

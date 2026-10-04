@@ -54,7 +54,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
   history transaction. Time edits retain the 32-bit data word; group, channel,
   CC index and full unsigned 32-bit value are explicit fields. Unknown, malformed
   and reserved packets are not editable and remain unchanged. Pending region
-  creation also carries its UMP collection through the follow-up update.
+  creation also carries its UMP collection through the follow-up update. UMP
+  controller preview has independent Group and Channel filters, defaults to
+  All, discovers choices only from recognized packets in the selected lane,
+  and clears stale selections when a source group/channel disappears.
 
 ## Known limitations
 
@@ -81,10 +84,10 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
 - Piano Roll UMP lanes currently recognize only well-formed two-word MIDI 2.0
   Channel Voice CC and channel Pitch Bend messages with ordinary MIDI 1.0
   fallback semantics. Reserved compound CCs and unsupported packet kinds stay
-  opaque. Lane gestures are still preview-only; semantic editing is through the
-  UMP event dialog and uses source beat positions. Per-group/channel lane
-  filtering, direct 32-bit canvas gestures, multi-event selection and curve/
-  smoothing tools remain open.
+  opaque. Group/channel filters scope the preview; canvas gestures are still
+  read-only, while semantic editing is through the UMP event dialog and uses
+  source beat positions. Direct 32-bit canvas gestures, multi-event selection
+  and curve/smoothing tools remain open.
 - The importer has focused unit coverage but no maintained conformance corpus
   from other DAWs and no broad cross-application round-trip certification.
 
@@ -111,8 +114,8 @@ which stores one timed UMP stream. It is distinct from Standard MIDI Files
    notes; extend the project note model only where round-trip requirements
    justify it.
 2. **Continue Piano Roll MIDI 2.0 UMP authoring:** the bounded semantic editor
-   for recognized CC/Pitch Bend packets is implemented. Add group/channel-aware
-   lane filtering and direct lane gestures only with tests proving that a
+   and group/channel preview filters for recognized CC/Pitch Bend packets are
+   implemented. Add direct lane gestures only with tests proving that a
    time-only edit preserves every non-time field, values remain full 32-bit,
    unknown/reserved packets remain untouched, and mutations use the exact
    MIDI-region history/acknowledgement path.

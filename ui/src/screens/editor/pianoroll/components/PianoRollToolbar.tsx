@@ -163,6 +163,26 @@ export function PianoRollToolbar(props: PianoRollToolbarProps) {
                 <ToggleButton id="automation" aria-label="Edit automation">Automation</ToggleButton>
               </ToggleButtonGroup>
             )}
+            {umpPreviewLane && props.umpGroupOptions && props.onUmpGroupFilterChange && (
+              <Select size="sm" fullWidth={false} aria-label="MIDI 2.0 group filter"
+                options={props.umpGroupOptions}
+                value={props.umpGroupFilter === null || props.umpGroupFilter === undefined
+                  ? "all" : String(props.umpGroupFilter)}
+                onChange={(value) => props.onUmpGroupFilterChange?.(
+                  value === "all" ? null : Number(value),
+                )}
+                className="w-24" />
+            )}
+            {umpPreviewLane && props.umpChannelOptions && props.onUmpChannelFilterChange && (
+              <Select size="sm" fullWidth={false} aria-label="MIDI 2.0 channel filter"
+                options={props.umpChannelOptions}
+                value={props.umpChannelFilter === null || props.umpChannelFilter === undefined
+                  ? "all" : String(props.umpChannelFilter)}
+                onChange={(value) => props.onUmpChannelFilterChange?.(
+                  value === "all" ? null : Number(value),
+                )}
+                className="w-28" />
+            )}
           </>
         )}
         {props.onEditUmpEvents && (

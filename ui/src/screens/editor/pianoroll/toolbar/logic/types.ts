@@ -58,6 +58,12 @@ export interface PianoRollToolbarProps {
   bottomLane?: PianoRollBottomLane;
   bottomLaneOptions?: readonly SelectOption[];
   onBottomLaneChange?: (lane: PianoRollBottomLane) => void;
+  umpGroupOptions?: readonly SelectOption[];
+  umpChannelOptions?: readonly SelectOption[];
+  umpGroupFilter?: number | null;
+  umpChannelFilter?: number | null;
+  onUmpGroupFilterChange?: (group: number | null) => void;
+  onUmpChannelFilterChange?: (channel: number | null) => void;
   onEditUmpEvents?: () => void;
   controllerLaneMode?: PianoRollControllerLaneMode;
   onControllerLaneModeChange?: (mode: PianoRollControllerLaneMode) => void;

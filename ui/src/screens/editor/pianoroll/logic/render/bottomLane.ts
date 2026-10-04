@@ -28,6 +28,8 @@ interface PianoRollBottomLaneOptions {
   viewport: PianoRollViewport;
   bottomLane: PianoRollBottomLane;
   controllerLaneMode: PianoRollControllerLaneMode;
+  umpGroupFilter?: number | null;
+  umpChannelFilter?: number | null;
   timeVisibleNotes: PianoRollNoteView[];
   selectedNoteIds: Set<number>;
   selectedControllerEventIndices: Set<number>;
@@ -50,6 +52,8 @@ export function drawPianoRollBottomLane({
   viewport,
   bottomLane,
   controllerLaneMode,
+  umpGroupFilter = null,
+  umpChannelFilter = null,
   timeVisibleNotes,
   selectedNoteIds,
   selectedControllerEventIndices,
@@ -122,10 +126,17 @@ export function drawPianoRollBottomLane({
   if (bottomLane === "umpPitchBend") laneLabels.umpPitchBend = "MIDI 2.0 · PITCH BEND (32-BIT)";
   else if (bottomLane.startsWith("umpCc"))
     laneLabels[bottomLane] = `MIDI 2.0 · CC ${bottomLane.slice(5)} (32-BIT)`;
-  const title = laneLabels[bottomLane]
+  const baseTitle = laneLabels[bottomLane]
     || (bottomLane.startsWith("cc")
       ? `CC ${bottomLane.slice(2)} · MIDI EVENTS`
       : bottomLane.toUpperCase());
+  const umpScope = isPianoRollUmpControllerLane(bottomLane)
+    ? [
+      umpGroupFilter === null ? null : `GROUP ${umpGroupFilter}`,
+      umpChannelFilter === null ? null : `CHANNEL ${umpChannelFilter + 1}`,
+    ].filter(Boolean).join(" · ")
+    : "";
+  const title = umpScope ? `${baseTitle} · ${umpScope}` : baseTitle;
 
   ctx.fillStyle = theme.muted;
   ctx.font = "9px sans-serif";
@@ -270,7 +281,9 @@ export function drawPianoRollBottomLane({
       && (bottomLane === "pitchBend" || bottomLane.startsWith("cc")
         || isPianoRollUmpControllerLane(bottomLane))) {
     const projection = isPianoRollUmpControllerLane(bottomLane)
-      ? buildPianoRollUmpControllerProjection(region, bottomLane, minBeat, maxBeat)
+      ? buildPianoRollUmpControllerProjection(
+        region, bottomLane, minBeat, maxBeat, umpGroupFilter, umpChannelFilter,
+      )
       : buildPianoRollControllerProjection(region, bottomLane, minBeat, maxBeat);
     if (projection.events.length > 0) {
       const baselineY = controllerYFromValue(0, gridBottom, height, isPB);

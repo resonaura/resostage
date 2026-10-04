@@ -23,6 +23,8 @@ export interface PianoRollRenderParams {
   viewport: PianoRollViewport;
   bottomLane: PianoRollBottomLane;
   controllerLaneMode: PianoRollControllerLaneMode;
+  umpGroupFilter?: number | null;
+  umpChannelFilter?: number | null;
   region: MidiRegionRow;
   localAutomationLanes: AutomationLaneRow[] | null;
   rootNote: number;
@@ -50,6 +52,8 @@ export function drawPianoRollCanvas({
   viewport,
   bottomLane,
   controllerLaneMode,
+  umpGroupFilter = null,
+  umpChannelFilter = null,
   region,
   localAutomationLanes,
   rootNote,
@@ -401,6 +405,8 @@ export function drawPianoRollCanvas({
       viewport,
       bottomLane,
       controllerLaneMode,
+      umpGroupFilter,
+      umpChannelFilter,
       timeVisibleNotes,
       selectedNoteIds,
       selectedControllerEventIndices,

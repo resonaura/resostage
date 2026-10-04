@@ -1838,3 +1838,21 @@ Focused packet/editor/draft/mutation tests passed 49/49; full UI Vitest passed
 device or manual Electron visual acceptance was done. Group/channel-specific
 canvas lanes, direct value gestures, broader codec fixtures and native UMP
 transport remain open.
+
+### Latest continuation — UMP preview group/channel filters (2026-10-04)
+
+The recognized MIDI 2.0 CC/Pitch Bend preview lanes now have independent
+Group and Channel selectors. Both default to All; available choices are
+discovered by a bounded scan of only valid packets for the selected lane.
+Changing Group clears Channel, and deleting/replacing the source data clears a
+filter whose group/channel no longer exists. Filtering is applied before the
+existing region trim/loop projection and does not edit or reconstruct packets.
+Reserved compound CCs, malformed packets and unsupported UMP remain excluded.
+
+Verification: focused controller-lane tests passed 24/24; full UI Vitest passed
+977 tests across 146 files; TypeScript, staged production build and
+`git diff --check` passed. Repository lint exited successfully with 12 existing
+warnings, none in changed files. No manual Electron visual or physical UMP
+device acceptance was performed. Direct 32-bit lane gestures, multi-event
+selection/curve tools, codec conformance fixtures and native UMP transport
+remain open.

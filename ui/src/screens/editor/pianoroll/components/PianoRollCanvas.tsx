@@ -56,6 +56,8 @@ interface PianoRollCanvasProps {
   onEventsChange?: (events: MidiClipEventRow[]) => void | Promise<void>;
   bottomLane?: PianoRollBottomLane;
   controllerLaneMode?: PianoRollControllerLaneMode;
+  umpGroupFilter?: number | null;
+  umpChannelFilter?: number | null;
   eventEditStatus?: string;
   playheadBeats?: number;
   getLivePlayheadBeats?: () => number;
@@ -99,6 +101,8 @@ export function PianoRollCanvas({
   onEventsChange,
   bottomLane = "velocity",
   controllerLaneMode = "events",
+  umpGroupFilter = null,
+  umpChannelFilter = null,
   eventEditStatus = "idle",
   playheadBeats,
   getLivePlayheadBeats,
@@ -281,6 +285,8 @@ export function PianoRollCanvas({
     viewport,
     bottomLane,
     controllerLaneMode,
+    umpGroupFilter,
+    umpChannelFilter,
     region: renderedRegion,
     localAutomationLanes,
     rootNote,

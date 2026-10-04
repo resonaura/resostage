@@ -470,3 +470,10 @@ combined gzip). The dialog code therefore is not statically pulled into the
 Piano Roll import graph. This is a bundle-splitting observation, not a measured
 startup, runtime, or audio-callback performance improvement. Full UI/build/lint
 status is recorded in the newest `handoff.md` block.
+
+The follow-up UMP preview filters derive Group/Channel choices with a bounded
+index scan, reuse the recognized-packet decoder, and apply selection before
+trim/loop projection. This avoids an unbounded option scan or temporary source
+array copy. It is not a profiler result or proof of frame-time improvement; the
+Piano Roll still performs its existing bounded decode/projection work when
+rendering.

@@ -28,6 +28,7 @@ import {
 } from "@/screens/editor/pianoroll/logic/controllerEventTransforms";
 import { pianoRollLaneOptions } from "@/screens/editor/pianoroll/toolbar/logic/options";
 import {
+  collectPianoRollUmpControllerDimensions,
   buildPianoRollUmpControllerProjection,
   collectPianoRollUmpControllerNumbers,
   hasPianoRollUmpPitchBend,
@@ -124,6 +125,32 @@ describe("Piano Roll raw MIDI controller lanes", () => {
     expect(buildPianoRollUmpControllerProjection(midiRegion, "umpPitchBend", 0, 8).events)
       .toEqual([{ beat: 2, value: 0, channel: 4, sourceEventIndex: 1 }]);
     expect(midiRegion.umpEvents).toEqual(source);
+  });
+
+  it("discovers and filters MIDI 2.0 controller preview by group and channel", () => {
+    const source = [
+      umpCc(1, 74, 0x1000_0000, 2, 3),
+      umpCc(2, 74, 0x2000_0000, 2, 4),
+      umpCc(3, 74, 0x3000_0000, 5, 9),
+      umpCc(4, 1, 0x4000_0000, 2, 3),
+      umpCc(5, 6, 0x5000_0000, 7, 12), // Reserved RPN/NRPN controller.
+      { ...umpCc(6, 74, 0x6000_0000, 8, 1), wordCount: 1 }, // Malformed packet.
+    ];
+    const dimensions = collectPianoRollUmpControllerDimensions(source, "umpCc74");
+    expect([...dimensions.groups].sort()).toEqual([2, 5]);
+    expect([...dimensions.channels].sort()).toEqual([3, 4, 9]);
+    expect([...collectPianoRollUmpControllerDimensions(source, "umpCc74", 2).channels].sort())
+      .toEqual([3, 4]);
+
+    const midiRegion = region({ durationBeats: 8, umpEvents: source });
+    expect(buildPianoRollUmpControllerProjection(midiRegion, "umpCc74", 0, 8, 2, 3).events)
+      .toEqual([{ beat: 1, value: 8, channel: 3, sourceEventIndex: 0 }]);
+    expect(buildPianoRollUmpControllerProjection(midiRegion, "umpCc74", 0, 8, 5, 3).events)
+      .toEqual([]);
+    expect(buildPianoRollUmpControllerProjection(midiRegion, "umpCc74", 0, 8, 5, 9).events)
+      .toEqual([{ beat: 3, value: 24, channel: 9, sourceEventIndex: 2 }]);
+    expect(buildPianoRollUmpControllerProjection(midiRegion, "umpCc74", 0, 8, 5, 3).events)
+      .toEqual([]);
   });
 
   it("projects selected CC values in trimmed region-local time and preserves channel", () => {

@@ -21,6 +21,7 @@ import {
   collectPianoRollControllerNumbers,
 } from "@/screens/editor/pianoroll/logic/controllerLane";
 import {
+  collectPianoRollUmpControllerDimensions,
   collectPianoRollUmpControllerNumbers,
   hasPianoRollUmpPitchBend,
   isPianoRollUmpControllerLane,
@@ -133,7 +134,31 @@ export function PianoRoll({
   });
   const [umpEditorOpen, setUmpEditorOpen] = useState(false);
   const [bottomLane, setBottomLane] = useState<PianoRollBottomLane>("velocity");
+  const [umpGroupFilter, setUmpGroupFilter] = useState<number | null>(null);
+  const [umpChannelFilter, setUmpChannelFilter] = useState<number | null>(null);
   const [controllerLaneMode, setControllerLaneMode] = useState<PianoRollControllerLaneMode>("events");
+  const umpDimensions = useMemo(
+    () => collectPianoRollUmpControllerDimensions(
+      editableUmpEvents,
+      bottomLane,
+      umpGroupFilter,
+    ),
+    [editableUmpEvents, bottomLane, umpGroupFilter],
+  );
+  const umpGroupOptions = useMemo(() => [
+    { id: "all", label: "All groups" },
+    ...[...umpDimensions.groups].sort((left, right) => left - right).map((group) => ({
+      id: String(group),
+      label: `Group ${group}`,
+    })),
+  ], [umpDimensions.groups]);
+  const umpChannelOptions = useMemo(() => [
+    { id: "all", label: "All channels" },
+    ...[...umpDimensions.channels].sort((left, right) => left - right).map((channel) => ({
+      id: String(channel),
+      label: `Channel ${channel + 1}`,
+    })),
+  ], [umpDimensions.channels]);
   const bottomLaneOptions = useMemo(() => {
     return pianoRollLaneOptions(
       collectPianoRollControllerNumbers(regionEvents),
@@ -148,6 +173,20 @@ export function PianoRoll({
   }), []);
 
   useEffect(() => setLoopLengthDraft(null), [region.id, region.loopLengthBeats, resetKey]);
+  useEffect(() => {
+    setUmpGroupFilter(null);
+    setUmpChannelFilter(null);
+  }, [region.id, resetKey]);
+
+  useEffect(() => {
+    if (umpGroupFilter !== null && !umpDimensions.groups.has(umpGroupFilter)) {
+      setUmpGroupFilter(null);
+      setUmpChannelFilter(null);
+      return;
+    }
+    if (umpChannelFilter !== null && !umpDimensions.channels.has(umpChannelFilter))
+      setUmpChannelFilter(null);
+  }, [umpDimensions, umpGroupFilter, umpChannelFilter]);
 
   useEffect(() => {
     const available = new Set(region.notes.map((note) => note.id));
@@ -483,9 +522,20 @@ export function PianoRoll({
         onSplitAtPlayhead={handleSplitAtPlayhead}
         bottomLane={bottomLane}
         bottomLaneOptions={bottomLaneOptions}
+        umpGroupOptions={isPianoRollUmpControllerLane(bottomLane) ? umpGroupOptions : undefined}
+        umpChannelOptions={isPianoRollUmpControllerLane(bottomLane) ? umpChannelOptions : undefined}
+        umpGroupFilter={umpGroupFilter}
+        umpChannelFilter={umpChannelFilter}
+        onUmpGroupFilterChange={(group) => {
+          setUmpGroupFilter(group);
+          setUmpChannelFilter(null);
+        }}
+        onUmpChannelFilterChange={setUmpChannelFilter}
         onEditUmpEvents={onUmpEventsChange ? () => setUmpEditorOpen(true) : undefined}
         onBottomLaneChange={(lane) => {
           setBottomLane(lane);
+          setUmpGroupFilter(null);
+          setUmpChannelFilter(null);
           if (isPianoRollUmpControllerLane(lane)) setControllerLaneMode("events");
         }}
         controllerLaneMode={controllerLaneMode}
@@ -573,6 +623,8 @@ export function PianoRoll({
           onNotesChange={commitNotes}
           onRegionChange={onRegionChange}
           bottomLane={bottomLane}
+          umpGroupFilter={umpGroupFilter}
+          umpChannelFilter={umpChannelFilter}
           controllerLaneMode={controllerLaneMode}
           eventEditStatus={eventEditStatus}
           onEventsChange={onEventsChange ? commitEvents : undefined}

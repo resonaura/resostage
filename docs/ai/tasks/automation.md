@@ -876,8 +876,10 @@ history fenced, retained across rejection, explicitly retryable/discardable,
 and considered confirmed only after a matching complete Core region echo. New/provisional
 regions carry UMP packets through creation and durable-ID follow-up. The preview
 lanes still show normalized legacy display values and do not imply native UMP
-device/plugin output. Remaining work: group-aware preview lanes, direct canvas
-gestures, broader codec/conformance fixtures, and native UMP I/O.
+device/plugin output. Group/Channel selectors now scope the preview to
+recognized packets only, with bounded option discovery and stale-selection
+cleanup. Direct canvas gestures, broader codec/conformance fixtures, and native
+UMP I/O remain open.
 
 Focused packet/editor/draft/mutation tests passed 49/49; full UI passed 976
 tests across 146 files; TypeScript, production build, lint and `git diff

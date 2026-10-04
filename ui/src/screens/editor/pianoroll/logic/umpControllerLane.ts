@@ -28,8 +28,15 @@ interface Midi2ControllerLaneDescriptor {
 interface SelectedUmpControllerEvent {
   beat: number;
   value: number;
+  group: number;
   channel: number;
   sourceEventIndex: number;
+}
+
+export interface PianoRollUmpControllerDimensions {
+  groups: Set<number>;
+  /** Channels present in the selected group, or all channels when groupFilter is null. */
+  channels: Set<number>;
 }
 
 const MIDI2_CC_RESERVED_FOR_COMPOUND_MESSAGES = new Set([
@@ -80,9 +87,35 @@ function decodeEvent(
   return {
     beat: event.beat,
     value,
+    group: (header >>> 24) & 0xf,
     channel: (header >>> 16) & 0xf,
     sourceEventIndex: index,
   };
+}
+
+/** Discover bounded group/channel choices for one selected MIDI 2.0 lane. */
+export function collectPianoRollUmpControllerDimensions(
+  events: MidiUmpEventRow[],
+  lane: PianoRollBottomLane,
+  groupFilter: number | null = null,
+): PianoRollUmpControllerDimensions {
+  const dimensions: PianoRollUmpControllerDimensions = {
+    groups: new Set(),
+    channels: new Set(),
+  };
+  const descriptor = describeLane(lane);
+  if (!descriptor) return dimensions;
+  const count = Math.min(events.length, MAX_PIANO_ROLL_UMP_CONTROLLER_EVENTS);
+  for (let index = 0; index < count; index += 1) {
+    const event = events[index];
+    if (!event) continue;
+    const decoded = decodeEvent(event, index, descriptor);
+    if (!decoded) continue;
+    dimensions.groups.add(decoded.group);
+    if (groupFilter === null || decoded.group === groupFilter)
+      dimensions.channels.add(decoded.channel);
+  }
+  return dimensions;
 }
 
 /** Discover only standard MIDI 2.0 CCs with a defined MIDI 1.0 fallback. */
@@ -135,6 +168,8 @@ export function buildPianoRollUmpControllerProjection(
   lane: PianoRollBottomLane,
   minBeat: number,
   maxBeat: number,
+  groupFilter: number | null = null,
+  channelFilter: number | null = null,
 ): PianoRollControllerProjection {
   const result: PianoRollControllerProjection = { events: [], truncated: false };
   const descriptor = describeLane(lane);
@@ -149,7 +184,9 @@ export function buildPianoRollUmpControllerProjection(
   const selected: SelectedUmpControllerEvent[] = [];
   for (let index = 0; index < sourceCount; index += 1) {
     const decoded = decodeEvent(source[index], index, descriptor);
-    if (decoded) selected.push(decoded);
+    if (decoded && (groupFilter === null || decoded.group === groupFilter)
+        && (channelFilter === null || decoded.channel === channelFilter))
+      selected.push(decoded);
   }
 
   const repeatLength = region.loop && region.loopLengthBeats > BEAT_EPSILON
