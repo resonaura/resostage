@@ -2283,3 +2283,16 @@ represents attack/release pairs, so exporting this normalized note adds a
 matching Note Off; it is not byte-identical preservation of the unmatched
 source event. Keep testing file-codec and native scheduling edge cases, and do
 not claim complete cross-DAW MIDI 2.0 interoperability.
+
+### Latest continuation — isolate mixed-protocol note edges (2026-10-04)
+
+MIDI Clip note pairing is scoped by UMP message type as well as Group, Channel
+and note number. Message Types 0x2 and 0x4 are distinct Channel Voice
+protocols; the official spec forbids a device from mixing them within one
+Group. A malformed/legacy file containing a cross-type release is now kept as
+an opaque UMP event rather than incorrectly closing the other protocol's note.
+Both mismatch directions have a regression fixture. Focused MIDI Clip tests
+passed 34/34; full UI passed 1,057/1,057 across 151 files; TypeScript/production
+build, changed-file lint and `git diff --check` passed. Reference: [UMP
+and MIDI 2.0 Protocol v1.1.1 §§3.2.1, 3.3.1 and 7.4]
+(https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).

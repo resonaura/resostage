@@ -1632,3 +1632,13 @@ based, export supplies a corresponding release and is not byte-identical for
 an unmatched source attack. Continue the MIDI 2.0 conformance audit with exact
 round-trip boundaries and independent fixtures; commit verified work in
 English and do not push.
+
+Latest codec hardening — mixed UMP note protocols (2026-10-04): parser note
+keys now include Message Type, so a MIDI 1.0 type-2 Note On cannot be paired
+with a MIDI 2.0 type-4 Note Off (or vice versa). Such same-Group mixing is
+forbidden by the protocol; for malformed files both attacks and releases are
+still retained without cross-pair loss. Test coverage exercises both
+directions. Focused MIDI Clip 34/34; full UI 1,057/1,057 across 151 files;
+TypeScript/production build, lint and diff check passed. Source: UMP
+and MIDI 2.0 Protocol v1.1.1 §§3.2.1, 3.3.1 and 7.4. Continue with import / export
+fidelity and external fixtures; do not claim full interoperability.

@@ -462,6 +462,28 @@ describe("MIDI Clip File framing and resource bounds", () => {
     expect(noteAtClipEnd.tracks[0].notes[0].durationBeats).toBe(0);
   });
 
+  it("does not pair note edges across MIDI 1.0 and MIDI 2.0 UMP protocols", () => {
+    const parsed = parseMidiClipFile(makeClip([
+      dcs(0), dctpq(960), dcs(0), start,
+      dcs(0), [0x2090_3c64],
+      dcs(120), [0x4080_3c00, 0xffff_0000],
+      dcs(0), [0x4091_3d00, 0x8000_0000],
+      dcs(120), [0x2081_3d20],
+      dcs(120), end,
+    ]));
+
+    expect(parsed.tracks[0].notes.map(({ pitch, startBeats, durationBeats }) => ({
+      pitch, startBeats, durationBeats,
+    }))).toEqual([
+      { pitch: 60, startBeats: 0, durationBeats: 0.375 },
+      { pitch: 61, startBeats: 0.125, durationBeats: 0.25 },
+    ]);
+    expect(parsed.tracks[0].umpEvents?.map(({ words }) => words)).toEqual([
+      [0x4080_3c00, 0xffff_0000],
+      [0x2081_3d20],
+    ]);
+  });
+
   it("pairs overlapping same-key MIDI 2.0 notes in FIFO order, not by attribute payload", () => {
     const parsed = parseMidiClipFile(framedClip([
       dcs(0), [0x4090_3c01, 0x8000_1111],

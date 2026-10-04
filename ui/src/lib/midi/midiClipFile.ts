@@ -335,7 +335,11 @@ export function parseMidiClipFile(bytes: Uint8Array): ImportedMidiFile {
           : midi1VelocityToMidi2((word0 & 0x7f) / 127);
         const attributeType = type === 4 ? word0 & 0xff : 0;
         const attributeData = type === 4 ? words[1] & 0xffff : 0;
-        const key = `${group}:${channel}:${pitch}`;
+        // UMP MIDI 1.0 and MIDI 2.0 Channel Voice packets are distinct
+        // protocols, not interchangeable note edges. Valid UMP groups do not
+        // mix these message types; if a malformed/legacy stream does, keep
+        // each unmatched edge isolated instead of cross-pairing and losing it.
+        const key = `${type}:${group}:${channel}:${pitch}`;
         // MIDI 2.0 Note On velocity zero remains a Note On. Only MIDI 1.0
         // Channel Voice UMP applies the legacy zero-velocity Note Off rule.
         const isNoteOn = status === 9 && (type === 4 || eventVelocity > 0);

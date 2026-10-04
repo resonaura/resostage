@@ -493,3 +493,16 @@ TypeScript/production build, changed-file lint and `git diff --check` passed.
 This preserves the file's timing in the editable note model, but export still
 serializes a matching Note Off because the project note schema represents
 notes as attack/release pairs. Independent DAW fixtures remain necessary.
+
+### Latest continuation — isolate mixed-protocol note edges (2026-10-04)
+
+MIDI Clip note pairing now includes the UMP message type. A MIDI 1.0 Channel
+Voice attack cannot be closed by a MIDI 2.0 Channel Voice release from the
+same Group/Channel/note, or vice versa. The protocol forbids a device from
+mixing Message Types 0x2 and 0x4 in one Group; if a file nevertheless contains
+such data, the importer now preserves each unmatched release as an opaque UMP
+event and keeps the attack open through End of Clip rather than corrupting the
+pair. A regression fixture exercises both directions. Focused MIDI Clip tests
+passed 34/34; full UI passed 1,057/1,057 across 151 files; TypeScript/production
+build, changed-file lint and `git diff --check` passed. Basis: [UMP and
+MIDI 2.0 Protocol v1.1.1 §§3.2.1, 3.3.1 and 7.4](https://amei.or.jp/midistandardcommittee/MIDI2.0/MIDI2.0-DOCS/M2-104-UM_v1-1-1_UMP_and_MIDI_2-0_Protocol_Specification.pdf).
