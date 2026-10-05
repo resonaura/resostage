@@ -88,6 +88,10 @@ describe("useAutomationTouchRecorder", () => {
     clearApiCaches();
     sessionStorage.clear();
     observeProjectCommandIdentity({ stateSessionId: "Core A", projectEpoch: 1 });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })));
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);

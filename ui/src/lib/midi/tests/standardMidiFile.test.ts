@@ -804,6 +804,76 @@ describe("Standard MIDI File", () => {
       .toEqual({ unsupportedMidi1Events: 0 });
   });
 
+  it("converts supported SMF text metadata to MIDI 2.0 Flex Text with strict UTF-8 loss reporting", () => {
+    const encoded = new TextEncoder();
+    const converted = midi1EventsToUmps([
+      { beat: 0.25, status: 0xff, data: [0x01, ...encoded.encode("Résumé")] },
+      { beat: 0.5, status: 0xff, data: [0x02, ...encoded.encode("© 2026")] },
+      { beat: 0.75, status: 0xff, data: [0x05, ...encoded.encode("la ")] },
+      { beat: 1, status: 0xff, data: [0x03, ...encoded.encode("Source track name")] },
+      { beat: 1.25, status: 0xff, data: [0x06, ...encoded.encode("Marker")] },
+      { beat: 1.5, status: 0xff, data: [0x01, 0xc3, 0x28] },
+    ]);
+
+    expect(converted.events).toEqual([
+      { beat: 0.25, words: [0xd0100100, 0x52c3a973, 0x756dc3a9, 0], sourceOrder: 0, packetOrder: 0 },
+      { beat: 0.5, words: [0xd0100104, 0xc2a92032, 0x30323600, 0], sourceOrder: 1, packetOrder: 0 },
+      { beat: 0.75, words: [0xd0100201, 0x6c612000, 0, 0], sourceOrder: 2, packetOrder: 0 },
+    ]);
+    expect(converted.unsupportedEventCount).toBe(2);
+  });
+
+  it("keeps Flex Text packet fragments adjacent and bounded to 32 UMPs", () => {
+    const text = "x".repeat(25);
+    const converted = midi1EventsToUmps([{
+      beat: 2,
+      status: 0xff,
+      data: [0x01, ...new TextEncoder().encode(text)],
+    }]);
+
+    expect(converted.events.map((event) => event.words[0])).toEqual([
+      0xd0500100, 0xd0900100, 0xd0d00100,
+    ]);
+    expect(converted.events.map((event) => event.beat)).toEqual([2, 2, 2]);
+    expect(converted.unsupportedEventCount).toBe(0);
+
+    const tooLong = midi1EventsToUmps([{
+      beat: 0,
+      status: 0xff,
+      data: [0x01, ...new TextEncoder().encode("x".repeat(385))],
+    }]);
+    expect(tooLong.events).toEqual([]);
+    expect(tooLong.unsupportedEventCount).toBe(1);
+  });
+
+  it("writes an optional MIDI Clip Name as group-addressed Flex Text metadata", () => {
+    const parsed = parseStandardMidiFile(writeMidiClipFile([{ name: "Piano", regions: [region] }], {
+      bpm: 120,
+      numerator: 4,
+      denominator: 4,
+      fromProjectStart: true,
+      expandLoops: false,
+      clipName: "Exported",
+    }));
+
+    expect(parsed.tracks[0].umpEvents?.[0]).toMatchObject({
+      beat: 0,
+      words: [0xd0100103, 0x4578706f, 0x72746564, 0],
+      wordCount: 4,
+    });
+  });
+
+  it("rejects a MIDI Clip Name that exceeds the protocol text message bound", () => {
+    expect(() => writeMidiClipFile([{ name: "Piano", regions: [region] }], {
+      bpm: 120,
+      numerator: 4,
+      denominator: 4,
+      fromProjectStart: true,
+      expandLoops: false,
+      clipName: "x".repeat(385),
+    })).toThrow(/fit in 384 bytes/);
+  });
+
   it("folds MIDI 1.0 Bank Select into the next same-channel MIDI 2.0 Program Change", () => {
     const converted = midi1EventsToUmps([
       { beat: 0, status: 0xb2, data: [0, 7] },

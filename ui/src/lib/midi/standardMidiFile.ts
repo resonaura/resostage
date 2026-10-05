@@ -756,6 +756,8 @@ export interface MidiExportOptions {
   /** false puts the first selected region at tick zero. */
   fromProjectStart: boolean;
   expandLoops: boolean;
+  /** Optional MIDI Clip metadata name for the merged UMP sequence. */
+  clipName?: string;
   tempoEvents?: Array<{ beat: number; bpm: number }>;
   meterEvents?: MidiMeterEvent[];
 }
@@ -1246,6 +1248,8 @@ export interface MidiSongExportOptions {
   fromProjectStart: boolean;
   expandLoops: boolean;
   format?: "midi1" | "midi2";
+  /** Optional MIDI Clip metadata name; ignored by Standard MIDI File export. */
+  clipName?: string;
 }
 
 export interface MidiSongTrackSelection {
@@ -1340,7 +1344,7 @@ export function writeSongsMidiFile(songs: SongRow[], options: MidiSongExportOpti
   const exportOptions: MidiExportOptions = {
     bpm: first.bpm, numerator: first.tsNum, denominator: first.tsDen,
     fromProjectStart: options.fromProjectStart, expandLoops: options.expandLoops,
-    tempoEvents, meterEvents,
+    clipName: options.clipName, tempoEvents, meterEvents,
   };
   return options.format === "midi2"
     ? writeMidiClipFile(exportTracks, exportOptions)

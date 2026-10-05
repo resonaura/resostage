@@ -58,6 +58,20 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
       ? new Set([intent.trackId]) : undefined,
     regionId: intent.kind === "region" ? intent.regionId ?? "" : undefined,
   }), [exportSongIndices, songs, projectTracks, intent.kind, intent.regionId, intent.trackId]);
+  const clipName = useMemo(() => {
+    if (intent.kind === "region" && intent.regionId) {
+      const song = songs[intent.songIndex ?? state.songIndex];
+      const region = song?.midiRegions?.find((item) => item.id === intent.regionId);
+      if (region?.name) return region.name;
+    }
+    if ((intent.kind === "track" || intent.kind === "region") && intent.trackId) {
+      const track = projectTracks.find((item) => item.id === intent.trackId);
+      if (track?.name) return track.name;
+    }
+    if (exportSongIndices.length === 1) return songs[exportSongIndices[0]]?.name || state.projectName;
+    return state.projectName;
+  }, [intent.kind, intent.regionId, intent.songIndex, intent.trackId,
+    exportSongIndices, songs, projectTracks, state.songIndex, state.projectName]);
   const lossReport = useMemo(() => analyzeMidi1ExportLoss(exportTracks), [exportTracks]);
   const hasMidi1Loss = lossReport.noteAttributes + lossReport.groups + lossReport.zeroVelocityNoteOns
     + lossReport.quantizedVelocities + lossReport.quantizedControllerValues + lossReport.nonzeroGroupUmpEvents
@@ -110,11 +124,16 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
         trackIds: (intent.kind === "track" || intent.kind === "region") && intent.trackId
           ? new Set([intent.trackId]) : undefined,
         fromProjectStart, expandLoops, format,
+        clipName,
       });
       const blob = new Blob([Uint8Array.from(bytes)], { type: "audio/midi" });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
-      const label = intent.kind === "track" ? projectTracks.find((track) => track.id === intent.trackId)?.name : undefined;
+      const label = intent.kind === "track"
+        ? projectTracks.find((track) => track.id === intent.trackId)?.name
+        : intent.kind === "region"
+          ? songs[intent.songIndex ?? state.songIndex]?.midiRegions?.find((region) => region.id === intent.regionId)?.name
+          : undefined;
       anchor.href = url;
       anchor.download = `${(label || state.projectName || "ResoStage").replace(/[\\/:*?"<>|]/g, "_")}.${format === "midi2" ? "midi2" : "mid"}`;
       anchor.click();
@@ -170,7 +189,7 @@ export function ExportMidiDialog({ open, state, intent, onClose }: {
                 </ul>
                 <label className="flex items-start gap-2 text-foreground/80">
                   <input type="checkbox" checked={midi2LossAccepted} onChange={(event) => setMidi2LossAccepted(event.target.checked)} />
-                  <span>Export the .midi2 clip without this MIDI 1.0-only metadata</span>
+                  <span>Export the .midi2 clip without these MIDI 1.0-only events</span>
                 </label>
               </div>}
               <div className={`max-h-40 space-y-1 overflow-auto rounded-lg border border-default/20 p-2 ${intent.kind === "region" ? "opacity-60" : ""}`}>

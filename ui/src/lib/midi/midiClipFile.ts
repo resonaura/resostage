@@ -26,6 +26,9 @@ const TPQ = 65_280;
 const MAX_DELTA = 0x000f_ffff;
 const MAX_OUTPUT_PACKETS = MAX_EVENTS * 4 + 16;
 const MAX_SET_TEMPO_UNITS = 0xffff_ffff;
+const FLEX_TEXT_BYTES_PER_PACKET = 12;
+const MAX_FLEX_TEXT_PACKETS = 32;
+const MAX_FLEX_TEXT_BYTES = FLEX_TEXT_BYTES_PER_PACKET * MAX_FLEX_TEXT_PACKETS;
 
 function setTempoUnitsForBpm(bpm: number): number {
   const units = Math.round(6_000_000_000 / bpm);
@@ -499,6 +502,62 @@ function upscale14To32(value: number): number {
   return (shifted | (repeated << 5) | (repeated >>> 8)) >>> 0;
 }
 
+/**
+ * Encode a MIDI 2.0 Flex Data text message using the standard UTF-8 payload
+ * layout. Each packet carries 12 data bytes; only Complete/End may be padded.
+ */
+function flexTextMessageToUmps(text: string, statusBank: 1 | 2, status: number): number[][] | null {
+  const payload = Array.from(new TextEncoder().encode(text));
+  if (payload.length > MAX_FLEX_TEXT_BYTES || payload.includes(0)) return null;
+  const packetCount = Math.max(1, Math.ceil(payload.length / FLEX_TEXT_BYTES_PER_PACKET));
+  const packets: number[][] = [];
+  for (let packetIndex = 0; packetIndex < packetCount; packetIndex++) {
+    const format = packetCount === 1 ? 0 : packetIndex === 0 ? 1 : packetIndex === packetCount - 1 ? 3 : 2;
+    const bytes = payload.slice(
+      packetIndex * FLEX_TEXT_BYTES_PER_PACKET,
+      (packetIndex + 1) * FLEX_TEXT_BYTES_PER_PACKET,
+    );
+    while (bytes.length < FLEX_TEXT_BYTES_PER_PACKET) bytes.push(0);
+    const word0 = ((0xd << 28) | (format << 22) | (1 << 20) | (statusBank << 8) | status) >>> 0;
+    const words = [word0];
+    for (let wordIndex = 0; wordIndex < 3; wordIndex++) {
+      const offset = wordIndex * 4;
+      words.push((((bytes[offset] ?? 0) << 24) | ((bytes[offset + 1] ?? 0) << 16)
+        | ((bytes[offset + 2] ?? 0) << 8) | (bytes[offset + 3] ?? 0)) >>> 0);
+    }
+    packets.push(words);
+  }
+  return packets;
+}
+
+/** Convert only SMF text meta events with an unambiguous MIDI 2.0 Flex mapping. */
+function midi1MetaEventToUmps(data: number[]): number[][] | null {
+  const metaType = data[0];
+  if (metaType === 0x03) return []; // Track names are represented by the output DAW track/clip name.
+  const mapping = metaType === 0x01 ? { bank: 1 as const, status: 0 }
+    : metaType === 0x02 ? { bank: 1 as const, status: 4 }
+      : metaType === 0x05 ? { bank: 2 as const, status: 1 }
+        : undefined;
+  if (!mapping || data.length < 1
+      || data.some((byte) => !Number.isInteger(byte) || byte < 0 || byte > 0xff)) return null;
+  let text: string;
+  try {
+    // Invalid/non-UTF-8 legacy text is kept loss-visible rather than silently
+    // replaced with U+FFFD and written as different metadata.
+    text = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(data.slice(1)));
+  } catch {
+    return null;
+  }
+  return flexTextMessageToUmps(text, mapping.bank, mapping.status);
+}
+
+/** Encode the optional MIDI Clip Name at the start of the single output stream. */
+function midiClipNameToUmps(name: string): number[][] {
+  const packets = flexTextMessageToUmps(name, 1, 3);
+  if (!packets) throw new Error(`MIDI Clip name must be valid UTF-8, contain no NUL, and fit in ${MAX_FLEX_TEXT_BYTES} bytes`);
+  return packets;
+}
+
 /** Convert one complete, representable MIDI 1.0 message to group-zero UMPs. */
 export function midi1EventToUmps(status: number, data: number[]): number[][] | null {
   if (!Number.isInteger(status) || status < 0x80 || status > 0xff) return null;
@@ -684,6 +743,16 @@ export function midi1EventsToUmps(events: ReadonlyArray<Midi1EventForClip>): Mid
 
   for (const [sourceOrder, event] of events.entries()) {
     if (converted.exceededEventLimit) break;
+    if (event.status === 0xff) {
+      const packets = midi1MetaEventToUmps(event.data);
+      if (!packets) {
+        converted.unsupportedEventCount++;
+        continue;
+      }
+      for (const [packetOrder, words] of packets.entries())
+        append(event.beat, words, sourceOrder, packetOrder);
+      continue;
+    }
     if (event.status === 0xf0) {
       if (pendingSysex) discardPendingSysex();
       const endsMessage = event.data.at(-1) === 0xf7;
@@ -950,6 +1019,10 @@ export function writeMidiClipFile(tracks: MidiExportTrack[], options: MidiExport
   const midi1EventConversion = midi1RegionsToUmps(tracks, options);
   if (midi1EventConversion.exceededEventLimit)
     throw new Error("MIDI Clip exceeds the 200,000 event export limit");
+  if (options.clipName) {
+    for (const words of midiClipNameToUmps(options.clipName))
+      appendEvent({ beat: 0, words, priority: -3, order: order++ });
+  }
   const addNote = (note: MidiNoteRow, beat: number, durationBeats: number,
                    sourceRegionOrder: number, preserveSourceOrder: boolean) => {
     for (const [index, item] of notePackets({ ...note, startBeats: beat, durationBeats }, 0).entries()) {
