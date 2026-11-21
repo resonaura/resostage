@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "ResoStage — stage playback engine + web UI",
   "type": "module",
-  "packageManager": "pnpm@10.0.0",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=20"
   },
